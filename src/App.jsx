@@ -53,7 +53,8 @@ if (!MOCK_AUTH) {
   // Dynamic Supabase client init (CDN-safe)
   const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm').catch(() => ({ createClient: null }));
   if (createClient) _supabase = createClient(SUPABASE_URL, SUPABASE_ANON, {
-    auth: { persistSession:true, storageKey:'backstage_session', autoRefreshToken:true },
+    // Use a separate key so Supabase auth tokens never overwrite the app's user profile in localStorage
+    auth: { persistSession:true, storageKey:'backstage_supabase_auth', autoRefreshToken:true },
   });
 }
 
@@ -2708,23 +2709,42 @@ function Onboarding({ onDone }) {
   // ── COMPLETE PROFILE ──
   const handleProfileDone = async () => {
     if (!data.name.trim() || !data.bias.trim()) return;
+    console.log('[Onboarding] handleProfileDone start', { name: data.name, bias: data.bias });
     setLoading(true);
     const uid  = ls.get('backstage_pending_uid') || `mock_${Date.now()}`;
     const profile = { id:uid, email, username:data.name, fandoms:data.groups, bias:data.bias, city:data.city, is_vip:false };
 
     if (!MOCK_AUTH && _supabase) {
-      await fetch(`${API_URL}/api/users/me`, {
-        method:'PATCH', headers:{ 'Content-Type':'application/json', 'Authorization':`Bearer ${(await _supabase.auth.getSession()).data.session?.access_token}` },
-        body: JSON.stringify({ username:data.name, fandoms:data.groups, bias:data.bias, city:data.city }),
-      });
+      try {
+        const session = await _supabase.auth.getSession();
+        const token = session?.data?.session?.access_token;
+        console.log('[Onboarding] patching profile, token present:', !!token);
+        const r = await fetch(`${API_URL}/api/users/me`, {
+          method:'PATCH',
+          headers:{ 'Content-Type':'application/json', 'Authorization':`Bearer ${token||''}` },
+          body: JSON.stringify({ username:data.name, fandoms:data.groups, bias:data.bias, city:data.city }),
+        });
+        console.log('[Onboarding] PATCH response status:', r.status);
+      } catch(e) {
+        // API unavailable in this deployment — profile is saved locally, continue
+        console.warn('[Onboarding] profile PATCH skipped (API unavailable):', e?.message);
+      }
     }
-    ls.set('backstage_mock_user', profile);
-    ls.set('backstage_session', { user: profile });
-    ls.del('backstage_pending_uid');
+
+    try {
+      ls.set('backstage_mock_user', profile);
+      ls.set('backstage_session', { user: profile });
+      ls.del('backstage_pending_uid');
+      console.log('[Onboarding] localStorage written, transitioning to tour');
+    } catch(e) {
+      console.warn('[Onboarding] localStorage write failed:', e?.message);
+    }
+
     setLoading(false);
     setSavedProfile(profile);
     setTourStep(0);
     setMode("tour");
+    console.log('[Onboarding] setMode("tour") called');
   };
 
   // ── LANDING ──
@@ -2780,51 +2800,6 @@ function Onboarding({ onDone }) {
     </div>
   );
 
-  // ── PROFILE SETUP (3-step) ──
-  return (
-    <div style={{ height:"100%", display:"flex", flexDirection:"column", justifyContent:"center", padding:"32px 24px", background:C.bg, overflowY:"auto" }}>
-      <div style={{ display:"flex", gap:5, justifyContent:"center", marginBottom:28 }}>
-        {[1,2,3].map(i=>(
-          <div key={i} style={{ height:3, borderRadius:99, width:i<=step?24:6, background:i<=step?C.accent:C.border, transition:"all .3s" }} />
-        ))}
-      </div>
-      {step===1 && (
-        <div style={{ animation:"up .35s ease" }}>
-          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:24, marginBottom:6 }}>What's your stan name?</p>
-          <p style={{ color:C.textMid, fontSize:13, marginBottom:22 }}>Your identity in the fanverse. Make it iconic.</p>
-          <Input value={data.name} onChange={e=>setData({...data,name:e.target.value})} placeholder="e.g. stayforever_mia" autoFocus style={{ marginBottom:20 }} />
-          <Btn onClick={()=>data.name.trim()&&setStep(2)} disabled={!data.name.trim()}>Continue →</Btn>
-        </div>
-      )}
-      {step===2 && (
-        <div style={{ animation:"up .35s ease" }}>
-          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:24, marginBottom:6 }}>Which fandoms are you in?</p>
-          <p style={{ color:C.textMid, fontSize:13, marginBottom:16 }}>Select all that apply. No judgment for multi-fans.</p>
-          <Input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search group..." style={{ marginBottom:14 }} />
-          <div style={{ display:"flex", flexWrap:"wrap", gap:8, marginBottom:16, maxHeight:220, overflowY:"auto" }}>
-            {filtered.map(g=>(
-              <span key={g} onClick={()=>toggle(g)} className="tap" style={{ padding:"7px 14px", borderRadius:99, fontSize:12, fontFamily:"'Epilogue',sans-serif", fontWeight:600, cursor:"pointer", background:data.groups.includes(g)?C.accent:C.surfaceHi, color:data.groups.includes(g)?C.bg:C.text, border:`1.5px solid ${data.groups.includes(g)?C.accent:C.border}`, transition:"all .18s" }}>{g}</span>
-            ))}
-          </div>
-          {data.groups.length>0&&<p style={{ fontSize:11, color:C.accentDim, marginBottom:12 }}>{data.groups.length} selected</p>}
-          <Btn onClick={()=>data.groups.length&&setStep(3)} disabled={!data.groups.length}>Continue →</Btn>
-          <div style={{ height:10 }} />
-          <Btn ghost color={C.textMid} onClick={()=>setStep(3)} small>Skip for now</Btn>
-        </div>
-      )}
-      {step===3 && (
-        <div style={{ animation:"up .35s ease" }}>
-          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:24, marginBottom:6 }}>Who's your bias?</p>
-          <p style={{ color:C.textMid, fontSize:13, marginBottom:22 }}>Just one. We know how hard that is.</p>
-          <Input value={data.bias} onChange={e=>setData({...data,bias:e.target.value})} placeholder="e.g. Felix, Jimin, Karina..." autoFocus style={{ marginBottom:20 }} />
-          <Btn onClick={handleProfileDone} disabled={!data.bias.trim()||loading}>
-            {loading?"Setting up...":"Enter Backstage ✦"}
-          </Btn>
-        </div>
-      )}
-    </div>
-  );
-
   // ── FEATURE TOUR (3 slides, shown once after profile setup) ──
   if(mode === "tour") {
     const TOUR = [
@@ -2873,11 +2848,18 @@ function Onboarding({ onDone }) {
             <p style={{ fontSize:10.5,color:slide.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>{slide.hint}</p>
           </div>
           <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
-            <Btn onClick={()=>{ if(isLast) onDone(savedProfile); else setTourStep(t=>t+1); }}>
+            <Btn onClick={()=>{
+              if(isLast) {
+                console.log('[Onboarding] tour done, calling onDone with profile:', savedProfile?.username);
+                onDone(savedProfile);
+              } else {
+                setTourStep(t=>t+1);
+              }
+            }}>
               {isLast ? "Enter Backstage ✦" : "Next →"}
             </Btn>
             {!isLast && (
-              <button onClick={()=>onDone(savedProfile)} style={{ background:"none",border:"none",color:C.textDim,fontSize:12,cursor:"pointer",padding:"8px" }}>
+              <button onClick={()=>{ console.log('[Onboarding] tour skipped'); onDone(savedProfile); }} style={{ background:"none",border:"none",color:C.textDim,fontSize:12,cursor:"pointer",padding:"8px" }}>
                 Skip tour
               </button>
             )}
@@ -2886,6 +2868,52 @@ function Onboarding({ onDone }) {
       </div>
     );
   }
+
+  // ── PROFILE SETUP (3-step) ──
+  return (
+    <div style={{ height:"100%", display:"flex", flexDirection:"column", justifyContent:"center", padding:"32px 24px", background:C.bg, overflowY:"auto" }}>
+      <div style={{ display:"flex", gap:5, justifyContent:"center", marginBottom:28 }}>
+        {[1,2,3].map(i=>(
+          <div key={i} style={{ height:3, borderRadius:99, width:i<=step?24:6, background:i<=step?C.accent:C.border, transition:"all .3s" }} />
+        ))}
+      </div>
+      {step===1 && (
+        <div style={{ animation:"up .35s ease" }}>
+          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:24, marginBottom:6 }}>What's your stan name?</p>
+          <p style={{ color:C.textMid, fontSize:13, marginBottom:22 }}>Your identity in the fanverse. Make it iconic.</p>
+          <Input value={data.name} onChange={e=>setData({...data,name:e.target.value})} placeholder="e.g. stayforever_mia" autoFocus style={{ marginBottom:20 }} />
+          <Btn onClick={()=>data.name.trim()&&setStep(2)} disabled={!data.name.trim()}>Continue →</Btn>
+        </div>
+      )}
+      {step===2 && (
+        <div style={{ animation:"up .35s ease" }}>
+          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:24, marginBottom:6 }}>Which fandoms are you in?</p>
+          <p style={{ color:C.textMid, fontSize:13, marginBottom:16 }}>Select all that apply. No judgment for multi-fans.</p>
+          <Input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search group..." style={{ marginBottom:14 }} />
+          <div style={{ display:"flex", flexWrap:"wrap", gap:8, marginBottom:16, maxHeight:220, overflowY:"auto" }}>
+            {filtered.map(g=>(
+              <span key={g} onClick={()=>toggle(g)} className="tap" style={{ padding:"7px 14px", borderRadius:99, fontSize:12, fontFamily:"'Epilogue',sans-serif", fontWeight:600, cursor:"pointer", background:data.groups.includes(g)?C.accent:C.surfaceHi, color:data.groups.includes(g)?C.bg:C.text, border:`1.5px solid ${data.groups.includes(g)?C.accent:C.border}`, transition:"all .18s" }}>{g}</span>
+            ))}
+          </div>
+          {data.groups.length>0&&<p style={{ fontSize:11, color:C.accentDim, marginBottom:12 }}>{data.groups.length} selected</p>}
+          <Btn onClick={()=>data.groups.length&&setStep(3)} disabled={!data.groups.length}>Continue →</Btn>
+          <div style={{ height:10 }} />
+          <Btn ghost color={C.textMid} onClick={()=>setStep(3)} small>Skip for now</Btn>
+        </div>
+      )}
+      {step===3 && (
+        <div style={{ animation:"up .35s ease" }}>
+          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:24, marginBottom:6 }}>Who's your bias?</p>
+          <p style={{ color:C.textMid, fontSize:13, marginBottom:22 }}>Just one. We know how hard that is.</p>
+          <Input value={data.bias} onChange={e=>setData({...data,bias:e.target.value})} placeholder="e.g. Felix, Jimin, Karina..." autoFocus style={{ marginBottom:20 }} />
+          <Btn onClick={handleProfileDone} disabled={!data.bias.trim()||loading}>
+            {loading?"Setting up...":"Enter Backstage ✦"}
+          </Btn>
+        </div>
+      )}
+    </div>
+  );
+
 }
 
 
@@ -11563,7 +11591,14 @@ function AppInner() {
 
         {/* ── MAIN SCREENS ── */}
         <div style={{ flex:1, overflow:"hidden", position:"relative" }}>
-          {appState==="onboarding"&&<Onboarding onDone={data=>{setUser(data);setAppState("main");ls.set("backstage_session",{user:data});}} />}
+          {appState==="onboarding"&&<Onboarding onDone={data=>{
+            console.log('[App] onDone received, user:', data?.username, 'id:', data?.id);
+            if (!data) { console.error('[App] onDone called with null — skipping'); return; }
+            setUser(data);
+            setAppState("main");
+            ls.set("backstage_session", { user: data });
+            console.log('[App] appState → main');
+          }} />}
           {appState==="main"&&!modal&&(
             <>
               {tab==="home"&&<HomeFeed user={user} go={go} weather={weatherData} isVip={isVip} onUpgrade={openUpgrade} onSmartNotifs={()=>setShowSmartNotifs(true)} />}
