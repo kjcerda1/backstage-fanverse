@@ -2767,8 +2767,8 @@ function Onboarding({ onDone }) {
         </div>
         {MOCK_AUTH && (
           <div style={{ marginTop:18, background:`${C.gold}0a`, border:`1px solid ${C.gold}28`, borderRadius:12, padding:"9px 14px" }}>
-            <p style={{ fontSize:10.5, color:C.gold, lineHeight:1.5 }}>🟡 Running in prototype mode — no account needed.<br/>Add VITE_SUPABASE_URL in .env for real auth.</p>
-            <button onClick={()=>{ const m={id:'mock_1',email:'fan@backstage.app',username:'StanLife',fandoms:['BTS','aespa'],bias:'Karina',is_vip:false}; ls.set('backstage_mock_user',m); ls.set('backstage_session',{user:m}); setSavedProfile(m); setTourStep(0); setMode("tour"); }} style={{ marginTop:8, background:C.gold, border:"none", borderRadius:8, padding:"6px 14px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>Enter as Demo Fan</button>
+            <p style={{ fontSize:10.5, color:C.gold, lineHeight:1.5 }}>✦ No account needed — jump straight in.</p>
+            <button onClick={()=>{ setEmail("demo@backstage.app"); setMode("profile"); }} style={{ marginTop:8, background:C.gold, border:"none", borderRadius:8, padding:"6px 14px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>Enter as Demo Fan →</button>
           </div>
         )}
       </div>
@@ -2800,67 +2800,124 @@ function Onboarding({ onDone }) {
     </div>
   );
 
-  // ── FEATURE TOUR (3 slides, shown once after profile setup) ──
+  // ── FEATURE TOUR (4 slides, shown once after profile setup) ──
   if(mode === "tour") {
     const TOUR = [
       {
         emoji:"🌐",
         title:"The Fanverse",
-        body:"Your live fandom community. See what fans worldwide are posting, drop a Backstage Pass, and find your people.",
+        body:"Your live fandom community. See what fans worldwide are posting, find fan buddies near your concert, and drop a Backstage Pass.",
         accent: C.accent,
+        tag:"Community",
         hint:"Fanverse tab → Feed, Hubs, Nearby",
+        sparks:["#d2","#f2","#a8"],
       },
       {
         emoji:"📸",
         title:"Concert Capsule",
-        body:"Every fan's view of the same night — one shared archive per show. Fit checks, seat views, freebies, afterglow.",
+        body:"Every fan's view of the same night — one shared archive per show. Fit checks, seat views, freebies, setlist moments.",
         accent: C.lavender,
+        tag:"Concerts",
         hint:"Concert Day Mode → Concert Capsule ✦",
+        sparks:["#b5","#c8","#9a"],
       },
       {
         emoji:"🎟️",
         title:"Backstage Passes",
-        body:"Quick disappearing moments from your fan era. Gone in 24h. Not a post — just a Pass.",
+        body:"Quick disappearing moments from your fan era. Gone in 24 hours. Not a post — just a Pass. Raw, real, right now.",
         accent: C.pink,
+        tag:"Fanverse",
         hint:"Fanverse tab → Backstage Passes",
+        sparks:["#e8","#d2","#f0"],
+      },
+      {
+        emoji:"🌙",
+        title:"Afterglow",
+        body:"The night isn't over when the show ends. Log your concert memory, rate the setlist, and save it forever in your Scrapbook.",
+        accent: C.gold,
+        tag:"Memory",
+        hint:"Home → Afterglow · Library → Scrapbook",
+        sparks:["#cc","#aa","#ee"],
       },
     ];
     const slide = TOUR[tourStep];
     const isLast = tourStep === TOUR.length - 1;
+
+    const SPARK_POSITIONS = [
+      [{top:"8%",left:"12%",size:14},{top:"14%",left:"78%",size:10},{top:"72%",left:"88%",size:12},{top:"82%",left:"8%",size:9}],
+      [{top:"6%",left:"82%",size:12},{top:"78%",left:"14%",size:10},{top:"18%",left:"8%",size:9},{top:"70%",left:"80%",size:14}],
+      [{top:"10%",left:"18%",size:11},{top:"76%",left:"76%",size:13},{top:"20%",left:"84%",size:8},{top:"80%",left:"18%",size:11}],
+      [{top:"7%",left:"72%",size:13},{top:"75%",left:"10%",size:11},{top:"15%",left:"15%",size:10},{top:"78%",left:"82%",size:9}],
+    ];
+
     return (
-      <div style={{ height:"100%",display:"flex",flexDirection:"column",justifyContent:"center",padding:"32px 24px",background:C.bg,overflowY:"auto",textAlign:"center",position:"relative",overflow:"hidden" }}>
-        {/* Background glow */}
-        <div style={{ position:"absolute",top:"15%",left:"50%",transform:"translateX(-50%)",width:300,height:300,borderRadius:"50%",background:`radial-gradient(ellipse,${slide.accent}14,transparent 70%)`,pointerEvents:"none" }} />
+      <div style={{ height:"100%",display:"flex",flexDirection:"column",justifyContent:"center",padding:"32px 24px",background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 50%,#0c0820 100%)`,overflowY:"auto",textAlign:"center",position:"relative",overflow:"hidden" }}>
+
+        {/* Ambient radial glow */}
+        <div style={{ position:"absolute",top:"18%",left:"50%",transform:"translateX(-50%)",width:340,height:340,borderRadius:"50%",background:`radial-gradient(ellipse,${slide.accent}1c,transparent 68%)`,pointerEvents:"none",transition:"background .6s" }} />
+        {/* Bottom glow */}
+        <div style={{ position:"absolute",bottom:"-10%",left:"50%",transform:"translateX(-50%)",width:280,height:180,borderRadius:"50%",background:`radial-gradient(ellipse,${slide.accent}10,transparent 70%)`,pointerEvents:"none" }} />
+
+        {/* Floating star sparks */}
+        {SPARK_POSITIONS[tourStep].map((sp,i)=>(
+          <div key={i} style={{ position:"absolute",top:sp.top,left:sp.left,fontSize:sp.size,color:slide.accent,opacity:0.45,animation:`sparkleFloat ${2.8+i*0.5}s ease-in-out infinite`,animationDelay:`${i*0.4}s`,pointerEvents:"none",transition:"color .6s" }}>✦</div>
+        ))}
+
         <div style={{ animation:"up .4s ease",position:"relative" }}>
+          {/* Step counter */}
+          <p style={{ fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,letterSpacing:"0.18em",color:slide.accent,textTransform:"uppercase",marginBottom:24,opacity:0.8 }}>
+            {tourStep+1} of {TOUR.length} — {slide.tag}
+          </p>
+
           {/* Progress dots */}
           <div style={{ display:"flex",gap:7,justifyContent:"center",marginBottom:32 }}>
             {TOUR.map((_,i)=>(
-              <div key={i} style={{ width:i===tourStep?24:7,height:7,borderRadius:99,background:i<=tourStep?slide.accent:C.border,transition:"all .3s" }} />
+              <div key={i} style={{ height:5,borderRadius:99,width:i===tourStep?28:5,background:i<=tourStep?slide.accent:`${C.border}88`,transition:"all .35s",boxShadow:i===tourStep?`0 0 8px ${slide.accent}66`:"none" }} />
             ))}
           </div>
-          {/* Icon */}
-          <div style={{ width:88,height:88,borderRadius:26,background:`${slide.accent}18`,border:`1.5px solid ${slide.accent}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:40,margin:"0 auto 24px",boxShadow:`0 0 40px ${slide.accent}22` }}>
-            {slide.emoji}
+
+          {/* Icon with glow ring */}
+          <div style={{ position:"relative",display:"inline-block",marginBottom:26 }}>
+            <div style={{ position:"absolute",inset:-14,borderRadius:"50%",background:`radial-gradient(circle,${slide.accent}20,transparent 70%)`,pointerEvents:"none" }} />
+            <div style={{ width:92,height:92,borderRadius:28,background:`linear-gradient(145deg,${slide.accent}22,${slide.accent}0c)`,border:`1.5px solid ${slide.accent}50`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:42,boxShadow:`0 0 48px ${slide.accent}30,0 0 0 1px ${slide.accent}18`,transition:"all .5s",position:"relative" }}>
+              {slide.emoji}
+            </div>
           </div>
-          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:26,letterSpacing:"-0.025em",marginBottom:12,lineHeight:1.2 }}>{slide.title}</p>
-          <p style={{ color:C.textMid,fontSize:14,lineHeight:1.75,maxWidth:280,margin:"0 auto 16px" }}>{slide.body}</p>
-          <div style={{ background:`${slide.accent}10`,border:`1px solid ${slide.accent}22`,borderRadius:10,padding:"7px 16px",display:"inline-block",marginBottom:36 }}>
-            <p style={{ fontSize:10.5,color:slide.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>{slide.hint}</p>
+
+          {/* Title */}
+          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:28,letterSpacing:"-0.03em",marginBottom:13,lineHeight:1.15,background:`linear-gradient(135deg,${C.text} 40%,${slide.accent} 100%)`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",transition:"background .5s" }}>
+            {slide.title}
+          </p>
+
+          {/* Body */}
+          <p style={{ color:C.textMid,fontSize:14,lineHeight:1.8,maxWidth:290,margin:"0 auto 20px",letterSpacing:"0.01em" }}>
+            {slide.body}
+          </p>
+
+          {/* Where to find it */}
+          <div style={{ background:`${slide.accent}0e`,border:`1px solid ${slide.accent}30`,borderRadius:12,padding:"8px 18px",display:"inline-block",marginBottom:38 }}>
+            <p style={{ fontSize:10.5,color:slide.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,letterSpacing:"0.02em" }}>📍 {slide.hint}</p>
           </div>
+
+          {/* Buttons */}
           <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
-            <Btn onClick={()=>{
-              if(isLast) {
-                console.log('[Onboarding] tour done, calling onDone with profile:', savedProfile?.username);
-                onDone(savedProfile);
-              } else {
-                setTourStep(t=>t+1);
-              }
-            }}>
+            <button
+              onClick={()=>{
+                if(isLast){
+                  console.log('[Onboarding] tour done, calling onDone:', savedProfile?.username);
+                  onDone(savedProfile);
+                } else {
+                  setTourStep(t=>t+1);
+                }
+              }}
+              className="tap"
+              style={{ width:"100%",padding:"15px",borderRadius:16,background:isLast?`linear-gradient(140deg,${C.gold},#d4a820,${C.accent})`:`linear-gradient(140deg,${slide.accent}dd,${slide.accent}88)`,backgroundSize:"200%",border:"none",color:isLast?"#0a0a14":C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:15,cursor:"pointer",letterSpacing:"0.01em",boxShadow:`0 6px 28px ${slide.accent}30`,transition:"box-shadow .3s",animation:isLast?"vipShimmer 3s linear infinite":"none" }}
+            >
               {isLast ? "Enter Backstage ✦" : "Next →"}
-            </Btn>
+            </button>
             {!isLast && (
-              <button onClick={()=>{ console.log('[Onboarding] tour skipped'); onDone(savedProfile); }} style={{ background:"none",border:"none",color:C.textDim,fontSize:12,cursor:"pointer",padding:"8px" }}>
-                Skip tour
+              <button onClick={()=>{ console.log('[Onboarding] tour skipped'); onDone(savedProfile); }} style={{ background:"none",border:"none",color:C.textDim,fontSize:12,cursor:"pointer",padding:"8px",fontFamily:"'Instrument Sans',sans-serif" }}>
+                Skip intro
               </button>
             )}
           </div>
