@@ -2551,7 +2551,6 @@ function HomeFeed({ user, go, weather, isVip, onUpgrade, onSmartNotifs }) {
       <div style={{ padding:"16px 20px 12px",flexShrink:0,background:`linear-gradient(180deg,${C.cosmic} 60%,transparent)`,position:"relative",zIndex:10 }}>
         <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
           <div>
-            <p style={{ fontSize:9,color:C.textMid,marginBottom:2,letterSpacing:"0.08em",textTransform:"uppercase" }}>{hour<12?"morning":hour<17?"afternoon":"evening"} ✦</p>
             <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontStyle:"italic",fontWeight:700,fontSize:20,letterSpacing:"-0.02em",lineHeight:1.1,background:`linear-gradient(135deg,${C.lavender},${C.blush})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent" }}>
               {greeting.toLowerCase()}, {name.toLowerCase()} ✦
             </h2>
@@ -2804,7 +2803,8 @@ function Onboarding({ onDone }) {
   if(mode === "tour") {
     const TOUR = [
       {
-        emoji:"🌐",
+        emoji:null,
+        logo:true,
         title:"The Fanverse",
         body:"Your live fandom community. See what fans worldwide are posting, find fan buddies near your concert, and drop a Backstage Pass.",
         accent: C.accent,
@@ -2879,8 +2879,10 @@ function Onboarding({ onDone }) {
           {/* Icon with glow ring */}
           <div style={{ position:"relative",display:"inline-block",marginBottom:26 }}>
             <div style={{ position:"absolute",inset:-14,borderRadius:"50%",background:`radial-gradient(circle,${slide.accent}20,transparent 70%)`,pointerEvents:"none" }} />
-            <div style={{ width:92,height:92,borderRadius:28,background:`linear-gradient(145deg,${slide.accent}22,${slide.accent}0c)`,border:`1.5px solid ${slide.accent}50`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:42,boxShadow:`0 0 48px ${slide.accent}30,0 0 0 1px ${slide.accent}18`,transition:"all .5s",position:"relative" }}>
-              {slide.emoji}
+            <div style={{ width:92,height:92,borderRadius:28,background:`linear-gradient(145deg,${slide.accent}22,${slide.accent}0c)`,border:`1.5px solid ${slide.accent}50`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:42,boxShadow:`0 0 48px ${slide.accent}30,0 0 0 1px ${slide.accent}18`,transition:"all .5s",position:"relative",overflow:"hidden" }}>
+              {slide.logo
+                ? <img src="/fanverse-logo.png" alt="Backstage" style={{ width:62,height:62,objectFit:"contain" }} />
+                : slide.emoji}
             </div>
           </div>
 
