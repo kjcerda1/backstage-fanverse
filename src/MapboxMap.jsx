@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import mapboxgl from "mapbox-gl";
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
@@ -10,35 +11,35 @@ export const CITY_DENSITY_GEOJSON = {
   type: "FeatureCollection",
   features: [
     { type:"Feature", geometry:{ type:"Point", coordinates:[-118.2437, 34.0522] },
-      properties:{ city:"Los Angeles", fans:3800, intensity:0.32, level:"Spiking",        event:"aespa Drama Tour",     trending:true,  color:"#f0a8cc" }},
+      properties:{ city:"Los Angeles", fans:3800, intensity:0.32, level:"Spiking",        event:"aespa Drama Tour",     trending:true,  color:"#ffc8ec" }},
     { type:"Feature", geometry:{ type:"Point", coordinates:[-96.7970,  32.7767] },
-      properties:{ city:"Dallas",      fans:1200, intensity:0.10, level:"Very Active",    event:"BTS · Apr 30",          trending:false, color:"#b8a2ff" }},
+      properties:{ city:"Dallas",      fans:1200, intensity:0.10, level:"Very Active",    event:"BTS · Apr 30",          trending:false, color:"#c4b5fd" }},
     { type:"Feature", geometry:{ type:"Point", coordinates:[-87.6298,  41.8781] },
-      properties:{ city:"Chicago",     fans:950,  intensity:0.08, level:"Rising",         event:"Stray Kids · May 14",   trending:true,  color:"#b8a2ff" }},
+      properties:{ city:"Chicago",     fans:950,  intensity:0.08, level:"Rising",         event:"Stray Kids · May 14",   trending:true,  color:"#c4b5fd" }},
     { type:"Feature", geometry:{ type:"Point", coordinates:[-74.0059,  40.7128] },
-      properties:{ city:"New York",    fans:4200, intensity:0.35, level:"Very Active",    event:"NewJeans · MSG Jun 18", trending:true,  color:"#b8a2ff" }},
+      properties:{ city:"New York",    fans:4200, intensity:0.35, level:"Very Active",    event:"NewJeans · MSG Jun 18", trending:true,  color:"#a5d8ff" }},
     { type:"Feature", geometry:{ type:"Point", coordinates:[ -0.1278,  51.5074] },
-      properties:{ city:"London",      fans:3100, intensity:0.26, level:"Active",         event:"Stray Kids EU leg",     trending:false, color:"#b8a2ff" }},
+      properties:{ city:"London",      fans:3100, intensity:0.26, level:"Active",         event:"Stray Kids EU leg",     trending:false, color:"#c4b5fd" }},
     { type:"Feature", geometry:{ type:"Point", coordinates:[  2.3522,  48.8566] },
-      properties:{ city:"Paris",       fans:2000, intensity:0.17, level:"Active",         event:"General activity",      trending:false, color:"#64c88c" }},
+      properties:{ city:"Paris",       fans:2000, intensity:0.17, level:"Active",         event:"General activity",      trending:false, color:"#80ffdf" }},
     { type:"Feature", geometry:{ type:"Point", coordinates:[ 13.4050,  52.5200] },
-      properties:{ city:"Berlin",      fans:1400, intensity:0.12, level:"Active",         event:"General activity",      trending:false, color:"#aaaaaa" }},
+      properties:{ city:"Berlin",      fans:1400, intensity:0.12, level:"Active",         event:"General activity",      trending:false, color:"#b8b8d8" }},
     { type:"Feature", geometry:{ type:"Point", coordinates:[126.9780,  37.5665] },
-      properties:{ city:"Seoul",       fans:12000,intensity:1.00, level:"Extremely Active",event:"BTS comeback wave",    trending:true,  color:"#f0a8cc" }},
+      properties:{ city:"Seoul",       fans:12000,intensity:1.00, level:"Extremely Active",event:"BTS comeback wave",    trending:true,  color:"#ffe0f5" }},
     { type:"Feature", geometry:{ type:"Point", coordinates:[139.6917,  35.6895] },
-      properties:{ city:"Tokyo",       fans:8500, intensity:0.71, level:"Very Active",    event:"aespa Drama Tour",      trending:true,  color:"#f0a8cc" }},
+      properties:{ city:"Tokyo",       fans:8500, intensity:0.71, level:"Very Active",    event:"aespa Drama Tour",      trending:true,  color:"#ffd4ee" }},
     { type:"Feature", geometry:{ type:"Point", coordinates:[121.4737,  31.2304] },
       properties:{ city:"Shanghai",    fans:2900, intensity:0.24, level:"Active",         event:"General activity",      trending:false, color:"#f0a8cc" }},
     { type:"Feature", geometry:{ type:"Point", coordinates:[120.9842,  14.5995] },
-      properties:{ city:"Manila",      fans:2200, intensity:0.18, level:"Active",         event:"General activity",      trending:false, color:"#64c88c" }},
+      properties:{ city:"Manila",      fans:2200, intensity:0.18, level:"Active",         event:"General activity",      trending:false, color:"#80ffdf" }},
     { type:"Feature", geometry:{ type:"Point", coordinates:[100.5018,  13.7563] },
-      properties:{ city:"Bangkok",     fans:1800, intensity:0.15, level:"Active",         event:"General activity",      trending:false, color:"#f07070" }},
+      properties:{ city:"Bangkok",     fans:1800, intensity:0.15, level:"Active",         event:"General activity",      trending:false, color:"#ff9fa8" }},
     { type:"Feature", geometry:{ type:"Point", coordinates:[ 36.8219,  -1.2921] },
-      properties:{ city:"Nairobi",     fans:800,  intensity:0.07, level:"Growing",        event:"General activity",      trending:false, color:"#f0cc88" }},
+      properties:{ city:"Nairobi",     fans:800,  intensity:0.07, level:"Growing",        event:"General activity",      trending:false, color:"#f8d080" }},
     { type:"Feature", geometry:{ type:"Point", coordinates:[-46.6333, -23.5505] },
-      properties:{ city:"São Paulo",   fans:1100, intensity:0.09, level:"Active",         event:"General activity",      trending:false, color:"#b8a2ff" }},
+      properties:{ city:"São Paulo",   fans:1100, intensity:0.09, level:"Active",         event:"General activity",      trending:false, color:"#c4b5fd" }},
     { type:"Feature", geometry:{ type:"Point", coordinates:[151.2093, -33.8688] },
-      properties:{ city:"Sydney",      fans:900,  intensity:0.08, level:"Steady",         event:"General activity",      trending:false, color:"#64c88c" }},
+      properties:{ city:"Sydney",      fans:900,  intensity:0.08, level:"Steady",         event:"General activity",      trending:false, color:"#80ffdf" }},
   ],
 };
 
@@ -52,7 +53,7 @@ function injectMapboxCSS() {
   const link = document.createElement("link");
   link.id   = "mapbox-gl-css";
   link.rel  = "stylesheet";
-  link.href = "https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css";
+  link.href = "https://api.mapbox.com/mapbox-gl-js/v3.23.1/mapbox-gl.css";
   document.head.appendChild(link);
 }
 
@@ -60,29 +61,42 @@ function injectMapboxCSS() {
 function applyCosmicStyle(map) {
   const layers = map.getStyle().layers;
 
-  // Remap land / water / background
   const paintOverrides = [
-    ["background",             "background-color",  "#06060f"],
-    ["water",                  "fill-color",        "#07051a"],
-    ["land",                   "background-color",  "#0d0828"],
-    ["landuse",                "fill-color",        "#0a0720"],
-    ["landuse-shadow",         "fill-color",        "#0a0720"],
-    ["national-park",          "fill-color",        "#0c0a24"],
-    ["admin-state-province",   "line-color",        "#1a0f3a"],
-    ["admin-state-province",   "line-opacity",      0.5],
-    ["country-label",          "text-color",        "#2a1f5a"],
-    ["state-label",            "text-color",        "#1a1040"],
-    ["settlement-major-label", "text-color",        "#3a2a6a"],
-    ["settlement-major-label", "text-halo-color",   "#06060f"],
-    ["settlement-minor-label", "text-color",        "#221840"],
-    ["settlement-minor-label", "text-halo-color",   "#06060f"],
+    ["background",             "background-color",  "#080620"],
+    ["water",                  "fill-color",        "#0e0c38"],
+    ["land",                   "background-color",  "#18144a"],
+    ["landuse",                "fill-color",        "#161240"],
+    ["landuse-shadow",         "fill-color",        "#141040"],
+    ["national-park",          "fill-color",        "#1a1650"],
+    ["admin-state-province",   "line-color",        "#4a3a9a"],
+    ["admin-state-province",   "line-opacity",      0.7],
+    ["country-label",          "text-color",        "#c4b5fd"],
+    ["state-label",            "text-color",        "#9080cc"],
+    ["settlement-major-label", "text-color",        "#e8e0ff"],
+    ["settlement-major-label", "text-halo-color",   "#0a0820"],
+    ["settlement-major-label", "text-halo-width",   1.2],
+    ["settlement-minor-label", "text-color",        "#a090d8"],
+    ["settlement-minor-label", "text-halo-color",   "#0a0820"],
+    ["water-shadow",           "fill-color",        "#070520"],
+    ["waterway",               "line-color",        "#1a1650"],
+    ["ocean-label",            "text-color",        "#6050a8"],
+    ["ocean-label",            "text-halo-color",   "#080620"],
   ];
 
   paintOverrides.forEach(([id, prop, value]) => {
     try { map.setPaintProperty(id, prop, value); } catch (_) {}
   });
 
-  // Hide all road, path, transit, and building layers — keep it cosmic/clean
+  // Also try to brighten admin country borders for the illuminated-outline look
+  layers
+    .filter(l => l.id.includes("admin-country") || l.id.includes("admin-1"))
+    .forEach(l => {
+      try {
+        map.setPaintProperty(l.id, "line-color", "#6050c0");
+        map.setPaintProperty(l.id, "line-opacity", 0.6);
+      } catch (_) {}
+    });
+
   const noisePatterns = ["road","street","path","tunnel","bridge","aeroway","transit","building","parking","pitch","gate"];
   layers
     .filter(l => noisePatterns.some(p => l.id.includes(p)))
@@ -117,43 +131,56 @@ function buildLayers(showHeatmap) {
       },
     },
 
-    // Outer atmospheric glow (large, very transparent, blurred)
+    // Outermost atmospheric halo — huge, barely visible
     {
       id: "fan-glow-outer",
       type: "circle",
       source: "fan-density",
       paint: {
-        "circle-radius":  ["interpolate",["linear"],["get","fans"], 800,32, 12000,100],
+        "circle-radius":  ["interpolate",["linear"],["get","fans"], 800,55, 12000,190],
         "circle-color":   ["get","color"],
-        "circle-opacity": 0.05,
-        "circle-blur":    1.4,
+        "circle-opacity": 0.06,
+        "circle-blur":    2.0,
       },
     },
 
-    // Mid glow
+    // Mid atmospheric glow
     {
       id: "fan-glow-mid",
       type: "circle",
       source: "fan-density",
       paint: {
-        "circle-radius":  ["interpolate",["linear"],["get","fans"], 800,15, 12000,52],
+        "circle-radius":  ["interpolate",["linear"],["get","fans"], 800,26, 12000,90],
         "circle-color":   ["get","color"],
-        "circle-opacity": 0.14,
-        "circle-blur":    0.7,
+        "circle-opacity": 0.18,
+        "circle-blur":    1.1,
       },
     },
 
-    // Solid core dot
+    // Inner soft glow halo
+    {
+      id: "fan-glow-inner",
+      type: "circle",
+      source: "fan-density",
+      paint: {
+        "circle-radius":  ["interpolate",["linear"],["get","fans"], 800,14, 12000,48],
+        "circle-color":   ["get","color"],
+        "circle-opacity": 0.30,
+        "circle-blur":    0.6,
+      },
+    },
+
+    // Solid bright core dot
     {
       id: "fan-core",
       type: "circle",
       source: "fan-density",
       paint: {
-        "circle-radius":        ["interpolate",["linear"],["get","fans"], 800,5, 12000,20],
+        "circle-radius":        ["interpolate",["linear"],["get","fans"], 800,6, 12000,22],
         "circle-color":         ["get","color"],
-        "circle-opacity":       0.9,
-        "circle-stroke-width":  1.5,
-        "circle-stroke-color":  "rgba(255,255,255,0.25)",
+        "circle-opacity":       1.0,
+        "circle-stroke-width":  2,
+        "circle-stroke-color":  "rgba(255,255,255,0.55)",
       },
     },
 
@@ -164,10 +191,10 @@ function buildLayers(showHeatmap) {
       source: "fan-density",
       filter: ["==",["get","trending"], true],
       paint: {
-        "circle-radius":  ["interpolate",["linear"],["get","fans"], 800,22, 12000,75],
+        "circle-radius":  ["interpolate",["linear"],["get","fans"], 800,30, 12000,100],
         "circle-color":   ["get","color"],
-        "circle-opacity": 0.25,
-        "circle-blur":    0.9,
+        "circle-opacity": 0.28,
+        "circle-blur":    1.0,
       },
     },
 
@@ -194,7 +221,7 @@ function buildLayers(showHeatmap) {
       },
       paint: {
         "text-color":       ["get","color"],
-        "text-halo-color":  "#06060f",
+        "text-halo-color":  "#0a0820",
         "text-halo-width":  1.5,
         "text-opacity":     0.9,
       },
@@ -248,84 +275,68 @@ export default function MapboxMap({
     injectMapboxCSS();
     let map;
 
-    import("mapbox-gl")
-      .then(({ default: mapboxgl }) => {
-        if (!containerRef.current) return; // unmounted during async load
+    mapboxgl.accessToken = MAPBOX_TOKEN;
 
-        mapboxgl.accessToken = MAPBOX_TOKEN;
+    map = new mapboxgl.Map({
+      container:          containerRef.current,
+      style:              "mapbox://styles/mapbox/dark-v11",
+      center:             [10, 42],
+      zoom:               1.7,
+      minZoom:            1,
+      maxZoom:            8,
+      attributionControl: false,
+      logoPosition:       "bottom-right",
+      fadeDuration:       300,
+      dragRotate:         false,
+      touchZoomRotate:    false,
+    });
 
-        map = new mapboxgl.Map({
-          container:          containerRef.current,
-          style:              "mapbox://styles/mapbox/dark-v11",
-          center:             [20, 18],
-          zoom:               1.5,
-          minZoom:            1,
-          maxZoom:            8,
-          attributionControl: false,
-          logoPosition:       "bottom-right",
-          fadeDuration:       300,
-          // Disable map rotation — keeps it simple on mobile
-          dragRotate:         false,
-          touchZoomRotate:    false,
-        });
+    mapRef.current = map;
 
-        mapRef.current = map;
+    map.addControl(
+      new mapboxgl.AttributionControl({ compact: true }),
+      "bottom-right"
+    );
 
-        map.addControl(
-          new mapboxgl.AttributionControl({ compact: true }),
-          "bottom-right"
-        );
+    map.on("load", () => {
+      applyCosmicStyle(map);
 
-        map.on("load", () => {
-          applyCosmicStyle(map);
+      map.addSource("fan-density",      { type:"geojson", data: densityData });
+      map.addSource("concert-checkins", { type:"geojson", data: CONCERT_CHECKINS_GEOJSON });
+      map.addSource("nearby-fans",      { type:"geojson", data: NEARBY_FANS_GEOJSON });
 
-          // ── Sources ───────────────────────────────────────────────
-          map.addSource("fan-density",      { type:"geojson", data: densityData });
-          map.addSource("concert-checkins", { type:"geojson", data: CONCERT_CHECKINS_GEOJSON });
-          map.addSource("nearby-fans",      { type:"geojson", data: NEARBY_FANS_GEOJSON });
+      buildLayers(showHeatmap).forEach(layer => map.addLayer(layer));
 
-          // ── Layers ───────────────────────────────────────────────
-          buildLayers(showHeatmap).forEach(layer => map.addLayer(layer));
+      readyRef.current = true;
 
-          readyRef.current = true;
+      const animate = () => {
+        if (!mapRef.current) return;
+        phaseRef.current = (phaseRef.current + 0.025) % (Math.PI * 2);
+        const sin        = Math.sin(phaseRef.current);
+        const opacity    = 0.08 + sin * 0.14;
+        const radiusMult = 1  + sin * 0.18;
 
-          // ── Pulse animation (RAF) ─────────────────────────────────
-          // Only drives ONE paint property on ONE layer — negligible GPU cost.
-          const animate = () => {
-            if (!mapRef.current) return;
-            phaseRef.current = (phaseRef.current + 0.025) % (Math.PI * 2);
-            const sin        = Math.sin(phaseRef.current);
-            const opacity    = 0.08 + sin * 0.14;          // 0.08 → 0.22
-            const radiusMult = 1  + sin * 0.18;             // ±18 % size breath
+        try {
+          map.setPaintProperty("fan-pulse", "circle-opacity", Math.max(0, opacity));
+          map.setPaintProperty("fan-pulse", "circle-radius", [
+            "interpolate",["linear"],["get","fans"],
+            800,  22 * radiusMult,
+            12000,75 * radiusMult,
+          ]);
+        } catch (_) {
+          return;
+        }
+        rafRef.current = requestAnimationFrame(animate);
+      };
+      rafRef.current = requestAnimationFrame(animate);
 
-            try {
-              map.setPaintProperty("fan-pulse", "circle-opacity", Math.max(0, opacity));
-              map.setPaintProperty("fan-pulse", "circle-radius", [
-                "interpolate",["linear"],["get","fans"],
-                800,  22 * radiusMult,
-                12000,75 * radiusMult,
-              ]);
-            } catch (_) {
-              return; // map removed — stop loop
-            }
-            rafRef.current = requestAnimationFrame(animate);
-          };
-          rafRef.current = requestAnimationFrame(animate);
-
-          // ── Click handler ─────────────────────────────────────────
-          map.on("click", "fan-core", e => {
-            if (!e.features?.length || !onCityClick) return;
-            onCityClick(e.features[0].properties);
-          });
-          map.on("mouseenter", "fan-core", () => {
-            map.getCanvas().style.cursor = "pointer";
-          });
-          map.on("mouseleave", "fan-core", () => {
-            map.getCanvas().style.cursor = "";
-          });
-        });
-      })
-      .catch(err => console.warn("[MapboxMap] mapbox-gl failed to load:", err));
+      map.on("click", "fan-core", e => {
+        if (!e.features?.length || !onCityClick) return;
+        onCityClick(e.features[0].properties);
+      });
+      map.on("mouseenter", "fan-core", () => { map.getCanvas().style.cursor = "pointer"; });
+      map.on("mouseleave", "fan-core", () => { map.getCanvas().style.cursor = ""; });
+    });
 
     return () => {
       cancelAnimationFrame(rafRef.current);
@@ -362,7 +373,7 @@ export default function MapboxMap({
     return (
       <div style={{
         width:"100%", height:"100%",
-        background:"linear-gradient(160deg,#0c0520,#16083a,#0c0520)",
+        background:"linear-gradient(160deg,#0d0b28,#1a1345,#2b1e52)",
         display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
         gap:8,
       }}>

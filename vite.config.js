@@ -25,9 +25,7 @@ export default defineConfig({
     host: true,
   },
 
-  // mapbox-gl v3 bundles its own worker. Excluding it from Vite's pre-bundler
-  // prevents the worker URL from being incorrectly resolved at build time.
   optimizeDeps: {
-    exclude: ['mapbox-gl'],
+    include: ['mapbox-gl'],
   },
 });
