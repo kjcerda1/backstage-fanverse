@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback, lazy, Suspense, createContext, useContext } from "react";
 import ReactDOM from "react-dom/client";
+import MapboxMap, { CITY_DENSITY_GEOJSON } from "./MapboxMap.jsx";
 
 // ─── PRODUCTION IMPORTS ───────────────────────────────────────────────────────
 // Supabase client — see lib/supabase.js
@@ -5162,343 +5163,6 @@ function CommunityTab({ go, user }) {
   );
 }
 
-// ─── FANVERSE MAP — LEGACY (kept for ExploreTab reference) ──────────────────
-// Level 1: Global heatmap | Level 2: Region → activity + trending fandoms | Level 3: City → hubs + meetups + events
-function FanverseMapLegacy() {
-  const [mapLevel, setMapLevel] = useState("global"); // global | region | city
-  const [mapFilter, setMapFilter] = useState("live");
-  const [selectedRegion, setSelectedRegion] = useState(null);
-  const [selectedCity, setSelectedCity] = useState(null);
-
-  const SPOTS = [
-    { id:1, x:22, y:42, city:"Los Angeles", region:"West Coast", count:2310, trending:true, color:C.mint, concerts:1, hubs:["ARMY LA","STAY LA","MYs LA"], meetups:3, trendingFandom:"aespa" },
-    { id:2, x:28, y:39, city:"Dallas", region:"South", count:1240, trending:true, color:C.pink, concerts:1, hubs:["ARMY Dallas","STAY Dallas"], meetups:5, trendingFandom:"BTS" },
-    { id:3, x:37, y:34, city:"Chicago", region:"Midwest", count:890, trending:false, color:C.accent, concerts:1, hubs:["ARMY Chicago","BLINK Chicago"], meetups:2, trendingFandom:"Stray Kids" },
-    { id:4, x:43, y:32, city:"New York", region:"East Coast", count:3100, trending:true, color:C.silver, concerts:2, hubs:["ARMY NY","BLINK NY","MOA NY"], meetups:8, trendingFandom:"BLACKPINK" },
-    { id:5, x:62, y:28, city:"London", region:"Europe", count:4200, trending:true, color:C.gold, concerts:0, hubs:["ARMY UK","BLINK UK"], meetups:4, trendingFandom:"NewJeans" },
-    { id:6, x:80, y:40, city:"Seoul", region:"Asia Pacific", count:12400, trending:true, color:C.mint, concerts:2, hubs:["ARMY Seoul","All Groups"], meetups:20, trendingFandom:"Multiple" },
-    { id:7, x:78, y:38, city:"Tokyo", region:"Asia Pacific", count:8900, trending:true, color:C.accent, concerts:1, hubs:["ARMY JP","STAY JP"], meetups:11, trendingFandom:"BTS" },
-    { id:8, x:50, y:30, city:"Paris", region:"Europe", count:2600, trending:false, color:C.gold, concerts:0, hubs:["ARMY FR"], meetups:2, trendingFandom:"BLACKPINK" },
-    { id:9, x:70, y:55, city:"São Paulo", region:"South America", count:2100, trending:false, color:C.pink, concerts:0, hubs:["ARMY BR","BLINK BR"], meetups:3, trendingFandom:"BTS" },
-  ];
-
-  const REGIONS = [
-    { id:"west", label:"West Coast", x:18, y:42, count:5400, color:C.mint, topFandom:"aespa", activity:"high" },
-    { id:"south", label:"South", x:28, y:44, count:2800, color:C.pink, topFandom:"BTS", activity:"spike" },
-    { id:"midwest", label:"Midwest", x:36, y:36, count:1900, color:C.accent, topFandom:"Stray Kids", activity:"medium" },
-    { id:"east", label:"East Coast", x:44, y:33, count:6200, color:C.silver, topFandom:"BLACKPINK", activity:"high" },
-    { id:"europe", label:"Europe", x:56, y:30, count:9100, color:C.gold, topFandom:"NewJeans", activity:"high" },
-    { id:"asia", label:"Asia Pacific", x:79, y:40, count:31400, color:C.mint, topFandom:"BTS", activity:"spike" },
-    { id:"latam", label:"Latin America", x:68, y:55, count:4200, color:C.rose, topFandom:"BTS", activity:"medium" },
-  ];
-
-  const maxC = Math.max(...SPOTS.map(s=>s.count));
-  const maxR = Math.max(...REGIONS.map(r=>r.count));
-
-  const ACTIVITY_COLORS = { spike:C.rose, high:C.mint, medium:C.accent, quiet:C.silver };
-  const ACTIVITY_LABELS = { spike:"🔥 Spike", high:"⚡ High", medium:"💜 Active", quiet:"😴 Quiet" };
-
-  // CITY VIEW
-  if(mapLevel==="city" && selectedCity) {
-    const city = SPOTS.find(s=>s.id===selectedCity);
-    return (
-      <div>
-        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
-          <button onClick={()=>{setMapLevel("region");setSelectedCity(null);}} style={{ background:"none",border:"none",color:C.accent,fontSize:13,cursor:"pointer",fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>← Back</button>
-          <div style={{ flex:1 }}>
-            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:16 }}>📍 {city.city}</p>
-            <p style={{ fontSize:10.5, color:C.textMid }}>{city.count.toLocaleString()} fans active</p>
-          </div>
-          <div style={{ width:8,height:8,borderRadius:"50%",background:city.trending?C.mint:C.textDim,animation:city.trending?"pulse 1.5s infinite":"none" }} />
-        </div>
-
-        {/* City stats */}
-        <div style={{ display:"flex", gap:8, marginBottom:16 }}>
-          {[[city.hubs.length,"Hubs",C.accent],[city.meetups,"Meetups",C.mint],[city.concerts,"Concerts",C.pink]].map(([val,label,col])=>(
-            <div key={label} style={{ flex:1, background:C.surface, border:`1px solid ${col}22`, borderRadius:13, padding:"10px 8px", textAlign:"center" }}>
-              <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:20, color:col }}>{val}</p>
-              <p style={{ fontSize:9.5, color:C.textMid }}>{label}</p>
-            </div>
-          ))}
-        </div>
-
-        {/* Active hubs in city */}
-        <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, color:C.textMid, textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:10 }}>Active Hubs</p>
-        {city.hubs.map((hub,i)=>(
-          <div key={i} style={{ background:C.surface, border:`1.5px solid ${city.color}28`, borderRadius:14, padding:"11px 14px", marginBottom:8, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-            <div>
-              <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13 }}>{hub}</p>
-              <p style={{ fontSize:10.5, color:C.textMid }}>{Math.floor(Math.random()*800+200).toLocaleString()} members</p>
-            </div>
-            <Pill color={city.color} small style={{ cursor:"pointer" }}>View →</Pill>
-          </div>
-        ))}
-
-        {/* Upcoming meetups */}
-        <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, color:C.textMid, textTransform:"uppercase", letterSpacing:"0.1em", marginTop:14, marginBottom:10 }}>Upcoming Meetups</p>
-        {[
-          { name:`${city.city} Pre-show Meetup`, date:"Apr 30 · 3PM", fandom:city.trendingFandom, rsvps:23 },
-          { name:`${city.city} Freebie Exchange`, date:"May 1 · 12PM", fandom:"All Fandoms", rsvps:11 },
-        ].map((m,i)=>(
-          <div key={i} style={{ background:C.surface, border:`1.5px solid ${C.border}`, borderRadius:14, padding:"11px 14px", marginBottom:8, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-            <div>
-              <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12.5 }}>{m.name}</p>
-              <p style={{ fontSize:10.5, color:C.textMid }}>{m.date} · {m.rsvps} going</p>
-            </div>
-            <Pill color={C.mint} active small style={{ cursor:"pointer" }}>RSVP</Pill>
-          </div>
-        ))}
-        <p style={{ fontSize:10, color:C.textDim, marginTop:14, textAlign:"center" }}>Joining hubs doesn't share your location. Browse privately. 🔒</p>
-      </div>
-    );
-  }
-
-  // REGION VIEW
-  if(mapLevel==="region" && selectedRegion) {
-    const region = REGIONS.find(r=>r.id===selectedRegion);
-    const regionCities = SPOTS.filter(s=>s.region===region.label);
-    return (
-      <div>
-        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
-          <button onClick={()=>{setMapLevel("global");setSelectedRegion(null);}} style={{ background:"none",border:"none",color:C.accent,fontSize:13,cursor:"pointer",fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>← Global</button>
-          <div style={{ flex:1 }}>
-            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:16 }}>🌐 {region.label}</p>
-            <p style={{ fontSize:10.5, color:C.textMid }}>{region.count.toLocaleString()} fans · Trending: {region.topFandom}</p>
-          </div>
-          <Pill color={ACTIVITY_COLORS[region.activity]} active small>{ACTIVITY_LABELS[region.activity]}</Pill>
-        </div>
-
-        <div style={{ background:`${region.color}08`, border:`1px solid ${region.color}22`, borderRadius:14, padding:"10px 14px", marginBottom:16 }}>
-          <p style={{ fontSize:12, fontFamily:"'Epilogue',sans-serif", fontWeight:600, marginBottom:3 }}>Trending fandom here: <span style={{ color:region.color }}>{region.topFandom}</span></p>
-          <p style={{ fontSize:11, color:C.textMid }}>Tap a city to see hubs, meetups, and events near you.</p>
-        </div>
-
-        {regionCities.length===0 ? (
-          <p style={{ fontSize:12, color:C.textMid, textAlign:"center", padding:"20px 0" }}>No cities mapped for this region yet.</p>
-        ) : regionCities.map(city=>(
-          <div key={city.id} onClick={()=>{setSelectedCity(city.id);setMapLevel("city");}} className="tap" style={{ background:C.surface, border:`1.5px solid ${city.color}30`, borderRadius:16, padding:14, marginBottom:10, cursor:"pointer", display:"flex", gap:12, alignItems:"center" }}>
-            <div style={{ width:42,height:42,borderRadius:12,background:`${city.color}18`,border:`1.5px solid ${city.color}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0 }}>📍</div>
-            <div style={{ flex:1 }}>
-              <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13.5 }}>{city.city}</p>
-              <p style={{ fontSize:10.5, color:C.textMid }}>{city.count.toLocaleString()} fans · {city.hubs.length} hubs · {city.meetups} meetups</p>
-            </div>
-            {city.trending&&<div style={{ width:8,height:8,borderRadius:"50%",background:C.mint,animation:"pulse 1.5s infinite" }} />}
-            {city.concerts>0&&<Pill color={C.pink} xs>🎤 {city.concerts}</Pill>}
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  // GLOBAL VIEW (Level 1: heatmap)
-  return (
-    <div>
-      <div style={{ display:"flex", gap:6, marginBottom:10 }}>
-        {[["live","🔴 Live"],["week","📅 Week"],["all","🌍 All Time"]].map(([id,label])=>(
-          <span key={id} onClick={()=>setMapFilter(id)} className="tap" style={{ padding:"5px 10px", borderRadius:99, fontSize:10, fontFamily:"'Epilogue',sans-serif", fontWeight:600, cursor:"pointer", background:mapFilter===id?C.accent:C.surfaceHi, color:mapFilter===id?C.bg:C.textMid, border:`1px solid ${mapFilter===id?C.accent:C.border}` }}>{label}</span>
-        ))}
-        <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:5 }}>
-          <div style={{ width:7,height:7,borderRadius:"50%",background:C.mint,animation:"pulse 1.5s infinite" }} />
-          <p style={{ fontSize:9.5, color:C.mint, fontFamily:"'Epilogue',sans-serif", fontWeight:700 }}>1,284 online</p>
-        </div>
-      </div>
-
-      {/* GLOBAL HEATMAP */}
-      <div style={{ background:`linear-gradient(160deg,#090915,#060610)`, border:`1.5px solid ${C.border}`, borderRadius:20, height:220, position:"relative", overflow:"hidden", marginBottom:12 }}>
-        {[...Array(6)].map((_,i)=><div key={i} style={{ position:"absolute", top:0, bottom:0, left:`${(i+1)*16.6}%`, width:1, background:`${C.border}18` }} />)}
-        {[...Array(4)].map((_,i)=><div key={i} style={{ position:"absolute", left:0, right:0, top:`${(i+1)*25}%`, height:1, background:`${C.border}18` }} />)}
-
-        {/* Region heat blobs */}
-        {REGIONS.map(region=>{
-          const size = 22 + (region.count/maxR)*55;
-          return (
-            <div key={region.id} onClick={()=>{setSelectedRegion(region.id);setMapLevel("region");}} style={{ position:"absolute", left:`${region.x}%`, top:`${region.y}%`, transform:"translate(-50%,-50%)", cursor:"pointer", zIndex:5 }}>
-              <div style={{ width:size,height:size,borderRadius:"50%",background:`radial-gradient(circle,${region.color}55,${region.color}10)`,animation:region.activity==="spike"||region.activity==="high"?"mapPulse 3s ease-in-out infinite":"none" }} />
-            </div>
-          );
-        })}
-
-        {/* City dots */}
-        {SPOTS.map(spot=>{
-          const size = 7 + (spot.count/maxC)*18;
-          return (
-            <div key={spot.id} onClick={()=>{const r=REGIONS.find(r=>r.label===spot.region);if(r){setSelectedRegion(r.id);setMapLevel("region");}}} style={{ position:"absolute", left:`${spot.x}%`, top:`${spot.y}%`, transform:"translate(-50%,-50%)", cursor:"pointer", zIndex:10 }}>
-              <div style={{ width:size, height:size, borderRadius:"50%", background:`radial-gradient(circle,${spot.color}ee,${spot.color}66)`, border:`1.5px solid ${spot.color}`, boxShadow:`0 0 ${spot.trending?14:5}px ${spot.color}44` }} />
-              {spot.concerts>0&&<div style={{ position:"absolute", top:-13, left:"50%", transform:"translateX(-50%)", fontSize:10 }}>🎤</div>}
-            </div>
-          );
-        })}
-
-        <div style={{ position:"absolute", top:10, left:14, background:`rgba(6,6,15,0.85)`, borderRadius:8, padding:"4px 9px" }}>
-          <p style={{ fontSize:8.5, color:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, letterSpacing:"0.1em" }}>🌍 FANVERSE MAP — TAP TO EXPLORE</p>
-        </div>
-      </div>
-
-      {/* Region quick-tap cards */}
-      <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10.5, color:C.textMid, textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:10 }}>Tap a region to see activity</p>
-      <div style={{ display:"flex", gap:8, overflowX:"auto", paddingBottom:4 }}>
-        {REGIONS.map((r,i)=>(
-          <div key={r.id} onClick={()=>{setSelectedRegion(r.id);setMapLevel("region");}} className="tap" style={{ flexShrink:0, background:C.surface, border:`1.5px solid ${i===0?r.color:C.border}`, borderRadius:13, padding:"9px 12px", cursor:"pointer", minWidth:100 }}>
-            <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}>
-              <p style={{ fontSize:9, color:r.color, fontFamily:"'Epilogue',sans-serif", fontWeight:700 }}>{ACTIVITY_LABELS[r.activity]}</p>
-            </div>
-            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5 }}>{r.label}</p>
-            <p style={{ fontSize:9.5, color:C.textMid }}>{(r.count/1000).toFixed(1)}k fans</p>
-          </div>
-        ))}
-      </div>
-      <p style={{ fontSize:10, color:C.textDim, marginTop:12, textAlign:"center" }}>Your location is never shared automatically. 🔒</p>
-    </div>
-  );
-}
-
-// ─── EXPLORE / TOOLS ──────────────────────────────────────────────────────────
-// ─── COMEBACKS & ERA WATCH ────────────────────────────────────────────────────
-// Personalized announcement feed — tours, comebacks, photocards, milestones
-function ComebacksEraWatch({ user, go }) {
-  const userGroups = user?.groups?.length ? user.groups : ["aespa","Stray Kids","BTS","NewJeans","SEVENTEEN"];
-  const [filterGroup, setFilterGroup] = useState("all");
-  const [saved, setSaved] = useState({});
-
-  const FEED = [
-    { id:1, type:"tour",      group:"BTS",        icon:"📅", color:C.accent, urgent:true,
-      title:"BTS WORLD TOUR — Dates Dropping",
-      sub:"North America leg announced · Dallas, LA, NYC · Presale June 12",
-      tag:"Concert", action:"Plan Trip", dest:"trip" },
-    { id:2, type:"comeback",  group:"aespa",      icon:"🔔", color:C.mint,   urgent:true,
-      title:"aespa New Mini-Album Incoming",
-      sub:"SM confirms July comeback · 'Whiplash' follow-up era · teaser drops May 30",
-      tag:"Comeback", action:"See Teasers", dest:null },
-    { id:3, type:"photocard", group:"Stray Kids", icon:"🃏", color:C.rose,   urgent:false,
-      title:"SKZ ROCK-STAR Photocards — New Set",
-      sub:"Limited run · 5-STAR series expansion · Ships May 25 from Weverse",
-      tag:"Photocards", action:"Add to Wishlist", dest:"collect" },
-    { id:4, type:"milestone", group:"NewJeans",   icon:"🎵", color:C.sky,    urgent:false,
-      title:"NewJeans 'How Sweet' hits 100M streams",
-      sub:"Certified Platinum · fanbase streaming party ongoing now",
-      tag:"Milestone", action:"Join Stream Party", dest:"fanverse" },
-    { id:5, type:"tour",      group:"SEVENTEEN",  icon:"📅", color:C.gold,   urgent:false,
-      title:"SEVENTEEN FOLLOW AGAIN Tour — Final Leg",
-      sub:"Remaining US dates announced · On sale May 31 · Fan presale code: CARAT",
-      tag:"Concert", action:"Plan Trip", dest:"trip" },
-    { id:6, type:"comeback",  group:"NewJeans",   icon:"🔔", color:C.pink,   urgent:false,
-      title:"NewJeans Hiatus Ends — Comeback Teased",
-      sub:"Hype Media confirms comeback Q3 · first solo schedule since January",
-      tag:"Comeback", action:"Set Reminder", dest:null },
-    { id:7, type:"photocard", group:"BTS",        icon:"🃏", color:C.accent,  urgent:false,
-      title:"BTS GOLDEN — Jungkook Limited Edition PCs",
-      sub:"Weverse Shop exclusive · Fan sign lottery opens June 1",
-      tag:"Photocards", action:"Add to Wishlist", dest:"collect" },
-  ];
-
-  const filtered = filterGroup==="all"
-    ? FEED.filter(f=>userGroups.some(g=>g.toLowerCase()===f.group.toLowerCase()))
-    : FEED.filter(f=>f.group.toLowerCase()===filterGroup.toLowerCase());
-
-  const TYPE_ICONS = { tour:"📅", comeback:"🔔", photocard:"🃏", milestone:"🎵" };
-  const TYPE_LABELS = { tour:"Tour Announced", comeback:"Comeback", photocard:"New Photocards", milestone:"Milestone" };
-
-  return (
-    <div style={{ paddingTop:4 }}>
-      {/* Header */}
-      <div style={{ ...VS.glowCard(C.rose), padding:"14px 16px", marginBottom:16 }}>
-        <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.rose}55,transparent)` }} />
-        <div style={{ position:"relative",display:"flex",gap:12,alignItems:"center" }}>
-          <div style={{ fontSize:28 }}>🔔</div>
-          <div style={{ flex:1 }}>
-            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:C.text,marginBottom:3 }}>Comebacks & Era Watch</p>
-            <p style={{ fontSize:11,color:C.textMid,lineHeight:1.55 }}>Tours, comebacks, photocards & milestones — only for the groups you follow.</p>
-          </div>
-          <div style={{ display:"flex",gap:4,alignItems:"center" }}>
-            <div style={{ width:6,height:6,borderRadius:"50%",background:C.rose,animation:"pulse 1.4s ease infinite" }} />
-            <p style={{ fontSize:9,color:C.rose,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>LIVE</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Group filter chips */}
-      <div style={{ display:"flex",gap:7,overflowX:"auto",scrollbarWidth:"none",marginBottom:16,paddingBottom:4 }}>
-        {["all",...userGroups].map(g=>(
-          <button key={g} onClick={()=>setFilterGroup(g)} className="tap" style={{ flexShrink:0,padding:"6px 14px",borderRadius:99,fontSize:10.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:filterGroup===g?C.rose:`${C.rose}10`,color:filterGroup===g?C.bg:C.textMid,border:`1px solid ${filterGroup===g?C.rose:C.border}` }}>{g==="all"?"All Groups":g}</button>
-        ))}
-      </div>
-
-      {/* Announcement cards */}
-      {filtered.length===0 ? (
-        <div style={{ textAlign:"center",padding:"40px 20px" }}>
-          <p style={{ fontSize:28,marginBottom:12 }}>🔔</p>
-          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14,marginBottom:6 }}>No announcements yet</p>
-          <p style={{ fontSize:11.5,color:C.textMid }}>Update your Top 5 groups in Profile to see personalized alerts here.</p>
-        </div>
-      ) : filtered.map(item=>(
-        <div key={item.id} style={{ ...VS.glowCard(item.color), padding:"14px 16px", marginBottom:11, position:"relative" }}>
-          <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${item.color}55,transparent)` }} />
-          {item.urgent && (
-            <div style={{ position:"absolute",top:12,right:14,display:"flex",gap:4,alignItems:"center" }}>
-              <div style={{ width:5,height:5,borderRadius:"50%",background:C.rose,animation:"pulse 1.2s ease infinite" }} />
-              <p style={{ fontSize:8.5,color:C.rose,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>HOT</p>
-            </div>
-          )}
-          <div style={{ position:"relative",display:"flex",gap:11,alignItems:"flex-start" }}>
-            {/* Type icon */}
-            <div style={{ width:44,height:44,borderRadius:13,background:`${item.color}1c`,border:`1.5px solid ${item.color}30`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0,boxShadow:`0 4px 12px ${item.color}18` }}>{TYPE_ICONS[item.type]}</div>
-            <div style={{ flex:1,minWidth:0 }}>
-              {/* Group pill + type */}
-              <div style={{ display:"flex",gap:6,alignItems:"center",marginBottom:5 }}>
-                <div style={{ ...VS.activePill(item.color),fontSize:8.5 }}>{item.group}</div>
-                <p style={{ fontSize:8.5,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>{TYPE_LABELS[item.type]}</p>
-              </div>
-              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13.5,color:C.text,marginBottom:4,lineHeight:1.3 }}>{item.title}</p>
-              <p style={{ fontSize:11,color:C.textMid,lineHeight:1.55,marginBottom:10 }}>{item.sub}</p>
-              {/* Actions */}
-              <div style={{ display:"flex",gap:8,alignItems:"center" }}>
-                {item.dest ? (
-                  <button onClick={()=>go(item.dest)} style={{ padding:"7px 14px",borderRadius:10,background:`linear-gradient(140deg,${item.color}cc,${item.color}88)`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,cursor:"pointer" }}>{item.action} →</button>
-                ) : (
-                  <button onClick={()=>setSaved(s=>({...s,[item.id]:!s[item.id]}))} style={{ padding:"7px 14px",borderRadius:10,background:`${item.color}18`,border:`1.5px solid ${item.color}44`,color:item.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,cursor:"pointer" }}>{saved[item.id]?"🔔 Saved":"+ "+item.action}</button>
-                )}
-                <button onClick={()=>setSaved(s=>({...s,[item.id]:!s[item.id]}))} style={{ background:"none",border:"none",color:saved[item.id]?C.gold:C.textDim,fontSize:16,cursor:"pointer" }}>{saved[item.id]?"🔖":"🏷️"}</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      ))}
-
-      {/* Personalization note */}
-      <div style={{ background:`${C.accent}08`,border:`1px solid ${C.accent}22`,borderRadius:12,padding:"10px 14px",textAlign:"center",marginTop:8 }}>
-        <p style={{ fontSize:11,color:C.textMid }}>Showing announcements for your Top 5 · <span onClick={()=>go("profile")} style={{ color:C.accent,cursor:"pointer",fontWeight:600 }}>Update groups →</span></p>
-
-      {/* ─── MERCH DROPS — affiliate section ─── */}
-      <div style={{ marginTop:18 }}>
-        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12 }}>
-          <p style={VS.softSectionHeader}>Official Merch & Drops</p>
-          <div style={{ ...VS.activePill(C.rose),fontSize:8 }}>Affiliate Links</div>
-        </div>
-        <p style={{ fontSize:11.5,color:C.textMid,marginBottom:14,lineHeight:1.6 }}>Official and fan merch shops for your groups — Backstage may earn a small commission on purchases.</p>
-        {/* TODO: Replace with real affiliate IDs from each platform's partner program */}
-        {[
-          { name:"Weverse Shop",    icon:"🌐", color:C.accent, desc:"Official BTS, aespa, TXT + more",    url:"https://weverseshop.io/en/main" },
-          { name:"YesStyle",        icon:"🛍️", color:C.pink,   desc:"K-pop merch, photobooks, albums",    url:"https://www.yesstyle.com/en/k-pop.html" },
-          { name:"Ktown4u",         icon:"📦", color:C.mint,   desc:"Pre-orders & signed albums",         url:"https://www.ktown4u.com" },
-          { name:"Cokodive",        icon:"💿", color:C.gold,   desc:"Albums, photocards, POBs",           url:"https://cokodive.com" },
-        ].map(shop=>(
-          <div key={shop.name} onClick={()=>window.open(shop.url,"_blank")} className="tap" style={{ ...VS.glowCard(shop.color),padding:"12px 14px",marginBottom:9,cursor:"pointer" }}>
-            <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${shop.color}44,transparent)` }} />
-            <div style={{ position:"relative",display:"flex",gap:11,alignItems:"center" }}>
-              <div style={{ width:40,height:40,borderRadius:12,background:`${shop.color}1c`,border:`1.5px solid ${shop.color}28`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0 }}>{shop.icon}</div>
-              <div style={{ flex:1 }}>
-                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13 }}>{shop.name}</p>
-                <p style={{ fontSize:10.5,color:C.textMid }}>{shop.desc}</p>
-              </div>
-              <span style={{ color:shop.color,fontSize:14 }}>↗</span>
-            </div>
-          </div>
-        ))}
-      </div>
-      </div>
-    </div>
-  );
-}
 
 // ─── BUILD MY DAY ─────────────────────────────────────────────────────────────
 // Yelp-style fan day planner with filters: meal, coffee, events, meetups/parties
@@ -7041,55 +6705,36 @@ function FanverseMap({ onBack }) {
       <div style={{ flex:1, overflowY:"auto", padding:"0 0 100px" }}>
         {view==="world" ? (
           <div style={{ position:"relative" }}>
-            {/* SVG World Map placeholder */}
-            <div style={{ margin:"0 20px 16px", borderRadius:20, overflow:"hidden", position:"relative", background:`linear-gradient(160deg,#0d0a22,#15083a,#0d0a22)`, border:`1.5px solid ${C.borderHi}` }}>
-              <svg viewBox="0 0 100 60" style={{ width:"100%", height:"auto" }}>
-                {/* Simplified continents as blobs */}
-                {/* North America */}
-                <path d="M8 15 Q12 12 20 15 Q24 20 22 30 Q18 35 14 32 Q8 28 8 22 Z" fill={`${C.accent}20`} stroke={`${C.accent}40`} strokeWidth="0.3"/>
-                {/* South America */}
-                <path d="M20 38 Q25 35 28 40 Q30 50 25 58 Q20 60 18 55 Q16 48 18 42 Z" fill={`${C.accent}15`} stroke={`${C.accent}30`} strokeWidth="0.3"/>
-                {/* Europe */}
-                <path d="M44 18 Q52 14 58 18 Q62 22 60 28 Q56 30 50 28 Q44 26 44 22 Z" fill={`${C.accent}20`} stroke={`${C.accent}40`} strokeWidth="0.3"/>
-                {/* Africa */}
-                <path d="M46 30 Q54 28 56 35 Q58 45 52 55 Q46 58 42 52 Q40 44 42 36 Z" fill={`${C.accent}15`} stroke={`${C.accent}30`} strokeWidth="0.3"/>
-                {/* Asia */}
-                <path d="M58 10 Q75 8 88 15 Q92 22 88 32 Q80 38 70 35 Q60 32 56 22 Q56 14 58 10 Z" fill={`${C.accent}20`} stroke={`${C.accent}40`} strokeWidth="0.3"/>
-                {/* Australia */}
-                <path d="M78 44 Q86 42 90 47 Q92 53 88 57 Q82 58 78 54 Q76 50 78 46 Z" fill={`${C.accent}15`} stroke={`${C.accent}30`} strokeWidth="0.3"/>
-                
-                {/* Fan dots with pulse rings */}
-                {FAN_DOTS.map((dot, i) => (
-                  <g key={i}>
-                    <circle cx={dot.x} cy={dot.y} r={dot.size * 0.4} fill="transparent" stroke={dot.color} strokeWidth="0.3" opacity="0.3" style={{ animation:`mapPulse ${2+i*0.3}s ease-out infinite`, animationDelay:`${i*0.2}s` }}/>
-                    <circle cx={dot.x} cy={dot.y} r={dot.size * 0.2} fill={dot.color} opacity="0.85"/>
-                    <circle cx={dot.x} cy={dot.y} r={dot.size * 0.08} fill="white" opacity="0.9"/>
-                  </g>
-                ))}
-              </svg>
-              
-              {/* Legend */}
-              <div style={{ position:"absolute",bottom:10,left:14,display:"flex",gap:10,alignItems:"center" }}>
+            {/* Real Mapbox GL map */}
+            <div style={{ margin:"0 20px 16px", borderRadius:20, overflow:"hidden", height:260, position:"relative", border:`1.5px solid ${C.borderHi}` }}>
+              <MapboxMap densityData={CITY_DENSITY_GEOJSON} showHeatmap={false} />
+              {/* Density legend */}
+              <div style={{ position:"absolute",bottom:10,left:14,display:"flex",gap:10,alignItems:"center",pointerEvents:"none",zIndex:1 }}>
                 <div style={{ display:"flex",gap:5,alignItems:"center" }}>
-                  <div style={{ width:8,height:8,borderRadius:"50%",background:C.pink }} />
+                  <div style={{ width:8,height:8,borderRadius:"50%",background:"#64c88c" }} />
                   <p style={{ fontSize:8,color:"rgba(255,255,255,0.6)" }}>Low</p>
                 </div>
-                <div style={{ flex:1,height:2,background:`linear-gradient(90deg,${C.silver},${C.mint},${C.pink})`,borderRadius:99 }} />
+                <div style={{ width:48,height:2,background:`linear-gradient(90deg,#64c88c,#b8a2ff,#f0a8cc)`,borderRadius:99 }} />
                 <p style={{ fontSize:8,color:"rgba(255,255,255,0.6)" }}>High</p>
               </div>
             </div>
 
-            {/* Hot cities */}
+            {/* Hot cities — driven by the same GeoJSON */}
             <div style={{ padding:"0 20px" }}>
               <p style={{ fontSize:10, color:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:10 }}>Hottest Cities Right Now</p>
-              {FAN_DOTS.sort((a,b)=>parseInt(b.fans)-parseInt(a.fans)).slice(0,5).map((dot,i)=>(
-                <div key={i} style={{ background:C.surface, border:`1.5px solid ${dot.color}22`, borderRadius:14, padding:"11px 14px", marginBottom:8, display:"flex", alignItems:"center", gap:12 }}>
-                  <div style={{ width:10,height:10,borderRadius:"50%",background:dot.color,flexShrink:0,animation:i<2?"pulse 1.5s infinite":"none" }} />
+              {[...CITY_DENSITY_GEOJSON.features]
+                .sort((a,b)=>b.properties.fans - a.properties.fans)
+                .slice(0,5)
+                .map(({ properties:p },i)=>(
+                <div key={p.city} style={{ background:C.surface, border:`1.5px solid ${p.color}22`, borderRadius:14, padding:"11px 14px", marginBottom:8, display:"flex", alignItems:"center", gap:12 }}>
+                  <div style={{ width:10,height:10,borderRadius:"50%",background:p.color,flexShrink:0,animation:i<2?"pulse 1.5s infinite":"none" }} />
                   <div style={{ flex:1 }}>
-                    <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13 }}>{dot.city}</p>
-                    <p style={{ fontSize:10.5, color:C.textMid }}>{dot.level}</p>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13 }}>{p.city}</p>
+                    <p style={{ fontSize:10.5, color:C.textMid }}>{p.level} · {p.event}</p>
                   </div>
-                  <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:14, color:dot.color }}>{dot.fans}</p>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:14, color:p.color }}>
+                    {p.fans >= 1000 ? `${(p.fans/1000).toFixed(p.fans>=10000?0:1)}K` : p.fans}
+                  </p>
                 </div>
               ))}
             </div>
@@ -7152,43 +6797,49 @@ function FanverseMap({ onBack }) {
           </div>
         ) : (
           /* ── HEATMAP TAB ── */
-          <div style={{ padding:"0 20px" }}>
-            <div style={{ background:C.surface,border:`1px solid ${C.border}`,borderRadius:18,padding:"14px 16px",marginBottom:16,display:"flex",gap:8,alignItems:"center" }}>
-              <div style={{ width:8,height:8,borderRadius:"50%",background:C.rose,animation:"pulse 1.2s ease infinite" }} />
-              <p style={{ fontSize:11,color:C.textMid,flex:1 }}>Live fan density · updates every 5 min</p>
-              <p style={{ fontSize:10,color:C.rose,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>LIVE</p>
+          <div>
+            {/* Full-width Mapbox heatmap */}
+            <div style={{ margin:"0 20px 16px", borderRadius:20, overflow:"hidden", height:240, position:"relative", border:`1.5px solid ${C.borderHi}` }}>
+              <MapboxMap densityData={CITY_DENSITY_GEOJSON} showHeatmap={true} />
+              {/* LIVE badge overlay */}
+              <div style={{ position:"absolute",top:10,left:12,display:"flex",gap:6,alignItems:"center",background:"rgba(6,6,15,0.72)",borderRadius:99,padding:"4px 10px",pointerEvents:"none",backdropFilter:"blur(8px)",zIndex:1 }}>
+                <div style={{ width:6,height:6,borderRadius:"50%",background:C.rose,animation:"pulse 1.2s ease infinite" }} />
+                <p style={{ fontSize:9.5,color:C.rose,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>LIVE · fan density</p>
+              </div>
             </div>
 
-            {[
-              { city:"Seoul", fans:12000, pct:100, color:C.rose,    trend:"🔥 Extreme", event:"BTS comeback wave" },
-              { city:"Tokyo", fans:8500,  pct:71,  color:C.pink,    trend:"⬆ Very Hot", event:"aespa Drama Tour" },
-              { city:"New York", fans:4200, pct:35, color:C.accent,  trend:"● Active",  event:"NewJeans · MSG Jun 18" },
-              { city:"Los Angeles", fans:3800, pct:32, color:C.accent, trend:"● Active", event:"aespa · Crypto Arena Jun 2" },
-              { city:"London", fans:3100, pct:26, color:C.lavender, trend:"↗ Rising",   event:"Stray Kids EU leg" },
-              { city:"Dallas", fans:1200,  pct:10, color:C.mint,    trend:"● Steady",   event:"BTS Apr 30 · AT&T Stadium" },
-              { city:"Chicago", fans:950,  pct:8,  color:C.mint,    trend:"↗ Rising",   event:"Stray Kids May 14" },
-              { city:"Sydney", fans:900,   pct:8,  color:C.silver,  trend:"● Steady",   event:"General activity" },
-            ].map((row,i)=>(
-              <div key={i} style={{ marginBottom:12 }}>
-                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5 }}>
-                  <div>
-                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,marginBottom:1 }}>{row.city}</p>
-                    <p style={{ fontSize:10,color:C.textMid }}>{row.event}</p>
-                  </div>
-                  <div style={{ textAlign:"right" }}>
-                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,color:row.color }}>{row.fans.toLocaleString()}</p>
-                    <p style={{ fontSize:10,color:row.color }}>{row.trend}</p>
-                  </div>
-                </div>
-                <div style={{ height:6,borderRadius:99,background:`${C.border}66`,overflow:"hidden" }}>
-                  <div style={{ height:"100%",width:`${row.pct}%`,background:`linear-gradient(90deg,${row.color}88,${row.color})`,borderRadius:99,transition:"width .6s ease" }} />
-                </div>
-              </div>
-            ))}
+            {/* Bar chart — derived from same GeoJSON so it stays in sync */}
+            <div style={{ padding:"0 20px" }}>
+              {[...CITY_DENSITY_GEOJSON.features]
+                .sort((a,b)=>b.properties.fans - a.properties.fans)
+                .map(({ properties:p }) => {
+                  const maxFans = 12000;
+                  const pct = Math.round((p.fans / maxFans) * 100);
+                  return (
+                    <div key={p.city} style={{ marginBottom:12 }}>
+                      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5 }}>
+                        <div>
+                          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,marginBottom:1 }}>{p.city}</p>
+                          <p style={{ fontSize:10,color:C.textMid }}>{p.event}</p>
+                        </div>
+                        <div style={{ textAlign:"right" }}>
+                          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,color:p.color }}>
+                            {p.fans >= 1000 ? `${(p.fans/1000).toFixed(p.fans>=10000?0:1)}K` : p.fans}
+                          </p>
+                          <p style={{ fontSize:10,color:p.color }}>{p.trending ? "🔥 Trending" : p.level}</p>
+                        </div>
+                      </div>
+                      <div style={{ height:5,borderRadius:99,background:`${C.border}66`,overflow:"hidden" }}>
+                        <div style={{ height:"100%",width:`${pct}%`,background:`linear-gradient(90deg,${p.color}88,${p.color})`,borderRadius:99,transition:"width .6s ease" }} />
+                      </div>
+                    </div>
+                  );
+                })}
 
-            <div style={{ marginTop:18,background:`${C.gold}0a`,border:`1px solid ${C.gold}22`,borderRadius:14,padding:"10px 14px" }}>
-              <p style={{ fontSize:10.5,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:700,marginBottom:2 }}>✦ VIP: Advanced Venue Heatmap</p>
-              <p style={{ fontSize:10,color:C.textMid }}>On concert day — see GA fill rates, merch waits, and section density in real time.</p>
+              <div style={{ marginTop:18,background:`${C.gold}0a`,border:`1px solid ${C.gold}22`,borderRadius:14,padding:"10px 14px" }}>
+                <p style={{ fontSize:10.5,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:700,marginBottom:2 }}>✦ VIP: Advanced Venue Heatmap</p>
+                <p style={{ fontSize:10,color:C.textMid }}>On concert day — see GA fill rates, merch waits, and section density in real time.</p>
+              </div>
             </div>
           </div>
         )}
