@@ -6992,6 +6992,7 @@ const MOCK_FRIENDS = [
 // GET /api/map/fans | GET /api/map/local
 function FanverseMap({ onBack }) {
   const [view, setView] = useState("world");
+  const [proximityOn, setProximityOn] = useState(()=>ls.get("backstage_proximity_sharing", false));
   const FAN_DOTS = [
     { x:22, y:38, size:18, color:C.accent, city:"New York", fans:"4.2K", level:"Very Active" },
     { x:16, y:40, size:14, color:C.pink, city:"Los Angeles", fans:"3.8K", level:"Spiking" },
@@ -7031,7 +7032,7 @@ function FanverseMap({ onBack }) {
 
       {/* Toggle */}
       <div style={{ padding:"0 20px 12px", display:"flex", gap:6, flexShrink:0 }}>
-        {[["world","World"],["local","Local"]].map(([id,label])=>(
+        {[["world","World"],["local","Nearby"],["heatmap","Heatmap"]].map(([id,label])=>(
           <span key={id} onClick={()=>setView(id)} className="tap" style={{ flex:1, textAlign:"center", padding:"8px", borderRadius:12, fontSize:12, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:view===id?C.accent:C.surfaceHi, color:view===id?C.bg:C.textMid, border:`1.5px solid ${view===id?C.accent:C.border}` }}>{label}</span>
         ))}
       </div>
@@ -7093,41 +7094,102 @@ function FanverseMap({ onBack }) {
               ))}
             </div>
           </div>
-        ) : (
+        ) : view==="local" ? (
           <div style={{ padding:"0 20px" }}>
-            {/* Local location card */}
-            <div style={{ background:`linear-gradient(140deg,${C.accent}18,${C.pink}08)`, border:`1.5px solid ${C.accent}33`, borderRadius:18, padding:16, marginBottom:16 }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
-                <div>
-                  <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:17 }}>Dallas, TX</p>
-                  <p style={{ fontSize:11, color:C.accent, fontFamily:"'Epilogue',sans-serif", fontWeight:600, marginTop:3 }}>Very Active</p>
-                  <p style={{ fontSize:11, color:C.textMid, marginTop:2 }}>1.2k fans · ATEEZ May 22</p>
-                </div>
-                <div style={{ display:"flex" }}>
-                  {[C.accent,C.pink,C.mint,C.silver].map((col,i)=>(
-                    <div key={i} style={{ width:28,height:28,borderRadius:"50%",background:`linear-gradient(135deg,${col},${col}66)`,border:`2px solid ${C.bg}`,marginLeft:i>0?-8:0,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:10,color:C.bg }}>
-                      {["S","L","Y","M"][i]}
-                    </div>
-                  ))}
-                  <div style={{ width:28,height:28,borderRadius:"50%",background:C.surfaceMid,border:`2px solid ${C.bg}`,marginLeft:-8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,color:C.textMid }}>+237</div>
-                </div>
+            {/* Proximity opt-in toggle */}
+            <div style={{ background:proximityOn?`linear-gradient(140deg,${C.mint}14,${C.accent}08)`:`${C.surface}`, border:`1.5px solid ${proximityOn?C.mint:C.border}`, borderRadius:18, padding:"14px 16px", marginBottom:16, display:"flex", gap:12, alignItems:"center" }}>
+              <div style={{ width:40,height:40,borderRadius:12,background:proximityOn?`${C.mint}22`:C.surfaceHi,border:`1.5px solid ${proximityOn?C.mint:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0 }}>📍</div>
+              <div style={{ flex:1 }}>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,marginBottom:2 }}>{proximityOn?"Sharing your city":"Share your city"}</p>
+                <p style={{ fontSize:10.5,color:C.textMid,lineHeight:1.45 }}>{proximityOn?"Fans nearby can see you're here · Dallas, TX":"Let nearby fans know you're going. City-level only."}</p>
+              </div>
+              <div onClick={()=>{ const next=!proximityOn; setProximityOn(next); ls.set("backstage_proximity_sharing",next); }} className="tap" style={{ width:44,height:26,borderRadius:99,background:proximityOn?C.mint:C.border,display:"flex",alignItems:"center",padding:"3px",cursor:"pointer",transition:"background .25s",flexShrink:0 }}>
+                <div style={{ width:20,height:20,borderRadius:"50%",background:"white",transform:`translateX(${proximityOn?18:0}px)`,transition:"transform .25s",boxShadow:"0 1px 4px rgba(0,0,0,0.3)" }} />
               </div>
             </div>
 
-            <p style={{ fontSize:10, color:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:12 }}>Fans Going to ATEEZ in Dallas</p>
-            {LOCAL_FANS.map((fan,i)=>(
-              <div key={i} style={{ background:C.surface, border:`1.5px solid ${C.border}`, borderRadius:18, padding:14, marginBottom:10, display:"flex", gap:12, alignItems:"center" }}>
-                <div style={{ width:46,height:46,borderRadius:"50%",background:`linear-gradient(135deg,${fan.color},${fan.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17,color:C.bg,flexShrink:0 }}>{fan.avatar}</div>
-                <div style={{ flex:1 }}>
-                  <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13.5 }}>{fan.name}</p>
-                  <p style={{ fontSize:10.5, color:C.textMid }}>Dallas, TX · {fan.dist}</p>
-                  <div style={{ display:"flex", gap:5, marginTop:5, flexWrap:"wrap" }}>
-                    {fan.groups.map(g=><Pill key={g} color={C.accentDim} xs>{g}</Pill>)}
+            {proximityOn ? (
+              <>
+                <div style={{ background:`linear-gradient(140deg,${C.accent}18,${C.pink}08)`, border:`1.5px solid ${C.accent}33`, borderRadius:18, padding:16, marginBottom:16 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+                    <div>
+                      <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:17 }}>Dallas, TX</p>
+                      <p style={{ fontSize:11, color:C.accent, fontFamily:"'Epilogue',sans-serif", fontWeight:600, marginTop:3 }}>Very Active · 1.2K fans nearby</p>
+                      <p style={{ fontSize:11, color:C.textMid, marginTop:2 }}>ATEEZ May 22 · BTS Apr 30</p>
+                    </div>
+                    <div style={{ display:"flex" }}>
+                      {[C.accent,C.pink,C.mint,C.silver].map((col,i)=>(
+                        <div key={i} style={{ width:28,height:28,borderRadius:"50%",background:`linear-gradient(135deg,${col},${col}66)`,border:`2px solid ${C.bg}`,marginLeft:i>0?-8:0,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:10,color:C.bg }}>
+                          {["S","L","Y","M"][i]}
+                        </div>
+                      ))}
+                      <div style={{ width:28,height:28,borderRadius:"50%",background:C.surfaceMid,border:`2px solid ${C.bg}`,marginLeft:-8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,color:C.textMid }}>+237</div>
+                    </div>
                   </div>
                 </div>
-                <Pill color={fan.statusColor} active xs style={{ flexShrink:0, fontSize:8.5 }}>{fan.status}</Pill>
+                <p style={{ fontSize:10, color:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:12 }}>Fans Going to ATEEZ in Dallas</p>
+                {LOCAL_FANS.map((fan,i)=>(
+                  <div key={i} style={{ background:C.surface, border:`1.5px solid ${C.border}`, borderRadius:18, padding:14, marginBottom:10, display:"flex", gap:12, alignItems:"center" }}>
+                    <div style={{ width:46,height:46,borderRadius:"50%",background:`linear-gradient(135deg,${fan.color},${fan.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17,color:C.bg,flexShrink:0 }}>{fan.avatar}</div>
+                    <div style={{ flex:1 }}>
+                      <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13.5 }}>{fan.name}</p>
+                      <p style={{ fontSize:10.5, color:C.textMid }}>Dallas, TX · {fan.dist}</p>
+                      <div style={{ display:"flex", gap:5, marginTop:5, flexWrap:"wrap" }}>
+                        {fan.groups.map(g=><Pill key={g} color={C.accentDim} xs>{g}</Pill>)}
+                      </div>
+                    </div>
+                    <Pill color={fan.statusColor} active xs style={{ flexShrink:0, fontSize:8.5 }}>{fan.status}</Pill>
+                  </div>
+                ))}
+              </>
+            ) : (
+              <div style={{ textAlign:"center",padding:"32px 20px",color:C.textDim }}>
+                <div style={{ fontSize:40,marginBottom:12 }}>🌎</div>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14,marginBottom:8,color:C.text }}>Find fans near you</p>
+                <p style={{ fontSize:12,color:C.textMid,lineHeight:1.6 }}>Enable city sharing above to see who's going to the same shows, find concert buddies, and discover local fan meetups.</p>
+              </div>
+            )}
+          </div>
+        ) : (
+          /* ── HEATMAP TAB ── */
+          <div style={{ padding:"0 20px" }}>
+            <div style={{ background:C.surface,border:`1px solid ${C.border}`,borderRadius:18,padding:"14px 16px",marginBottom:16,display:"flex",gap:8,alignItems:"center" }}>
+              <div style={{ width:8,height:8,borderRadius:"50%",background:C.rose,animation:"pulse 1.2s ease infinite" }} />
+              <p style={{ fontSize:11,color:C.textMid,flex:1 }}>Live fan density · updates every 5 min</p>
+              <p style={{ fontSize:10,color:C.rose,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>LIVE</p>
+            </div>
+
+            {[
+              { city:"Seoul", fans:12000, pct:100, color:C.rose,    trend:"🔥 Extreme", event:"BTS comeback wave" },
+              { city:"Tokyo", fans:8500,  pct:71,  color:C.pink,    trend:"⬆ Very Hot", event:"aespa Drama Tour" },
+              { city:"New York", fans:4200, pct:35, color:C.accent,  trend:"● Active",  event:"NewJeans · MSG Jun 18" },
+              { city:"Los Angeles", fans:3800, pct:32, color:C.accent, trend:"● Active", event:"aespa · Crypto Arena Jun 2" },
+              { city:"London", fans:3100, pct:26, color:C.lavender, trend:"↗ Rising",   event:"Stray Kids EU leg" },
+              { city:"Dallas", fans:1200,  pct:10, color:C.mint,    trend:"● Steady",   event:"BTS Apr 30 · AT&T Stadium" },
+              { city:"Chicago", fans:950,  pct:8,  color:C.mint,    trend:"↗ Rising",   event:"Stray Kids May 14" },
+              { city:"Sydney", fans:900,   pct:8,  color:C.silver,  trend:"● Steady",   event:"General activity" },
+            ].map((row,i)=>(
+              <div key={i} style={{ marginBottom:12 }}>
+                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5 }}>
+                  <div>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,marginBottom:1 }}>{row.city}</p>
+                    <p style={{ fontSize:10,color:C.textMid }}>{row.event}</p>
+                  </div>
+                  <div style={{ textAlign:"right" }}>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,color:row.color }}>{row.fans.toLocaleString()}</p>
+                    <p style={{ fontSize:10,color:row.color }}>{row.trend}</p>
+                  </div>
+                </div>
+                <div style={{ height:6,borderRadius:99,background:`${C.border}66`,overflow:"hidden" }}>
+                  <div style={{ height:"100%",width:`${row.pct}%`,background:`linear-gradient(90deg,${row.color}88,${row.color})`,borderRadius:99,transition:"width .6s ease" }} />
+                </div>
               </div>
             ))}
+
+            <div style={{ marginTop:18,background:`${C.gold}0a`,border:`1px solid ${C.gold}22`,borderRadius:14,padding:"10px 14px" }}>
+              <p style={{ fontSize:10.5,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:700,marginBottom:2 }}>✦ VIP: Advanced Venue Heatmap</p>
+              <p style={{ fontSize:10,color:C.textMid }}>On concert day — see GA fill rates, merch waits, and section density in real time.</p>
+            </div>
           </div>
         )}
       </div>
@@ -7583,7 +7645,7 @@ function ConcertDayBanner({ go }) {
 }
 
 // ─── CONCERT DAY MODE — full-screen experience ────────────────────────────────
-function ConcertDayMode({ concert: concertProp, onBack, go }) {
+function ConcertDayMode({ concert: concertProp, onBack, go, isVip=false, onUpgrade=()=>{} }) {
   const concert = concertProp || MOCK_CONCERTS[0];
   const col = concert.color || C.pink;
   const countdown = useConcertCountdown(concert.showTime, concert.date);
@@ -7742,6 +7804,70 @@ function ConcertDayMode({ concert: concertProp, onBack, go }) {
                 </div>
               </div>
             ))}
+
+            {/* ── VIP VENUE HEATMAP ── */}
+            <div style={{ marginTop:8 }}>
+              <div style={{ display:"flex",gap:8,alignItems:"center",marginBottom:12 }}>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:col }}>🔥 Venue Heatmap</p>
+                <span style={{ fontSize:8,padding:"2px 7px",borderRadius:99,background:`${C.gold}18`,border:`1px solid ${C.gold}33`,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>VIP</span>
+              </div>
+              {!isVip ? (
+                <VipGate isVip={false} onUpgrade={onUpgrade} feature="Venue Heatmap">
+                  <div style={{ height:80 }} />
+                </VipGate>
+              ) : (
+                <div style={{ animation:"up .3s ease" }}>
+                  {/* Venue SVG layout */}
+                  <div style={{ background:`linear-gradient(160deg,#0c0520,#16083a)`,border:`1.5px solid ${col}30`,borderRadius:20,overflow:"hidden",marginBottom:14 }}>
+                    <svg viewBox="0 0 320 200" style={{ width:"100%",height:"auto" }}>
+                      {/* Stage */}
+                      <rect x="110" y="12" width="100" height="24" rx="6" fill={`${col}40`} stroke={col} strokeWidth="1.2"/>
+                      <text x="160" y="28" textAnchor="middle" fill={col} fontSize="9" fontFamily="'Epilogue',sans-serif" fontWeight="900">STAGE</text>
+                      {/* GA Pit — hottest */}
+                      <rect x="90" y="44" width="140" height="34" rx="5" fill="rgba(255,80,80,0.28)" stroke="#ff5050" strokeWidth="1"/>
+                      <text x="160" y="59" textAnchor="middle" fill="#ff8080" fontSize="8" fontFamily="'Epilogue',sans-serif" fontWeight="700">GA PIT</text>
+                      <text x="160" y="70" textAnchor="middle" fill="#ff6060" fontSize="7" fontFamily="'Instrument Sans',sans-serif">94% full · pushing in</text>
+                      {/* Floor */}
+                      <rect x="70" y="84" width="180" height="32" rx="5" fill="rgba(255,160,60,0.22)" stroke="#ffa03c" strokeWidth="1"/>
+                      <text x="160" y="99" textAnchor="middle" fill="#ffc060" fontSize="8" fontFamily="'Epilogue',sans-serif" fontWeight="700">FLOOR</text>
+                      <text x="160" y="109" textAnchor="middle" fill="#ffb050" fontSize="7" fontFamily="'Instrument Sans',sans-serif">71% full · steady flow</text>
+                      {/* Lower Bowl */}
+                      <rect x="40" y="122" width="240" height="30" rx="5" fill="rgba(100,200,140,0.18)" stroke="#64c88c" strokeWidth="0.8"/>
+                      <text x="160" y="137" textAnchor="middle" fill="#80d8a0" fontSize="8" fontFamily="'Epilogue',sans-serif" fontWeight="700">LOWER BOWL</text>
+                      <text x="160" y="148" textAnchor="middle" fill="#64c888" fontSize="7" fontFamily="'Instrument Sans',sans-serif">48% full · easy entry</text>
+                      {/* Upper Bowl */}
+                      <rect x="14" y="158" width="292" height="28" rx="5" fill="rgba(130,160,255,0.14)" stroke="#82a0ff" strokeWidth="0.8"/>
+                      <text x="160" y="173" textAnchor="middle" fill="#a0b8ff" fontSize="8" fontFamily="'Epilogue',sans-serif" fontWeight="700">UPPER BOWL</text>
+                      <text x="160" y="184" textAnchor="middle" fill="#8090e0" fontSize="7" fontFamily="'Instrument Sans',sans-serif">22% full · best value</text>
+                      {/* Heat legend top-right */}
+                      <rect x="262" y="46" width="50" height="8" rx="3" fill="url(#heatGrad)"/>
+                      <defs><linearGradient id="heatGrad" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="#82a0ff"/><stop offset="50%" stopColor="#ffa03c"/><stop offset="100%" stopColor="#ff5050"/></linearGradient></defs>
+                      <text x="262" y="64" fill="rgba(255,255,255,0.4)" fontSize="6" fontFamily="'Instrument Sans',sans-serif">cool</text>
+                      <text x="298" y="64" fill="rgba(255,255,255,0.4)" fontSize="6" fontFamily="'Instrument Sans',sans-serif">hot</text>
+                    </svg>
+                  </div>
+
+                  {/* Section stats */}
+                  {[
+                    { name:"GA Pit",     fill:94, wait:"Merch: sold out nearby",  tip:"Enter via Gate B · arrive now", color:"#ff5050" },
+                    { name:"Floor",      fill:71, wait:"Merch: ~20 min wait",     tip:"Gate C · smooth entry",         color:"#ffa03c" },
+                    { name:"Lower Bowl", fill:48, wait:"Merch: ~10 min wait",     tip:"Gate A · no queue",             color:"#64c88c" },
+                    { name:"Upper Bowl", fill:22, wait:"Merch: open",             tip:"Lots of space · great sound",   color:"#82a0ff" },
+                  ].map(s=>(
+                    <div key={s.name} style={{ background:C.surface,border:`1px solid ${C.border}`,borderRadius:13,padding:"10px 14px",marginBottom:8,display:"flex",gap:12,alignItems:"center" }}>
+                      <div style={{ width:34,height:34,borderRadius:10,background:`${s.color}18`,border:`1px solid ${s.color}44`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
+                        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:11,color:s.color }}>{s.fill}%</p>
+                      </div>
+                      <div style={{ flex:1 }}>
+                        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,marginBottom:2 }}>{s.name}</p>
+                        <p style={{ fontSize:10,color:C.textMid }}>{s.wait}</p>
+                        <p style={{ fontSize:10,color:s.color,marginTop:2 }}>→ {s.tip}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -11624,7 +11750,7 @@ function AppInner() {
         {modal==="qr"&&<ModalWrapper><QRPage onBack={()=>setModal(null)} user={user} onNotif={showNotif} /></ModalWrapper>}
         {modal==="safety"&&<ModalWrapper><SafetyCenter onBack={()=>setModal(null)} /></ModalWrapper>}
         {modal==="events"&&<ModalWrapper><EventDiscovery onBack={()=>setModal(null)} go={go} /></ModalWrapper>}
-        {modal==="concertday"&&<ModalWrapper><ConcertDayMode concert={MOCK_CONCERTS[0]} onBack={()=>setModal(null)} go={go} /></ModalWrapper>}
+        {modal==="concertday"&&<ModalWrapper><ConcertDayMode concert={MOCK_CONCERTS[0]} onBack={()=>setModal(null)} go={go} isVip={isVip} onUpgrade={openUpgrade} /></ModalWrapper>}
         {modal==="timeline"&&<ModalWrapper><EventTimeline concert={MOCK_CONCERTS[0]} onBack={()=>setModal(null)} /></ModalWrapper>}
         {modal==="tickets"&&<ModalWrapper><TicketWallet onBack={()=>setModal(null)} /></ModalWrapper>}
         {modal==="nearby"&&<ModalWrapper><MicroMoments onBack={()=>setModal(null)} /></ModalWrapper>}
