@@ -9962,9 +9962,10 @@ function MusicConnect({ nowPlaying, setNowPlaying, npDraft, setNpDraft }) {
 // ─── CONCERT CAPSULE ─────────────────────────────────────────────────────────
 // Shared memory binder for fans at the same concert
 // POST /api/capsule/:concertId | GET /api/capsule/:concertId/entries
-function ConcertCapsule({ concert, onBack, user }) {
+function ConcertCapsule({ concert, onBack, user, isVip=false, onUpgrade, isSignedOut=false, fromCapsulePath=false, onSignupRequired }) {
   const KEY = "backstage_concert_capsules";
   const CONCERT_ID = concert?.id || "bts-lv-1";
+  const FREE_CAP = 3;
   const CATS = [
     {id:"all",      label:"All",              emoji:"✦"},
     {id:"fit",      label:"Fit Checks",       emoji:"👗"},
@@ -9995,6 +9996,9 @@ function ConcertCapsule({ concert, onBack, user }) {
   const [view, setView] = useState("scrapbook");
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState({category:"fit",caption:""});
+  const [showAuthGate, setShowAuthGate] = useState(false);
+  const [myCount, setMyCount] = useState(()=>ls.get(`backstage_capsule_count_${CONCERT_ID}`,0));
+  const atFreeLimit = !isVip && !isSignedOut && !!user && myCount >= FREE_CAP;
 
   useEffect(()=>{ ls.set(KEY,entries); },[entries]);
   const filtered = activeCat==="all"?entries:entries.filter(e=>e.category===activeCat);
@@ -10006,7 +10010,9 @@ function ConcertCapsule({ concert, onBack, user }) {
   };
   const addEntry = () => {
     if(!draft.caption.trim()) return;
-    setEntries(es=>[{id:`e${Date.now()}`,concertId:CONCERT_ID,category:draft.category,caption:draft.caption,username:`@${user?.name||"stan"}`,timestamp:"just now",gradient:`linear-gradient(135deg,${C.accent},${C.pink})`,likes:0,savedToScrapbook:false},...es]);
+    if(atFreeLimit){ onUpgrade?.(); return; }
+    setEntries(es=>[{id:`e${Date.now()}`,concertId:CONCERT_ID,category:draft.category,caption:draft.caption,username:`@${user?.name||user?.username||"stan"}`,timestamp:"just now",gradient:`linear-gradient(135deg,${C.accent},${C.pink})`,likes:0,savedToScrapbook:false},...es]);
+    setMyCount(c=>{ const n=c+1; ls.set(`backstage_capsule_count_${CONCERT_ID}`,n); return n; });
     setDraft({category:"fit",caption:""}); setAdding(false);
   };
 
@@ -10083,9 +10089,21 @@ function ConcertCapsule({ concert, onBack, user }) {
         </div>
       </div>
       <Screen style={{ padding:"0 20px 100px",position:"relative",zIndex:1 }}>
-        <button onClick={()=>setAdding(true)} style={{ width:"100%",padding:"12px",borderRadius:16,background:`linear-gradient(140deg,${C.accent}18,${C.pink}0e)`,border:`1.5px solid ${C.accent}33`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",marginBottom:12,display:"flex",alignItems:"center",justifyContent:"center",gap:8 }}>📸 Add Your Memory to the Capsule</button>
+        {/* Add moment CTA — auth-aware + free-limit-aware */}
+        {atFreeLimit ? (
+          <div style={{ marginBottom:14,background:`linear-gradient(135deg,${C.surfaceHi},${C.surface})`,border:`1.5px solid ${C.gold}33`,borderRadius:16,padding:"14px 16px" }}>
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,marginBottom:4,color:C.gold }}>You've shared {myCount} moments tonight 💜</p>
+            <p style={{ fontSize:11,color:C.textMid,lineHeight:1.6,marginBottom:10 }}>Want to keep every concert memory? Unlock unlimited capsule entries with Backstage VIP.</p>
+            <button onClick={()=>onUpgrade?.()} style={{ background:`linear-gradient(135deg,${C.gold},${C.goldDim})`,border:"none",borderRadius:11,padding:"8px 18px",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer" }}>Unlock VIP — Keep Every Memory</button>
+          </div>
+        ) : (
+          <button onClick={()=>{ if(isSignedOut){ setShowAuthGate(true); return; } setAdding(true); }} style={{ width:"100%",padding:"13px",borderRadius:16,background:`linear-gradient(140deg,${C.accent}22,${C.pink}12)`,border:`1.5px solid ${C.accent}44`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",marginBottom:12,display:"flex",alignItems:"center",justifyContent:"center",gap:8 }}>
+            📸 Add My Moment to the Capsule
+            {!isSignedOut && user && myCount > 0 && <span style={{ fontSize:9,color:C.textMid,background:C.surfaceHi,borderRadius:99,padding:"2px 7px",marginLeft:4 }}>{FREE_CAP - myCount} free left</span>}
+          </button>
+        )}
         <div style={{ background:`${C.pink}08`,border:`1px solid ${C.pink}20`,borderRadius:13,padding:"9px 14px",marginBottom:14 }}>
-          <p style={{ fontSize:11,color:C.pink,lineHeight:1.6 }}>Still floating? Help the Fanverse remember the night from every angle. 💜</p>
+          <p style={{ fontSize:11,color:C.pink,lineHeight:1.6 }}>{isSignedOut ? "Preview and add your moment — free to join tonight. 💜" : "Still floating? Help the Fanverse remember the night from every angle. 💜"}</p>
         </div>
         {filtered.length===0?(
           <div style={{ textAlign:"center",padding:"40px 20px" }}>
@@ -10103,7 +10121,7 @@ function ConcertCapsule({ concert, onBack, user }) {
         <div onClick={()=>setAdding(false)} style={{ position:"fixed",inset:0,zIndex:600,background:"rgba(6,6,15,0.88)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
           <div onClick={e=>e.stopPropagation()} style={{ width:"100%",background:C.surface,borderRadius:"24px 24px 0 0",padding:"24px 20px 36px",border:`1.5px solid ${C.borderHi}`,animation:"slideUp .25s ease" }}>
             <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 20px" }} />
-            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,marginBottom:3 }}>Add to the Capsule 📸</p>
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,marginBottom:3 }}>Add My Moment 📸</p>
             <p style={{ fontSize:11,color:C.textMid,marginBottom:14 }}>Your memory of this night, shared with every fan who was there.</p>
             <div style={{ display:"flex",gap:6,overflowX:"auto",marginBottom:12,paddingBottom:2 }}>
               {CATS.filter(c=>c.id!=="all").map(cat=>(
@@ -10114,10 +10132,39 @@ function ConcertCapsule({ concert, onBack, user }) {
             <p style={{ fontSize:9,color:C.textDim,textAlign:"right",marginBottom:12 }}>{draft.caption.length}/160</p>
             <div style={{ background:`${C.accent}08`,border:`1px solid ${C.accent}18`,borderRadius:11,padding:"8px 12px",marginBottom:14,display:"flex",gap:8,alignItems:"center" }}>
               <span style={{ fontSize:12 }}>👤</span>
-              <p style={{ fontSize:9.5,color:C.textMid }}>Posted as <strong style={{ color:C.accent }}>@{user?.name||"stan"}</strong> · No photos yet — text captions only in prototype</p>
+              <p style={{ fontSize:9.5,color:C.textMid }}>Posted as <strong style={{ color:C.accent }}>@{user?.name||user?.username||"stan"}</strong> · {!isVip&&`${FREE_CAP-myCount} free moment${FREE_CAP-myCount!==1?"s":""} remaining`}</p>
             </div>
             <Btn onClick={addEntry} disabled={!draft.caption.trim()}>Add to Capsule 💜</Btn>
             <div style={{ marginTop:8 }}><Btn ghost color={C.textMid} onClick={()=>setAdding(false)}>Cancel</Btn></div>
+          </div>
+        </div>
+      )}
+
+      {/* Auth gate — shown when signed-out fan taps "Add My Moment" */}
+      {showAuthGate&&(
+        <div onClick={()=>setShowAuthGate(false)} style={{ position:"fixed",inset:0,zIndex:700,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ width:"100%",background:`linear-gradient(160deg,${C.surfaceMid},${C.cosmic})`,borderRadius:"28px 28px 0 0",padding:"28px 24px 40px",border:`1.5px solid ${C.borderHi}`,animation:"slideUp .28s ease",position:"relative",overflow:"hidden" }}>
+            <div style={{ position:"absolute",top:0,left:0,right:0,height:2,background:`linear-gradient(90deg,transparent,${C.accent}55,transparent)` }} />
+            <div style={{ width:36,height:4,borderRadius:99,background:C.border,margin:"0 auto 22px" }} />
+            {/* Icon */}
+            <div style={{ width:52,height:52,borderRadius:16,background:`linear-gradient(135deg,${C.accent}28,${C.berry}18)`,border:`1.5px solid ${C.accent}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,marginBottom:16 }}>📸</div>
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:21,marginBottom:6,background:`linear-gradient(135deg,${C.lavender},${C.pink})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent" }}>Save your moment</p>
+            <p style={{ fontSize:13,color:C.textMid,lineHeight:1.7,marginBottom:20 }}>Create your free Backstage profile to add your memory to tonight's capsule.</p>
+            {/* Benefits */}
+            <div style={{ background:`${C.accent}0a`,border:`1px solid ${C.borderHi}`,borderRadius:14,padding:"12px 14px",marginBottom:22 }}>
+              {[["📸","Add your moments to tonight's capsule"],["💜",`Join ${entries.length+412} fans sharing memories right now`],["🎟️","Free day-of access — no subscription needed"]].map(([icon,text],i)=>(
+                <div key={i} style={{ display:"flex",alignItems:"center",gap:10,paddingTop:i>0?9:0,paddingBottom:i<2?9:0,borderBottom:i<2?`1px solid ${C.border}`:"none" }}>
+                  <span style={{ fontSize:14,flexShrink:0 }}>{icon}</span>
+                  <p style={{ fontSize:11.5,color:C.text,lineHeight:1.4 }}>{text}</p>
+                </div>
+              ))}
+            </div>
+            <button onClick={()=>{ setShowAuthGate(false); onSignupRequired?.(); }} style={{ width:"100%",padding:"15px",borderRadius:14,border:"none",background:`linear-gradient(135deg,${C.accent},${C.berry})`,color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,cursor:"pointer",boxShadow:`0 0 24px ${C.accent}30`,marginBottom:10 }}>
+              Create My Free Profile →
+            </button>
+            <button onClick={()=>setShowAuthGate(false)} style={{ width:"100%",padding:"11px",borderRadius:14,border:`1px solid ${C.borderHi}`,background:"none",color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer" }}>
+              Keep browsing first
+            </button>
           </div>
         </div>
       )}
@@ -11384,9 +11431,9 @@ function FandomSearch({ value, selected=[], onSelect, multiple=false, placeholde
 // QR flyer destination: /capsule → invite fans into the Concert Capsule
 function CapsuleLandingPage({ onJoin, onExplore }) {
   const ITEMS = [
-    {emoji:"📸",label:"Photos"},{emoji:"🎥",label:"Videos"},{emoji:"👗",label:"Fit Checks"},
-    {emoji:"🎁",label:"Freebies"},{emoji:"🎤",label:"Fan Chants"},{emoji:"💜",label:"Memories"},
-    {emoji:"🤝",label:"Friends"},{emoji:"✨",label:"& More"},
+    {emoji:"📸",label:"Pics"},{emoji:"👗",label:"Fit Checks"},{emoji:"🎁",label:"Freebies"},
+    {emoji:"🎤",label:"Fan Chants"},{emoji:"💜",label:"Memories"},{emoji:"🤝",label:"Friends"},
+    {emoji:"🎥",label:"Videos"},{emoji:"✨",label:"& More"},
   ];
   const SPARKLES = [
     {top:"6%",left:"10%",size:11,delay:"0s"},{top:"12%",left:"82%",size:7,delay:"1.1s"},
@@ -11450,9 +11497,9 @@ function CapsuleLandingPage({ onJoin, onExplore }) {
         {/* Trust copy */}
         <div style={{ marginTop:28,background:`linear-gradient(135deg,${C.surfaceHi}cc,${C.surface}cc)`,border:`1px solid ${C.borderHi}`,borderRadius:18,padding:"16px 18px",width:"100%",backdropFilter:"blur(12px)" }}>
           {[
-            {icon:"🎟️",text:"Made for fans at the show — tonight only"},
-            {icon:"🔒",text:"Privacy first. You're in control of what you share"},
-            {icon:"💜",text:"No account? Preview first, join when ready"},
+            {icon:"🎟️",text:"Free to join tonight. Save everything with Backstage."},
+            {icon:"🔒",text:"Privacy first. You're in control of what you share."},
+            {icon:"💜",text:"No pressure — preview the capsule first."},
           ].map((item,i)=>(
             <div key={i} style={{ display:"flex",alignItems:"center",gap:12,paddingTop:i>0?10:0,paddingBottom:i<2?10:0,borderBottom:i<2?`1px solid ${C.border}`:"none" }}>
               <span style={{ fontSize:16,flexShrink:0 }}>{item.icon}</span>
@@ -11463,12 +11510,12 @@ function CapsuleLandingPage({ onJoin, onExplore }) {
 
         {/* Primary CTA */}
         <button onClick={onJoin} style={{ marginTop:28,width:"100%",padding:"17px 24px",borderRadius:16,border:"none",background:`linear-gradient(135deg,${C.accent},${C.berry})`,color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17,cursor:"pointer",boxShadow:`0 0 32px ${C.accent}40,0 8px 24px rgba(0,0,0,0.35)`,animation:"glow 2.5s ease-in-out infinite",letterSpacing:"-0.01em" }}>
-          Join the Capsule 💜
+          Add My Moment 📸
         </button>
 
         {/* Secondary CTA */}
         <button onClick={onExplore} style={{ marginTop:14,background:"none",border:"none",color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:13.5,cursor:"pointer",padding:"10px 0",textDecoration:"underline",textDecorationColor:`${C.textMid}44`,textUnderlineOffset:3 }}>
-          Explore Backstage first →
+          Preview tonight's capsule first →
         </button>
 
         {/* Bottom wordmark */}
@@ -11495,6 +11542,8 @@ function AppInner() {
   const [modal, setModal] = useState(()=>_IS_CAPSULE_PATH&&ls.get("backstage_session")?.user?"capsule":null);
   const [fromCapsule, setFromCapsule] = useState(_IS_CAPSULE_PATH);
   const [showCapsuleLanding, setShowCapsuleLanding] = useState(()=>_IS_CAPSULE_PATH&&!ls.get("backstage_session")?.user);
+  // Capsule preview: signed-out fan sees the capsule before being asked to sign up
+  const [showCapsulePreview, setShowCapsulePreview] = useState(false);
   const [cards, setCards] = useState(MOCK_CARDS);
   const [notif, setNotif] = useState(null);
   const [showNotifPrompt, setShowNotifPrompt] = useState(false);
@@ -11611,9 +11660,30 @@ function AppInner() {
   // /capsule path: show landing page for signed-out fans
   if (showCapsuleLanding) {
     return <CapsuleLandingPage
-      onJoin={()=>setShowCapsuleLanding(false)}
-      onExplore={()=>{ setFromCapsule(false); setShowCapsuleLanding(false); }}
+      onJoin={()=>{ setShowCapsuleLanding(false); setShowCapsulePreview(true); }}
+      onExplore={()=>{ setShowCapsuleLanding(false); setShowCapsulePreview(true); }}
     />;
+  }
+
+  // /capsule preview: signed-out fan browses the capsule; "Add Moment" triggers auth gate
+  if (showCapsulePreview) {
+    return (
+      <>
+        <style>{CSS}</style>
+        <div className="cosmic-bg" style={{ maxWidth:390,margin:"0 auto",height:"100vh",background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 40%,#0c0820 100%)`,display:"flex",flexDirection:"column",position:"relative",overflow:"hidden" }}>
+          <ConcertCapsule
+            concert={MOCK_CONCERTS[0]}
+            onBack={()=>setShowCapsulePreview(false)}
+            user={null}
+            isSignedOut={true}
+            fromCapsulePath={true}
+            onSignupRequired={()=>setShowCapsulePreview(false)}
+            isVip={false}
+            onUpgrade={()=>{}}
+          />
+        </div>
+      </>
+    );
   }
 
   return(
@@ -11702,7 +11772,7 @@ function AppInner() {
         {/* PHASE 5 MODALS */}
         {modal==="invite"&&<ModalWrapper><InvitePage onBack={()=>setModal(null)} user={user} onNotif={showNotif} isVip={isVip} onUpgrade={openUpgrade} /></ModalWrapper>}
         {modal==="contentgen"&&<ModalWrapper><ContentGenerator onBack={()=>setModal(null)} user={user} go={go} onNotif={showNotif} /></ModalWrapper>}
-        {modal==="capsule"&&<ModalWrapper><ConcertCapsule concert={MOCK_CONCERTS[0]} onBack={()=>setModal(null)} user={user} /></ModalWrapper>}
+        {modal==="capsule"&&<ModalWrapper><ConcertCapsule concert={MOCK_CONCERTS[0]} onBack={()=>setModal(null)} user={user} isVip={isVip} onUpgrade={openUpgrade} /></ModalWrapper>}
         {modal==="passes"&&<ModalWrapper><BackstagePasses onBack={()=>setModal(null)} user={user} /></ModalWrapper>}
 
         {modal==="collectmodal"&&<ModalWrapper><div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden" }}><div style={{ padding:"16px 20px",display:"flex",gap:10,alignItems:"center",flexShrink:0 }}><button onClick={()=>setModal(null)} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button><h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19 }}>My Collection 🃏</h2></div><Screen style={{ padding:"0 20px 100px" }}><CollectTab cards={cards} setCards={setCards} isVip={isVip} onUpgrade={openUpgrade} /></Screen></div></ModalWrapper>}
