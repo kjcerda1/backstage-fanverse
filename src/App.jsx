@@ -11380,16 +11380,121 @@ function FandomSearch({ value, selected=[], onSelect, multiple=false, placeholde
 }
 
 
+// ─── CAPSULE LANDING PAGE ─────────────────────────────────────────────────────
+// QR flyer destination: /capsule → invite fans into the Concert Capsule
+function CapsuleLandingPage({ onJoin, onExplore }) {
+  const ITEMS = [
+    {emoji:"📸",label:"Photos"},{emoji:"🎥",label:"Videos"},{emoji:"👗",label:"Fit Checks"},
+    {emoji:"🎁",label:"Freebies"},{emoji:"🎤",label:"Fan Chants"},{emoji:"💜",label:"Memories"},
+    {emoji:"🤝",label:"Friends"},{emoji:"✨",label:"& More"},
+  ];
+  const SPARKLES = [
+    {top:"6%",left:"10%",size:11,delay:"0s"},{top:"12%",left:"82%",size:7,delay:"1.1s"},
+    {top:"30%",left:"94%",size:9,delay:"0.3s"},{top:"50%",left:"3%",size:6,delay:"1.9s"},
+    {top:"68%",left:"90%",size:8,delay:"0.7s"},{top:"82%",left:"18%",size:7,delay:"1.6s"},
+    {top:"20%",left:"52%",size:5,delay:"0.5s"},{top:"44%",left:"38%",size:6,delay:"1.3s"},
+    {top:"90%",left:"70%",size:5,delay:"2.1s"},{top:"58%",left:"60%",size:4,delay:"0.9s"},
+  ];
+  return (
+    <div className="cosmic-bg" style={{ minHeight:"100vh", background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 45%,#0c0820 100%)`, display:"flex", flexDirection:"column", alignItems:"center", overflowY:"auto", position:"relative", paddingBottom:40 }}>
+      <style>{CSS}</style>
+      {/* Ambient orbs */}
+      <div style={{ position:"fixed",top:"15%",left:"-10%",width:260,height:260,borderRadius:"50%",background:`radial-gradient(circle,${C.berry}14,transparent 70%)`,pointerEvents:"none",zIndex:0 }} />
+      <div style={{ position:"fixed",bottom:"20%",right:"-8%",width:220,height:220,borderRadius:"50%",background:`radial-gradient(circle,${C.accent}10,transparent 70%)`,pointerEvents:"none",zIndex:0 }} />
+      <div style={{ position:"fixed",top:"55%",left:"40%",width:180,height:180,borderRadius:"50%",background:`radial-gradient(circle,${C.pink}08,transparent 70%)`,pointerEvents:"none",zIndex:0 }} />
+      {/* Sparkles */}
+      {SPARKLES.map((s,i)=>(
+        <div key={i} style={{ position:"fixed",top:s.top,left:s.left,fontSize:s.size,color:C.lavender,opacity:0.45,animation:`sparkleFloat 3s ease-in-out infinite`,animationDelay:s.delay,pointerEvents:"none",zIndex:0 }}>✦</div>
+      ))}
+
+      {/* Content wrapper */}
+      <div style={{ position:"relative",zIndex:1,width:"100%",maxWidth:390,padding:"0 24px",display:"flex",flexDirection:"column",alignItems:"center" }}>
+
+        {/* Logo */}
+        <div style={{ marginTop:52,marginBottom:4,display:"flex",flexDirection:"column",alignItems:"center",gap:4 }}>
+          <div style={{ width:52,height:52,borderRadius:16,background:`linear-gradient(135deg,${C.accent}30,${C.berry}20)`,border:`1.5px solid ${C.accent}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,fontFamily:"'Epilogue',sans-serif",fontWeight:900,color:C.accent,boxShadow:`0 0 28px ${C.accent}28,0 8px 24px rgba(0,0,0,0.4)`,animation:"glow 3s ease-in-out infinite" }}>B</div>
+          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,letterSpacing:"0.18em",color:C.textMid,marginTop:2 }}>BACKSTAGE · FANVERSE</p>
+        </div>
+
+        {/* Live badge */}
+        <div style={{ marginTop:20,padding:"5px 14px",borderRadius:99,background:`linear-gradient(90deg,${C.berry}28,${C.accent}22)`,border:`1px solid ${C.accent}44`,display:"flex",alignItems:"center",gap:6,animation:"pulse 2s ease-in-out infinite" }}>
+          <div style={{ width:6,height:6,borderRadius:"50%",background:C.berry,boxShadow:`0 0 8px ${C.berry}` }} />
+          <span style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,color:C.lavender,letterSpacing:"0.1em" }}>TONIGHT'S CONCERT CAPSULE IS LIVE</span>
+        </div>
+
+        {/* Hero headline */}
+        <div style={{ marginTop:28,textAlign:"center" }}>
+          <h1 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:34,lineHeight:1.12,letterSpacing:"-0.025em",animation:"reveal .5s ease both" }}>
+            <span style={{ display:"block",color:C.text }}>Add your moment</span>
+            <span style={{ display:"block",fontStyle:"italic",background:`linear-gradient(135deg,${C.lavender},${C.pink})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent" }}>to the Concert</span>
+            <span style={{ display:"block",fontStyle:"italic",background:`linear-gradient(135deg,${C.pink},${C.berry})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent" }}>Capsule ♡</span>
+          </h1>
+          <p style={{ marginTop:14,fontSize:13.5,color:C.textMid,lineHeight:1.7,fontStyle:"italic" }}>
+            One show. One community. All the memories.
+          </p>
+        </div>
+
+        {/* What fans can share */}
+        <div style={{ marginTop:28,width:"100%" }}>
+          <p style={{ fontSize:11,fontFamily:"'Epilogue',sans-serif",fontWeight:700,color:C.textMid,letterSpacing:"0.12em",textAlign:"center",marginBottom:14 }}>SHARE YOUR</p>
+          <div style={{ display:"flex",flexWrap:"wrap",gap:8,justifyContent:"center" }}>
+            {ITEMS.map(item=>(
+              <div key={item.label} style={{ padding:"8px 14px",borderRadius:99,background:`linear-gradient(135deg,${C.surfaceHi},${C.surface})`,border:`1.5px solid ${C.borderHi}`,display:"flex",alignItems:"center",gap:6 }}>
+                <span style={{ fontSize:14 }}>{item.emoji}</span>
+                <span style={{ fontSize:11.5,fontFamily:"'Epilogue',sans-serif",fontWeight:600,color:C.text }}>{item.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Trust copy */}
+        <div style={{ marginTop:28,background:`linear-gradient(135deg,${C.surfaceHi}cc,${C.surface}cc)`,border:`1px solid ${C.borderHi}`,borderRadius:18,padding:"16px 18px",width:"100%",backdropFilter:"blur(12px)" }}>
+          {[
+            {icon:"🎟️",text:"Made for fans at the show — tonight only"},
+            {icon:"🔒",text:"Privacy first. You're in control of what you share"},
+            {icon:"💜",text:"No account? Preview first, join when ready"},
+          ].map((item,i)=>(
+            <div key={i} style={{ display:"flex",alignItems:"center",gap:12,paddingTop:i>0?10:0,paddingBottom:i<2?10:0,borderBottom:i<2?`1px solid ${C.border}`:"none" }}>
+              <span style={{ fontSize:16,flexShrink:0 }}>{item.icon}</span>
+              <p style={{ fontSize:12,color:C.textMid,lineHeight:1.5 }}>{item.text}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Primary CTA */}
+        <button onClick={onJoin} style={{ marginTop:28,width:"100%",padding:"17px 24px",borderRadius:16,border:"none",background:`linear-gradient(135deg,${C.accent},${C.berry})`,color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17,cursor:"pointer",boxShadow:`0 0 32px ${C.accent}40,0 8px 24px rgba(0,0,0,0.35)`,animation:"glow 2.5s ease-in-out infinite",letterSpacing:"-0.01em" }}>
+          Join the Capsule 💜
+        </button>
+
+        {/* Secondary CTA */}
+        <button onClick={onExplore} style={{ marginTop:14,background:"none",border:"none",color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:13.5,cursor:"pointer",padding:"10px 0",textDecoration:"underline",textDecorationColor:`${C.textMid}44`,textUnderlineOffset:3 }}>
+          Explore Backstage first →
+        </button>
+
+        {/* Bottom wordmark */}
+        <p style={{ marginTop:36,fontSize:10,color:C.textDim,letterSpacing:"0.12em",textAlign:"center" }}>
+          BACKSTAGE BY FANVERSE · ONE UNIVERSE. ENDLESS CONNECTIONS.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ─── ROOT APP ─────────────────────────────────────────────────────────────────
 export default function App() {
   return <AuthProvider><AppInner /></AuthProvider>;
 }
 
+const _IS_CAPSULE_PATH = typeof window!=="undefined" && (window.location.pathname==="/capsule"||window.location.pathname==="/capsule/");
+
 function AppInner() {
   const [user, setUser] = useState(()=>ls.get("backstage_session")?.user||null);
   const [appState, setAppState] = useState(()=>ls.get("backstage_session")?.user?"main":"onboarding");
   const [tab, setTab] = useState("home");
-  const [modal, setModal] = useState(null);
+  // Auto-open capsule modal if signed-in user lands on /capsule
+  const [modal, setModal] = useState(()=>_IS_CAPSULE_PATH&&ls.get("backstage_session")?.user?"capsule":null);
+  const [fromCapsule, setFromCapsule] = useState(_IS_CAPSULE_PATH);
+  const [showCapsuleLanding, setShowCapsuleLanding] = useState(()=>_IS_CAPSULE_PATH&&!ls.get("backstage_session")?.user);
   const [cards, setCards] = useState(MOCK_CARDS);
   const [notif, setNotif] = useState(null);
   const [showNotifPrompt, setShowNotifPrompt] = useState(false);
@@ -11503,6 +11608,14 @@ function AppInner() {
     </ModalWrapper>
   );
 
+  // /capsule path: show landing page for signed-out fans
+  if (showCapsuleLanding) {
+    return <CapsuleLandingPage
+      onJoin={()=>setShowCapsuleLanding(false)}
+      onExplore={()=>{ setFromCapsule(false); setShowCapsuleLanding(false); }}
+    />;
+  }
+
   return(
     <>
       <style>{CSS}</style>
@@ -11602,6 +11715,7 @@ function AppInner() {
             setUser(data);
             setAppState("main");
             ls.set("backstage_session", { user: data });
+            if (fromCapsule) setModal("capsule");
             console.log('[App] appState → main');
           }} />}
           {appState==="main"&&!modal&&(
