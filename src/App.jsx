@@ -449,8 +449,8 @@ const Card = ({ children, style:s, onClick, glow, color, accent }) => (
   }}>{children}</div>
 );
 
-const Screen = ({ children, pad=true, style:s }) => (
-  <div style={{ flex:1, overflowY:"auto", overflowX:"hidden", padding:pad?"0 20px 100px":0, position:"relative", ...s }}>
+const Screen = ({ children, pad=true, style:s, onScroll, ...rest }) => (
+  <div onScroll={onScroll} style={{ flex:1, overflowY:"auto", overflowX:"hidden", padding:pad?"0 20px 100px":0, position:"relative", ...s }} {...rest}>
     {/* Subtle ambient glow layer on every scroll pane */}
     <div style={{ position:"sticky",top:0,left:0,right:0,height:0,overflow:"visible",pointerEvents:"none",zIndex:0 }}>
       <div style={{ position:"absolute",top:-30,right:-20,width:200,height:200,borderRadius:"50%",background:`radial-gradient(circle,${C.accent}05,transparent 70%)`,pointerEvents:"none" }} />
@@ -4774,6 +4774,12 @@ function FanverseLeaders() {
 function FanverseTab({ go, user, isVip, onUpgrade }) {
   const [view, setView]   = useState("feed"); // feed | map | hubs | leaders
   const [joined, setJoined] = useState(["dallas"]);
+  const [scrolled, setScrolled] = useState(false);
+  const changeView = (v) => { setView(v); setScrolled(false); };
+  // Pass rings — read from BackstagePass localStorage data so rings stay in sync
+  const [ringPasses] = useState(()=>ls.get("backstage_passes",[]).slice(0,6));
+  const PEMOJI = {fitcheck:"👗",merch:"🛍️",freebie:"🎁",seat:"📍",lightstick:"💜",afterglow:"✨",moot:"🤝",biasmoment:"⭐",foodrun:"🍱",travel:"✈️"};
+  const DEMO_RINGS = [{emoji:"💜",label:"Vegas ARMY"},{emoji:"🎁",label:"Freebies"},{emoji:"👗",label:"GA Fits"},{emoji:"🎤",label:"Soundcheck"},{emoji:"✨",label:"Afterglow"}];
 
   const FAN_DOTS = [
     { x:22, y:38, size:18, color:C.accent, city:"New York",    fans:"4.2K", level:"Very Active",     trending:true },
@@ -4923,63 +4929,88 @@ function FanverseTab({ go, user, isVip, onUpgrade }) {
     </div>
   );
 
+  // Pass ring data: use real passes if available, fall back to demo rings
+  const ringsToShow = ringPasses.length > 0
+    ? ringPasses.map(p=>({ key:p.id, emoji:PEMOJI[p.type]||"🎟️", label:p.username?.replace("@","")||"fan", color:p.color||C.accent, grad:p.grad }))
+    : DEMO_RINGS.map((r,i)=>({ key:i, emoji:r.emoji, label:r.label, color:[C.accent,C.pink,C.mint,C.gold,C.lavender][i%5], grad:null }));
+
   return (
     <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
 
-      {/* ── HEADER ── */}
-      <div style={{ padding:"18px 20px 0", flexShrink:0, background:`linear-gradient(180deg,${C.bg} 80%,transparent)` }}>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
-          <div>
+      {/* ── STICKY HEADER ZONE — never scrolls away ── */}
+      <div style={{ flexShrink:0, zIndex:20, position:"relative", background:scrolled?`rgba(7,5,15,0.97)`:`rgba(7,5,15,0.82)`, backdropFilter:"blur(18px)", borderBottom:scrolled?`1px solid ${C.borderHi}`:"1px solid transparent", transition:"background .3s ease, border-color .3s ease" }}>
+
+        {/* EXPANDED title — hides on scroll */}
+        <div style={{ overflow:"hidden", maxHeight:scrolled?0:54, opacity:scrolled?0:1, paddingTop:scrolled?0:14, paddingInline:20, transition:"max-height .28s ease, opacity .22s ease, padding-top .28s ease" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", paddingBottom:4 }}>
             <div>
               <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:1 }}>Your Map</p>
               <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontStyle:"italic",fontWeight:700,fontSize:20,background:`linear-gradient(135deg,${C.lavender},${C.blush})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",lineHeight:1 }}>the Fanverse ✦</h2>
             </div>
-          </div>
-          <div style={{ display:"flex", gap:6, alignItems:"center" }}>
-            <div style={{ width:6,height:6,borderRadius:"50%",background:C.rose,animation:"pulse 1.2s ease infinite",boxShadow:`0 0 5px ${C.rose}` }} />
-            <p style={{ fontSize:10, color:C.rose, fontFamily:"'Epilogue',sans-serif", fontWeight:700 }}>LIVE</p>
-          </div>
-        </div>
-
-        {/* Backstage Passes entry */}
-        <div onClick={()=>go?.("passes")} className="tap" style={{ background:`linear-gradient(140deg,${C.accent}14,${C.pink}0a)`,border:`1.5px solid ${C.accent}33`,borderRadius:15,padding:"10px 13px",marginTop:12,cursor:"pointer",display:"flex",gap:11,alignItems:"center",position:"relative",overflow:"hidden" }}>
-          <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.accent}44,transparent)` }} />
-          <div style={{ width:38,height:38,borderRadius:12,background:`${C.accent}20`,border:`1.5px solid ${C.accent}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0 }}>🎟️</div>
-          <div style={{ flex:1 }}>
-            <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:1 }}>
-              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5 }}>Backstage Passes</p>
-              <div style={{ background:C.rose,borderRadius:99,padding:"1px 6px",fontSize:8,color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800 }}>8 new</div>
+            <div style={{ display:"flex",gap:6,alignItems:"center" }}>
+              <div style={{ width:6,height:6,borderRadius:"50%",background:C.rose,animation:"pulse 1.2s ease infinite",boxShadow:`0 0 5px ${C.rose}` }} />
+              <p style={{ fontSize:10,color:C.rose,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>LIVE</p>
             </div>
-            <p style={{ fontSize:10,color:C.textMid }}>Quick fan moments from your Circle · expires 24h</p>
           </div>
-          <span style={{ color:C.accent,fontSize:16,flexShrink:0 }}>→</span>
         </div>
 
-        {/* 4-tab switcher: Live Feed | Map | Hubs | Leaders */}
-        <div style={{ display:"flex", gap:0, background:C.surfaceHi, borderRadius:14, padding:3, marginTop:14 }}>
-          {[["feed","🌐 Feed"],["map","🗺️ Map"],["hubs","🏙️ Hubs"],["leaders","🏆 Leaders"]].map(([id,label])=>(
-            <span key={id} onClick={()=>setView(id)} style={{ flex:1, textAlign:"center", padding:"8px 2px", borderRadius:11, fontSize:10, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:view===id?C.accent:"transparent", color:view===id?C.bg:C.textMid, transition:"all .18s", whiteSpace:"nowrap" }}>{label}</span>
+        {/* COLLAPSED compact title row */}
+        {scrolled && (
+          <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 20px 0",animation:"in .15s ease" }}>
+            <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontStyle:"italic",fontWeight:700,fontSize:15,background:`linear-gradient(135deg,${C.lavender},${C.blush})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent" }}>the Fanverse ✦</h2>
+            <div style={{ display:"flex",gap:5,alignItems:"center" }}>
+              <div style={{ width:5,height:5,borderRadius:"50%",background:C.rose,animation:"pulse 1.2s ease infinite" }} />
+              <p style={{ fontSize:9,color:C.rose,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>LIVE</p>
+            </div>
+          </div>
+        )}
+
+        {/* ── PASS RINGS RAIL — always visible, scrolls horizontally ── */}
+        <div style={{ display:"flex",gap:10,overflowX:"auto",scrollbarWidth:"none",padding:`${scrolled?6:10}px 16px ${scrolled?4:8}px`,transition:"padding .28s ease",alignItems:"flex-start" }}>
+          {/* Your Pass — always first */}
+          <div onClick={()=>go?.("passes")} className="tap" style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:3,cursor:"pointer" }}>
+            <div style={{ width:scrolled?44:50,height:scrolled?44:50,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.berry})`,padding:2.5,boxShadow:`0 0 16px ${C.accent}50`,transition:"all .28s ease",flexShrink:0 }}>
+              <div style={{ width:"100%",height:"100%",borderRadius:"50%",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:scrolled?16:20 }}>✦</div>
+            </div>
+            <p style={{ fontSize:7,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap" }}>Your Pass</p>
+          </div>
+          {/* Pass rings from data */}
+          {ringsToShow.map(r=>(
+            <div key={r.key} onClick={()=>go?.("passes")} className="tap" style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:3,cursor:"pointer" }}>
+              <div style={{ width:scrolled?44:50,height:scrolled?44:50,borderRadius:"50%",background:`linear-gradient(135deg,${r.color},${r.color}88)`,padding:2.5,boxShadow:`0 0 12px ${r.color}44`,transition:"all .28s ease" }}>
+                <div style={{ width:"100%",height:"100%",borderRadius:"50%",background:r.grad||`linear-gradient(135deg,${r.color}44,${C.bg})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:scrolled?15:19 }}>{r.emoji}</div>
+              </div>
+              <p style={{ fontSize:7,color:r.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap",maxWidth:50,overflow:"hidden",textOverflow:"ellipsis",textAlign:"center" }}>{r.label}</p>
+            </div>
           ))}
+        </div>
+
+        {/* ── STICKY TABS — compress on scroll ── */}
+        <div style={{ padding:`${scrolled?2:0}px 14px ${scrolled?5:8}px`,transition:"padding .28s ease" }}>
+          <div style={{ display:"flex",gap:0,background:C.surfaceHi,borderRadius:scrolled?10:13,padding:scrolled?2:3,transition:"all .28s ease" }}>
+            {[["feed","🌐","Feed"],["map","🗺️","Map"],["hubs","🏙️","Hubs"],["leaders","🏆","Leaders"]].map(([id,icon,name])=>(
+              <span key={id} onClick={()=>changeView(id)} style={{ flex:1,textAlign:"center",padding:scrolled?"5px 2px":"7px 2px",borderRadius:scrolled?8:10,fontSize:scrolled?9:10,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:view===id?C.accent:"transparent",color:view===id?C.bg:C.textMid,transition:"all .18s",whiteSpace:"nowrap" }}>{scrolled?`${icon} ${name}`:`${icon} ${name}`}</span>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* ── TAB CONTENT — each tab owns its full space ── */}
+      {/* ── TAB CONTENT — scrolls beneath sticky header ── */}
 
-      {/* LIVE FEED — default, full screen, no map */}
+      {/* LIVE FEED */}
       {view==="feed" && (
-        <div style={{ flex:1, overflow:"hidden", display:"flex", flexDirection:"column" }}>
-          <LiveFeedTab user={user} go={go} />
+        <div style={{ flex:1,overflow:"hidden",display:"flex",flexDirection:"column" }}>
+          <LiveFeedTab user={user} go={go} hideStoryRail onScrollNotify={y=>setScrolled(y>48)} />
         </div>
       )}
 
-      {/* MAP — dedicated full-screen map experience */}
+      {/* MAP */}
       {view==="map" && <FanverseMapView />}
 
       {/* HUBS */}
       {view==="hubs" && (
-        <div style={{ flex:1, overflowY:"auto", padding:"14px 18px 100px" }}>
-          {/* Concerts & Meetups entry — always reachable from Fanverse */}
-          <div onClick={()=>go("concerts")} className="tap" style={{ ...VS.glowCard(C.pink), padding:"13px 16px", marginBottom:16, cursor:"pointer" }}>
+        <div onScroll={e=>setScrolled(e.target.scrollTop>48)} style={{ flex:1,overflowY:"auto",overflowX:"hidden",padding:"14px 18px 100px" }}>
+          <div onClick={()=>go("concerts")} className="tap" style={{ ...VS.glowCard(C.pink),padding:"13px 16px",marginBottom:16,cursor:"pointer" }}>
             <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.pink}55,transparent)` }} />
             <div style={{ position:"relative",display:"flex",gap:12,alignItems:"center" }}>
               <div style={{ width:44,height:44,borderRadius:13,background:`${C.pink}1c`,border:`1.5px solid ${C.pink}30`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0 }}>🎤</div>
@@ -4990,11 +5021,9 @@ function FanverseTab({ go, user, isVip, onUpgrade }) {
               <span style={{ color:C.pink,fontSize:18 }}>›</span>
             </div>
           </div>
-
-          {/* Upcoming meetups & after parties */}
-          <p style={{ ...VS.softSectionHeader, marginBottom:10 }}>Upcoming Fan Events</p>
+          <p style={{ ...VS.softSectionHeader,marginBottom:10 }}>Upcoming Fan Events</p>
           {MOCK_MEETUPS.slice(0,4).map(m=>(
-            <div key={m.id} style={{ ...VS.glowCard(m.color), padding:"12px 14px", marginBottom:9, display:"flex", gap:11, alignItems:"center" }}>
+            <div key={m.id} style={{ ...VS.glowCard(m.color),padding:"12px 14px",marginBottom:9,display:"flex",gap:11,alignItems:"center" }}>
               <div style={{ position:"absolute",top:-8,right:-8,width:50,height:50,borderRadius:"50%",background:`radial-gradient(circle,${m.color}18,transparent 65%)`,pointerEvents:"none" }} />
               <div style={{ width:42,height:42,borderRadius:13,background:`${m.color}1c`,border:`1.5px solid ${m.color}30`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0 }}>{m.type==="afterparty"?"🎉":m.type==="cupsleeve"?"🧋":m.type==="trade"?"🃏":"📍"}</div>
               <div style={{ flex:1,position:"relative" }}>
@@ -5005,27 +5034,24 @@ function FanverseTab({ go, user, isVip, onUpgrade }) {
               <div style={{ ...VS.activePill(m.color),fontSize:8.5,flexShrink:0 }}>{m.type==="afterparty"?"After Party":"Meetup"}</div>
             </div>
           ))}
-
           <div style={{ height:1,background:C.border,margin:"14px 0" }} />
-
-          {/* City Hubs */}
-          <p style={{ ...VS.softSectionHeader, marginBottom:10 }}>City Hubs</p>
-          <div style={{ ...VS.elevatedCard(C.accent), padding:"11px 14px", marginBottom:12 }}>
+          <p style={{ ...VS.softSectionHeader,marginBottom:10 }}>City Hubs</p>
+          <div style={{ ...VS.elevatedCard(C.accent),padding:"11px 14px",marginBottom:12 }}>
             <div style={VS.innerGlow(C.accent)} />
             <div style={{ position:"relative" }}>
-              <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12.5, marginBottom:3, color:C.text }}>How Hubs Work 🏙️</p>
-              <p style={{ fontSize:11.5, color:C.textMid, lineHeight:1.65 }}>Hubs activate when enough fans light up a city. Curated, not user-created.</p>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12.5,marginBottom:3,color:C.text }}>How Hubs Work 🏙️</p>
+              <p style={{ fontSize:11.5,color:C.textMid,lineHeight:1.65 }}>Hubs activate when enough fans light up a city. Curated, not user-created.</p>
             </div>
           </div>
           {MOCK_HUBS.map(hub=>(
-            <div key={hub.id} className="tap" style={{ ...VS.glowCard(hub.color), padding:14, marginBottom:10, cursor:"pointer", display:"flex", gap:12, alignItems:"center" }}>
+            <div key={hub.id} className="tap" style={{ ...VS.glowCard(hub.color),padding:14,marginBottom:10,cursor:"pointer",display:"flex",gap:12,alignItems:"center" }}>
               <div style={VS.innerGlow(hub.color)} />
-              <div style={{ position:"relative", width:46, height:46, borderRadius:14, background:`${hub.color}20`, border:`1.5px solid ${hub.color}44`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0, boxShadow:`0 0 12px ${hub.color}14` }}>🏙️</div>
-              <div style={{ flex:1, position:"relative" }}>
-                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13.5 }}>{hub.fandom} in {hub.name}</p>
-                <p style={{ fontSize:10.5, color:C.textMid }}>{hub.members.toLocaleString()} members</p>
+              <div style={{ position:"relative",width:46,height:46,borderRadius:14,background:`${hub.color}20`,border:`1.5px solid ${hub.color}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0,boxShadow:`0 0 12px ${hub.color}14` }}>🏙️</div>
+              <div style={{ flex:1,position:"relative" }}>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5 }}>{hub.fandom} in {hub.name}</p>
+                <p style={{ fontSize:10.5,color:C.textMid }}>{hub.members.toLocaleString()} members</p>
               </div>
-              {hub.active&&<div style={{ width:8, height:8, borderRadius:"50%", background:C.mint, animation:"pulse 2s ease infinite", flexShrink:0 }} />}
+              {hub.active&&<div style={{ width:8,height:8,borderRadius:"50%",background:C.mint,animation:"pulse 2s ease infinite",flexShrink:0 }} />}
               {joined.includes(hub.id)&&<Pill color={hub.color} active small>Joined</Pill>}
             </div>
           ))}
@@ -6177,8 +6203,8 @@ function OutfitGenerator({ user, weather, isVip, onUpgrade }) {
 
 // ─── LIVE FEED TAB (Dedicated Social Feed) ───────────────────────────────────
 // POST /api/feed/post | GET /api/feed | POST /api/feed/like | POST /api/feed/save
-// ─── FAN STORIES ─────────────────────────────────────────────────────────────
-// Instagram-style stories with custom time limits (1h–24h). Stored locally.
+// ─── FAN PASSES (Home feed pass rail) ────────────────────────────────────────
+// Instagram-style pass rings for HomeFeed. Stored locally.
 function FanStories({ user }) {
   const [stories, setStories]     = useState(()=>{
     const saved = ls.get("backstage_stories", []);
@@ -6283,7 +6309,7 @@ function FanStories({ user }) {
         <div style={{ position:"fixed",inset:0,zIndex:500,background:"rgba(6,6,15,0.96)",display:"flex",flexDirection:"column",animation:"in .2s ease" }}>
           <div style={{ padding:"16px 20px",display:"flex",alignItems:"center",gap:12,flexShrink:0 }}>
             <button onClick={()=>setCreating(false)} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
-            <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18 }}>New Story ✨</h2>
+            <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18 }}>New Pass ✨</h2>
           </div>
           <div style={{ flex:1,overflowY:"auto",padding:"0 20px 40px" }}>
             {/* Photo upload */}
@@ -6406,7 +6432,7 @@ function FanStories({ user }) {
           <button onClick={()=>setCreating(true)} style={{ width:58,height:58,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent}44,${C.pink}22)`,border:`2.5px dashed ${C.accent}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",position:"relative" }}>
             <span style={{ fontSize:24,color:C.accent,lineHeight:1 }}>+</span>
           </button>
-          <p style={{ fontSize:8.5,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textAlign:"center",maxWidth:58 }}>Your Story</p>
+          <p style={{ fontSize:8.5,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textAlign:"center",maxWidth:58 }}>Your Pass</p>
         </div>
         {/* Story circles */}
         {displayStories.map((story,i)=>(
@@ -6430,7 +6456,7 @@ function FanStories({ user }) {
   );
 }
 
-function LiveFeedTab({ user, go, onBack }) {
+function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) {
   const [eraSearch, setEraSearch] = useState("");
   const [eraSearchOpen, setEraSearchOpen] = useState(false);
   const [posts, setPosts] = useState(ls.get("backstage_feed_posts", [
@@ -6555,7 +6581,7 @@ function LiveFeedTab({ user, go, onBack }) {
         </div>
       </div>
 
-      <Screen style={{ padding:"0 20px 100px" }}>
+      <Screen style={{ padding:"0 20px 100px" }} onScroll={onScrollNotify ? e=>onScrollNotify(e.target.scrollTop) : undefined}>
         {/* Compose */}
         {composing && (
           <div style={{ background:C.surface, border:`1.5px solid ${C.borderHi}`, borderRadius:18, padding:16, marginBottom:14, animation:"up .2s ease" }}>
@@ -6590,8 +6616,8 @@ function LiveFeedTab({ user, go, onBack }) {
           </div>
         )}
 
-        {/* Fan Stories */}
-        <FanStories user={user} />
+        {/* Pass rail — hidden when sticky header provides it (Fanverse context) */}
+        {!hideStoryRail && <FanStories user={user} />}
 
         {/* FOMO microcopy */}
         <div style={{ background:`${C.accent}08`, border:`1px solid ${C.accent}18`, borderRadius:11, padding:"9px 14px", marginBottom:14, display:"flex", gap:8, alignItems:"center" }}>
@@ -6601,8 +6627,8 @@ function LiveFeedTab({ user, go, onBack }) {
 
         {/* Posts */}
         {sortedPosts.map(p=>(
-          <div key={p.id} style={{ background:C.surface, border:`1.5px solid ${C.border}`, borderRadius:18, padding:14, marginBottom:12, animation:"up .3s ease" }}>
-            <div style={{ display:"flex", gap:9, alignItems:"center", marginBottom:10 }}>
+          <div key={p.id} style={{ background:C.surface, border:`1.5px solid ${C.border}`, borderRadius:16, padding:"11px 13px", marginBottom:9, animation:"up .3s ease" }}>
+            <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:8 }}>
               <div style={{ width:38,height:38,borderRadius:"50%",background:`linear-gradient(135deg,${p.color},${p.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.bg,fontSize:14,flexShrink:0 }}>{p.avatar}</div>
               <div style={{ flex:1 }}>
                 <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12.5 }}>{p.user}</p>
@@ -10173,101 +10199,158 @@ function ConcertCapsule({ concert, onBack, user, isVip=false, onUpgrade, isSigne
 }
 
 // ─── BACKSTAGE PASSES ─────────────────────────────────────────────────────────
-// Quick disappearing fan-era moments — concert/fandom coded, not Instagram copies
+// Immersive fan-era moments — concert-first, fandom-coded, emotionally immediate
 // POST /api/passes | GET /api/passes/circle | DELETE /api/passes/:id (24h auto-expire)
 function BackstagePasses({ onBack, user }) {
   const KEY = "backstage_passes";
   const PASS_TYPES = [
-    {id:"fitcheck",  label:"Fit Check",        emoji:"👗", color:C.pink,    hint:"Show the fit before the show"},
-    {id:"merch",     label:"Merch Line",        emoji:"🛍️", color:C.gold,   hint:"Merch haul or line update"},
-    {id:"freebie",   label:"Freebie Drop",      emoji:"🎁", color:C.mint,   hint:"Sharing or spotting freebies"},
-    {id:"seat",      label:"Seat View",         emoji:"📍", color:C.accent, hint:"View from your section"},
-    {id:"lightstick",label:"Lightstick Moment", emoji:"💜", color:C.lavender,hint:"Concert lightstick ocean moment"},
-    {id:"pull",      label:"Pull Reveal",       emoji:"🃏", color:C.gold,   hint:"Show what you pulled"},
-    {id:"afterglow", label:"Afterglow",         emoji:"✨", color:C.blush,  hint:"Post-concert floating feeling"},
-    {id:"moot",      label:"Moot Check",        emoji:"🤝", color:C.silver, hint:"Found your moots?"},
-    {id:"foodrun",   label:"Food Run",          emoji:"🍱", color:C.rose,   hint:"Pre or post-show meal"},
-    {id:"travel",    label:"Travel Day",        emoji:"✈️", color:C.mint,   hint:"On the way to the show"},
+    {id:"fitcheck",  label:"Fit Check",        emoji:"👗", color:C.pink,     grad:`linear-gradient(135deg,#3d0030,#8b1a5c,${C.pink}88)`,     hint:"Concert fit unlocked"},
+    {id:"merch",     label:"Merch Line",        emoji:"🛍️", color:C.gold,    grad:`linear-gradient(135deg,#2d1a00,#7a4a00,${C.gold}88)`,     hint:"Merch haul or line update"},
+    {id:"freebie",   label:"Freebie Drop",      emoji:"🎁", color:C.mint,    grad:`linear-gradient(135deg,#003d2a,#006644,${C.mint}88)`,     hint:"Sharing or spotting freebies"},
+    {id:"seat",      label:"Concert POV",       emoji:"📍", color:C.accent,  grad:`linear-gradient(135deg,#1a0044,#3d0090,${C.accent}88)`,   hint:"View from your section"},
+    {id:"lightstick",label:"Lightstick Ocean",  emoji:"💜", color:C.lavender,grad:`linear-gradient(135deg,#1a004d,#4d0099,${C.lavender}88)`, hint:"The lightstick ocean"},
+    {id:"afterglow", label:"Afterglow",         emoji:"✨", color:C.blush,   grad:`linear-gradient(135deg,#3d001a,#7a1a3d,${C.blush}88)`,    hint:"Post-concert floating feeling"},
+    {id:"moot",      label:"Fan Buddy",         emoji:"🤝", color:C.silver,  grad:`linear-gradient(135deg,#1a1a2e,#2e2e5a,${C.silver}88)`,   hint:"Found your moots?"},
+    {id:"biasmoment",label:"Bias Moment",       emoji:"⭐", color:C.gold,    grad:`linear-gradient(135deg,#2d1a00,#665500,${C.gold}88)`,     hint:"That member-coded moment"},
+    {id:"foodrun",   label:"Food Run",          emoji:"🍱", color:C.rose,    grad:`linear-gradient(135deg,#3d0010,#7a1a2a,${C.rose}88)`,     hint:"Pre or post-show meal"},
+    {id:"travel",    label:"Travel Day",        emoji:"✈️", color:C.mint,   grad:`linear-gradient(135deg,#003d44,#006655,${C.teal}88)`,     hint:"On the way to the show"},
   ];
+  const DURATIONS = [
+    {id:"tonight",  label:"Tonight",          sub:"disappears after show"},
+    {id:"24h",      label:"24 Hours",         sub:"classic pass"},
+    {id:"capsule",  label:"Keep in Capsule",  sub:"saved to the night"},
+    {id:"era",      label:"Era Memory",       sub:"featured forever"},
+  ];
+  const FANREACTIONS = ["💜","😭","✨","🫶","🎤","⚡"];
   const MOCK_PASSES = [
-    {id:"p1",type:"fitcheck",  caption:"arrived in full concert era 💜",                        username:"@armywrld",   expires:"18h",color:C.pink,   viewed:false,likes:12},
-    {id:"p2",type:"merch",     caption:"merch line at 5am, worth it no regrets",                username:"@merchhunter",expires:"22h",color:C.gold,   viewed:false,likes:8},
-    {id:"p3",type:"freebie",   caption:"handing out freebies at gate 4 come find me!!",         username:"@freebieera", expires:"6h", color:C.mint,   viewed:true, likes:31},
-    {id:"p4",type:"pull",      caption:"PULLED MY BIAS WRECKER I AM NOT OKAY",                  username:"@standancer", expires:"15h",color:C.gold,   viewed:false,likes:47},
-    {id:"p5",type:"afterglow", caption:"crying driving home. best night of my life",            username:"@concertcry", expires:"4h", color:C.lavender,viewed:true,likes:28},
-    {id:"p6",type:"lightstick",caption:"ocean was PURPLE from pit to nosebleeds",               username:"@lightstkk",  expires:"20h",color:C.accent, viewed:false,likes:63},
-    {id:"p7",type:"moot",      caption:"finally met my twitter moots AT THE SHOW",              username:"@mootmeet",   expires:"11h",color:C.silver, viewed:false,likes:19},
-    {id:"p8",type:"travel",    caption:"flight lands in 2h. the era has started.",              username:"@travelfan",  expires:"23h",color:C.mint,   viewed:false,likes:5},
+    {id:"p1",type:"fitcheck",   caption:"arrived in full concert era 💜",                     username:"@armywrld",    expires:"Tonight",   color:C.pink,    grad:PASS_TYPES[0].grad,  viewed:false,likes:12,reactions:{"💜":8,"✨":3,"🫶":1}},
+    {id:"p2",type:"merch",      caption:"merch line at 5am, worth it no regrets",             username:"@merchhunter", expires:"24 Hours",  color:C.gold,    grad:PASS_TYPES[1].grad,  viewed:false,likes:8, reactions:{"💜":5,"😭":2,"⚡":1}},
+    {id:"p3",type:"freebie",    caption:"handing out freebies at gate 4 come find me!!",      username:"@freebieera",  expires:"Tonight",   color:C.mint,    grad:PASS_TYPES[2].grad,  viewed:true, likes:31,reactions:{"💜":18,"🫶":9,"✨":4}},
+    {id:"p4",type:"biasmoment", caption:"PULLED MY BIAS WRECKER I AM NOT OKAY",               username:"@standancer",  expires:"Era Memory",color:C.gold,    grad:PASS_TYPES[7].grad,  viewed:false,likes:47,reactions:{"😭":22,"💜":15,"⚡":10}},
+    {id:"p5",type:"afterglow",  caption:"crying driving home. best night of my life",         username:"@concertcry",  expires:"24 Hours",  color:C.blush,   grad:PASS_TYPES[5].grad,  viewed:true, likes:28,reactions:{"😭":14,"💜":10,"🫶":4}},
+    {id:"p6",type:"lightstick", caption:"ocean was PURPLE from pit to nosebleeds",            username:"@lightstkk",   expires:"Tonight",   color:C.lavender,grad:PASS_TYPES[4].grad,  viewed:false,likes:63,reactions:{"💜":35,"✨":18,"🎤":10}},
+    {id:"p7",type:"moot",       caption:"finally met my twitter moots AT THE SHOW",           username:"@mootmeet",    expires:"24 Hours",  color:C.silver,  grad:PASS_TYPES[6].grad,  viewed:false,likes:19,reactions:{"🫶":11,"💜":7,"✨":1}},
+    {id:"p8",type:"travel",     caption:"flight lands in 2h. the era has started.",           username:"@travelfan",   expires:"Tonight",   color:C.mint,    grad:PASS_TYPES[9].grad,  viewed:false,likes:5, reactions:{"⚡":3,"💜":2}},
   ];
-  const [passes, setPasses]   = useState(()=>ls.get(KEY,MOCK_PASSES));
+
+  const [passes, setPasses]     = useState(()=>ls.get(KEY,MOCK_PASSES));
   const [creating, setCreating] = useState(false);
-  const [draft, setDraft]     = useState({type:"fitcheck",caption:""});
-  const [filter, setFilter]   = useState("all");
+  const [draft, setDraft]       = useState({type:"fitcheck",caption:"",duration:"tonight",venue:false,toCapsule:false});
+  const [filter, setFilter]     = useState("all");
+  const [viewing, setViewing]   = useState(null); // full-screen pass view
 
   useEffect(()=>{ ls.set(KEY,passes); },[passes]);
-  const likePass = id => setPasses(ps=>ps.map(p=>p.id===id?{...p,likes:(p.likes||0)+1}:p));
-  const viewPass = id => setPasses(ps=>ps.map(p=>p.id===id?{...p,viewed:true}:p));
-  const addPass = () => {
+
+  const likePass   = (id,emoji="💜") => setPasses(ps=>ps.map(p=>p.id===id?{...p,likes:(p.likes||0)+1,reactions:{...(p.reactions||{}), [emoji]:((p.reactions||{})[emoji]||0)+1}}:p));
+  const viewPass   = id => { setPasses(ps=>ps.map(p=>p.id===id?{...p,viewed:true}:p)); setViewing(passes.find(p=>p.id===id)); };
+  const addPass    = () => {
     if(!draft.caption.trim()) return;
     const t=PASS_TYPES.find(tp=>tp.id===draft.type)||PASS_TYPES[0];
-    setPasses(ps=>[{id:`p${Date.now()}`,type:draft.type,caption:draft.caption,username:`@${user?.name||"stan"}`,expires:"24h",color:t.color,viewed:false,likes:0},...ps]);
-    setDraft({type:"fitcheck",caption:""}); setCreating(false);
+    const dur=DURATIONS.find(d=>d.id===draft.duration)||DURATIONS[0];
+    const newPass={id:`p${Date.now()}`,type:draft.type,caption:draft.caption,username:`@${user?.name||user?.username||"stan"}`,expires:dur.label,color:t.color,grad:t.grad,viewed:false,likes:0,reactions:{},venue:draft.venue?"📍 Allegiant Stadium":null,inCapsule:draft.toCapsule};
+    setPasses(ps=>[newPass,...ps]);
+    if(draft.toCapsule){ const caps=ls.get("backstage_concert_capsules",[]); ls.set("backstage_concert_capsules",[...caps,{...newPass,concertId:"bts-lv-1",category:draft.type,savedAt:Date.now()}]); }
+    setDraft({type:"fitcheck",caption:"",duration:"tonight",venue:false,toCapsule:false}); setCreating(false);
   };
+
   const filtered = filter==="all"?passes:passes.filter(p=>p.type===filter);
   const unviewed = passes.filter(p=>!p.viewed).length;
+  const selectedType = PASS_TYPES.find(t=>t.id===draft.type)||PASS_TYPES[0];
+
+  // Story rings — one ring per pass type that has unviewed passes
+  const ringTypes = PASS_TYPES.filter(t=>passes.some(p=>p.type===t.id));
 
   return (
-    <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden" }}>
-      <div style={{ padding:"14px 20px 12px",flexShrink:0,background:`linear-gradient(180deg,${C.cosmic},transparent)` }}>
-        <div style={{ display:"flex",gap:10,alignItems:"center",marginBottom:12 }}>
+    <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden",position:"relative" }}>
+
+      {/* ── HEADER ── */}
+      <div style={{ padding:"14px 20px 10px",flexShrink:0,background:`linear-gradient(180deg,${C.cosmic},transparent)` }}>
+        <div style={{ display:"flex",gap:10,alignItems:"center",marginBottom:10 }}>
           <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
           <div style={{ flex:1 }}>
             <div style={{ display:"flex",alignItems:"center",gap:8 }}>
               <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17 }}>Backstage Passes</p>
-              {unviewed>0&&<div style={{ background:C.rose,borderRadius:99,padding:"1px 7px",fontSize:9,color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800 }}>{unviewed} new</div>}
+              {unviewed>0&&<div style={{ background:C.rose,borderRadius:99,padding:"2px 8px",fontSize:9,color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800 }}>{unviewed} live</div>}
             </div>
-            <p style={{ fontSize:10,color:C.textMid }}>Quick fan moments · disappears in 24h</p>
+            <p style={{ fontSize:10,color:C.textMid }}>Live fan moments · share your concert night</p>
           </div>
-          <button onClick={()=>setCreating(true)} style={{ background:C.accent,border:"none",borderRadius:12,padding:"7px 14px",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer",flexShrink:0 }}>+ Pass</button>
+          <button onClick={()=>setCreating(true)} style={{ background:`linear-gradient(135deg,${C.accent},${C.berry})`,border:"none",borderRadius:13,padding:"8px 14px",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:11,cursor:"pointer",flexShrink:0,boxShadow:`0 0 14px ${C.accent}40` }}>+ Pass</button>
         </div>
-        <div style={{ display:"flex",gap:6,overflowX:"auto",paddingBottom:2 }}>
-          <span onClick={()=>setFilter("all")} className="tap" style={{ flexShrink:0,padding:"5px 12px",borderRadius:99,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:600,cursor:"pointer",background:filter==="all"?C.accent:C.surfaceHi,color:filter==="all"?C.bg:C.textMid,border:`1px solid ${filter==="all"?C.accent:C.border}` }}>All</span>
+
+        {/* ── STORY RINGS ── */}
+        <div style={{ display:"flex",gap:10,overflowX:"auto",paddingBottom:10,scrollbarWidth:"none" }}>
+          {/* Your ring */}
+          <div onClick={()=>setCreating(true)} className="tap" style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:4,cursor:"pointer" }}>
+            <div style={{ width:52,height:52,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.berry})`,padding:2,boxShadow:`0 0 16px ${C.accent}44` }}>
+              <div style={{ width:"100%",height:"100%",borderRadius:"50%",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20 }}>✦</div>
+            </div>
+            <p style={{ fontSize:8,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap" }}>Your Pass</p>
+          </div>
+          {ringTypes.map(t=>{
+            const hasUnviewed=passes.some(p=>p.type===t.id&&!p.viewed);
+            return (
+              <div key={t.id} onClick={()=>setFilter(t.id)} className="tap" style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:4,cursor:"pointer" }}>
+                <div style={{ width:52,height:52,borderRadius:"50%",background:hasUnviewed?`linear-gradient(135deg,${t.color},${C.berry})`:`${t.color}44`,padding:hasUnviewed?2:1.5,boxShadow:hasUnviewed?`0 0 14px ${t.color}55`:"none",transition:"all .2s" }}>
+                  <div style={{ width:"100%",height:"100%",borderRadius:"50%",background:t.grad||C.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22 }}>{t.emoji}</div>
+                </div>
+                <p style={{ fontSize:8,color:hasUnviewed?t.color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap",maxWidth:56,overflow:"hidden",textOverflow:"ellipsis" }}>{t.label}</p>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* ── FILTER PILLS ── */}
+        <div style={{ display:"flex",gap:6,overflowX:"auto",paddingBottom:2,scrollbarWidth:"none" }}>
+          <span onClick={()=>setFilter("all")} className="tap" style={{ flexShrink:0,padding:"5px 12px",borderRadius:99,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:600,cursor:"pointer",background:filter==="all"?C.accent:C.surfaceHi,color:filter==="all"?C.bg:C.textMid,border:`1px solid ${filter==="all"?C.accent:C.border}` }}>✦ All</span>
           {PASS_TYPES.map(t=>(
-            <span key={t.id} onClick={()=>setFilter(t.id)} className="tap" style={{ flexShrink:0,padding:"5px 11px",borderRadius:99,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:600,cursor:"pointer",background:filter===t.id?t.color:C.surfaceHi,color:filter===t.id?C.bg:C.textMid,border:`1px solid ${filter===t.id?t.color:C.border}`,whiteSpace:"nowrap" }}>{t.emoji} {t.label}</span>
+            <span key={t.id} onClick={()=>setFilter(t.id)} className="tap" style={{ flexShrink:0,padding:"5px 11px",borderRadius:99,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:600,cursor:"pointer",background:filter===t.id?t.color:C.surfaceHi,color:filter===t.id?C.bg:C.textMid,border:`1px solid ${filter===t.id?t.color:C.border}`,whiteSpace:"nowrap" }}>{t.emoji}</span>
           ))}
         </div>
       </div>
-      <Screen style={{ padding:"0 20px 100px" }}>
-        <div style={{ background:`linear-gradient(140deg,${C.accent}10,${C.pink}08)`,border:`1px solid ${C.borderHi}`,borderRadius:16,padding:"12px 16px",marginBottom:16 }}>
-          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12.5,marginBottom:3 }}>Your fan era, right now 🎟️</p>
-          <p style={{ fontSize:11,color:C.textMid,lineHeight:1.65 }}>Quick moments shared with your Circle. Not a post — just a Pass. Gone in 24h.</p>
-        </div>
+
+      {/* ── PASS FEED ── */}
+      <Screen style={{ padding:"0 16px 100px" }}>
         {filtered.length===0?(
-          <div style={{ textAlign:"center",padding:"40px 20px" }}>
-            <p style={{ fontSize:28,marginBottom:10 }}>🎟️</p>
-            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14,marginBottom:6 }}>No passes yet</p>
-            <p style={{ fontSize:11.5,color:C.textMid,marginBottom:16 }}>Drop your first Pass — a quick glimpse into your fan day.</p>
-            <Btn onClick={()=>setCreating(true)}>Drop a Pass</Btn>
+          <div style={{ textAlign:"center",padding:"50px 20px" }}>
+            <div style={{ fontSize:48,marginBottom:12,animation:"float 3s ease-in-out infinite" }}>🎟️</div>
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,marginBottom:6 }}>No passes yet</p>
+            <p style={{ fontSize:12,color:C.textMid,lineHeight:1.6,marginBottom:20 }}>Share your concert moment with the Fanverse.</p>
+            <Btn onClick={()=>setCreating(true)}>Drop Your First Pass ✨</Btn>
           </div>
         ):(
-          <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
+          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10 }}>
             {filtered.map(pass=>{
               const t=PASS_TYPES.find(tp=>tp.id===pass.type)||PASS_TYPES[0];
+              const topReaction=Object.entries(pass.reactions||{}).sort((a,b)=>b[1]-a[1])[0]?.[0];
               return (
-                <div key={pass.id} onClick={()=>viewPass(pass.id)} className="tap" style={{ background:C.surface,border:`1.5px solid ${pass.viewed?C.border:`${pass.color}44`}`,borderRadius:18,padding:14,cursor:"pointer",position:"relative",overflow:"hidden",transition:"border-color .2s" }}>
-                  {!pass.viewed&&<div style={{ position:"absolute",top:0,left:0,right:0,height:2,background:`linear-gradient(90deg,transparent,${pass.color},transparent)` }} />}
-                  <div style={{ display:"flex",gap:12,alignItems:"flex-start" }}>
-                    <div style={{ width:44,height:44,borderRadius:14,background:`${pass.color}22`,border:`1.5px solid ${pass.color}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0 }}>{t.emoji}</div>
-                    <div style={{ flex:1,minWidth:0 }}>
-                      <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:3 }}>
-                        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,color:pass.color }}>{t.label}</p>
-                        {!pass.viewed&&<div style={{ width:6,height:6,borderRadius:"50%",background:pass.color,animation:"pulse 1.5s ease infinite",flexShrink:0 }} />}
-                      </div>
-                      <p style={{ fontSize:12.5,lineHeight:1.5,marginBottom:6,fontStyle:"italic" }}>"{pass.caption}"</p>
-                      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                        <p style={{ fontSize:9.5,color:C.textMid }}>{pass.username} · expires {pass.expires}</p>
-                        <button onClick={e=>{e.stopPropagation();likePass(pass.id);}} style={{ background:"none",border:"none",color:C.textMid,fontSize:10.5,cursor:"pointer",display:"flex",alignItems:"center",gap:3 }}>💜 {pass.likes||0}</button>
-                      </div>
+                <div key={pass.id} onClick={()=>viewPass(pass.id)} className="tap" style={{ borderRadius:18,overflow:"hidden",cursor:"pointer",position:"relative",boxShadow:!pass.viewed?`0 0 16px ${pass.color}33`:"none",transition:"box-shadow .3s" }}>
+                  {/* Gradient header */}
+                  <div style={{ height:130,background:pass.grad||t.grad,position:"relative",display:"flex",flexDirection:"column",justifyContent:"space-between",padding:"10px 10px 8px" }}>
+                    {/* Live pulse */}
+                    {!pass.viewed&&<div style={{ position:"absolute",top:0,left:0,right:0,height:2,background:`linear-gradient(90deg,transparent,${pass.color},transparent)`,animation:"shimmer 2s ease-in-out infinite" }} />}
+                    {/* Pass type chip */}
+                    <div style={{ alignSelf:"flex-start",background:"rgba(0,0,0,0.45)",backdropFilter:"blur(8px)",borderRadius:99,padding:"3px 9px",display:"flex",alignItems:"center",gap:4 }}>
+                      <span style={{ fontSize:9 }}>{t.emoji}</span>
+                      <span style={{ fontSize:8,color:"rgba(255,255,255,0.9)",fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{t.label}</span>
+                    </div>
+                    {/* Large emoji watermark */}
+                    <div style={{ position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",fontSize:38,opacity:0.18 }}>{t.emoji}</div>
+                    {/* Caption overlay */}
+                    <p style={{ fontSize:10,fontStyle:"italic",color:"rgba(255,255,255,0.92)",lineHeight:1.4,textShadow:"0 1px 8px rgba(0,0,0,0.7)",overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical" }}>"{pass.caption}"</p>
+                  </div>
+                  {/* Footer */}
+                  <div style={{ background:C.surface,padding:"8px 10px" }}>
+                    <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5 }}>
+                      <p style={{ fontSize:9,color:C.textMid,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1 }}>{pass.username} · {pass.expires}</p>
+                      {pass.venue&&<p style={{ fontSize:8,color:C.textDim,flexShrink:0,marginLeft:4 }}>{pass.venue}</p>}
+                    </div>
+                    {/* Fandom reactions */}
+                    <div style={{ display:"flex",gap:4,flexWrap:"wrap" }}>
+                      {Object.entries(pass.reactions||{}).slice(0,3).map(([emoji,count])=>(
+                        <button key={emoji} onClick={e=>{e.stopPropagation();likePass(pass.id,emoji);}} style={{ background:`${pass.color}18`,border:`1px solid ${pass.color}33`,borderRadius:99,padding:"2px 7px",fontSize:9.5,cursor:"pointer",display:"flex",alignItems:"center",gap:2,color:C.text }}>
+                          {emoji}<span style={{ fontSize:8,color:C.textMid }}>{count}</span>
+                        </button>
+                      ))}
                     </div>
                   </div>
                 </div>
@@ -10276,25 +10359,134 @@ function BackstagePasses({ onBack, user }) {
           </div>
         )}
       </Screen>
+
+      {/* ── FULL-SCREEN PASS VIEWER ── */}
+      {viewing&&(
+        <div style={{ position:"fixed",inset:0,zIndex:700,background:"#000",display:"flex",flexDirection:"column",animation:"in .18s ease" }}>
+          {/* Pass gradient fill */}
+          <div style={{ position:"absolute",inset:0,background:viewing.grad||C.cosmic,opacity:0.9 }} />
+          {/* Ambient sparkle */}
+          {[{t:"12%",l:"8%"},{t:"22%",l:"85%"},{t:"65%",l:"12%"},{t:"80%",l:"78%"}].map((s,i)=>(
+            <div key={i} style={{ position:"absolute",top:s.t,left:s.l,color:"rgba(255,255,255,0.4)",fontSize:10,animation:`sparkleFloat ${2+i*0.6}s ease-in-out infinite`,animationDelay:`${i*0.5}s`,pointerEvents:"none",zIndex:1 }}>✦</div>
+          ))}
+          {/* Close */}
+          <div style={{ position:"absolute",top:16,left:16,zIndex:10 }}>
+            <button onClick={()=>setViewing(null)} style={{ background:"rgba(0,0,0,0.5)",backdropFilter:"blur(8px)",border:"none",borderRadius:99,width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:18,cursor:"pointer" }}>✕</button>
+          </div>
+          {/* Content */}
+          <div style={{ position:"relative",zIndex:5,flex:1,display:"flex",flexDirection:"column",justifyContent:"flex-end",padding:"24px 24px 48px" }}>
+            {/* Pass type badge */}
+            <div style={{ alignSelf:"flex-start",background:"rgba(0,0,0,0.5)",backdropFilter:"blur(10px)",borderRadius:99,padding:"5px 14px",marginBottom:14,display:"flex",alignItems:"center",gap:6 }}>
+              <span style={{ fontSize:14 }}>{PASS_TYPES.find(t=>t.id===viewing.type)?.emoji||"🎟️"}</span>
+              <span style={{ fontSize:11,color:"#fff",fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{PASS_TYPES.find(t=>t.id===viewing.type)?.label||"Pass"}</span>
+            </div>
+            {/* Large emoji */}
+            <div style={{ position:"absolute",top:"35%",left:"50%",transform:"translate(-50%,-50%)",fontSize:80,opacity:0.15,pointerEvents:"none" }}>{PASS_TYPES.find(t=>t.id===viewing.type)?.emoji||"🎟️"}</div>
+            {/* Caption */}
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontStyle:"italic",fontWeight:700,fontSize:22,color:"#fff",lineHeight:1.3,marginBottom:10,textShadow:"0 2px 16px rgba(0,0,0,0.8)" }}>"{viewing.caption}"</p>
+            {/* Meta */}
+            <p style={{ fontSize:11,color:"rgba(255,255,255,0.6)",marginBottom:16 }}>{viewing.username} · {viewing.expires}{viewing.venue?` · ${viewing.venue}`:""}</p>
+            {/* Fandom reactions */}
+            <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
+              {FANREACTIONS.map(emoji=>(
+                <button key={emoji} onClick={()=>{ likePass(viewing.id,emoji); setViewing(v=>({...v,reactions:{...(v.reactions||{}),[emoji]:((v.reactions||{})[emoji]||0)+1}})); }} style={{ background:"rgba(0,0,0,0.45)",backdropFilter:"blur(8px)",border:"1px solid rgba(255,255,255,0.18)",borderRadius:99,padding:"6px 14px",fontSize:16,cursor:"pointer",color:"#fff",display:"flex",alignItems:"center",gap:4 }}>
+                  {emoji}<span style={{ fontSize:10,color:"rgba(255,255,255,0.7)" }}>{(viewing.reactions||{})[emoji]||""}</span>
+                </button>
+              ))}
+            </div>
+            {viewing.inCapsule&&<p style={{ marginTop:12,fontSize:10,color:"rgba(255,255,255,0.5)",fontStyle:"italic" }}>✦ Saved to tonight's Concert Capsule</p>}
+          </div>
+        </div>
+      )}
+
+      {/* ── IMMERSIVE CREATOR — full-screen, concert-camera vibe ── */}
       {creating&&(
-        <div onClick={()=>setCreating(false)} style={{ position:"fixed",inset:0,zIndex:600,background:"rgba(6,6,15,0.88)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
-          <div onClick={e=>e.stopPropagation()} style={{ width:"100%",background:C.surface,borderRadius:"24px 24px 0 0",padding:"24px 20px 36px",border:`1.5px solid ${C.borderHi}`,animation:"slideUp .25s ease" }}>
-            <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 20px" }} />
-            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,marginBottom:3 }}>Drop a Pass 🎟️</p>
-            <p style={{ fontSize:11,color:C.textMid,marginBottom:14 }}>A quick moment from your fan era. Gone in 24h.</p>
-            <div style={{ display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:14 }}>
+        <div style={{ position:"fixed",inset:0,zIndex:600,background:`linear-gradient(180deg,#06030f,#0a0520)`,display:"flex",flexDirection:"column",animation:"in .2s ease",overflowY:"auto" }}>
+
+          {/* Top bar */}
+          <div style={{ padding:"16px 20px 0",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0 }}>
+            <button onClick={()=>setCreating(false)} style={{ background:"rgba(255,255,255,0.08)",border:"none",borderRadius:99,width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",color:C.text,fontSize:18,cursor:"pointer" }}>✕</button>
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,letterSpacing:"0.03em",color:C.lavender }}>New Backstage Pass ✨</p>
+            <div style={{ width:36 }} />
+          </div>
+
+          {/* ── MEDIA PREVIEW — gradient + floating caption ── */}
+          <div style={{ margin:"16px 16px 0",borderRadius:22,overflow:"hidden",position:"relative",flexShrink:0,height:272 }}>
+            {/* Animated gradient bg */}
+            <div style={{ position:"absolute",inset:0,background:selectedType.grad,transition:"background .4s ease" }} />
+            {/* Film-grain overlay */}
+            <div style={{ position:"absolute",inset:0,backgroundImage:"url(\"data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.08'/%3E%3C/svg%3E\")",opacity:0.4,pointerEvents:"none" }} />
+            {/* Ambient sparkles */}
+            {[{t:"10%",l:"12%"},{t:"18%",l:"80%"},{t:"72%",l:"8%"},{t:"80%",l:"85%"},{t:"45%",l:"60%"}].map((s,i)=>(
+              <div key={i} style={{ position:"absolute",top:s.t,left:s.l,color:"rgba(255,255,255,0.45)",fontSize:9,animation:`sparkleFloat ${2.5+i*0.5}s ease-in-out infinite`,animationDelay:`${i*0.4}s`,pointerEvents:"none" }}>✦</div>
+            ))}
+            {/* Big emoji watermark */}
+            <div style={{ position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-68%)",fontSize:72,opacity:0.18,pointerEvents:"none",transition:"all .3s" }}>{selectedType.emoji}</div>
+            {/* Pass type badge */}
+            <div style={{ position:"absolute",top:14,left:14,background:"rgba(0,0,0,0.48)",backdropFilter:"blur(10px)",borderRadius:99,padding:"4px 12px",display:"flex",alignItems:"center",gap:5 }}>
+              <span style={{ fontSize:11 }}>{selectedType.emoji}</span>
+              <span style={{ fontSize:9.5,color:"rgba(255,255,255,0.9)",fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{selectedType.label}</span>
+            </div>
+            {/* Expires badge */}
+            <div style={{ position:"absolute",top:14,right:14,background:"rgba(0,0,0,0.48)",backdropFilter:"blur(10px)",borderRadius:99,padding:"4px 10px" }}>
+              <span style={{ fontSize:9,color:"rgba(255,255,255,0.7)",fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>{DURATIONS.find(d=>d.id===draft.duration)?.label||"Tonight"}</span>
+            </div>
+            {/* Floating caption textarea */}
+            <div style={{ position:"absolute",bottom:0,left:0,right:0,padding:"0 14px 16px",background:"linear-gradient(to top,rgba(0,0,0,0.7) 0%,transparent 100%)" }}>
+              <textarea
+                value={draft.caption}
+                onChange={e=>setDraft(d=>({...d,caption:e.target.value}))}
+                placeholder={`${selectedType.hint}...`}
+                maxLength={120}
+                rows={2}
+                style={{ width:"100%",background:"transparent",border:"none",color:"#fff",fontSize:15,fontStyle:"italic",fontFamily:"'Epilogue',sans-serif",fontWeight:700,textShadow:"0 1px 10px rgba(0,0,0,0.9)",resize:"none",outline:"none",textAlign:"center",lineHeight:1.4,padding:0,caretColor:C.lavender,boxSizing:"border-box" }}
+              />
+            </div>
+          </div>
+          <p style={{ fontSize:8.5,color:C.textDim,textAlign:"right",paddingRight:20,marginTop:4 }}>{draft.caption.length}/120</p>
+
+          {/* ── PASS TYPE SELECTOR ── */}
+          <div style={{ padding:"14px 16px 4px",flexShrink:0 }}>
+            <p style={{ fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,color:C.textMid,letterSpacing:"0.1em",marginBottom:8 }}>WHAT'S YOUR MOMENT?</p>
+            <div style={{ display:"flex",gap:7,overflowX:"auto",scrollbarWidth:"none",paddingBottom:4 }}>
               {PASS_TYPES.map(t=>(
-                <div key={t.id} onClick={()=>setDraft(d=>({...d,type:t.id}))} className="tap" style={{ borderRadius:13,padding:"8px 4px",textAlign:"center",cursor:"pointer",background:draft.type===t.id?`${t.color}22`:C.surfaceHi,border:`1.5px solid ${draft.type===t.id?t.color:C.border}`,transition:"all .15s" }}>
-                  <p style={{ fontSize:18,marginBottom:2 }}>{t.emoji}</p>
-                  <p style={{ fontSize:7.5,color:draft.type===t.id?t.color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,lineHeight:1.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{t.label}</p>
+                <div key={t.id} onClick={()=>setDraft(d=>({...d,type:t.id}))} className="tap" style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:3,padding:"8px 10px",borderRadius:14,cursor:"pointer",background:draft.type===t.id?`${t.color}28`:C.surfaceHi,border:`1.5px solid ${draft.type===t.id?t.color:C.border}`,transition:"all .18s",minWidth:52 }}>
+                  <span style={{ fontSize:20 }}>{t.emoji}</span>
+                  <span style={{ fontSize:7.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,color:draft.type===t.id?t.color:C.textDim,whiteSpace:"nowrap" }}>{t.label}</span>
                 </div>
               ))}
             </div>
-            {PASS_TYPES.find(t=>t.id===draft.type)&&<p style={{ fontSize:10,color:C.textMid,marginBottom:10,fontStyle:"italic" }}>{PASS_TYPES.find(t=>t.id===draft.type)?.hint}</p>}
-            <textarea value={draft.caption} onChange={e=>setDraft(d=>({...d,caption:e.target.value}))} placeholder="What's your fan moment right now?" maxLength={120} rows={3} style={{ width:"100%",background:C.surfaceHi,border:`1.5px solid ${C.accent}44`,borderRadius:13,padding:"11px 14px",color:C.text,fontSize:12.5,fontStyle:"italic",fontFamily:"'Instrument Sans',sans-serif",resize:"none",boxSizing:"border-box",marginBottom:6 }} />
-            <p style={{ fontSize:9,color:C.textDim,textAlign:"right",marginBottom:14 }}>{draft.caption.length}/120</p>
-            <Btn onClick={addPass} disabled={!draft.caption.trim()}>Drop the Pass 💜</Btn>
-            <div style={{ marginTop:8 }}><Btn ghost color={C.textMid} onClick={()=>setCreating(false)}>Cancel</Btn></div>
+          </div>
+
+          {/* ── DURATION — emotional, not just time ── */}
+          <div style={{ padding:"12px 16px 4px",flexShrink:0 }}>
+            <p style={{ fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,color:C.textMid,letterSpacing:"0.1em",marginBottom:8 }}>HOW LONG SHOULD IT LIVE?</p>
+            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:7 }}>
+              {DURATIONS.map(d=>(
+                <div key={d.id} onClick={()=>setDraft(dr=>({...dr,duration:d.id}))} className="tap" style={{ padding:"9px 12px",borderRadius:13,cursor:"pointer",background:draft.duration===d.id?`${C.accent}20`:C.surfaceHi,border:`1.5px solid ${draft.duration===d.id?C.accent:C.border}`,transition:"all .15s" }}>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,color:draft.duration===d.id?C.accent:C.text,marginBottom:1 }}>{d.label}</p>
+                  <p style={{ fontSize:9,color:C.textDim }}>{d.sub}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* ── EXTRAS: venue + capsule ── */}
+          <div style={{ padding:"12px 16px",display:"flex",gap:8,flexShrink:0 }}>
+            <button onClick={()=>setDraft(d=>({...d,venue:!d.venue}))} style={{ flex:1,padding:"9px 12px",borderRadius:12,border:`1.5px solid ${draft.venue?C.mint:C.border}`,background:draft.venue?`${C.mint}18`:C.surfaceHi,color:draft.venue?C.mint:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:5,transition:"all .18s" }}>
+              📍 {draft.venue?"Allegiant Stadium":"Add Venue"}
+            </button>
+            <button onClick={()=>setDraft(d=>({...d,toCapsule:!d.toCapsule}))} style={{ flex:1,padding:"9px 12px",borderRadius:12,border:`1.5px solid ${draft.toCapsule?C.accent:C.border}`,background:draft.toCapsule?`${C.accent}18`:C.surfaceHi,color:draft.toCapsule?C.accent:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:5,transition:"all .18s" }}>
+              ✦ {draft.toCapsule?"In Capsule ✓":"Add to Capsule"}
+            </button>
+          </div>
+
+          {/* ── SHARE MOMENT copy + CTA ── */}
+          <div style={{ padding:"4px 16px 48px",flexShrink:0 }}>
+            <p style={{ fontSize:10,color:C.textDim,textAlign:"center",marginBottom:12,fontStyle:"italic" }}>A live memory from your concert night ✨</p>
+            <button onClick={addPass} disabled={!draft.caption.trim()} style={{ width:"100%",padding:"15px",borderRadius:16,border:"none",background:draft.caption.trim()?`linear-gradient(135deg,${C.accent},${C.berry})`:`${C.surfaceHi}`,color:draft.caption.trim()?C.bg:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,cursor:draft.caption.trim()?"pointer":"default",boxShadow:draft.caption.trim()?`0 0 28px ${C.accent}40,0 8px 24px rgba(0,0,0,0.4)`:"none",transition:"all .2s",letterSpacing:"-0.01em" }}>
+              Share with the Fanverse 💜
+            </button>
           </div>
         </div>
       )}
