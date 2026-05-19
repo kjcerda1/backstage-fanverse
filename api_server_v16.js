@@ -38,6 +38,9 @@
 //   GET  /api/users/me               ← NEW: returns current user profile
 //   POST /api/concerts/memory
 //   GET  /api/concerts/memory
+//   POST /api/memories/upload-image   ← Phase 2A: Supabase Storage upload
+//   POST /api/scrapbooks/memory       ← Phase 2A: save scrapbook memory
+//   GET  /api/scrapbooks/memories     ← Phase 2A: load scrapbook memories
 //   GET  /api/trades
 //   POST /api/trades/offer
 //   POST /api/trades/review
@@ -94,8 +97,33 @@ const anthropic = HAS_AI
 
 // ── MIDDLEWARE ────────────────────────────────────────────────────────────────
 app.use(helmet({ contentSecurityPolicy: false }));
+const allowedOrigins = new Set([
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'http://localhost:5175',
+  'http://localhost:5176',
+  'http://localhost:5177',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:5174',
+  'http://127.0.0.1:5175',
+  'http://127.0.0.1:5176',
+  'http://127.0.0.1:5177',
+  'http://192.168.1.177:5173',
+  'http://192.168.1.177:5174',
+  'http://192.168.1.177:5175',
+  'http://192.168.1.177:5176',
+  'http://192.168.1.177:5177',
+]);
+if (process.env.FRONTEND_URL) allowedOrigins.add(process.env.FRONTEND_URL);
+
+console.log('[Backstage API] Allowed CORS origins:', [...allowedOrigins]);
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin(origin, callback) {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.has(origin)) return callback(null, origin);
+    return callback(new Error(`CORS: origin not allowed - ${origin}`));
+  },
   credentials: true,
 }));
 
@@ -172,46 +200,58 @@ app.get('/api/health', (req, res) => {
 app.post('/api/ai/outfit', aiLimiter, requireAuth, async (req, res) => {
   const { group, era, bias, vibe, season, venue, comfort } = req.body;
 
+  // Varied mock pool — deterministic by group+season so same inputs always give same outfit
+  const OUTFIT_POOLS = {
+    dark: [
+      { title:'Noir Cinematic Fit', items:['Oversized leather moto jacket + black crop tee','Slim black wide-leg trousers','Chunky platform lug-sole boots','Silver chain layering set + black ring stack',`${group||'Fandom'} lightstick holster keychain`], colors:['Noir Black','Gunmetal Silver','Violet Shadow'], tags:['🌙 Night Show','🖤 Dark Core','💜 Fan-coded'], tip:'Wear the jacket open for the fan-cam moment — tuck the crop tee underneath for shape.', accessories:['Black mini crossbody','Silver studded belt','Fandom pins on jacket'], palette:['#0a0a14','#1a1428','#8880d0','#404060'], textures:['Faux leather','Brushed silver hardware','Stretch twill'], why:"Channels the group's current cinematic era — moody, intentional, and visually striking under arena lights.", comfort:'4-hour concert ready. Jacket adds warmth; remove for the floor section.', bag:['Mini crossbody (lightstick + phone)','Portable charger','Lip gloss + mirror','Fan towel','Extra layer for the walk back'] },
+      { title:'Shadow Glam Fit', items:['Black mesh long-sleeve under cropped black blazer','High-waist vinyl mini skirt','Platform pointed-toe boots','Crystal drop earrings + silver cuff','Holographic mini tote'], colors:['Matte Black','Ice Chrome','Deep Plum'], tags:['🌙 Night Show','💎 Editorial','💜 Fan-coded'], tip:'The blazer over mesh is the move — instant editorial without losing the edge.', accessories:['Holographic tote','Crystal earrings','Silver hair barrette'], palette:['#06060f','#2a1848','#c0b8f0','#806090'], textures:['Mesh','Vinyl','Crystal hardware'], why:'This layering combo photographs perfectly under stage lights — dark base with bright metallic flash.', comfort:'Mesh breathes well for standing sections. Blazer handles the cold walk in.', bag:['Holographic mini bag','Portable fan','Touch-up kit','Lightstick','Merch lanyard'] },
+      { title:'Chrome Noir Fit', items:['Chrome-detail corset top','Black cargo trousers with chain hardware','Lug-sole platform sneakers','Silver choker + chrome ring set','Mini chrome crossbody'], colors:['Matte Black','Chrome Silver','Electric Violet'], tags:['🌙 Night Show','🔩 Hardware Core','💜 Fan-coded'], tip:'Chrome hardware catches every light cue in the venue — especially during the lightstick ocean.', accessories:['Chrome crossbody','Chain hardware belt','Silver ring set'], palette:['#08080f','#1c1c30','#c8c8f8','#5040a8'], textures:['Chrome hardware','Matte cargo','Corset boning'], why:"Hardware and chrome sync perfectly with the group's futuristic-dark production design.", comfort:'Cargo trousers give you all the room you need for a full three-hour set.', bag:['Chrome mini bag','Portable charger','Lightstick','Backup battery','Fandom pin'] },
+      { title:'Gothic Soft Power', items:['Sheer black blouse with lace detail over black bralette','Black satin bias-cut midi skirt','Platform Mary Janes','Silver cross pendants + ear cuffs','Black lace headband'], colors:['Onyx Black','Silver Lace','Muted Mauve'], tags:['🌙 Night Show','🕸️ Gothic Soft','💜 Fan-coded'], tip:'Midi skirt is more practical for floor sections than a mini — comfort and drama in one.', accessories:['Lace headband','Cross pendant stack','Ear cuffs'], palette:['#0e0818','#24183c','#a898d0','#703888'], textures:['Sheer georgette','Silk satin bias','Antique silver lace'], why:"Gothic soft pairs the group's romantic edge with concert-practical layering.", comfort:'Midi length means you can sit, stand, and jump freely without worry.', bag:['Small crossbody','Portable charger','Touch-up mirror','Fandom button','Extra scrunchie'] },
+      { title:'Midnight Punk Glam', items:['Black band-tee (knotted/cropped)','Plaid mini skirt with safety-pin details','Platform creeper boots','Studded choker + pearl drop earrings','Fishnet knee socks'], colors:['Faded Black','Plaid Accent','Pearl White'], tags:['🌙 Night Show','🎸 Punk Glam','💜 Fan-coded'], tip:"Knotted tee shapes the silhouette without losing the punk energy — knot it on the side.", accessories:['Studded choker','Pearl earrings','Belt chain'], palette:['#0e0a18','#2c1020','#e0a0a0','#806070'], textures:['Vintage cotton','Plaid wool blend','Patent leather'], why:"Punk energy matches the group's rebellious concert aesthetic — you'll fit the room perfectly.", comfort:'Fishnets add warmth and style. Creepers are stable for long standing sets.', bag:['Studded mini bag','Mirror compact','Lightstick','Touch-up kit','Fan merch'] },
+      { title:'Dark Avant-Garde Fit', items:['Structured black crop jacket with shoulder detail','Pleated black micro-mini skirt','Knee-high platform boots','Layered silver chains + black pearl choker','Mesh gloves (optional drama layer)'], colors:['Pure Black','Silver Frost','Dusty Violet'], tags:['🌙 Night Show','⚡ Avant-Garde','💜 Fan-coded'], tip:"The shoulder detail reads across an arena — wear it like armor.", accessories:['Mini structured bag','Black pearl choker','Statement ring stack'], palette:['#06060f','#161428','#d0cce8','#6050a0'], textures:['Structured weave','Micro-pleated','Sterling silver tone'], why:"Avant-garde silhouettes are a staple of the group's performance concept — you'll belong in the front row.", comfort:'Micro-mini means full mobility — great for standing and dancing in the pit.', bag:['Structured clutch','Portable charger','Mirror compact','Fan glow stick','Backup lip'] },
+    ],
+    soft: [
+      { title:'Soft Glam Cloud Fit', items:['Lavender satin slip top with lace trim','Wide-leg ivory linen trousers','White strappy heeled sandals','Pearl layered necklaces + stud earrings',`${group||'Fandom'} ribbon hair clip set`], colors:['Soft Lavender','Ivory White','Blush Pink'], tags:['✨ Soft Glam','🌸 Feminine','💜 Fan-coded'], tip:"Ribbon hair clips are the fandom tell — wear them throughout and they'll photograph beautifully.", accessories:['Pearl mini bag','Ribbon clips','Layered pearl necklaces'], palette:['#d8d0f8','#f8f0f8','#f0c8d8','#a898d0'], textures:['Satin','Linen blend','Pearl finish'], why:'Soft glam reads elegant in arena lighting — delicate details pop without fighting the stage for attention.', comfort:'Wide-leg trousers mean you can stand for hours without fatigue. Heels are low enough for the floor.', bag:['Pearl mini bag','Compact mirror','Lightstick','Touch-up kit','Fan ribbon'] },
+      { title:'Romantic Idol Fit', items:['Floral chiffon babydoll blouse','Cream pleated midi skirt','Platform white Mary Janes','Gold hoop earrings + delicate chain necklace','White mini tote with ribbon handle'], colors:['Floral Cream','Butter Yellow','Dusty Rose'], tags:['✨ Soft Glam','🌹 Romantic','💜 Fan-coded'], tip:"Midi skirt with the babydoll top is the '2024 idol airport look' translated to fandom fashion.", accessories:['White ribbon tote','Gold hoops','Chain necklace'], palette:['#f8f0e0','#e8d8c0','#f0c8c8','#c0a888'], textures:['Chiffon','Pleated cotton','Gold-toned metal'], why:"The romantic silhouette mirrors the group's soft concept era — you'll blend into the mood perfectly.", comfort:'Babydoll blouse is breathable for summer concerts. Midi length means low worry.', bag:['White ribbon tote','Portable fan','Touch-up kit','Lightstick','Backup lip gloss'] },
+      { title:'Dreamy Pastel Fit', items:['Pale pink knit crop cardigan + matching crop top','Pastel lilac wide-leg pants','White lug-sole sneakers','Pastel pearl choker + silver star earrings','Satin bow headband'], colors:['Pastel Pink','Lilac Dream','Soft White'], tags:['✨ Soft Glam','🎀 Dreamy','💜 Fan-coded'], tip:'The matching cardigan + top set trick is the easiest way to look put-together without trying.', accessories:['Satin bow headband','Pearl choker','Star earrings'], palette:['#f8d8e8','#e8d8f8','#ffffff','#c0b0e0'], textures:['Soft knit','Satin ribbon','Pearl shell'], why:"Pastel aesthetics match the group's lighthearted concept and fan community visual language.", comfort:'Knit cardigan provides warmth for the AC blast in the arena. Sneakers = full concert comfort.', bag:['Satin bow bag','Compact mirror','Lightstick','Portable charger','Candy for the wait'] },
+      { title:'Ethereal White Fit', items:['White lace eyelet blouse','White high-waist flare trousers','Silver strappy block-heel sandals','Crystal ear cuffs + white pearl bracelet','Sheer white overlay skirt (optional layer)'], colors:['Pure White','Crystal Clear','Silver Mist'], tags:['✨ Soft Glam','🤍 Ethereal','💜 Fan-coded'], tip:'All-white reads like a legend in the crowd — especially during ballads with the lightstick ocean.', accessories:['Crystal ear cuffs','Pearl bracelet','Silver hair pin'], palette:['#ffffff','#f0f0f8','#e0d8f0','#c8c0e8'], textures:['Lace eyelet','Flare twill','Crystal hardware'], why:'White creates a striking crowd presence and photographs beautifully with stage lighting.', comfort:'Flare trousers and block heels are the most comfortable elegant combo for arenas.', bag:['White satin bag','Portable mirror','Lightstick','Touch-up kit','Face wipes'] },
+      { title:'Blush Idol Moment', items:['Blush pink corset top','Baby blue high-waist mini skirt','Nude heeled mules with ankle strap','Rose gold chain necklace + matching cuff','Pastel ribbon bow in hair'], colors:['Blush Rose','Baby Blue','Rose Gold'], tags:['✨ Soft Glam','🌷 Feminine Core','💜 Fan-coded'], tip:'Blush + baby blue is the iconic idol fashion show color combo — own it completely.', accessories:['Rose gold jewelry set','Ribbon bow','Nude mules'], palette:['#f8c8c8','#c8e8f8','#e8b0a0','#d0a8b8'], textures:['Satin corset','Cotton blend','Rose gold tone'], why:"This color palette is directly inspired by the group's merchandise and concept mood board.", comfort:'Corset top provides structure without being too tight. Mules are stable for long waits.', bag:['Pastel mini bag','Compact mirror','Lightstick','Touch-up kit','Hair pins'] },
+      { title:'Cherry Blossom Fit', items:['Cherry blossom print wrap blouse','Light pink A-line skirt','Blush platform wedge sandals','Daisy hair clips + gold ring stack','Woven mini tote in cream'], colors:['Cherry Pink','Fresh Cream','Warm Gold'], tags:['✨ Soft Glam','🌸 Seasonal','💜 Fan-coded'], tip:'Floral print + solid color pairing keeps the look cohesive — let the print lead.', accessories:['Daisy clips','Gold ring stack','Woven tote'], palette:['#f8b8c8','#fff8e8','#e8d0a8','#d0a0b0'], textures:['Printed chiffon','Cotton A-line','Woven natural'], why:"Cherry blossom prints resonate with the group's K-pop spring aesthetic and fan color palette.", comfort:'A-line skirt and wedges are perfect for outdoor or warm venue concerts with lots of walking.', bag:['Woven tote','Portable fan','Lightstick','Touch-up kit','Mini sunscreen'] },
+    ],
+    cozy: [
+      { title:'Fan Den Cozy Fit', items:['Cream oversized ribbed knit sweater','Dark wash straight-leg jeans, cuffed once','White platform chunky sneakers','Cozy fandom beanie + layered necklaces',`${group||'Fandom'} tote as your statement bag`], colors:['Warm Cream','Dark Denim','Soft White'], tags:['☕ Cozy Core','🧶 Knit Season','💜 Fan-coded'], tip:"Cuff the jeans once to show the sneakers fully — the small detail that makes the whole fit land.", accessories:['Fandom beanie','Layered necklaces','Tote bag'], palette:['#f0e8d0','#2a2030','#ffffff','#b8b0a0'], textures:['Ribbed knit','Denim twill','Chunky canvas'], why:'Cozy fits work perfectly for long queues and standing sections — comfort without sacrificing personality.', comfort:'Ribbed knit breathes well and layers easily. Add a jacket for outdoor queuing.', bag:['Fandom tote','Portable charger','Snacks for the queue','Lightstick','Cozy socks backup'] },
+      { title:'Campus Fan Fit', items:['Graphic crewneck sweatshirt (fan merch or aesthetic)','Plaid flannel shirt tied at waist','Straight-leg khaki trousers','Clean white lace-up sneakers','Canvas tote with enamel pin cluster'], colors:['Vintage Grey','Plaid Brown','Classic White'], tags:['☕ Cozy Core','📚 Campus Cute','💜 Fan-coded'], tip:'The flannel tied at the waist adds visual interest. Remove it inside when it gets warm.', accessories:['Wrist scrunchie stack','Canvas tote','Enamel pins'], palette:['#c8c0b8','#a08060','#f0ece8','#806050'], textures:['Fleece cotton','Flannel plaid','Canvas'], why:"The effortless campus aesthetic aligns with the group's off-duty idol street style.", comfort:'Maximum concert comfort — you can sit, jump, and queue for 6 hours without issue.', bag:['Canvas tote','Portable charger','Merch pins','Lightstick','Snacks'] },
+      { title:'Autumn Concert Fit', items:['Rust orange oversized fleece pullover','Brown wide-leg corduroy trousers','Tan lug-sole boots','Wooden bead necklace + stud earrings','Brown tote with merch pin cluster'], colors:['Rust Orange','Warm Brown','Tan Leather'], tags:['☕ Cozy Core','🍂 Autumn Mood','💜 Fan-coded'], tip:'Rust and brown are the concert crowd colors of fall — you will look cohesive with every autumn fan around you.', accessories:['Merch pin cluster on tote','Wooden beads','Lug-sole boots'], palette:['#c05020','#604020','#c0a060','#e8c080'], textures:['Fleece','Corduroy ribbed','Suede tone'], why:"Autumn palette matches the group's concept album art and seasonal fan-cam aesthetic.", comfort:'Corduroy trousers are warm, comfortable, and handle a full-night standing section.', bag:['Brown tote','Hand warmers','Portable charger','Lightstick','Extra jacket'] },
+      { title:'Soft Merch Fit', items:['Pastel fandom sweatshirt','High-waist jogger trousers in matching shade','Foam-sole platform sneakers','Pom pom beanie + charm bracelet stack','Puffer crossbody (hands-free)'], colors:['Pastel Fandom Color','Soft White','Warm Grey'], tags:['☕ Cozy Core','🎪 Fan Spirit','💜 Fan-coded'], tip:'Matching sweatshirt + jogger is the ultimate lazy-cozy elevated look. Just add cute shoes.', accessories:['Pom pom beanie','Charm bracelet','Puffer crossbody'], palette:['#d8d0f0','#f0ece8','#c0b8c8','#a09898'], textures:['French terry','Foam sole','Quilted nylon'], why:"Matching set energy mirrors the group's color-coded photoshoot aesthetic — cohesive and recognizable.", comfort:'Ultimate comfort fit. You could wear this for a 4-hour queue and still feel great.', bag:['Puffer crossbody','Portable charger','Snack pouch','Lightstick','Mini fan'] },
+      { title:'Bookish Fan Fit', items:['Oversized cable-knit cardigan (oatmeal)','Striped ribbed turtleneck underneath','Straight-leg cropped trousers (dark)','Chunky low-profile sneakers','Leather satchel with enamel pin cluster'], colors:['Oatmeal Knit','Navy Stripe','Dark Charcoal'], tags:['☕ Cozy Core','📖 Soft Intellectual','💜 Fan-coded'], tip:'Layer the cardigan open over the turtleneck — the collar peeking through is the whole aesthetic.', accessories:['Leather satchel','Enamel pin cluster','Knit hair clip'], palette:['#e8e0d0','#1a1e2e','#c8c0b8','#404858'], textures:['Cable-knit wool','Ribbed cotton','Smooth leather'], why:"Intellectual-cozy aesthetics resonate with the group's artsy fan community — thoughtful and warm.", comfort:'Cable-knit and turtleneck mean you are ready for the AC blast. Removable layers are key.', bag:['Leather satchel','Portable charger','Fandom pins','Lightstick','Journal for the queue'] },
+      { title:'Winter Hug Fit', items:['Cream teddy fleece zip-up jacket','Mocha ribbed long-sleeve top','Dark brown straight jeans','Platform chelsea boots','Knit beanie + sherpa mini bag'], colors:['Teddy Cream','Mocha Brown','Dark Chocolate'], tags:['☕ Cozy Core','🤎 Warm Tones','💜 Fan-coded'], tip:'Teddy fleece photographs warm and inviting — you will be the one everyone wants to stand next to.', accessories:['Knit beanie','Sherpa mini bag','Stacking rings'], palette:['#f0e8d8','#7a5040','#2a1810','#c0a080'], textures:['Teddy fleece','Rib knit','Smooth leather chelsea'], why:"Winter warmth aesthetics sync with the group's cozy holiday content and winter comeback visuals.", comfort:'Teddy jacket is your heating system. Layers keep you warm in the queue, cool once inside.', bag:['Sherpa mini bag','Hand warmers','Portable charger','Lightstick','Snacks'] },
+    ],
+    bold: [
+      { title:'Power Move Fit', items:['Red power blazer (structured, cropped)','Black bodysuit underneath','Wide-leg black trousers with sharp crease','Strappy black heeled sandals','Statement gold cuff + bold accessories'], colors:['Power Red','Matte Black','Gold Accent'], tags:['⚡ Power Fit','🔥 Statement','💜 Fan-coded'], tip:'The blazer is your whole look — keep everything else minimal to let it lead.', accessories:['Statement gold cuff','Bold ring','Red lip'], palette:['#c02020','#06060f','#d0a040','#802020'], textures:['Structured wool blend','Jersey bodysuit','Satin lining'], why:"Power colors and structured silhouettes mirror the group's commanding stage presence — you will own the room.", comfort:'Wide-leg trousers mean you can stand for hours. Blazer handles the temperature swings.', bag:['Structured mini bag','Backup lip color','Lightstick','Portable charger','Mirror compact'] },
+      { title:'Y2K Bold Fit', items:['Rhinestone-studded baby tee','Low-rise flared jeans with crystal hem detail','Platform chunky sneakers','Butterfly clips + hoop earrings + arm candy stack','Mini rhinestone shoulder bag'], colors:['Crystal Clear','Washed Denim','Chrome Silver'], tags:['⚡ Power Fit','💎 Y2K Revival','💜 Fan-coded'], tip:'Rhinestone + denim is the Y2K formula — pick one sparkle piece to lead, keep the rest minimal.', accessories:['Butterfly clips','Hoop earrings','Arm candy stack'], palette:['#f0f0f8','#80a0c8','#c0c0e0','#e0d0f0'], textures:['Jersey + crystal','Denim','Chrome hardware'], why:"Y2K revival energy matches the group's retro-future era concept and visual tone.", comfort:'Low-rise + flare is comfortable for dancing. Platform adds height without stiletto pain.', bag:['Rhinestone mini bag','Compact mirror','Lightstick','Touch-up kit','Sparkly hair pins'] },
+      { title:'Colorblock Statement', items:['Electric blue structured jacket','Contrasting orange bodysuit','Black wide-leg trousers','Black pointed-toe boots','Geometric statement earrings'], colors:['Electric Blue','Vibrant Orange','Clean Black'], tags:['⚡ Power Fit','🎨 Colorblock','💜 Fan-coded'], tip:'Wear the jacket open to show the orange underneath — close it for the photo, open it for movement.', accessories:['Geometric earrings','Minimal gold ring','Structured mini bag'], palette:['#2040c0','#e06020','#06060f','#c0a040'], textures:['Structured gabardine','Jersey','Matte leather'], why:"Bold colorblocking is a K-pop stylist signature move — you will look like you belong on the stage side.", comfort:'Open jacket ventilates the look for warm venue floors. Structured enough for a long set.', bag:['Structured mini tote','Portable charger','Lightstick','Touch-up kit','Bold lip backup'] },
+      { title:'Stage Presence Fit', items:['Black sequin crop top','High-waist leather shorts','Thigh-high platform boots','Crystal earrings + rhinestone hair pins','Mini sequin crossbody'], colors:['Jet Black Sequin','Patent Black','Crystal Flash'], tags:['⚡ Power Fit','✨ Sequin Night','💜 Fan-coded'], tip:'Sequin catches every stage light — you will shine in the fan cam coverage.', accessories:['Rhinestone hair pins','Crystal earrings','Sequin crossbody'], palette:['#08080f','#1a1a28','#e8e0f8','#6060c0'], textures:['Sequin','Patent leather','Crystal embellishment'], why:'Sequin and leather is the ultimate concert power combo — editorial but functional.', comfort:'Platform thigh-highs take practice — bring the boots and change at the venue if needed.', bag:['Mini sequin bag','Blister plasters','Lightstick','Portable charger','Touch-up kit'] },
+      { title:'Electric Neon Fit', items:['Neon lime crop jacket','Black mesh bodysuit','Black vinyl mini skirt','Platform chunky sneakers with neon detail','LED hair accessories + black sunglasses'], colors:['Neon Lime','Pure Black','Electric White'], tags:['⚡ Power Fit','⚡ Electric','💜 Fan-coded'], tip:'LED hair accessories are transformative — check if your venue allows them before committing.', accessories:['LED hair clip','Black shades','Neon wrist cuff'], palette:['#c0f020','#06060f','#e8f8c0','#808020'], textures:['Nylon mesh','Vinyl','Rubber platform sole'], why:"Neon energy matches the group's electric production design — you'll photograph like part of the show.", comfort:'Mesh bodysuit breathes well but pack hand warmers for the queue. Sneakers = arena comfort.', bag:['Mini neon bag','Portable charger','Lightstick','LED accessories backup','Sunglasses'] },
+      { title:'Fierce Editorial Fit', items:['Black structured vest (tailored)','Fishnet turtleneck underneath','Wide-leg tailored trousers (charcoal)','Block-heel ankle boots','Architectural cuff + statement sunglasses'], colors:['Charcoal Steel','Fishnet Black','Chrome'], tags:['⚡ Power Fit','🗞️ Editorial','💜 Fan-coded'], tip:'The architectural accessories do the heavy lifting — keep the clothing clean and structured.', accessories:['Architectural cuff','Statement sunglasses','Minimal ring'], palette:['#2a2a2a','#0e0e18','#c8c8d8','#484860'], textures:['Structured suiting','Fishnet cotton','Brushed silver hardware'], why:"Editorial tailoring is the group's stylist house signature — wearing it in the crowd is the tribute.", comfort:'Wide-leg trousers and block heels are the most comfortable dressed-up combo for a full concert night.', bag:['Structured mini clutch','Compact mirror','Lightstick','Portable charger','Blister plasters'] },
+    ],
+    cute: [
+      { title:'K-Pop Cafe Outfit', items:['Strawberry pink oversized knit sweater','High-waist denim micro skirt with heart pockets','Platform Mary Jane shoes','Cherry earrings + heart charm necklace',`${group||'Fandom'} pink cloud mini tote bag`], colors:['Strawberry Pink','Denim Blue','Cherry Red'], tags:['🍓 Cute Core','🎀 K-Cafe','💜 Fan-coded'], tip:'Heart pocket detail is cute but subtle — pair with cherry earrings for a theme without being too matchy.', accessories:['Cherry earrings','Heart necklace','Pink cloud bag'], palette:['#f8b0c0','#80a0d8','#f03040','#f8d8e0'], textures:['Soft knit','Stretch denim','Patent leather'], why:"Cute-core aesthetics match the group's bubbly concept and fan-community visual identity.", comfort:'Oversized knit is warm and comfortable. Mary Janes with platform are the most wearable cute shoe option.', bag:['Pink cloud bag','Compact mirror','Lightstick','Touch-up kit','Cute fan stickers to swap'] },
+      { title:'Bunny Aesthetic Fit', items:['White cropped hoodie with ear/bow detail','Pastel blue pleated skirt','White chunky sneakers','Bunny hairpin set + pearl ring stack','White puffer mini backpack'], colors:['Cloud White','Pastel Blue','Soft Pink'], tags:['🍓 Cute Core','🐰 Bunny Aesthetic','💜 Fan-coded'], tip:'Bunny aesthetic is peak fandom energy — wear it confidently, the crowd will adore it.', accessories:['Bunny hairpins','Pearl ring stack','White puffer backpack'], palette:['#ffffff','#c8ddf8','#f8d8e8','#e8d8f0'], textures:['Fleece cotton','Pleated chiffon','Chunky rubber sole'], why:"The bunny aesthetic is a direct nod to the group's mascot and fandom culture.", comfort:'Hoodie + pleated skirt is the comfort + cute combination that works for any weather.', bag:['White puffer backpack','Portable charger','Lightstick','Touch-up kit','Fan candy'] },
+      { title:'Magical Girl Fit', items:['Pink ruffled chiffon top','Gradient pastel flare skirt (pink to mint)','Clear platform sandals with glitter','Star hairclips + crystal wand keychain','Iridescent mini bag'], colors:['Magical Pink','Mint Gradient','Crystal Clear'], tags:['🍓 Cute Core','✨ Magical','💜 Fan-coded'], tip:'Gradient skirt photographs beautifully — stand in the light during slow songs for full magical effect.', accessories:['Star hairclips','Crystal keychain','Iridescent bag'], palette:['#f8c0d8','#a8f0e0','#f8f0ff','#d8a0c8'], textures:['Chiffon ruffles','Gradient organza','Iridescent vinyl'], why:"Magical girl aesthetics are rooted in the group's fantasy concept era and fan art community.", comfort:'Flare skirt is the most comfortable dressed-up silhouette for a long concert night.', bag:['Iridescent mini bag','Portable mirror','Lightstick','Star wand keychain','Touch-up kit'] },
+      { title:'Doll Aesthetic Fit', items:['Pink gingham babydoll dress','White lace collar detail','White ankle socks with lace trim + white Mary Janes','Ribbon headband + charm bracelet','Pink wicker mini bag'], colors:['Gingham Pink','Pure White','Baby Rose'], tags:['🍓 Cute Core','🎀 Doll Aesthetic','💜 Fan-coded'], tip:"Lace collar is the detail that elevates the babydoll from cute to editorial cute — don't skip it.", accessories:['Ribbon headband','Charm bracelet','Wicker bag'], palette:['#f8c8d8','#ffffff','#f8e0e8','#e0b0c0'], textures:['Gingham cotton','Eyelet lace','Natural wicker'], why:"Doll aesthetic mirrors the group's kawaii idol concept and merchandise visual style.", comfort:'Babydoll dress is the most comfortable summer concert dress — no waistband pressure for hours.', bag:['Pink wicker bag','Compact mirror','Lightstick','Touch-up kit','Fan ribbon'] },
+      { title:'Sweet Nostalgia Fit', items:['Yellow checkered crop top','Light blue high-waist shorts','Retro stripe knee socks + white retro sneakers','Daisy hairclips + colorful bead necklace','Canvas tote with patches'], colors:['Sunny Yellow','Sky Blue','Fresh White'], tags:['🍓 Cute Core','🌻 Sweet Retro','💜 Fan-coded'], tip:'The bead necklace and daisy clips are the Y2K throwback detail that pulls the whole summer look together.', accessories:['Daisy hairclips','Bead necklace','Patched canvas tote'], palette:['#f8d840','#88c8f0','#ffffff','#e8c040'], textures:['Cotton check','Stripe rib knit','Canvas'], why:"Sweet retro aesthetics connect with the group's summer comeback visuals and playful energy.", comfort:'Shorts + sneakers is the optimal comfort level for outdoor or warm venue summer concerts.', bag:['Canvas tote','Mini sunscreen','Portable fan','Lightstick','Snacks'] },
+      { title:'Candy Pop Fit', items:['Colorful stripe knit crop top','Hot pink mini skirt with ruffle hem','White platform sneakers','Jelly bag + acrylic charm earrings','Pastel scrunchie collection on wrist'], colors:['Candy Stripe','Hot Pink','Jelly Clear'], tags:['🍓 Cute Core','🍬 Candy Pop','💜 Fan-coded'], tip:'Acrylic charms read better in person than photos — wear them for you, the vibe will translate.', accessories:['Acrylic charm earrings','Jelly bag','Scrunchie stack'], palette:['#f85898','#f8d0e8','#f8f8c8','#88d8f8'], textures:['Stripe knit','Ruffle cotton','Jelly PVC'], why:"Candy pop color energy matches the group's bright, high-energy performance style perfectly.", comfort:'Stripe crop + mini is breathable for warm venues. Platform sneakers keep you comfortable for hours.', bag:['Jelly bag','Compact mirror','Lightstick','Touch-up kit','Fan candy to share'] },
+    ],
+  };
+
+  const pool = OUTFIT_POOLS[vibe] || OUTFIT_POOLS.dark;
+  const seed = [...`${group||''}${season||''}`].reduce((a,c)=>a+c.charCodeAt(0),0);
+  const template = pool[seed % pool.length];
   const MOCK_OUTFIT = {
-    title:      `${group || 'Fandom'} ${vibe === 'dark' ? 'Dark Era' : vibe === 'soft' ? 'Soft Glam' : 'Concert'} Fit`,
+    ...template,
+    title:      `${group||'Fandom'} ${template.title}`,
     subtitle:   'Built for your concert night ✦',
-    confidence: 94,
-    items: [
-      vibe === 'dark'  ? 'Cropped black oversized hoodie' :
-      vibe === 'soft'  ? 'Lavender satin halter top' :
-      vibe === 'cozy'  ? 'Warm cream knit sweater' :
-      vibe === 'bold'  ? 'Structured colorblock jacket' : 'Satin mini dress',
-      vibe === 'dark'  ? 'Pleated micro-mini skirt (black)' :
-      vibe === 'soft'  ? 'Wide-leg cream trousers' :
-      vibe === 'cozy'  ? 'Ribbed jogger pants' : 'High-waist flare jeans',
-      vibe === 'dark'  ? 'Chunky platform combat boots' :
-      vibe === 'soft'  ? 'Strappy heeled sandals' :
-      vibe === 'cozy'  ? 'Platform sneakers' : 'Clear heeled mules',
-      vibe === 'dark'  ? 'Silver chains + black rings stack' :
-      vibe === 'soft'  ? 'Pearl hair clips + layered necklaces' :
-      vibe === 'cozy'  ? 'Fuzzy bag + scrunchie set' : 'Bold cuff + earrings',
-      `${group || 'Group'} lightstick or mini merch keychain`,
-    ],
-    colors: [
-      vibe === 'dark'  ? 'Midnight Black' :
-      vibe === 'soft'  ? 'Soft Lavender' :
-      vibe === 'cozy'  ? 'Warm Cream' : 'Pearl White',
-      vibe === 'dark'  ? 'Accent: Deep Violet' : 'Accent: Blush Pink',
-    ],
-    tags: [
-      vibe === 'dark'  ? '🌙 Night Show' : '✨ Soft Glam',
-      season === 'summer' ? '☀️ Weather Ready' :
-      season === 'winter' ? '🧥 Layer Up' : '🌸 Seasonal',
-      '💜 Fan-coded',
-    ],
-    tip: vibe === 'dark'
-      ? `Pro tip: Add a sheer overlay for the encore — keeps the fit clean without losing drama.`
-      : `Pro tip: Pack a mini mirror in your fan bag. You will want to fix your lip gloss after the lightstick wave.`,
-    accessories: [
-      'Mini fan cross-body bag',
-      `${group || 'Fandom'}-coded button pins`,
-      'Portable charger holder strap',
-    ],
+    confidence: 85 + (seed % 13),
     mock: true,
   };
 
@@ -416,8 +456,10 @@ app.post('/api/ai/assistant', aiLimiter, requireAuth, async (req, res) => {
 // ═════════════════════════════════════════════════════════════════════════════
 
 // GET VIP status for current user
-app.get('/api/subscriptions/status', requireAuth, async (req, res) => {
-  if (MOCK_MODE) return res.json({ is_vip: false, mock: true });
+app.get('/api/subscriptions/status', optionalAuth, async (req, res) => {
+  // No auth token (called before session loads) — return safe free-tier default
+  if (!req.userId) return res.json({ is_vip: false, plan: null, status: 'free' });
+  if (MOCK_MODE)   return res.json({ is_vip: false, plan: null, status: 'free', mock: true });
   try {
     const { data, error } = await supabase
       .from('users')
@@ -425,10 +467,10 @@ app.get('/api/subscriptions/status', requireAuth, async (req, res) => {
       .eq('id', req.userId)
       .single();
     if (error) throw error;
-    res.json({ is_vip: data?.is_vip || false, vip_since: data?.vip_since });
+    res.json({ is_vip: data?.is_vip || false, plan: data?.is_vip ? 'vip' : null, status: data?.is_vip ? 'active' : 'free', vip_since: data?.vip_since });
   } catch (err) {
     console.error('[Subscription Status] Error:', err.message);
-    res.json({ is_vip: false });
+    res.json({ is_vip: false, plan: null, status: 'free' });
   }
 });
 
@@ -823,6 +865,135 @@ app.get('/api/concerts/memory', requireAuth, async (req, res) => {
 
 
 // ═════════════════════════════════════════════════════════════════════════════
+// SCRAPBOOK — /api/memories/* and /api/scrapbooks/*
+// Phase 2A: Supabase Storage for concert memory images
+// ═════════════════════════════════════════════════════════════════════════════
+
+// POST /api/memories/upload-image
+// Accepts base64-encoded image, uploads to Supabase Storage memories bucket.
+// Returns { url, path } — public URL (prototype); switch to signed URLs for production.
+app.post('/api/memories/upload-image', requireAuth, async (req, res) => {
+  const { imageBase64, filename, mimeType, scrapbookId, memoryId } = req.body;
+
+  if (MOCK_MODE) return res.json({ success: true, mock: true, url: null, path: null });
+
+  try {
+    if (!imageBase64 || !filename || !mimeType) {
+      return res.status(400).json({ error: 'Missing imageBase64, filename, or mimeType' });
+    }
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    if (!allowedTypes.includes(mimeType.toLowerCase())) {
+      return res.status(400).json({ error: 'Only JPG, PNG, and WebP images are allowed' });
+    }
+    const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+    const buffer = Buffer.from(base64Data, 'base64');
+    if (buffer.byteLength > 5 * 1024 * 1024) {
+      return res.status(400).json({ error: 'Image must be under 5MB' });
+    }
+    const ts = Date.now();
+    const safeFilename = (filename || 'photo.jpg').replace(/[^a-zA-Z0-9._-]/g, '_').toLowerCase();
+    const bookId = (scrapbookId || memoryId || 'general').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const storagePath = `${req.userId}/concert-memories/${bookId}/${ts}-${safeFilename}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('memories')
+      .upload(storagePath, buffer, { contentType: mimeType, upsert: false });
+    if (uploadError) throw uploadError;
+
+    // Private bucket: return the storage path. Caller generates signed URLs as needed.
+    // Also return a short-lived signed URL (1 h) for immediate display after upload.
+    const { data: signedData, error: signErr } = await supabase.storage
+      .from('memories')
+      .createSignedUrl(storagePath, 3600);
+    if (signErr) throw signErr;
+    res.json({ success: true, url: signedData.signedUrl, path: storagePath });
+  } catch (err) {
+    console.error('[upload-image]', err.message);
+    res.status(500).json({ error: err.message || 'Upload failed' });
+  }
+});
+
+// POST /api/scrapbooks/memory
+// Saves a scrapbook memory to concert_memories.
+// imageUrl should be a storage PATH (not a signed URL) — callers re-sign on read.
+// Extra fields (title, type, venue, etc.) are packed into the notes column as JSON.
+app.post('/api/scrapbooks/memory', requireAuth, async (req, res) => {
+  const { scrapbookId, type, title, text, imageUrl, date, event, venue, city, friends, tags, linkedSong, favorite } = req.body;
+
+  if (MOCK_MODE) return res.json({ success: true, mock: true, id: `mem_${Date.now()}` });
+
+  try {
+    const notes = JSON.stringify({
+      title: title || '', text: text || '', type: type || 'photo',
+      date: date || '', event: event || '', venue: venue || '',
+      city: city || '', tags: tags || [], linkedSong: linkedSong || '',
+      favorite: !!favorite,
+    });
+    const { data, error } = await supabase.from('concert_memories').insert({
+      user_id: req.userId,
+      event_id: scrapbookId || null,
+      photos: imageUrl ? [imageUrl] : [],
+      notes,
+      people_met: friends ? [friends] : [],
+      meetups_attended: [],
+      after_parties: [],
+    }).select('id').single();
+    if (error) throw error;
+    res.json({ success: true, id: data.id });
+  } catch (err) {
+    console.error('[scrapbooks/memory]', err.message);
+    res.status(500).json({ error: err.message || 'Could not save memory' });
+  }
+});
+
+// GET /api/scrapbooks/memories?scrapbookId=
+// Loads memories for a scrapbook from concert_memories.
+// Returns memories in the same shape the frontend expects.
+app.get('/api/scrapbooks/memories', requireAuth, async (req, res) => {
+  const { scrapbookId } = req.query;
+
+  if (MOCK_MODE) return res.json({ memories: [], mock: true });
+
+  try {
+    let q = supabase.from('concert_memories')
+      .select('*')
+      .eq('user_id', req.userId)
+      .order('created_at', { ascending: false });
+    if (scrapbookId) q = q.eq('event_id', scrapbookId);
+    const { data, error } = await q;
+    if (error) throw error;
+
+    const memories = (data || []).map(row => {
+      let meta = {};
+      try { meta = JSON.parse(row.notes || '{}'); } catch {}
+      return {
+        id: row.id,
+        scrapbookId: row.event_id,
+        type: meta.type || 'photo',
+        title: meta.title || '',
+        text: meta.text || '',
+        imageData: row.photos?.[0] || null,
+        date: meta.date || '',
+        event: meta.event || '',
+        venue: meta.venue || '',
+        city: meta.city || '',
+        friends: row.people_met?.[0] || '',
+        tags: meta.tags || [],
+        linkedSong: meta.linkedSong || '',
+        favorite: meta.favorite || false,
+        created_at: row.created_at,
+        _synced: true,
+      };
+    });
+    res.json({ memories });
+  } catch (err) {
+    console.error('[scrapbooks/memories]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// ═════════════════════════════════════════════════════════════════════════════
 // FEED
 // ═════════════════════════════════════════════════════════════════════════════
 
@@ -972,15 +1143,50 @@ app.get('/api/users/me', requireAuth, async (req, res) => {
       bias: 'Felix', is_vip: false, proof_score: 4.8, mock: true,
     });
   }
-  const { data, error } = await supabase.from('users').select('*').eq('id', req.userId).single();
-  if (error) return res.status(404).json({ error: 'User not found' });
-  res.json(data);
+  try {
+    const { data, error } = await supabase.from('users').select('*').eq('id', req.userId).single();
+
+    // Row exists — return it
+    if (data && !error) return res.json(data);
+
+    // Row missing (new user / trigger didn't fire) — create it from Supabase Auth data
+    if (!data || error?.code === 'PGRST116') {
+      const usernameBase = (req.userEmail || '').split('@')[0].replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase() || 'fan';
+      const newUser = {
+        id:           req.userId,
+        email:        req.userEmail || '',
+        username:     usernameBase,
+        display_name: usernameBase,
+        bio:          '',
+        city:         '',
+        fandoms:      [],
+        bias:         '',
+        is_vip:       false,
+        proof_score:  0,
+      };
+      const { data: created, error: insertErr } = await supabase.from('users').upsert(newUser).select('*').single();
+      if (insertErr) {
+        console.error('[GET /api/users/me] Auto-create failed:', insertErr.message);
+        return res.status(500).json({ error: 'Could not create user profile', detail: insertErr.message });
+      }
+      return res.json(created);
+    }
+
+    // Any other DB error
+    console.error('[GET /api/users/me] DB error:', error?.message);
+    return res.status(500).json({ error: error?.message || 'Unknown error' });
+  } catch (err) {
+    console.error('[GET /api/users/me] Exception:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.post('/api/profile/update', requireAuth, async (req, res) => {
   const { username, bio, city, fandoms, bias, nowPlaying, profileStyle, discoverable } = req.body;
   if (MOCK_MODE) return res.json({ success: true, mock: true });
-  const updates = {};
+  // Seed id + email so upsert creates the row for users who signed up but
+  // whose public.users row was never inserted by the DB trigger.
+  const updates = { id: req.userId, email: req.userEmail || '' };
   if (username      !== undefined) updates.username       = username;
   if (bio           !== undefined) updates.bio            = bio;
   if (city          !== undefined) updates.city           = city;
@@ -989,7 +1195,7 @@ app.post('/api/profile/update', requireAuth, async (req, res) => {
   if (nowPlaying    !== undefined) updates.now_playing    = nowPlaying;
   if (profileStyle  !== undefined) updates.profile_style  = profileStyle;
   if (discoverable  !== undefined) updates.discoverable   = discoverable;
-  const { error } = await supabase.from('users').update(updates).eq('id', req.userId);
+  const { error } = await supabase.from('users').upsert(updates, { onConflict: 'id' });
   if (error) return res.status(500).json({ error: error.message });
   res.json({ success: true });
 });

@@ -98,7 +98,8 @@ function AuthProvider({ children }) {
           if (u.id) ls.set(`backstage_profile_${u.id}`, u);
         } else {
           setUser(null);
-          ls.del?.('backstage_session');
+          ls.del('backstage_session');
+          ls.del('backstage_mock_user');
         }
       });
       return () => subscription.unsubscribe();
@@ -107,7 +108,9 @@ function AuthProvider({ children }) {
 
   const signOut = async () => {
     setUser(null);
-    ls.set('backstage_session', null);
+    ls.del('backstage_session');
+    ls.del('backstage_mock_user');
+    ls.del('backstage_is_vip');
     if (_supabase) await _supabase.auth.signOut();
   };
 
@@ -188,7 +191,7 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 @keyframes glow{0%,100%{box-shadow:0 0 10px rgba(184,162,255,.18)}50%{box-shadow:0 0 28px rgba(184,162,255,.55)}}
 @keyframes hb{0%,100%{transform:scale(1)}15%{transform:scale(1.28)}30%{transform:scale(1)}45%{transform:scale(1.12)}60%{transform:scale(1)}}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
-@keyframes mapPulse{0%{transform:scale(1);opacity:.85}60%{transform:scale(2.2);opacity:.1}100%{transform:scale(1);opacity:.85}}
+@keyframes mapPulse{0%{transform:scale(1);opacity:0.85}65%{transform:scale(2.6);opacity:0.06}100%{transform:scale(1);opacity:0.85}}
 @keyframes rotate{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
 @keyframes shimmer{0%{opacity:.5}50%{opacity:1}100%{opacity:.5}}
 @keyframes burst{0%{transform:scale(0);opacity:0}70%{transform:scale(1.15);opacity:1}100%{transform:scale(1);opacity:1}}
@@ -221,6 +224,11 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 @keyframes polaroidIn{from{transform:rotate(var(--rot)) scale(0.9);opacity:0}to{transform:rotate(var(--rot)) scale(1);opacity:1}}
 @keyframes holoShift{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
 @keyframes cosmicDrift{0%{transform:translateY(0) translateX(0)}33%{transform:translateY(-3px) translateX(2px)}66%{transform:translateY(2px) translateX(-2px)}100%{transform:translateY(0) translateX(0)}}
+@keyframes auraDrift{0%{transform:translate(0,0) rotate(0deg)}33%{transform:translate(10px,-7px) rotate(4deg)}66%{transform:translate(-6px,9px) rotate(-3deg)}100%{transform:translate(0,0) rotate(0deg)}}
+@keyframes concertLight{0%,100%{opacity:0.14;transform:scaleX(1)}50%{opacity:0.30;transform:scaleX(1.1)}}
+@keyframes softFloat{0%,100%{transform:translateY(0) rotate(-0.5deg)}50%{transform:translateY(-9px) rotate(0.5deg)}}
+@keyframes iridescent{0%{filter:hue-rotate(0deg) brightness(1)}50%{filter:hue-rotate(15deg) brightness(1.06)}100%{filter:hue-rotate(0deg) brightness(1)}}
+@keyframes memoryFade{from{opacity:0;transform:translateY(10px) scale(0.97)}to{opacity:1;transform:translateY(0) scale(1)}}
 .tap{transition:transform .12s,opacity .12s}
 .tap:active{transform:scale(.94);opacity:.8}
 /* ── Collectible card hover lift ─────────────────────────────────────────── */
@@ -1521,7 +1529,7 @@ function ConcertDayCard({ onBack, user, generate, generating, done, onNotif, go 
             ))}
           </div>
           <div style={{ marginTop:14,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-            <p style={{ fontSize:10,color:C.textDim,fontStyle:"italic" }}>@{user?.name||"stan"} · Backstage App</p>
+            <p style={{ fontSize:10,color:C.textDim,fontStyle:"italic" }}>@{user?.username||user?.name||"stan"} · Backstage App</p>
             <p style={{ fontSize:18 }}>{MOCK_AFTERGLOW_MOODS.find(m=>m.id===mood)?.emoji||"✨"}</p>
           </div>
         </div>
@@ -1599,7 +1607,7 @@ function IdentityCard({ onBack, user }) {
           <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:18,zIndex:1,position:"relative" }}>
             <div>
               <p style={{ fontSize:9,color:"rgba(255,255,255,0.65)",fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.16em",marginBottom:4 }}>BACKSTAGE · FAN IDENTITY</p>
-              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:24,color:C.white,lineHeight:1 }}>@{user?.name||"stan"}</p>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:24,color:C.white,lineHeight:1 }}>@{user?.username||user?.name||"stan"}</p>
             </div>
             <div style={{ width:50,height:50,borderRadius:14,background:"rgba(255,255,255,0.15)",border:"1.5px solid rgba(255,255,255,0.25)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,backdropFilter:"blur(8px)" }}>🎤</div>
           </div>
@@ -2012,28 +2020,30 @@ function HomeIdentity({ user, go }) {
 
 // ── 3. LIVE STATS STRIP ──────────────────────────────────────────────────────
 function HomeLiveStats({ go }) {
-  // Each stat routes to its exact destination
   const STATS = [
-    { val:"1.2K", label:"fans online",   color:C.mint, icon:"👥", dest:"fanverse",       tip:"Fanverse Map" },
-    { val:"24",   label:"meetups live",  color:C.pink, icon:"🎉", dest:"concerts_meetups",tip:"Meetups" },
-    { val:"8",    label:"after parties", color:C.gold, icon:"🎊", dest:"concerts_parties",tip:"After Parties" },
+    { val:"1.2K", label:"fans online",   color:C.mint,  icon:"👥", dest:"fanverse",        sub:"worldwide now" },
+    { val:"24",   label:"meetups live",  color:C.pink,  icon:"🎉", dest:"concerts_meetups", sub:"near you" },
+    { val:"8",    label:"after parties", color:C.gold,  icon:"🎊", dest:"concerts_parties", sub:"tonight" },
   ];
   return (
-    <div style={{ padding:"0 18px 20px" }}>
-      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:11 }}>
-        <p style={VS.softSectionHeader}>Today in the Fanverse</p>
-        <div style={{ display:"flex",gap:5,alignItems:"center" }}>
-          <div style={{ width:5,height:5,borderRadius:"50%",background:C.rose,animation:"pulse 1.2s ease infinite" }} />
-          <p style={{ fontSize:9.5,color:C.rose,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>LIVE</p>
+    <div style={{ padding:"0 18px 22px" }}>
+      {/* Atmospheric section label */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:13 }}>
+        <p style={{ fontSize:9, color:"rgba(255,255,255,0.22)", fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.16em" }}>The fanverse is alive tonight</p>
+        <div style={{ display:"flex", gap:5, alignItems:"center" }}>
+          <div style={{ width:5, height:5, borderRadius:"50%", background:C.rose, animation:"pulse 1.2s ease infinite", boxShadow:`0 0 6px ${C.rose}` }} />
+          <p style={{ fontSize:9, color:C.rose, fontFamily:"'Epilogue',sans-serif", fontWeight:700, letterSpacing:"0.08em" }}>LIVE</p>
         </div>
       </div>
-      <div style={{ display:"flex",gap:8 }}>
+      <div style={{ display:"flex", gap:9 }}>
         {STATS.map(s=>(
-          <div key={s.label} onClick={()=>go(s.dest)} className="tap" style={{ flex:1,...VS.glowCard(s.color),padding:"12px 8px",textAlign:"center",cursor:"pointer" }}>
-            <div style={{ position:"absolute",inset:0,background:`radial-gradient(circle at 50% 0%,${s.color}14,transparent 60%)`,pointerEvents:"none" }} />
-            <p style={{ fontSize:17,marginBottom:3 }}>{s.icon}</p>
-            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:20,color:s.color,lineHeight:1,position:"relative" }}>{s.val}</p>
-            <p style={{ fontSize:8.5,color:C.textMid,lineHeight:1.3,marginTop:3,position:"relative" }}>{s.label}</p>
+          <div key={s.label} onClick={()=>go(s.dest)} className="tap" style={{ flex:1, position:"relative", overflow:"hidden", background:"linear-gradient(160deg,rgba(255,255,255,0.04),rgba(255,255,255,0.015))", border:`1px solid rgba(255,255,255,0.06)`, borderRadius:20, padding:"14px 8px 12px", textAlign:"center", cursor:"pointer", backdropFilter:"blur(12px)", boxShadow:"0 4px 16px rgba(0,0,0,0.3)" }}>
+            {/* Color glow top */}
+            <div style={{ position:"absolute", top:-20, left:"50%", transform:"translateX(-50%)", width:80, height:60, borderRadius:"50%", background:`radial-gradient(ellipse,${s.color}28,transparent 70%)`, filter:"blur(8px)", pointerEvents:"none" }} />
+            <p style={{ fontSize:18, marginBottom:4, position:"relative" }}>{s.icon}</p>
+            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:21, color:s.color, lineHeight:1, position:"relative", textShadow:`0 0 18px ${s.color}66` }}>{s.val}</p>
+            <p style={{ fontSize:8.5, color:"rgba(255,255,255,0.35)", lineHeight:1.3, marginTop:4, position:"relative" }}>{s.label}</p>
+            <p style={{ fontSize:7.5, color:`${s.color}80`, marginTop:1, letterSpacing:"0.04em", position:"relative" }}>{s.sub}</p>
           </div>
         ))}
       </div>
@@ -10992,21 +11002,172 @@ function ScrapbookDetail({ book, onBack, isVip, onUpgrade }) {
   const [filterType, setFilterType] = useState("all");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState(null);
-  const [form, setForm] = useState({ type:"photo", title:"", text:"", imageData:null, date:"", event:"", venue:"", city:"", friends:"", tags:[], linkedSong:"", favorite:false });
+  const [form, setForm] = useState({ type:"photo", title:"", text:"", imageData:null, imageStoragePath:null, date:"", event:"", venue:"", city:"", friends:"", tags:[], linkedSong:"", favorite:false });
   const fileRef = useRef(null);
   const FREE_LIMIT = 5;
+  const [uploadLoading, setUploadLoading] = useState(false);
+  const [uploadError, setUploadError] = useState(null);
+  const { user } = useAuth();
 
   useEffect(()=>{ ls.set(storageKey, memories); }, [memories]);
+
+  // Load from Supabase on mount when authenticated.
+  // photos[] stores storage paths; convert to signed URLs for display.
+  useEffect(()=>{
+    if(!_supabase || !user?.id) return;
+    (async () => {
+      const { data, error } = await _supabase.from('concert_memories')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('event_id', book.id)
+        .order('created_at', { ascending: false });
+      if(error || !data?.length) return;
+
+      const supaMems = await Promise.all(data.map(async row => {
+        let meta = {};
+        try { meta = JSON.parse(row.notes || '{}'); } catch {}
+        const storagePath = row.photos?.[0] || null;
+        let displayUrl = null;
+        if(storagePath) {
+          // storagePath is a raw storage key (not a URL); generate a 1-hour signed URL
+          const { data: sd } = await _supabase.storage
+            .from('memories')
+            .createSignedUrl(storagePath, 3600);
+          displayUrl = sd?.signedUrl || null;
+        }
+        return {
+          id: row.id, scrapbookId: row.event_id,
+          type: meta.type || 'photo', title: meta.title || '',
+          text: meta.text || '', imageData: displayUrl,
+          imageStoragePath: storagePath,
+          date: meta.date || '', event: meta.event || '',
+          venue: meta.venue || '', city: meta.city || '',
+          friends: row.people_met?.[0] || '', tags: meta.tags || [],
+          linkedSong: meta.linkedSong || '', favorite: meta.favorite || false,
+          created_at: row.created_at, _synced: true,
+        };
+      }));
+
+      setMemories(prev => {
+        const unsynced = prev.filter(m => !m._synced && typeof m.id === 'string' && m.id.startsWith('mem-'));
+        return [...supaMems, ...unsynced];
+      });
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [book.id, user?.id]);
+
+  const handleFileSelect = async (e) => {
+    console.log('UPLOAD DEBUG: active App file — src/App.jsx');
+    const file = e.target.files[0];
+    if(!file) return;
+    e.target.value = '';
+    const allowed = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    if(!allowed.includes(file.type)) { setUploadError('Only JPG, PNG, and WebP photos are allowed.'); return; }
+    if(file.size > 5 * 1024 * 1024) { setUploadError('Photo must be under 5MB.'); return; }
+    console.log('UPLOAD DEBUG: file name/type/size', file.name, file.type, file.size);
+    setUploadError(null);
+
+    // No Supabase configured — localStorage-only mode
+    if(!_supabase) {
+      console.log('UPLOAD DEBUG: _supabase is null — localStorage fallback (no Supabase env vars)');
+      const reader = new FileReader();
+      reader.onload = ev => setForm(prev => ({ ...prev, imageData: ev.target.result }));
+      reader.readAsDataURL(file);
+      return;
+    }
+
+    // Get the real Supabase auth user directly — do NOT rely on React state (user?.id)
+    // because the profile ID in React state can differ or be stale.
+    const { data: { user: authUser }, error: authErr } = await _supabase.auth.getUser();
+    console.log('UPLOAD DEBUG: auth user id', authUser?.id ?? null, '| auth error', authErr?.message ?? null);
+
+    if(!authUser?.id) {
+      console.log('UPLOAD DEBUG: no authenticated Supabase user — localStorage fallback');
+      const reader = new FileReader();
+      reader.onload = ev => setForm(prev => ({ ...prev, imageData: ev.target.result }));
+      reader.readAsDataURL(file);
+      return;
+    }
+
+    setUploadLoading(true);
+
+    // Show base64 preview immediately
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      setForm(prev => ({ ...prev, imageData: ev.target.result }));
+
+      try {
+        const ts = Date.now();
+        const safeFilename = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').toLowerCase();
+        const bookId = book.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+        // Path must start with the real Supabase auth uid to satisfy RLS
+        const storagePath = `${authUser.id}/concert-memories/${bookId}/${ts}-${safeFilename}`;
+        console.log('UPLOAD DEBUG: storage path', storagePath);
+
+        const { data: upData, error: upErr } = await _supabase.storage
+          .from('memories')
+          .upload(storagePath, file, { contentType: file.type, upsert: false });
+        console.log('UPLOAD DEBUG: upload data', upData);
+        console.log('UPLOAD DEBUG: upload error', upErr);
+
+        if(upErr) {
+          // Surface the real error — do NOT silently fall back while Supabase is active
+          setUploadError(`Cloud upload failed: ${upErr.message}`);
+        } else {
+          // Private bucket: signed URL for display only; path is what gets persisted
+          const { data: sd, error: signErr } = await _supabase.storage
+            .from('memories')
+            .createSignedUrl(storagePath, 3600);
+          console.log('UPLOAD DEBUG: signed url', sd?.signedUrl ?? null, '| sign error', signErr?.message ?? null);
+          if(sd?.signedUrl) {
+            setForm(prev => ({ ...prev, imageData: sd.signedUrl, imageStoragePath: storagePath }));
+          } else {
+            setUploadError(`Upload succeeded but signing failed: ${signErr?.message}`);
+          }
+        }
+      } catch(err) {
+        console.log('UPLOAD DEBUG: unexpected exception', err?.message);
+        setUploadError(`Cloud upload failed: ${err?.message || 'Unknown error'}`);
+      } finally {
+        setUploadLoading(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   const TYPES = ["photo","note","photocard","freebie","outfit","friend","ticket","video"];
   const TYPE_EMOJI = { photo:"📸", note:"✍️", photocard:"🃏", freebie:"🎁", outfit:"✨", friend:"🤝", ticket:"🎟️", video:"🎥" };
 
-  const saveMemory = () => {
+  const saveMemory = async () => {
     if(!isVip && memories.length >= FREE_LIMIT) { onUpgrade(); return; }
     const mem = { ...form, id:`mem-${Date.now()}`, scrapbookId:book.id };
     setMemories([mem, ...memories]);
-    setForm({ type:"photo", title:"", text:"", imageData:null, date:"", event:"", venue:"", city:"", friends:"", tags:[], linkedSong:"", favorite:false });
+    setForm({ type:"photo", title:"", text:"", imageData:null, imageStoragePath:null, date:"", event:"", venue:"", city:"", friends:"", tags:[], linkedSong:"", favorite:false });
+    setUploadError(null);
     setAdding(false);
+    // Persist to Supabase if authenticated
+    if(_supabase) {
+      // Use the live Supabase auth user, not React state, to ensure user_id matches RLS
+      _supabase.auth.getUser().then(({ data: { user: authUser } }) => {
+        if(!authUser?.id) {
+          console.log('UPLOAD DEBUG: concert_memories insert skipped — no authenticated Supabase user');
+          return;
+        }
+        // photos[] stores the raw storage path, NOT a signed URL
+        const notes = JSON.stringify({ title:form.title||'', text:form.text||'', type:form.type||'photo', date:form.date||'', event:form.event||'', venue:form.venue||'', city:form.city||'', tags:form.tags||[], linkedSong:form.linkedSong||'', favorite:!!form.favorite });
+        const row = {
+          user_id: authUser.id, event_id: book.id,
+          photos: form.imageStoragePath ? [form.imageStoragePath] : [],
+          notes, people_met: form.friends ? [form.friends] : [],
+          meetups_attended: [], after_parties: [],
+        };
+        console.log('UPLOAD DEBUG: concert_memories insert row', row);
+        _supabase.from('concert_memories').insert(row).then(({ data: insData, error: insErr }) => {
+          console.log('UPLOAD DEBUG: concert_memories insert data', insData);
+          console.log('UPLOAD DEBUG: concert_memories insert error', insErr);
+        });
+      });
+    }
   };
 
   const filtered = memories.filter(m=>(filterType==="all"||m.type===filterType)&&(!search||m.title?.toLowerCase().includes(search.toLowerCase())||m.text?.toLowerCase().includes(search.toLowerCase())));
@@ -11138,16 +11299,23 @@ function ScrapbookDetail({ book, onBack, isVip, onUpgrade }) {
               <div style={{ marginBottom:12 }}>
                 {form.imageData ? (
                   <div style={{ position:"relative" }}>
-                    <img src={form.imageData} alt="preview" style={{ width:"100%",height:130,objectFit:"cover",borderRadius:13 }} />
-                    <button onClick={()=>setForm({...form,imageData:null})} style={{ position:"absolute",top:8,right:8,background:"rgba(6,6,15,0.8)",border:"none",borderRadius:"50%",width:28,height:28,color:C.text,cursor:"pointer" }}>✕</button>
+                    <img src={form.imageData} alt="preview" style={{ width:"100%",height:130,objectFit:"cover",borderRadius:13,opacity:uploadLoading?0.55:1,transition:"opacity .2s" }} />
+                    {uploadLoading&&(
+                      <div style={{ position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(6,6,15,0.55)",borderRadius:13 }}>
+                        <p style={{ color:"#fff",fontSize:11.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,animation:"pulse 1.2s ease infinite" }}>☁️ Uploading…</p>
+                      </div>
+                    )}
+                    {!uploadLoading&&<button onClick={()=>{setForm({...form,imageData:null});setUploadError(null);}} style={{ position:"absolute",top:8,right:8,background:"rgba(6,6,15,0.8)",border:"none",borderRadius:"50%",width:28,height:28,color:C.text,cursor:"pointer" }}>✕</button>}
+                    {!uploadLoading&&form.imageStoragePath&&<div style={{ position:"absolute",bottom:8,left:8,background:"rgba(6,6,15,0.75)",borderRadius:8,padding:"3px 8px",fontSize:9,color:C.mint,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>☁️ Saved to cloud</div>}
                   </div>
                 ) : (
                   <div>
                     <button onClick={()=>fileRef.current?.click()} style={{ width:"100%",padding:"13px",borderRadius:13,background:"transparent",border:`2px dashed ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8 }}>📸 Upload Photo</button>
-                    <p style={{ fontSize:10,color:C.textDim,marginTop:5,textAlign:"center" }}>Prototype stores images locally on this device.</p>
+                    <p style={{ fontSize:10,color:C.textDim,marginTop:5,textAlign:"center" }}>{_supabase?"JPG · PNG · WebP · max 5 MB — uploads to your cloud":"JPG · PNG · WebP · max 5 MB — stored locally"}</p>
                   </div>
                 )}
-                <input ref={fileRef} type="file" accept="image/*" onChange={e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>setForm({...form,imageData:ev.target.result});r.readAsDataURL(f);}} style={{ display:"none" }} />
+                {uploadError&&<p style={{ fontSize:10.5,color:C.rose,marginTop:6,textAlign:"center" }}>{uploadError}</p>}
+                <input ref={fileRef} type="file" accept="image/jpeg,image/jpg,image/png,image/webp" onChange={handleFileSelect} style={{ display:"none" }} />
               </div>
             )}
 
@@ -11166,8 +11334,8 @@ function ScrapbookDetail({ book, onBack, isVip, onUpgrade }) {
               <p style={{ fontSize:12.5, color:C.textMid }}>Mark as Favorite ⭐</p>
             </div>
             <div style={{ display:"flex", gap:10 }}>
-              <Btn onClick={saveMemory} style={{ flex:1 }} small>Save Memory</Btn>
-              <Btn ghost color={C.textMid} onClick={()=>setAdding(false)} style={{ width:82,flex:"none" }} small>Cancel</Btn>
+              <Btn onClick={saveMemory} style={{ flex:1,opacity:uploadLoading?0.5:1 }} small disabled={uploadLoading}>{uploadLoading?"Uploading photo…":"Save Memory"}</Btn>
+              <Btn ghost color={C.textMid} onClick={()=>{setAdding(false);setUploadError(null);}} style={{ width:82,flex:"none" }} small>Cancel</Btn>
             </div>
           </div>
         </div>
@@ -11266,6 +11434,7 @@ function AppInner() {
   // ── SIGN OUT ───────────────────────────────────────────────────────────────
   const handleSignOut = async () => {
     ls.del('backstage_session');
+    ls.del('backstage_mock_user');
     ls.del('backstage_is_vip');
     if(_supabase) await _supabase.auth.signOut();
     setUser(null);

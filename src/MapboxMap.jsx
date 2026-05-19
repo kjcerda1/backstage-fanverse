@@ -1,5 +1,9 @@
-import { useEffect, useRef } from "react";
-import mapboxgl from "mapbox-gl";
+import { useEffect, useRef, useState } from "react";
+// Use namespace import so this works whether Vite pre-bundles mapbox-gl (optimizeDeps.include)
+// or loads it raw (optimizeDeps.exclude). The `?? mapboxglModule` fallback handles the case
+// where the raw file has no default export but does have named exports (Map, AttributionControl…).
+import * as mapboxglModule from "mapbox-gl";
+const mapboxgl = mapboxglModule.default ?? mapboxglModule;
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
@@ -267,6 +271,7 @@ export default function MapboxMap({
   const rafRef       = useRef(null);
   const phaseRef     = useRef(0);
   const readyRef     = useRef(false);  // true once all layers are added
+  const [mapError, setMapError] = useState(null);
 
   // ── Init map (once) ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -275,6 +280,7 @@ export default function MapboxMap({
     injectMapboxCSS();
     let map;
 
+    try {
     mapboxgl.accessToken = MAPBOX_TOKEN;
 
     map = new mapboxgl.Map({
@@ -346,6 +352,10 @@ export default function MapboxMap({
         mapRef.current = null;
       }
     };
+    } catch (err) {
+      console.error("[MapboxMap] init failed:", err.message);
+      setMapError(err.message);
+    }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Live data update — this is the Supabase Realtime hook point ────────────
@@ -367,6 +377,26 @@ export default function MapboxMap({
       );
     } catch (_) {}
   }, [showHeatmap]);
+
+  // ── Map init error fallback (import or GL context failure) ──────────────────
+  if (mapError) {
+    return (
+      <div style={{
+        width:"100%", height:"100%",
+        background:"linear-gradient(160deg,#0d0b28,#1a1345,#2b1e52)",
+        display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
+        gap:8,
+      }}>
+        <p style={{ fontSize:28 }}>🗺️</p>
+        <p style={{ fontSize:12, color:"rgba(184,162,255,0.55)", fontFamily:"'Epilogue',sans-serif", fontWeight:700 }}>
+          Map unavailable
+        </p>
+        <p style={{ fontSize:10, color:"rgba(184,162,255,0.3)", textAlign:"center", maxWidth:180 }}>
+          {mapError}
+        </p>
+      </div>
+    );
+  }
 
   // ── No-token fallback ─────────────────────────────────────────────────────
   if (!MAPBOX_TOKEN) {
