@@ -1494,36 +1494,32 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade }) {
                 {searchQ&&<button onClick={()=>setSearchQ("")} style={{ position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:C.textMid,fontSize:16,cursor:"pointer",padding:4 }}>✕</button>}
               </div>
 
-              {/* ── Autocomplete results ── */}
-              {searchResults.length>0 && (
+              {/* ── Autocomplete results ── always show when focused or has query, even if empty */}
+              {(searchResults.length>0 || q.length>=1) && (
                 <div style={{ background:`linear-gradient(160deg,${C.surfaceMid},${C.surface})`,border:`1.5px solid ${C.borderHi}`,borderRadius:18,overflow:"hidden",marginBottom:16,animation:"searchSlideIn .18s ease",boxShadow:`0 8px 28px rgba(0,0,0,0.4)` }}>
                   {searchResults.map((fu,i)=>{
                     const st = getStatus(fu);
                     return (
-                      <div key={fu.id} style={{ padding:"12px 14px",borderBottom:i<searchResults.length-1?`1px solid ${C.border}`:"none",position:"relative",background:st==="accepted"?`${C.mint}05`:"transparent" }}>
-                        <div style={{ display:"flex",gap:12,alignItems:"center" }}>
+                      <div key={fu.id} style={{ padding:"11px 14px",borderBottom:i<searchResults.length-1?`1px solid ${C.border}`:"none",position:"relative",background:st==="accepted"?`${C.mint}05`:"transparent" }}>
+                        <div style={{ display:"flex",gap:10,alignItems:"flex-start" }}>
                           {/* Avatar */}
-                          <div style={{ position:"relative",flexShrink:0 }}>
-                            <div style={{ width:44,height:44,borderRadius:"50%",background:`linear-gradient(135deg,${fu.color},${fu.color}77)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,color:C.bg,border:`2px solid ${fu.color}66`,boxShadow:`0 0 12px ${fu.color}33` }}>{fu.avatar}</div>
+                          <div style={{ position:"relative",flexShrink:0,marginTop:2 }}>
+                            <div style={{ width:42,height:42,borderRadius:"50%",background:`linear-gradient(135deg,${fu.color},${fu.color}77)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,color:C.bg,border:`2px solid ${fu.color}66`,boxShadow:`0 0 12px ${fu.color}33` }}>{fu.avatar}</div>
                             {st==="accepted"&&<div style={{ position:"absolute",bottom:-1,right:-1,width:14,height:14,borderRadius:"50%",background:C.mint,border:`2px solid ${C.surface}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:7 }}>✦</div>}
                           </div>
-                          {/* Info */}
-                          <div style={{ flex:1,minWidth:0 }}>
-                            <div style={{ display:"flex",alignItems:"center",gap:5,marginBottom:2 }}>
-                              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,color:C.text }}>{highlight(`@${fu.username}`)}</p>
-                            </div>
-                            <p style={{ fontSize:10.5,color:C.textMid,marginBottom:5,lineHeight:1.4 }}>{fu.bio}</p>
-                            <div style={{ display:"flex",gap:4,flexWrap:"wrap" }}>
-                              {fu.fandoms.slice(0,2).map(f=><span key={f} style={{ padding:"2px 8px",borderRadius:99,background:`${fu.color}18`,border:`1px solid ${fu.color}33`,fontSize:9,color:fu.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{f}</span>)}
-                              <span style={{ padding:"2px 8px",borderRadius:99,background:C.surfaceHi,border:`1px solid ${C.border}`,fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>📍 {fu.city.split(",")[0]}</span>
+                          {/* Info — constrained to prevent wrap blowout */}
+                          <div style={{ flex:1,minWidth:0,overflow:"hidden" }}>
+                            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12.5,color:C.text,marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{highlight(`@${fu.username}`)}</p>
+                            <p style={{ fontSize:10,color:C.textMid,marginBottom:5,lineHeight:1.35,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{fu.bio}</p>
+                            <div style={{ display:"flex",gap:4,flexWrap:"nowrap",overflow:"hidden" }}>
+                              {fu.fandoms.slice(0,1).map(f=><span key={f} style={{ padding:"2px 8px",borderRadius:99,background:`${fu.color}18`,border:`1px solid ${fu.color}33`,fontSize:9,color:fu.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap",flexShrink:0 }}>{f}</span>)}
+                              <span style={{ padding:"2px 8px",borderRadius:99,background:C.surfaceHi,border:`1px solid ${C.border}`,fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,whiteSpace:"nowrap",flexShrink:0 }}>📍 {fu.city.split(",")[0]}</span>
+                              {fu.concertContext&&<span style={{ fontSize:9,color:C.textDim,fontStyle:"italic",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",flexShrink:1 }}>🎤 {fu.concertContext.split(" ").slice(0,3).join(" ")}</span>}
                             </div>
                           </div>
                           {/* CTA */}
-                          <StatusBtn fu={fu} />
+                          <div style={{ flexShrink:0,marginTop:2 }}><StatusBtn fu={fu} /></div>
                         </div>
-                        {fu.concertContext&&(
-                          <div style={{ marginTop:7,marginLeft:56,fontSize:9.5,color:C.textDim,fontStyle:"italic" }}>🎤 {fu.concertContext}</div>
-                        )}
                       </div>
                     );
                   })}
@@ -2376,7 +2372,7 @@ function HomeQuickActions({ user, go }) {
       {/* Bottom row: 4 icon tiles */}
       <div style={{ display:"flex",gap:9 }}>
         {[
-          { icon:"👯",label:"My Circle",  dest:"friends",     color:C.pink   },
+          { icon:"💜",label:"My Circle",  dest:"invite",      color:C.pink   },
           { icon:"✈️",label:"Trip Plan",  dest:"trip",        color:C.accent },
           { icon:"✨",label:"Outfit AI",  dest:"outfits",     color:C.sky    },
           { icon:"📋",label:"Checklist",  dest:"concertprep", color:C.gold   },
@@ -2841,11 +2837,16 @@ function HomeFeed({ user, go, weather, isVip, onUpgrade, onSmartNotifs }) {
             <button onClick={()=>setSearchOpen(v=>!v)} style={{ width:38,height:38,borderRadius:"50%",background:C.surfaceHi,border:`1.5px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer" }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="8" stroke={C.textMid} strokeWidth="1.8"/><path d="m21 21-4.35-4.35" stroke={C.textMid} strokeWidth="1.8" strokeLinecap="round"/></svg>
             </button>
-            {/* Bell */}
-            <button onClick={onSmartNotifs} style={{ width:38,height:38,borderRadius:"50%",background:C.surfaceHi,border:`1.5px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",position:"relative" }}>
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M18 8A6 6 0 1 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" stroke={C.text} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.73 21a2 2 0 0 1-3.46 0" stroke={C.text} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
-              <div style={{ position:"absolute",top:8,right:8,width:7,height:7,borderRadius:"50%",background:C.rose,border:`1.5px solid ${C.bg}` }} />
-            </button>
+            {/* Bell — opens notification inbox; badge reflects live unread count */}
+            {(()=>{
+              const unreadCount = (()=>{ try { const i=JSON.parse(localStorage.getItem("backstage_notif_inbox")||"null"); return Array.isArray(i)?i.filter(n=>!n.read).length:4; } catch{return 4;} })();
+              return (
+                <button onClick={()=>go("notifications")} style={{ width:38,height:38,borderRadius:"50%",background:C.surfaceHi,border:`1.5px solid ${unreadCount>0?C.accent:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",position:"relative",boxShadow:unreadCount>0?`0 0 12px ${C.accent}28`:"none",transition:"all .2s" }}>
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M18 8A6 6 0 1 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" stroke={unreadCount>0?C.accent:C.text} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.73 21a2 2 0 0 1-3.46 0" stroke={unreadCount>0?C.accent:C.text} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  {unreadCount>0&&<div style={{ position:"absolute",top:-3,right:-3,minWidth:16,height:16,borderRadius:99,background:`linear-gradient(135deg,${C.rose},${C.berry})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,color:"#fff",fontFamily:"'Epilogue',sans-serif",fontWeight:800,border:`1.5px solid ${C.bg}`,padding:"0 3px" }}>{unreadCount>9?"9+":unreadCount}</div>}
+                </button>
+              );
+            })()}
             {/* Avatar */}
             <div onClick={()=>go("profile")} style={{ width:38,height:38,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.pink})`,border:`2px solid ${C.borderHi}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,color:C.bg,cursor:"pointer",boxShadow:`0 0 14px ${C.accent}28` }}>
               {(name[0]||"M").toUpperCase()}
@@ -11350,6 +11351,20 @@ function PrivacySettings({ settings, setSettings, onBack }) {
   );
 }
 
+// ─── STANDALONE NOTIFICATION CENTER WRAPPER ───────────────────────────────────
+// Used by NotificationBell → setModal("notifications") path.
+// Owns its own settings/notifOn state so it works outside ProfileTab.
+function StandaloneNotifCenter({ onBack }) {
+  const [settings, setSettings] = useState(()=>ls.get("backstage_notification_settings", DEFAULT_NOTIF_SETTINGS));
+  const [notifOn, setNotifOn]   = useState(false);
+  const saveSettings = (v) => { setSettings(v); ls.set("backstage_notification_settings", v); };
+  const requestNotif = async () => {
+    const token = await requestNotificationPermission("user");
+    if (token) setNotifOn(true);
+  };
+  return <NotificationCenter settings={settings} setSettings={saveSettings} onBack={onBack} notifOn={notifOn} requestNotif={requestNotif} />;
+}
+
 // ─── NOTIFICATION CENTER ──────────────────────────────────────────────────────
 // GET /api/notifications/settings | POST /api/notifications/settings | POST /api/notifications/token
 function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNotif }) {
@@ -11405,18 +11420,27 @@ function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNot
             const tColor = NOTIF_TYPE_COLOR[n.type]||C.accent;
             const acceptFriendReq = () => {
               if(!n.fromUserId) return;
-              // Accept friend request from notification
               const fu = MOCK_FANVERSE_USERS.find(u=>u.id===n.fromUserId)||{ id:n.fromUserId, username:n.fromUsername||"fan", displayName:n.fromDisplayName||"Fan", avatar:n.fromAvatar||"F", color:n.fromColor||C.accent, fandoms:[], groups:[] };
               const member = { id:fu.id, name:`@${fu.username}`, avatar:fu.avatar, color:fu.color, type:"moot", groups:fu.fandoms||[], trust:5.0, concerts:0, status:"accepted" };
+              // Update friends + circle lists
               const friends = ls.get("backstage_friends", MOCK_FRIENDS);
               if(!friends.find(f=>f.id===fu.id)) ls.set("backstage_friends", [member,...friends]);
               const circle = ls.get("backstage_circle",[]);
               if(!circle.find(c=>c.id===fu.id)) ls.set("backstage_circle",[member,...circle]);
-              // Mark read and update title
+              // Sync circle_statuses so InvitePage shows "In Your Circle" on re-open
+              const statuses = ls.get("backstage_circle_statuses",{});
+              ls.set("backstage_circle_statuses",{...statuses,[fu.id]:"accepted"});
+              // Mark notification read + update copy
               const next = inbox.map(x=>x.id===n.id?{...x,read:true,title:"Circle accepted",body:`@${fu.username} is now in your Circle ✦`,type:"accepted"}:x);
               setInbox(next); ls.set("backstage_notif_inbox", next);
             };
             const declineFriendReq = () => {
+              const fu = MOCK_FANVERSE_USERS.find(u=>u.id===n.fromUserId);
+              if(fu) {
+                // Sync circle_statuses so InvitePage shows "Declined" on re-open
+                const statuses = ls.get("backstage_circle_statuses",{});
+                ls.set("backstage_circle_statuses",{...statuses,[fu.id]:"declined"});
+              }
               const next = inbox.map(x=>x.id===n.id?{...x,read:true,title:"Invite declined",type:"meetup"}:x);
               setInbox(next); ls.set("backstage_notif_inbox", next);
             };
@@ -12350,7 +12374,7 @@ function AppInner() {
   };
 
   const go = (dest) => {
-    const FULL_MODALS = ["concertprep","myshows","trip","scrapbook","afterglow","friends","chats","qr","safety","events","concertday","timeline","tickets","nearby","trust","games","creator","backup","fanidentity","valuetracks","fanprojects","assistant","outfits","invite","contentgen","fanmap","explore","livefeed","budget","capsule","passes"];
+    const FULL_MODALS = ["concertprep","myshows","trip","scrapbook","afterglow","friends","chats","qr","safety","events","concertday","timeline","tickets","nearby","trust","games","creator","backup","fanidentity","valuetracks","fanprojects","assistant","outfits","invite","contentgen","fanmap","explore","livefeed","budget","capsule","passes","notifications"];
     if(FULL_MODALS.includes(dest)){ setModal(dest); return; }
     if(dest==="collect"||dest==="shelf"){ setTab("collect"); setModal(null); return; }
     if(dest==="fanverse"){ setTab("community"); setModal(null); return; }
@@ -12522,6 +12546,7 @@ function AppInner() {
         {modal==="explore"&&<ModalWrapper><ExploreTab user={user} weather={weatherData} isVip={isVip} onUpgrade={openUpgrade} go={go} onBack={()=>setModal(null)} /></ModalWrapper>}
         {modal==="livefeed"&&<ModalWrapper><LiveFeedTab user={user} go={go} onBack={()=>setModal(null)} /></ModalWrapper>}
         {/* PHASE 5 MODALS */}
+        {modal==="notifications"&&<ModalWrapper><StandaloneNotifCenter onBack={()=>setModal(null)} /></ModalWrapper>}
         {modal==="invite"&&<ModalWrapper><InvitePage onBack={()=>setModal(null)} user={user} onNotif={showNotif} isVip={isVip} onUpgrade={openUpgrade} /></ModalWrapper>}
         {modal==="contentgen"&&<ModalWrapper><ContentGenerator onBack={()=>setModal(null)} user={user} go={go} onNotif={showNotif} /></ModalWrapper>}
         {modal==="capsule"&&<ModalWrapper><ConcertCapsule concert={MOCK_CONCERTS[0]} onBack={()=>setModal(null)} user={user} isVip={isVip} onUpgrade={openUpgrade} /></ModalWrapper>}
@@ -12551,8 +12576,8 @@ function AppInner() {
               {tab==="profile"&&<ProfileTab user={user} cards={cards} go={go} isVip={isVip} onUpgrade={openUpgrade} onReplayTour={()=>setShowVipTour(true)} />}
               {/* Ask Backstage AI — hidden on profile (has its own Studio/Preview actions) */}
               {tab!=="profile"&&<AskBackstageButton go={go} />}
-              {/* Notification Bell — global floating */}
-              <NotificationBell onOpen={()=>setModal("notifications")} />
+              {/* Notification Bell — floating, hidden on home (has its own bell) and profile (has section nav) */}
+              {tab!=="home"&&tab!=="profile"&&<NotificationBell onOpen={()=>setModal("notifications")} />}
             </>
           )}
         </div>
