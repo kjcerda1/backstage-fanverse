@@ -1529,7 +1529,7 @@ function ConcertDayCard({ onBack, user, generate, generating, done, onNotif, go 
             ))}
           </div>
           <div style={{ marginTop:14,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-            <p style={{ fontSize:10,color:C.textDim,fontStyle:"italic" }}>@{user?.username||user?.name||"stan"} · Backstage App</p>
+            <p style={{ fontSize:10,color:C.textDim,fontStyle:"italic" }}>@{user?.username||user?.username||user?.name||user?.stanName||"stan"} · Backstage App</p>
             <p style={{ fontSize:18 }}>{MOCK_AFTERGLOW_MOODS.find(m=>m.id===mood)?.emoji||"✨"}</p>
           </div>
         </div>
@@ -1607,7 +1607,7 @@ function IdentityCard({ onBack, user }) {
           <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:18,zIndex:1,position:"relative" }}>
             <div>
               <p style={{ fontSize:9,color:"rgba(255,255,255,0.65)",fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.16em",marginBottom:4 }}>BACKSTAGE · FAN IDENTITY</p>
-              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:24,color:C.white,lineHeight:1 }}>@{user?.username||user?.name||"stan"}</p>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:24,color:C.white,lineHeight:1 }}>@{user?.username||user?.username||user?.name||user?.stanName||"stan"}</p>
             </div>
             <div style={{ width:50,height:50,borderRadius:14,background:"rgba(255,255,255,0.15)",border:"1.5px solid rgba(255,255,255,0.25)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,backdropFilter:"blur(8px)" }}>🎤</div>
           </div>
@@ -5916,7 +5916,41 @@ function OutfitGenerator({ user, weather, isVip, onUpgrade }) {
 
       {/* ── GENERATOR VIEW ── */}
       {view==="generator" && (
-        <div>
+        <div style={{ paddingBottom:20 }}>
+          {/* ── COMING SOON GATE — remove to re-enable ── */}
+          <div style={{ position:"relative",borderRadius:22,overflow:"hidden",marginBottom:20,background:`linear-gradient(160deg,${C.cosmic},#0e0630)`,border:`1px solid ${C.accent}22` }}>
+            {/* Ambient glow */}
+            <div style={{ position:"absolute",top:"-30%",left:"50%",transform:"translateX(-50%)",width:280,height:280,borderRadius:"50%",background:`radial-gradient(circle,${C.accent}18,transparent 70%)`,pointerEvents:"none" }} />
+            {/* Blur overlay on bottom half */}
+            <div style={{ position:"absolute",bottom:0,left:0,right:0,height:"40%",background:`linear-gradient(to top,${C.cosmic}ee,transparent)`,pointerEvents:"none",zIndex:1 }} />
+            {/* Sparkle dots */}
+            {[{t:"8%",l:"10%"},{t:"12%",l:"88%"},{t:"70%",l:"5%"},{t:"75%",l:"92%"}].map((s,i)=>(
+              <div key={i} style={{ position:"absolute",top:s.t,left:s.l,color:C.lavender,fontSize:8,opacity:0.4,animation:`sparkleFloat ${2+i*0.5}s ease-in-out infinite`,animationDelay:`${i*0.4}s`,pointerEvents:"none" }}>✦</div>
+            ))}
+            <div style={{ position:"relative",zIndex:2,padding:"36px 24px 32px",textAlign:"center" }}>
+              <div style={{ width:56,height:56,borderRadius:18,background:`linear-gradient(135deg,${C.accent}28,${C.berry}18)`,border:`1px solid ${C.accent}33`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,margin:"0 auto 16px",boxShadow:`0 0 28px ${C.accent}20` }}>✨</div>
+              <div style={{ display:"inline-flex",alignItems:"center",gap:5,background:`${C.accent}14`,border:`1px solid ${C.accent}33`,borderRadius:99,padding:"3px 12px",marginBottom:14 }}>
+                <div style={{ width:5,height:5,borderRadius:"50%",background:C.accent,animation:"pulse 1.5s ease infinite" }} />
+                <span style={{ fontSize:9,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,letterSpacing:"0.1em" }}>COMING SOON</span>
+              </div>
+              <h3 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:20,marginBottom:8,background:`linear-gradient(135deg,${C.lavender},${C.blush})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent" }}>AI Outfit Studio</h3>
+              <p style={{ fontSize:12,color:C.textMid,lineHeight:1.75,marginBottom:20,maxWidth:280,margin:"0 auto 20px" }}>
+                Real concert-inspired fits. Fandom-coded styling. Era aesthetics, weather-aware planning, and personalized concert-day looks — all AI-powered.
+              </p>
+              {/* Feature previews */}
+              {[["🎤","Concert-day outfit planning"],["💜","Era & fandom-coded aesthetics"],["🌤","Weather-aware styling"],["📌","Pinterest-quality editorial fits"]].map(([icon,label],i)=>(
+                <div key={i} style={{ display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:i<3?`1px solid ${C.border}`:"none",textAlign:"left" }}>
+                  <span style={{ fontSize:14,flexShrink:0 }}>{icon}</span>
+                  <p style={{ fontSize:11.5,color:C.text }}>{label}</p>
+                </div>
+              ))}
+              <button style={{ marginTop:20,width:"100%",padding:"13px",borderRadius:12,border:`1px solid ${C.accent}44`,background:`${C.accent}14`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer" }}>
+                Get Early Access →
+              </button>
+            </div>
+          </div>
+          {/* Hidden generator code preserved below for reactivation */}
+          <div style={{display:"none"}}>
           {!isVip && genCount >= FREE_LIMIT && (
             <div onClick={onUpgrade} className="tap" style={{ background:`${C.gold}12`, border:`1.5px solid ${C.gold}44`, borderRadius:14, padding:13, marginBottom:14, textAlign:"center", cursor:"pointer" }}>
               <p style={{ fontSize:13, color:C.gold, fontFamily:"'Epilogue',sans-serif", fontWeight:700 }}>This is a VIP feature ✨</p>
@@ -6126,6 +6160,7 @@ function OutfitGenerator({ user, weather, isVip, onUpgrade }) {
             </div>
           )}
         </div>
+          </div>
       )}
 
       {/* ── VIRTUAL TRY-ON VIEW ── */}
@@ -6500,7 +6535,7 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
 
   const addPost = () => {
     if(!draft.text.trim()) return;
-    const newPost = { id:Date.now(), user:`@${user?.name||"you"}`, avatar:(user?.name||"Y")[0].toUpperCase(), color:C.accent, type:draft.type||"general", text:draft.text, likes:0, comments:0, time:"now", tag:draft.tag||"General", saved:false, meme:null, image:draft.image||null };
+    const newPost = { id:Date.now(), user:`@${user?.username||user?.name||user?.stanName||"you"}`, avatar:(user?.username||user?.name||user?.stanName||"Y")[0].toUpperCase(), color:C.accent, type:draft.type||"general", text:draft.text, likes:0, comments:0, time:"now", tag:draft.tag||"General", saved:false, meme:null, image:draft.image||null };
     const next = [newPost, ...posts];
     setPosts(next); ls.set("backstage_feed_posts", next.slice(0,50));
     setDraft({text:"",tag:"",type:"general",image:null}); setComposing(false);
@@ -7080,7 +7115,7 @@ function QRPage({ onBack, user, onNotif }) {
                   <div style={{ width:36,height:36,borderRadius:10,background:C.bg,border:`1.5px solid ${C.accent}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16 }}>{QR_ACTIONS.find(a=>a.id===activeAction)?.icon||"◈"}</div>
                 </div>
               </div>
-              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14,marginBottom:6 }}>@{user?.name||"stan"}</p>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14,marginBottom:6 }}>@{user?.username||user?.name||user?.stanName||"stan"}</p>
               <Pill color={C.accent} small>{QR_ACTIONS.find(a=>a.id===activeAction)?.label}</Pill>
             </div>
           </div>
@@ -8343,26 +8378,26 @@ function TripPlanner({ isVip, onUpgrade }) {
         <span style={{ color:C.gold, fontSize:16 }}>→</span>
       </div>
 
-      {/* Book Now — affiliate links */}
-      {/* TODO: Replace URLs with real affiliate IDs — Booking.com, Hotels.com partner programs */}
-      <div style={{ marginBottom:18 }}>
-        <p style={{ ...VS.softSectionHeader, marginBottom:10 }}>Book Your Trip</p>
-        <div style={{ display:"flex",gap:8,overflowX:"auto",scrollbarWidth:"none",paddingBottom:4 }}>
-          {[
-            { label:"Booking.com", icon:"🏨", color:C.accent, sub:"Hotels", url:`https://booking.com/search.html?ss=Dallas&checkin=2026-04-29&checkout=2026-05-01&aid=BACKSTAGE_AFFILIATE` },
-            { label:"Hotels.com", icon:"🏩", color:C.pink,   sub:"Hotels", url:`https://hotels.com/search?q-destination=Dallas&q-check-in=2026-04-29&q-check-out=2026-05-01` },
-            { label:"Skyscanner", icon:"✈️", color:C.sky,    sub:"Flights", url:`https://skyscanner.com/flights-to/dfw/cheap-flights-to-dallas-fort-worth.html` },
-            { label:"Google Flights", icon:"🛫", color:C.mint, sub:"Flights", url:`https://flights.google.com/explore?q=flights+to+Dallas` },
-          ].map(s=>(
-            <div key={s.label} onClick={()=>window.open(s.url,"_blank")} className="tap" style={{ flexShrink:0,width:110,...VS.glowCard(s.color),padding:"12px 10px",cursor:"pointer",textAlign:"center" }}>
-              <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${s.color}44,transparent)` }} />
-              <p style={{ fontSize:20,marginBottom:5 }}>{s.icon}</p>
-              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,color:C.text,marginBottom:2,position:"relative" }}>{s.label}</p>
-              <p style={{ fontSize:9,color:s.color,position:"relative" }}>{s.sub} →</p>
-            </div>
-          ))}
+      {/* Fan Travel Hub — Coming Soon (affiliate booking paused) */}
+      <div style={{ marginBottom:18,background:`linear-gradient(140deg,${C.surfaceHi},${C.surface})`,border:`1px solid ${C.accent}22`,borderRadius:18,padding:"18px 16px",position:"relative",overflow:"hidden" }}>
+        <div style={{ position:"absolute",top:"-20%",right:"-10%",width:160,height:160,borderRadius:"50%",background:`radial-gradient(circle,${C.sky}14,transparent 70%)`,pointerEvents:"none" }} />
+        <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:4 }}>
+          <span style={{ fontSize:16 }}>✈️</span>
+          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14 }}>Fan Travel Hub</p>
+          <div style={{ background:`${C.accent}18`,border:`1px solid ${C.accent}33`,borderRadius:99,padding:"2px 8px" }}>
+            <span style={{ fontSize:8,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,letterSpacing:"0.08em" }}>COMING SOON</span>
+          </div>
         </div>
-        <p style={{ fontSize:9,color:C.textDim,marginTop:6,textAlign:"center" }}>Affiliate partner links — Backstage may earn a commission</p>
+        <p style={{ fontSize:11,color:C.textMid,lineHeight:1.65,marginBottom:14 }}>Group travel coordination, hotel syncing, concert trip planning, and fandom meetup booking — all in one place.</p>
+        {[["🏨","Hotel blocks near the venue"],["✈️","Fan travel deals & group flights"],["🤝","Concert trip coordination with moots"]].map(([icon,label],i)=>(
+          <div key={i} style={{ display:"flex",alignItems:"center",gap:8,paddingTop:i>0?7:0,paddingBottom:i<2?7:0,borderBottom:i<2?`1px solid ${C.border}`:"none" }}>
+            <span style={{ fontSize:12 }}>{icon}</span>
+            <p style={{ fontSize:11,color:C.text }}>{label}</p>
+          </div>
+        ))}
+        <button style={{ marginTop:14,width:"100%",padding:"10px",borderRadius:10,border:`1px solid ${C.accent}44`,background:`${C.accent}10`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer" }}>
+          Join Waitlist →
+        </button>
       </div>
 
       {adding&&(
@@ -9662,7 +9697,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour }) {
           </div>
           <div style={{ flex:1 }}>
             <div style={{ display:"flex", gap:6, alignItems:"center", marginBottom:3 }}>
-              <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:19, letterSpacing:"-0.02em" }}>@{user?.name||"stan"}</p>
+              <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:19, letterSpacing:"-0.02em" }}>@{user?.username||user?.name||user?.stanName||"stan"}</p>
               {isVip&&<VipBadge />}
             </div>
             <p style={{ fontSize:10.5,color:C.textMid }}>Multi-fan · she/her · Seoul → LA</p>
@@ -10491,13 +10526,13 @@ function BackstagePasses({ onBack, user }) {
             {/* Expanded details */}
             {showDetails&&(
               <div style={{ animation:"in .15s ease",paddingBottom:8 }}>
-                {/* Pass type selector — compact chips */}
-                <div style={{ display:"flex",gap:6,overflowX:"auto",scrollbarWidth:"none",marginBottom:10,paddingBottom:2 }}>
+                {/* Pass type selector — mature minimal pills */}
+                <div style={{ display:"flex",gap:5,overflowX:"auto",scrollbarWidth:"none",marginBottom:10,flexWrap:"wrap" }}>
                   {PASS_TYPES.map(t=>(
-                    <div key={t.id} onClick={()=>setDraft(d=>({...d,type:t.id}))} className="tap" style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:"6px 9px",borderRadius:11,cursor:"pointer",background:draft.type===t.id?`${t.color}28`:C.surfaceHi,border:`1.5px solid ${draft.type===t.id?t.color:C.border}`,transition:"all .15s",minWidth:44 }}>
-                      <span style={{ fontSize:18 }}>{t.emoji}</span>
-                      <span style={{ fontSize:7,fontFamily:"'Epilogue',sans-serif",fontWeight:700,color:draft.type===t.id?t.color:C.textDim,whiteSpace:"nowrap" }}>{t.label}</span>
-                    </div>
+                    <button key={t.id} onClick={()=>setDraft(d=>({...d,type:t.id}))} style={{ flexShrink:0,display:"flex",alignItems:"center",gap:5,padding:"5px 11px",borderRadius:99,cursor:"pointer",background:draft.type===t.id?`${t.color}22`:C.surfaceHi,border:`1px solid ${draft.type===t.id?t.color:C.border}`,transition:"all .15s" }}>
+                      <div style={{ width:6,height:6,borderRadius:"50%",background:t.color,flexShrink:0,opacity:draft.type===t.id?1:0.5 }} />
+                      <span style={{ fontSize:9.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,color:draft.type===t.id?t.color:C.textMid,whiteSpace:"nowrap" }}>{t.label}</span>
+                    </button>
                   ))}
                 </div>
                 {/* Venue + Capsule toggles */}
@@ -10513,9 +10548,11 @@ function BackstagePasses({ onBack, user }) {
             )}
 
             {/* CTA */}
-            <p style={{ fontSize:9.5,color:C.textDim,textAlign:"center",marginBottom:9,fontStyle:"italic" }}>Share with the Fanverse 💜</p>
-            <button onClick={addPass} disabled={!draft.caption.trim()} style={{ width:"100%",padding:"14px",borderRadius:14,border:"none",background:draft.caption.trim()?`linear-gradient(135deg,${C.accent},${C.berry})`:`rgba(255,255,255,0.06)`,color:draft.caption.trim()?"#04020d":C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,cursor:draft.caption.trim()?"pointer":"default",boxShadow:draft.caption.trim()?`0 0 24px ${C.accent}40,0 6px 20px rgba(0,0,0,0.5)`:"none",transition:"all .22s",letterSpacing:"-0.01em" }}>
-              Drop this Pass ✨
+            <p style={{ fontSize:9.5,color:draft.caption.trim()?C.textDim:"rgba(184,162,255,0.5)",textAlign:"center",marginBottom:9,fontStyle:"italic",transition:"color .2s" }}>
+              {draft.caption.trim() ? "A live memory from your concert night ✨" : "Write your moment above to drop your pass"}
+            </p>
+            <button onClick={addPass} disabled={!draft.caption.trim()} style={{ width:"100%",padding:"14px",borderRadius:14,border:"none",background:draft.caption.trim()?`linear-gradient(135deg,${C.accent},${C.berry})`:`rgba(255,255,255,0.05)`,color:draft.caption.trim()?"#04020d":C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,cursor:draft.caption.trim()?"pointer":"default",boxShadow:draft.caption.trim()?`0 0 24px ${C.accent}40,0 6px 20px rgba(0,0,0,0.5)`:"none",transition:"all .22s",letterSpacing:"-0.01em" }}>
+              {draft.caption.trim() ? "Drop this Pass ✨" : "Add a caption first ↑"}
             </button>
           </div>
 
@@ -10685,7 +10722,7 @@ function ProfileStudio({ profileStyle, setProfileStyle, isVip, onUpgrade, onBack
             <span key={i} style={{ position:"absolute",top:`${12+i*22}%`,right:`${8+i*14}%`,fontSize:ch.length>1?15:11,opacity:0.6,animation:`sparkleFloat ${2+i*0.4}s ease-in-out infinite`,animationDelay:`${i*0.25}s`,color:"rgba(255,255,255,0.85)",pointerEvents:"none" }}>{ch}</span>
           ))}
           <div style={{ fontSize:26,position:"relative" }}>{profileStyle.bannerEmoji}</div>
-          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:16, marginTop:4, position:"relative" }}>@{user?.name||"stan"}</p>
+          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:16, marginTop:4, position:"relative" }}>@{user?.username||user?.name||user?.stanName||"stan"}</p>
           <p style={{ fontSize:11, color:"rgba(255,255,255,0.75)", marginTop:3, fontStyle:"italic", position:"relative" }}>{profileStyle.bannerText}</p>
         </div>
       </div>
@@ -11760,7 +11797,12 @@ const _IS_CAPSULE_PATH = typeof window!=="undefined" && (window.location.pathnam
 
 function AppInner() {
   const [user, setUser] = useState(()=>ls.get("backstage_session")?.user||null);
-  const [appState, setAppState] = useState(()=>ls.get("backstage_session")?.user?"main":"onboarding");
+  const [appState, setAppState] = useState(()=>{
+    const u = ls.get("backstage_session")?.user;
+    // Treat session as complete if user has username/stanName AND onboarding flag is set
+    if(u && (ls.get("backstage_onboarding_complete") || u.username || u.stanName || u.name || u.id)) return "main";
+    return "onboarding";
+  });
   const [tab, setTab] = useState("home");
   // Auto-open capsule modal if signed-in user lands on /capsule
   const [modal, setModal] = useState(()=>_IS_CAPSULE_PATH&&ls.get("backstage_session")?.user?"capsule":null);
@@ -12004,13 +12046,12 @@ function AppInner() {
         {/* ── MAIN SCREENS ── */}
         <div style={{ flex:1, overflow:"hidden", position:"relative" }}>
           {appState==="onboarding"&&<Onboarding onDone={data=>{
-            console.log('[App] onDone received, user:', data?.username, 'id:', data?.id);
             if (!data) { console.error('[App] onDone called with null — skipping'); return; }
             setUser(data);
             setAppState("main");
             ls.set("backstage_session", { user: data });
+            ls.set("backstage_onboarding_complete", true); // prevent repeat onboarding
             if (fromCapsule) setModal("capsule");
-            console.log('[App] appState → main');
           }} />}
           {appState==="main"&&!modal&&(
             <>

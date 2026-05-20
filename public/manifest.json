@@ -1,0 +1,31 @@
+{
+  "name": "Backstage by Fanverse",
+  "short_name": "Backstage",
+  "description": "One Universe. Endless Connections. The ultimate app for K-Pop fans.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#07050f",
+  "theme_color": "#b8a2ff",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/logo-orb.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logo-orb.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/fanverse-logo.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "categories": ["entertainment", "social", "music"]
+}

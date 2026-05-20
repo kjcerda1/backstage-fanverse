@@ -6,6 +6,7 @@ export default defineConfig({
 
   build: {
     outDir:    'dist',
+    target:    'esnext',
     sourcemap: false,
     rollupOptions: {
       output: {
