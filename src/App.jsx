@@ -10235,9 +10235,17 @@ function BackstagePasses({ onBack, user }) {
 
   const [passes, setPasses]     = useState(()=>ls.get(KEY,MOCK_PASSES));
   const [creating, setCreating] = useState(false);
-  const [draft, setDraft]       = useState({type:"fitcheck",caption:"",duration:"tonight",venue:false,toCapsule:false});
+  const [draft, setDraft]       = useState({type:"fitcheck",caption:"",duration:"tonight",venue:false,toCapsule:false,image:null});
   const [filter, setFilter]     = useState("all");
-  const [viewing, setViewing]   = useState(null); // full-screen pass view
+  const [viewing, setViewing]   = useState(null);
+  const [showDetails, setShowDetails] = useState(false);
+  const fileRef = useRef(null);
+  const handleMediaPick = (e) => {
+    const f = e.target.files[0]; if(!f) return;
+    const r = new FileReader();
+    r.onload = ev => setDraft(d=>({...d,image:ev.target.result}));
+    r.readAsDataURL(f);
+  };
 
   useEffect(()=>{ ls.set(KEY,passes); },[passes]);
 
@@ -10250,7 +10258,7 @@ function BackstagePasses({ onBack, user }) {
     const newPass={id:`p${Date.now()}`,type:draft.type,caption:draft.caption,username:`@${user?.name||user?.username||"stan"}`,expires:dur.label,color:t.color,grad:t.grad,viewed:false,likes:0,reactions:{},venue:draft.venue?"📍 Allegiant Stadium":null,inCapsule:draft.toCapsule};
     setPasses(ps=>[newPass,...ps]);
     if(draft.toCapsule){ const caps=ls.get("backstage_concert_capsules",[]); ls.set("backstage_concert_capsules",[...caps,{...newPass,concertId:"bts-lv-1",category:draft.type,savedAt:Date.now()}]); }
-    setDraft({type:"fitcheck",caption:"",duration:"tonight",venue:false,toCapsule:false}); setCreating(false);
+    setDraft({type:"fitcheck",caption:"",duration:"tonight",venue:false,toCapsule:false,image:null}); setShowDetails(false); setCreating(false);
   };
 
   const filtered = filter==="all"?passes:passes.filter(p=>p.type===filter);
@@ -10399,95 +10407,119 @@ function BackstagePasses({ onBack, user }) {
         </div>
       )}
 
-      {/* ── IMMERSIVE CREATOR — full-screen, concert-camera vibe ── */}
+      {/* ── IMMERSIVE CREATOR — camera-first, fullscreen ── */}
       {creating&&(
-        <div style={{ position:"fixed",inset:0,zIndex:600,background:`linear-gradient(180deg,#06030f,#0a0520)`,display:"flex",flexDirection:"column",animation:"in .2s ease",overflowY:"auto" }}>
+        <div style={{ position:"fixed",inset:0,zIndex:600,background:"#04020d",display:"flex",flexDirection:"column",animation:"in .2s ease" }}>
 
-          {/* Top bar */}
-          <div style={{ padding:"16px 20px 0",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0 }}>
-            <button onClick={()=>setCreating(false)} style={{ background:"rgba(255,255,255,0.08)",border:"none",borderRadius:99,width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",color:C.text,fontSize:18,cursor:"pointer" }}>✕</button>
-            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,letterSpacing:"0.03em",color:C.lavender }}>New Backstage Pass ✨</p>
-            <div style={{ width:36 }} />
-          </div>
-
-          {/* ── MEDIA PREVIEW — gradient + floating caption ── */}
-          <div style={{ margin:"16px 16px 0",borderRadius:22,overflow:"hidden",position:"relative",flexShrink:0,height:272 }}>
-            {/* Animated gradient bg */}
+          {/* ── MEDIA ZONE — takes the visual majority ── */}
+          <div style={{ flex:1,position:"relative",overflow:"hidden",minHeight:0 }}>
+            {/* Gradient base — swaps with selected type color */}
             <div style={{ position:"absolute",inset:0,background:selectedType.grad,transition:"background .4s ease" }} />
-            {/* Film-grain overlay */}
-            <div style={{ position:"absolute",inset:0,backgroundImage:"url(\"data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.08'/%3E%3C/svg%3E\")",opacity:0.4,pointerEvents:"none" }} />
-            {/* Ambient sparkles */}
-            {[{t:"10%",l:"12%"},{t:"18%",l:"80%"},{t:"72%",l:"8%"},{t:"80%",l:"85%"},{t:"45%",l:"60%"}].map((s,i)=>(
-              <div key={i} style={{ position:"absolute",top:s.t,left:s.l,color:"rgba(255,255,255,0.45)",fontSize:9,animation:`sparkleFloat ${2.5+i*0.5}s ease-in-out infinite`,animationDelay:`${i*0.4}s`,pointerEvents:"none" }}>✦</div>
+            {/* Photo overlay if captured */}
+            {draft.image&&<img src={draft.image} alt="" style={{ position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",zIndex:1 }} />}
+            {/* Gradient darkening edge top + bottom when image present */}
+            {draft.image&&<div style={{ position:"absolute",inset:0,background:"linear-gradient(to bottom,rgba(0,0,0,0.55) 0%,transparent 35%,transparent 55%,rgba(0,0,0,0.75) 100%)",zIndex:2,pointerEvents:"none" }} />}
+            {/* Film grain texture */}
+            <div style={{ position:"absolute",inset:0,opacity:0.22,backgroundImage:"url(\"data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)' opacity='0.06'/%3E%3C/svg%3E\")",pointerEvents:"none",zIndex:3 }} />
+            {/* Sparkles */}
+            {[{t:"8%",l:"10%",s:9},{t:"14%",l:"82%",s:7},{t:"70%",l:"6%",s:8},{t:"78%",l:"80%",s:7},{t:"42%",l:"55%",s:5}].map((sp,i)=>(
+              <div key={i} style={{ position:"absolute",top:sp.t,left:sp.l,color:"rgba(255,255,255,0.4)",fontSize:sp.s,animation:`sparkleFloat ${2.5+i*0.5}s ease-in-out infinite`,animationDelay:`${i*0.4}s`,pointerEvents:"none",zIndex:4 }}>✦</div>
             ))}
+
+            {/* ── TOP CHROME ── */}
+            <div style={{ position:"absolute",top:0,left:0,right:0,padding:"16px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",zIndex:10 }}>
+              <button onClick={()=>{ setCreating(false); setShowDetails(false); setDraft(d=>({...d,image:null,caption:""})); }} style={{ background:"rgba(0,0,0,0.42)",backdropFilter:"blur(10px)",border:"none",borderRadius:99,width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:18,cursor:"pointer" }}>✕</button>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,letterSpacing:"0.04em",color:"rgba(255,255,255,0.88)",textShadow:"0 1px 8px rgba(0,0,0,0.8)" }}>New Backstage Pass ✨</p>
+              {/* Camera roll re-pick */}
+              <button onClick={()=>fileRef.current?.click()} style={{ background:"rgba(0,0,0,0.42)",backdropFilter:"blur(10px)",border:"none",borderRadius:99,width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:16,cursor:"pointer" }}>📷</button>
+            </div>
+
+            {/* ── MEDIA PICKER — visible when no photo ── */}
+            {!draft.image&&(
+              <button onClick={()=>fileRef.current?.click()} style={{ position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-60%)",display:"flex",flexDirection:"column",alignItems:"center",gap:10,background:"none",border:"none",cursor:"pointer",zIndex:8,animation:"float 4s ease-in-out infinite" }}>
+                <div style={{ width:72,height:72,borderRadius:22,background:"rgba(255,255,255,0.1)",backdropFilter:"blur(12px)",border:"1.5px solid rgba(255,255,255,0.22)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:30,boxShadow:"0 8px 32px rgba(0,0,0,0.4)" }}>📷</div>
+                <p style={{ color:"rgba(255,255,255,0.8)",fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,textShadow:"0 1px 8px rgba(0,0,0,0.9)" }}>Capture the moment</p>
+                <p style={{ color:"rgba(255,255,255,0.45)",fontSize:10.5 }}>photo or video · tap to pick</p>
+              </button>
+            )}
             {/* Big emoji watermark */}
-            <div style={{ position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-68%)",fontSize:72,opacity:0.18,pointerEvents:"none",transition:"all .3s" }}>{selectedType.emoji}</div>
-            {/* Pass type badge */}
-            <div style={{ position:"absolute",top:14,left:14,background:"rgba(0,0,0,0.48)",backdropFilter:"blur(10px)",borderRadius:99,padding:"4px 12px",display:"flex",alignItems:"center",gap:5 }}>
-              <span style={{ fontSize:11 }}>{selectedType.emoji}</span>
-              <span style={{ fontSize:9.5,color:"rgba(255,255,255,0.9)",fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{selectedType.label}</span>
+            <div style={{ position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-58%)",fontSize:88,opacity:draft.image?0.06:0.14,pointerEvents:"none",transition:"opacity .4s",zIndex:5 }}>{selectedType.emoji}</div>
+
+            {/* ── PASS TYPE + EXPIRES chips ── */}
+            <div style={{ position:"absolute",top:72,left:16,zIndex:10,display:"flex",gap:7 }}>
+              <div style={{ background:"rgba(0,0,0,0.50)",backdropFilter:"blur(10px)",borderRadius:99,padding:"4px 12px",display:"flex",alignItems:"center",gap:4 }}>
+                <span style={{ fontSize:11 }}>{selectedType.emoji}</span>
+                <span style={{ fontSize:9,color:"rgba(255,255,255,0.9)",fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{selectedType.label}</span>
+              </div>
+              <div style={{ background:"rgba(0,0,0,0.50)",backdropFilter:"blur(10px)",borderRadius:99,padding:"4px 10px" }}>
+                <span style={{ fontSize:9,color:"rgba(255,255,255,0.7)",fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{DURATIONS.find(d=>d.id===draft.duration)?.label||"Tonight"}</span>
+              </div>
             </div>
-            {/* Expires badge */}
-            <div style={{ position:"absolute",top:14,right:14,background:"rgba(0,0,0,0.48)",backdropFilter:"blur(10px)",borderRadius:99,padding:"4px 10px" }}>
-              <span style={{ fontSize:9,color:"rgba(255,255,255,0.7)",fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>{DURATIONS.find(d=>d.id===draft.duration)?.label||"Tonight"}</span>
-            </div>
-            {/* Floating caption textarea */}
-            <div style={{ position:"absolute",bottom:0,left:0,right:0,padding:"0 14px 16px",background:"linear-gradient(to top,rgba(0,0,0,0.7) 0%,transparent 100%)" }}>
+
+            {/* ── FLOATING CAPTION ── */}
+            <div style={{ position:"absolute",bottom:0,left:0,right:0,padding:"0 18px 18px",background:"linear-gradient(to top,rgba(0,0,0,0.78),transparent)",zIndex:10 }}>
               <textarea
                 value={draft.caption}
                 onChange={e=>setDraft(d=>({...d,caption:e.target.value}))}
-                placeholder={`${selectedType.hint}...`}
+                placeholder={`${selectedType.hint}... 💜`}
                 maxLength={120}
                 rows={2}
-                style={{ width:"100%",background:"transparent",border:"none",color:"#fff",fontSize:15,fontStyle:"italic",fontFamily:"'Epilogue',sans-serif",fontWeight:700,textShadow:"0 1px 10px rgba(0,0,0,0.9)",resize:"none",outline:"none",textAlign:"center",lineHeight:1.4,padding:0,caretColor:C.lavender,boxSizing:"border-box" }}
+                style={{ width:"100%",background:"transparent",border:"none",color:"#fff",fontSize:16,fontStyle:"italic",fontFamily:"'Epilogue',sans-serif",fontWeight:700,textShadow:"0 1px 14px rgba(0,0,0,0.95)",resize:"none",outline:"none",textAlign:"center",lineHeight:1.45,padding:0,caretColor:C.lavender,boxSizing:"border-box",WebkitTextFillColor:"#fff" }}
               />
-            </div>
-          </div>
-          <p style={{ fontSize:8.5,color:C.textDim,textAlign:"right",paddingRight:20,marginTop:4 }}>{draft.caption.length}/120</p>
-
-          {/* ── PASS TYPE SELECTOR ── */}
-          <div style={{ padding:"14px 16px 4px",flexShrink:0 }}>
-            <p style={{ fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,color:C.textMid,letterSpacing:"0.1em",marginBottom:8 }}>WHAT'S YOUR MOMENT?</p>
-            <div style={{ display:"flex",gap:7,overflowX:"auto",scrollbarWidth:"none",paddingBottom:4 }}>
-              {PASS_TYPES.map(t=>(
-                <div key={t.id} onClick={()=>setDraft(d=>({...d,type:t.id}))} className="tap" style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:3,padding:"8px 10px",borderRadius:14,cursor:"pointer",background:draft.type===t.id?`${t.color}28`:C.surfaceHi,border:`1.5px solid ${draft.type===t.id?t.color:C.border}`,transition:"all .18s",minWidth:52 }}>
-                  <span style={{ fontSize:20 }}>{t.emoji}</span>
-                  <span style={{ fontSize:7.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,color:draft.type===t.id?t.color:C.textDim,whiteSpace:"nowrap" }}>{t.label}</span>
-                </div>
-              ))}
+              <p style={{ fontSize:8,color:"rgba(255,255,255,0.3)",textAlign:"right",marginTop:2 }}>{draft.caption.length}/120</p>
             </div>
           </div>
 
-          {/* ── DURATION — emotional, not just time ── */}
-          <div style={{ padding:"12px 16px 4px",flexShrink:0 }}>
-            <p style={{ fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,color:C.textMid,letterSpacing:"0.1em",marginBottom:8 }}>HOW LONG SHOULD IT LIVE?</p>
-            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:7 }}>
+          {/* ── BOTTOM CONTROLS — minimal chrome ── */}
+          <div style={{ flexShrink:0,background:"rgba(4,2,13,0.97)",backdropFilter:"blur(24px)",padding:"12px 16px 44px",borderTop:`1px solid ${C.borderHi}` }}>
+
+            {/* Duration — compact horizontal pills */}
+            <div style={{ display:"flex",gap:6,marginBottom:10 }}>
               {DURATIONS.map(d=>(
-                <div key={d.id} onClick={()=>setDraft(dr=>({...dr,duration:d.id}))} className="tap" style={{ padding:"9px 12px",borderRadius:13,cursor:"pointer",background:draft.duration===d.id?`${C.accent}20`:C.surfaceHi,border:`1.5px solid ${draft.duration===d.id?C.accent:C.border}`,transition:"all .15s" }}>
-                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,color:draft.duration===d.id?C.accent:C.text,marginBottom:1 }}>{d.label}</p>
-                  <p style={{ fontSize:9,color:C.textDim }}>{d.sub}</p>
-                </div>
+                <button key={d.id} onClick={()=>setDraft(dr=>({...dr,duration:d.id}))} style={{ flex:1,padding:"7px 2px",borderRadius:10,border:`1.5px solid ${draft.duration===d.id?C.accent:C.border}`,background:draft.duration===d.id?`${C.accent}22`:C.surfaceHi,color:draft.duration===d.id?C.accent:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:9,cursor:"pointer",transition:"all .15s",whiteSpace:"nowrap" }}>
+                  {d.label}
+                </button>
               ))}
             </div>
+
+            {/* Add details — collapsed by default */}
+            <button onClick={()=>setShowDetails(s=>!s)} style={{ width:"100%",background:"none",border:"none",color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:5,padding:"4px 0 8px" }}>
+              <span>{showDetails?"Hide details":"Add details"}</span>
+              <span style={{ fontSize:9,display:"inline-block",transition:"transform .2s ease",transform:showDetails?"rotate(180deg)":"none" }}>▾</span>
+            </button>
+
+            {/* Expanded details */}
+            {showDetails&&(
+              <div style={{ animation:"in .15s ease",paddingBottom:8 }}>
+                {/* Pass type selector — compact chips */}
+                <div style={{ display:"flex",gap:6,overflowX:"auto",scrollbarWidth:"none",marginBottom:10,paddingBottom:2 }}>
+                  {PASS_TYPES.map(t=>(
+                    <div key={t.id} onClick={()=>setDraft(d=>({...d,type:t.id}))} className="tap" style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:"6px 9px",borderRadius:11,cursor:"pointer",background:draft.type===t.id?`${t.color}28`:C.surfaceHi,border:`1.5px solid ${draft.type===t.id?t.color:C.border}`,transition:"all .15s",minWidth:44 }}>
+                      <span style={{ fontSize:18 }}>{t.emoji}</span>
+                      <span style={{ fontSize:7,fontFamily:"'Epilogue',sans-serif",fontWeight:700,color:draft.type===t.id?t.color:C.textDim,whiteSpace:"nowrap" }}>{t.label}</span>
+                    </div>
+                  ))}
+                </div>
+                {/* Venue + Capsule toggles */}
+                <div style={{ display:"flex",gap:7,marginBottom:4 }}>
+                  <button onClick={()=>setDraft(d=>({...d,venue:!d.venue}))} style={{ flex:1,padding:"8px 10px",borderRadius:11,border:`1.5px solid ${draft.venue?C.mint:C.border}`,background:draft.venue?`${C.mint}18`:C.surfaceHi,color:draft.venue?C.mint:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10,cursor:"pointer",transition:"all .18s",display:"flex",alignItems:"center",justifyContent:"center",gap:5 }}>
+                    📍 {draft.venue?"Venue ✓":"Add Venue"}
+                  </button>
+                  <button onClick={()=>setDraft(d=>({...d,toCapsule:!d.toCapsule}))} style={{ flex:1,padding:"8px 10px",borderRadius:11,border:`1.5px solid ${draft.toCapsule?C.accent:C.border}`,background:draft.toCapsule?`${C.accent}18`:C.surfaceHi,color:draft.toCapsule?C.accent:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10,cursor:"pointer",transition:"all .18s",display:"flex",alignItems:"center",justifyContent:"center",gap:5 }}>
+                    ✦ {draft.toCapsule?"Capsule ✓":"+ Capsule"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* CTA */}
+            <p style={{ fontSize:9.5,color:C.textDim,textAlign:"center",marginBottom:9,fontStyle:"italic" }}>Share with the Fanverse 💜</p>
+            <button onClick={addPass} disabled={!draft.caption.trim()} style={{ width:"100%",padding:"14px",borderRadius:14,border:"none",background:draft.caption.trim()?`linear-gradient(135deg,${C.accent},${C.berry})`:`rgba(255,255,255,0.06)`,color:draft.caption.trim()?"#04020d":C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,cursor:draft.caption.trim()?"pointer":"default",boxShadow:draft.caption.trim()?`0 0 24px ${C.accent}40,0 6px 20px rgba(0,0,0,0.5)`:"none",transition:"all .22s",letterSpacing:"-0.01em" }}>
+              Drop this Pass ✨
+            </button>
           </div>
 
-          {/* ── EXTRAS: venue + capsule ── */}
-          <div style={{ padding:"12px 16px",display:"flex",gap:8,flexShrink:0 }}>
-            <button onClick={()=>setDraft(d=>({...d,venue:!d.venue}))} style={{ flex:1,padding:"9px 12px",borderRadius:12,border:`1.5px solid ${draft.venue?C.mint:C.border}`,background:draft.venue?`${C.mint}18`:C.surfaceHi,color:draft.venue?C.mint:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:5,transition:"all .18s" }}>
-              📍 {draft.venue?"Allegiant Stadium":"Add Venue"}
-            </button>
-            <button onClick={()=>setDraft(d=>({...d,toCapsule:!d.toCapsule}))} style={{ flex:1,padding:"9px 12px",borderRadius:12,border:`1.5px solid ${draft.toCapsule?C.accent:C.border}`,background:draft.toCapsule?`${C.accent}18`:C.surfaceHi,color:draft.toCapsule?C.accent:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:5,transition:"all .18s" }}>
-              ✦ {draft.toCapsule?"In Capsule ✓":"Add to Capsule"}
-            </button>
-          </div>
-
-          {/* ── SHARE MOMENT copy + CTA ── */}
-          <div style={{ padding:"4px 16px 48px",flexShrink:0 }}>
-            <p style={{ fontSize:10,color:C.textDim,textAlign:"center",marginBottom:12,fontStyle:"italic" }}>A live memory from your concert night ✨</p>
-            <button onClick={addPass} disabled={!draft.caption.trim()} style={{ width:"100%",padding:"15px",borderRadius:16,border:"none",background:draft.caption.trim()?`linear-gradient(135deg,${C.accent},${C.berry})`:`${C.surfaceHi}`,color:draft.caption.trim()?C.bg:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,cursor:draft.caption.trim()?"pointer":"default",boxShadow:draft.caption.trim()?`0 0 28px ${C.accent}40,0 8px 24px rgba(0,0,0,0.4)`:"none",transition:"all .2s",letterSpacing:"-0.01em" }}>
-              Share with the Fanverse 💜
-            </button>
-          </div>
+          <input ref={fileRef} type="file" accept="image/*,video/*" style={{ display:"none" }} onChange={handleMediaPick} />
         </div>
       )}
     </div>
