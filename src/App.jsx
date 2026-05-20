@@ -400,6 +400,51 @@ const SKIN_ID_TO_GRAD = {
 };
 
 // ─── PRIMITIVES ────────────────────────────────────────────────────────────────
+
+// StatusChip — reusable trust label: COMING SOON | PREVIEW | LIVE | OFFICIAL
+const STATUS_CHIP_STYLES = {
+  "COMING SOON": { bg:`${C.berry}1a`, border:`1px solid ${C.berry}44`,  color:C.lavender },
+  "PREVIEW":     { bg:`${C.accent}10`, border:`1px solid ${C.accent}30`, color:C.accent  },
+  "LIVE":        { bg:`${C.mint}14`,   border:`1px solid ${C.mint}38`,   color:C.mint    },
+  "OFFICIAL":    { bg:`${C.gold}14`,   border:`1px solid ${C.gold}38`,   color:C.gold    },
+};
+const StatusChip = ({ label, style:s }) => {
+  const st = STATUS_CHIP_STYLES[label] || STATUS_CHIP_STYLES["PREVIEW"];
+  return (
+    <div style={{ display:"inline-flex",alignItems:"center",padding:"2px 7px",borderRadius:99,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:7.5,letterSpacing:"0.09em",whiteSpace:"nowrap",...st,...s }}>
+      {label}
+    </div>
+  );
+};
+
+// ComingSoonModal — soft bottom sheet for paused tools
+const COMING_SOON_COPY = {
+  outfits: { emoji:"✨", sub:"Your concert fit era is loading." },
+  trip:    { emoji:"✈️", sub:"Your full fan-day planner is being polished." },
+};
+function ComingSoonModal({ tool, onClose }) {
+  const copy = COMING_SOON_COPY[tool] || { emoji:"✦", sub:"We're polishing this tool before it goes live." };
+  return (
+    <div onClick={onClose} style={{ position:"fixed",inset:0,zIndex:850,background:"rgba(6,6,15,0.90)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+      <div onClick={e=>e.stopPropagation()} style={{ width:"100%",background:`linear-gradient(160deg,${C.surfaceMid},${C.cosmic})`,borderRadius:"26px 26px 0 0",padding:"28px 24px 44px",border:`1.5px solid ${C.borderHi}`,borderBottom:"none",animation:"slideUp .28s ease",position:"relative",overflow:"hidden" }}>
+        <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.lavender}44,transparent)` }} />
+        {[{t:"8%",l:"80%",s:12},{t:"75%",l:"90%",s:8},{t:"55%",l:"5%",s:9}].map((sp,i)=>(
+          <div key={i} style={{ position:"absolute",top:sp.t,left:sp.l,fontSize:sp.s,opacity:0.3,animation:`sparkleFloat ${3+i*0.7}s ease-in-out infinite`,pointerEvents:"none",color:C.lavender }}>✦</div>
+        ))}
+        <div style={{ width:36,height:4,borderRadius:99,background:C.border,margin:"0 auto 26px" }} />
+        <div style={{ width:56,height:56,borderRadius:18,background:`${C.accent}18`,border:`1.5px solid ${C.accent}33`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,marginBottom:16,boxShadow:`0 8px 24px ${C.accent}14` }}>{copy.emoji}</div>
+        <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:8 }}>
+          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:22,background:`linear-gradient(135deg,${C.lavender},${C.blush})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent" }}>Coming Soon</p>
+          <StatusChip label="COMING SOON" />
+        </div>
+        <p style={{ fontSize:13.5,color:C.textMid,lineHeight:1.7,marginBottom:6 }}>We're polishing this tool before it goes live.</p>
+        <p style={{ fontSize:12,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:600,marginBottom:26,fontStyle:"italic" }}>{copy.sub}</p>
+        <button onClick={onClose} className="tap" style={{ width:"100%",padding:"13px",borderRadius:13,background:`linear-gradient(140deg,${C.accent}ee,${C.accentDim}88)`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer" }}>Got it</button>
+      </div>
+    </div>
+  );
+}
+
 const Pill = ({ children, color = C.accent, active, onClick, small, xs, style: s }) => (
   <span onClick={onClick} style={{
     display:"inline-flex", alignItems:"center",
@@ -1942,7 +1987,7 @@ function MapSnapshot({ onBack }) {
             <div style={{ width:42,height:42,borderRadius:12,background:`${ACTIVE_ZONE.color}22`,border:`1.5px solid ${ACTIVE_ZONE.color}55`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0 }}>📍</div>
             <div>
               <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,color:ACTIVE_ZONE.color }}>{CITY}</p>
-              <p style={{ fontSize:12,color:C.textMid }}>{ACTIVE_ZONE.fans} fans active · {ACTIVE_ZONE.concerts[0]||"No shows this month"}</p>
+              <p style={{ fontSize:12,color:C.textMid }}>{ACTIVE_ZONE.fans} preview · {ACTIVE_ZONE.concerts[0]||"No shows this month"}</p>
             </div>
           </div>
           <div style={{ position:"absolute",bottom:14,right:16 }}>
@@ -2013,7 +2058,7 @@ function FanverseHeatMap({ go }) {
       {selectedZone && (
         <div style={{ background:`linear-gradient(140deg,${selectedZone.color}14,${selectedZone.color}06)`,border:`1.5px solid ${selectedZone.color}50`,borderRadius:18,padding:16,marginBottom:14,animation:"viralPop .2s ease" }}>
           <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10 }}>
-            <div><p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,color:selectedZone.color }}>{selectedZone.city}</p><p style={{ fontSize:11.5,color:C.textMid }}>{selectedZone.fans} active fans · {selectedZone.concerts.length>0?"Show week":"No shows soon"}</p></div>
+            <div><p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,color:selectedZone.color }}>{selectedZone.city}</p><p style={{ fontSize:11.5,color:C.textMid }}>{selectedZone.fans} preview · {selectedZone.concerts.length>0?"Show week":"No shows soon"}</p></div>
             <Pill color={selectedZone.color} active small>{selectedZone.pulse==="spike"?"🔥 Spike":selectedZone.pulse==="high"?"⚡ High":"💜 Active"}</Pill>
           </div>
           {selectedZone.concerts.length>0&&(
@@ -2032,7 +2077,7 @@ function FanverseHeatMap({ go }) {
             <div style={{ width:10,height:10,borderRadius:"50%",background:z.color,flexShrink:0,animation:z.pulse==="spike"?"heatBeat 1.8s ease infinite":"none" }} />
             <div style={{ flex:1 }}>
               <div style={{ display:"flex",gap:7,alignItems:"center",marginBottom:2 }}><p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13 }}>{z.city}</p>{z.concerts.length>0&&<Pill color={z.color} xs>Show</Pill>}</div>
-              <p style={{ fontSize:10.5,color:C.textMid }}>{z.fans} fans active</p>
+              <p style={{ fontSize:10.5,color:C.textMid }}>{z.fans} preview signal</p>
             </div>
             <div style={{ textAlign:"right" }}><p style={{ fontSize:11,color:z.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{z.pulse==="spike"?"🔥":z.pulse==="high"?"⚡":"💜"}</p></div>
           </div>
@@ -2049,13 +2094,13 @@ function FanverseHeatMap({ go }) {
 // ─── VIRAL TICKER (UPGRADED) ──────────────────────────────────────────────────
 function ViralTicker() {
   const items = [
-    "🎤 BTS Dallas — 412 fans going",
-    "🃏 Karina UR — 8 trade matches active",
-    "✨ aespa LA announced",
-    "🔥 Dallas fanverse is spiking",
-    "👯 3 new crew members joined today",
-    "🎁 Freebies drop at Klyde Warren — TODAY",
-    "💜 1,284 fans active right now",
+    "🎤 BTS Dallas · Apr 30 — concert week",
+    "🃏 Karina UR — trade matching preview",
+    "✨ aespa Drama Tour LA — Jun 2",
+    "💜 SKZ Chicago · May 14 — upcoming",
+    "👯 Bring your crew — find fans before the show",
+    "🎁 Concert Capsule — save your night with fans",
+    "✦ Backstage · The fan memory app",
   ];
   const doubled = [...items, ...items];
   return (
@@ -2285,19 +2330,16 @@ function HomeIdentity({ user, go }) {
 // ── 3. LIVE STATS STRIP ──────────────────────────────────────────────────────
 function HomeLiveStats({ go }) {
   const STATS = [
-    { val:"1.2K", label:"fans online",   color:C.mint,  icon:"👥", dest:"fanverse",        sub:"worldwide now" },
-    { val:"24",   label:"meetups live",  color:C.pink,  icon:"🎉", dest:"concerts_meetups", sub:"near you" },
-    { val:"8",    label:"after parties", color:C.gold,  icon:"🎊", dest:"concerts_parties", sub:"tonight" },
+    { val:"1.2K", label:"fan activity",  color:C.mint,  icon:"👥", dest:"fanverse",        sub:"preview signal" },
+    { val:"24",   label:"meetups",       color:C.pink,  icon:"🎉", dest:"concerts_meetups", sub:"sample data" },
+    { val:"8",    label:"after parties", color:C.gold,  icon:"🎊", dest:"concerts_parties", sub:"sample data" },
   ];
   return (
     <div style={{ padding:"0 18px 22px" }}>
       {/* Atmospheric section label */}
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:13 }}>
-        <p style={{ fontSize:9, color:"rgba(255,255,255,0.22)", fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.16em" }}>The fanverse is alive tonight</p>
-        <div style={{ display:"flex", gap:5, alignItems:"center" }}>
-          <div style={{ width:5, height:5, borderRadius:"50%", background:C.rose, animation:"pulse 1.2s ease infinite", boxShadow:`0 0 6px ${C.rose}` }} />
-          <p style={{ fontSize:9, color:C.rose, fontFamily:"'Epilogue',sans-serif", fontWeight:700, letterSpacing:"0.08em" }}>LIVE</p>
-        </div>
+        <p style={{ fontSize:9, color:"rgba(255,255,255,0.22)", fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.16em" }}>Fanverse activity</p>
+        <StatusChip label="PREVIEW" style={{ fontSize:8 }} />
       </div>
       <div style={{ display:"flex", gap:9 }}>
         {STATS.map(s=>(
@@ -2347,7 +2389,10 @@ function HomeQuickActions({ user, go }) {
             </div>
           </div>
           <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:C.text,marginBottom:3,position:"relative" }}>Fanverse Map</p>
-          <p style={{ fontSize:10,color:C.mint,position:"relative" }}>1.2K fans online near you</p>
+          <div style={{ display:"flex",alignItems:"center",gap:5,position:"relative" }}>
+            <p style={{ fontSize:10,color:C.mint }}>Fan activity preview</p>
+            <StatusChip label="PREVIEW" style={{ fontSize:6.5,padding:"1px 5px" }} />
+          </div>
         </div>
 
         {/* Right stacked cards */}
@@ -2370,14 +2415,14 @@ function HomeQuickActions({ user, go }) {
       {/* Bottom row: 4 icon tiles */}
       <div style={{ display:"flex",gap:9 }}>
         {[
-          { icon:"💜",label:"My Circle",  dest:"invite",      color:C.pink   },
-          { icon:"✈️",label:"Trip Plan",  dest:"trip",        color:C.accent },
-          { icon:"✨",label:"Outfit AI",  dest:"outfits",     color:C.sky    },
-          { icon:"📋",label:"Checklist",  dest:"concertprep", color:C.gold   },
+          { icon:"💜",label:"My Circle",  dest:"invite",      color:C.pink,   soon:false },
+          { icon:"✈️",label:"Trip Plan",  dest:"trip",        color:C.accent, soon:true  },
+          { icon:"✨",label:"Outfit AI",  dest:"outfits",     color:C.sky,    soon:true  },
+          { icon:"📋",label:"Checklist",  dest:"concertprep", color:C.gold,   soon:false },
         ].map(a=>(
           <button key={a.label} onClick={()=>go(a.dest)} className="tap" style={{
-            flex:1,padding:"12px 4px 10px",
-            display:"flex",flexDirection:"column",alignItems:"center",gap:6,
+            flex:1,padding:"10px 4px 10px",
+            display:"flex",flexDirection:"column",alignItems:"center",gap:5,
             background:`linear-gradient(150deg,${a.color}12,${a.color}04)`,
             border:`1.5px solid ${a.color}28`,
             borderRadius:20,cursor:"pointer",
@@ -2387,6 +2432,7 @@ function HomeQuickActions({ user, go }) {
             <div style={{ position:"absolute",inset:0,background:`radial-gradient(circle at 50% 0%,${a.color}0e,transparent 60%)`,pointerEvents:"none" }} />
             <div style={{ width:38,height:38,borderRadius:13,background:`${a.color}18`,border:`1.5px solid ${a.color}30`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,position:"relative" }}>{a.icon}</div>
             <p style={{ fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,color:C.text,textAlign:"center",lineHeight:1.2,position:"relative" }}>{a.label}</p>
+            {a.soon&&<StatusChip label="COMING SOON" style={{ fontSize:6.5,padding:"1px 5px" }} />}
           </button>
         ))}
       </div>
@@ -2537,20 +2583,20 @@ function HomeFanversePreview({ go }) {
   const PREVIEW_CARDS = [
     {
       icon:"🔥",
-      title:"Dallas — STRAY KIDS spiking",
-      sub:`${(1248).toLocaleString()} fans active · 23 meetups tonight`,
+      title:"Dallas — STRAY KIDS show week",
+      sub:"Concert activity · preview signal",
       color:C.rose,
     },
     {
       icon:"💜",
-      title:"Seoul — BTS comeback wave",
-      sub:"4,421 fans · Comeback energy building",
+      title:"Seoul — BTS era preview",
+      sub:"Fan community signal · preview",
       color:C.accent,
     },
     {
       icon:"🎤",
-      title:"LA — aespa night forming",
-      sub:"Merch lines forming · 2,310 active",
+      title:"LA — aespa Drama Tour",
+      sub:"Upcoming concert activity · preview",
       color:C.mint,
     },
   ];
@@ -2560,22 +2606,19 @@ function HomeFanversePreview({ go }) {
       {/* Section header */}
       <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14 }}>
         <div>
-          <p style={VS.softSectionHeader}>Live Fanverse</p>
+          <p style={VS.softSectionHeader}>Fanverse Preview</p>
         </div>
-        <div style={{ display:"flex",gap:6,alignItems:"center" }}>
-          <div style={{ width:5,height:5,borderRadius:"50%",background:C.rose,animation:"pulse 1.2s ease infinite",boxShadow:`0 0 5px ${C.rose}` }} />
-          <p style={{ fontSize:9.5,color:C.rose,fontFamily:"'Epilogue',sans-serif",fontWeight:700,letterSpacing:"0.08em" }}>LIVE</p>
-        </div>
+        <StatusChip label="PREVIEW" />
       </div>
 
-      {/* Global fans badge */}
+      {/* Global fans badge — preview data */}
       <div style={{ display:"flex",gap:8,alignItems:"center",marginBottom:14,padding:"10px 14px",background:`linear-gradient(135deg,${C.accent}10,${C.pink}06)`,borderRadius:14,border:`1px solid ${C.accent}22` }}>
         <div style={{ width:32,height:32,borderRadius:"50%",background:`radial-gradient(circle,${C.accent}30,transparent 65%)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,animation:"float 4s ease-in-out infinite" }}>🌐</div>
         <div>
-          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:C.text }}>{totalFans.toLocaleString()} fans active worldwide</p>
-          <p style={{ fontSize:10.5,color:C.textMid }}>Right now · across {HEAT_ZONES.length} cities</p>
+          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:C.text }}>Fanverse activity preview</p>
+          <p style={{ fontSize:10.5,color:C.textMid }}>Sample signal · across {HEAT_ZONES.length} cities</p>
         </div>
-        <div style={{ marginLeft:"auto",width:8,height:8,borderRadius:"50%",background:C.mint,animation:"pulse 1.8s ease infinite",flexShrink:0 }} />
+        <StatusChip label="PREVIEW" style={{ marginLeft:"auto",flexShrink:0 }} />
       </div>
 
       {/* 3 preview activity cards */}
@@ -5212,12 +5255,8 @@ function FanverseTab({ go, user, isVip, onUpgrade }) {
         <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",borderTop:`1px solid ${C.accent}18` }}>
           <div style={{ display:"flex",gap:10 }}>
             <div style={{ display:"flex",gap:5,alignItems:"center" }}>
-              <div style={{ width:6,height:6,borderRadius:"50%",background:C.mint,animation:"pulse 1.4s ease infinite" }} />
-              <p style={{ fontSize:10,color:C.mint,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>41.3K worldwide</p>
-            </div>
-            <div style={{ display:"flex",gap:4,alignItems:"center" }}>
-              <div style={{ width:6,height:6,borderRadius:"50%",background:C.rose,animation:"pulse 1.8s ease infinite" }} />
-              <p style={{ fontSize:10,color:C.rose,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>14 spiking</p>
+              <p style={{ fontSize:10,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>Fanverse activity</p>
+              <StatusChip label="PREVIEW" style={{ fontSize:7 }} />
             </div>
           </div>
           <div onClick={()=>go("fanmap")} className="tap" style={{ background:`linear-gradient(140deg,${C.berry}cc,${C.accent}88)`,borderRadius:10,padding:"6px 12px",cursor:"pointer" }}>
@@ -5230,10 +5269,7 @@ function FanverseTab({ go, user, isVip, onUpgrade }) {
       <div style={{ padding:"18px 0 0" }}>
         <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"0 18px",marginBottom:12 }}>
           <p style={VS.softSectionHeader}>City Activity</p>
-          <div style={{ display:"flex",gap:5,alignItems:"center" }}>
-            <div style={{ width:5,height:5,borderRadius:"50%",background:C.rose,animation:"pulse 1.2s ease infinite" }} />
-            <p style={{ fontSize:9.5,color:C.rose,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>LIVE</p>
-          </div>
+          <StatusChip label="PREVIEW" />
         </div>
         <div style={{ display:"flex",gap:11,overflowX:"auto",paddingLeft:18,paddingRight:18,paddingBottom:6,scrollbarWidth:"none" }}>
           {CITY_CARDS.map((c,i)=>(
@@ -5722,17 +5758,19 @@ function ExploreTab({ user, weather, isVip, onUpgrade, go, onBack }) {
   const [eraModal, setEraModal] = useState(null);
 
   const TOOL_CARDS = [
-    { id:"buildday", icon:"🗓️", label:"Build My Day",     sub:"AI-planned fan day with food, cafes & meetups", color:C.pink, wide:true },
-    { id:"chants",   icon:"🎵", label:"Chant Practice",   sub:"Learn fanchants before the show", color:C.accent },
-    { id:"eras",     icon:"🎭", label:"Eras Explorer",    sub:"Browse every album & comeback era", color:C.pink  },
-    { id:"outfits",  icon:"✨", label:"Outfit AI",        sub:"AI-generated concert outfits",     color:C.gold  },
-    { id:"trip",     icon:"✈️", label:"Trip Planner",     sub:"Flights, hotels & fan itinerary",  color:C.sky   },
-    { id:"prep",     icon:"📋", label:"Concert Prep",     sub:"Packing list & day-of checklist",  color:C.mint  },
-    { id:"comebacks",icon:"🔔", label:"Comebacks & Drops", sub:"Announcements for your followed groups", color:C.rose },
-    { id:"kdramas",  icon:"🎬", label:"K-Dramas",         sub:"Track your watch list",            color:C.silver},
+    { id:"buildday", icon:"🗓️", label:"Build My Day",     sub:"AI-planned fan day with food, cafes & meetups",         color:C.pink,   wide:true, soon:false },
+    { id:"chants",   icon:"🎵", label:"Chant Practice",   sub:"Learn fanchants before the show",                        color:C.accent,            soon:false },
+    { id:"eras",     icon:"🎭", label:"Eras Explorer",    sub:"Browse every album & comeback era",                      color:C.pink,              soon:false },
+    { id:"outfits",  icon:"✨", label:"Outfit AI",        sub:"Your concert fit era is loading.",                        color:C.gold,              soon:true  },
+    { id:"trip",     icon:"✈️", label:"Trip Planner",     sub:"Your full fan-day planner is being polished.",            color:C.sky,               soon:true  },
+    { id:"prep",     icon:"📋", label:"Concert Prep",     sub:"Packing list & day-of checklist",                        color:C.mint,              soon:false },
+    { id:"comebacks",icon:"🔔", label:"Comebacks & Drops",sub:"Announcements for your followed groups",                  color:C.rose,              soon:false },
+    { id:"kdramas",  icon:"🎬", label:"K-Dramas",         sub:"Track your watch list",                                  color:C.silver,            soon:false },
   ];
 
   const openTool = (id) => {
+    // Paused tools — show Coming Soon via go() which has the intercept
+    if (id === "outfits" || id === "trip") { go(id); return; }
     if (id === "eras") { setEraModal(true); return; }
     setView(id);
   };
@@ -5792,9 +5830,12 @@ function ExploreTab({ user, weather, isVip, onUpgrade, go, onBack }) {
 
         {/* View toggle */}
         <div style={{ display:"flex",gap:6,marginBottom:0,overflowX:"auto",scrollbarWidth:"none" }}>
-          {[["grid","⊞ All Tools"],["buildday","🗓️ Build My Day"],["comebacks","🔔 Comebacks"],["chants","🎵 Chants"],["outfits","✨ Outfits"],["trip","✈️ Trip"],["prep","📋 Prep"],["kdramas","🎬 K-Dramas"]].map(([id,label])=>(
-            <span key={id} onClick={()=>setView(id)} className="tap" style={{ flexShrink:0, padding:"7px 13px", borderRadius:99, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:view===id?C.accent:C.surfaceHi, color:view===id?C.bg:C.textMid, border:`1px solid ${view===id?C.accent:C.border}`, transition:"all .18s" }}>{label}</span>
-          ))}
+          {[["grid","⊞ All Tools"],["buildday","🗓️ Build My Day"],["comebacks","🔔 Comebacks"],["chants","🎵 Chants"],["outfits","✨ Outfits"],["trip","✈️ Trip"],["prep","📋 Prep"],["kdramas","🎬 K-Dramas"]].map(([id,label])=>{
+            const isSoon = id==="outfits"||id==="trip";
+            return (
+              <span key={id} onClick={()=>isSoon?go(id):setView(id)} className="tap" style={{ flexShrink:0, padding:"7px 13px", borderRadius:99, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:view===id?C.accent:C.surfaceHi, color:view===id?C.bg:C.textMid, border:`1px solid ${view===id?C.accent:C.border}`, transition:"all .18s", opacity:isSoon?0.75:1 }}>{label}{isSoon?" ✦":""}</span>
+            );
+          })}
         </div>
       </div>
 
@@ -5818,10 +5859,12 @@ function ExploreTab({ user, weather, isVip, onUpgrade, go, onBack }) {
                   <div style={{ display:"flex",gap:12,alignItems:"flex-start",position:"relative" }}>
                     <div style={{ width:44,height:44,borderRadius:14,background:`${card.color}1c`,border:`1.5px solid ${card.color}38`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:21,flexShrink:0,boxShadow:`0 4px 12px ${card.color}20` }}>{card.icon}</div>
                     <div style={{ flex:1,minWidth:0 }}>
-                      <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13.5,color:C.text,marginBottom:4,letterSpacing:"-0.01em" }}>{card.label}</p>
+                      <div style={{ display:"flex",alignItems:"center",gap:7,marginBottom:4 }}>
+                        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13.5,color:C.text,letterSpacing:"-0.01em" }}>{card.label}</p>
+                        {card.soon&&<StatusChip label="COMING SOON" />}
+                      </div>
                       <p style={{ fontSize:10.5,color:C.textMid,lineHeight:1.5 }}>{card.sub}</p>
                       {card.id==="eras"&&<p style={{ fontSize:9.5,color:card.color,marginTop:4,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>Tap to browse eras →</p>}
-                      {card.id==="outfits"&&<p style={{ fontSize:9,color:C.textDim,marginTop:4,fontStyle:"italic" }}>AI results may vary by era</p>}
                     </div>
                   </div>
                 </div>
@@ -12349,6 +12392,11 @@ function AppInner() {
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [showVipCelebration, setShowVipCelebration] = useState(false);
   const [showVipTour, setShowVipTour] = useState(false);
+  const [showComingSoon, setShowComingSoon] = useState(false);
+  const [comingSoonTool, setComingSoonTool] = useState(null);
+
+  // Tools paused for polish — intercept before they open
+  const COMING_SOON_TOOLS = ["outfits", "trip"];
 
   // Boot: sync VIP status from backend on session restore
   useEffect(()=>{
@@ -12391,6 +12439,8 @@ function AppInner() {
   };
 
   const go = (dest) => {
+    // Paused tools — show soft Coming Soon sheet instead of the full tool
+    if (COMING_SOON_TOOLS.includes(dest)) { setComingSoonTool(dest); setShowComingSoon(true); return; }
     const FULL_MODALS = ["concertprep","myshows","trip","scrapbook","afterglow","friends","chats","qr","safety","events","concertday","timeline","tickets","nearby","trust","games","creator","backup","fanidentity","valuetracks","fanprojects","assistant","outfits","invite","contentgen","fanmap","explore","livefeed","budget","capsule","passes","notifications"];
     if(FULL_MODALS.includes(dest)){ setModal(dest); return; }
     if(dest==="collect"||dest==="shelf"){ setTab("collect"); setModal(null); return; }
@@ -12504,6 +12554,9 @@ function AppInner() {
 
         {/* SMART NOTIFS */}
         {showSmartNotifs&&<SmartNotifs onClose={()=>setShowSmartNotifs(false)} />}
+
+        {/* COMING SOON MODAL — intercepts paused tools */}
+        {showComingSoon&&<ComingSoonModal tool={comingSoonTool} onClose={()=>setShowComingSoon(false)} />}
 
         {/* NOTIF PROMPT */}
         {showNotifPrompt&&appState==="main"&&(
