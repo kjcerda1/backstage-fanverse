@@ -2137,10 +2137,10 @@ function HomeHero({ go }) {
   const SLIDES = [
     {
       id:1,
-      label:"Day's Drop",
+      label:"Collect",
       title:"Karina holo era 04",
-      sub:"312/1000 minted · opens in 2h 14m",
-      cta:"Claim Drop",
+      sub:"✦ Holo photocard · exclusive era design",
+      cta:"View Collection",
       ctaAction:"collect",
       color:C.lavender,
       bg:"linear-gradient(145deg,#120530 0%,#1e0848 40%,#07050f 100%)",
@@ -2173,23 +2173,23 @@ function HomeHero({ go }) {
     },
     {
       id:4,
-      label:"Fan Pulse",
-      title:"aespa comeback dropping ✨",
-      sub:"🔥 Fanverse is going wild right now",
+      label:"Upcoming",
+      title:"aespa Drama Tour · LA Jun 2 ✨",
+      sub:"💜 Find your concert people on Backstage",
       cta:"Enter Fanverse",
       ctaAction:"fanverse",
       color:C.teal,
       bg:"linear-gradient(145deg,#041818 0%,#020e0e 45%,#07050f 100%)",
       mesh:"radial-gradient(ellipse at 70% 25%,#2dd4bf28,transparent 55%),radial-gradient(ellipse at 25% 70%,#8eefd414,transparent 50%)",
-      pill:"HOT",
+      pill:"PREVIEW",
     },
     {
       id:5,
-      label:"Orbit Activity",
-      title:"23 meetups happening tonight",
-      sub:"🌐 Seoul · Tokyo · Dallas · London",
-      cta:"Open Map",
-      ctaAction:"fanmap",
+      label:"Your Crew",
+      title:"Find fans before the show",
+      sub:"💜 Bring your Circle · concert-safe social",
+      cta:"Find Fans",
+      ctaAction:"invite",
       color:C.blush,
       bg:"linear-gradient(145deg,#220818 0%,#120408 45%,#07050f 100%)",
       mesh:"radial-gradient(ellipse at 70% 30%,#fda4af28,transparent 55%),radial-gradient(ellipse at 30% 75%,#c4b5fd10,transparent 50%)",
@@ -2246,7 +2246,7 @@ function HomeHero({ go }) {
               <div style={{ width:5,height:5,borderRadius:"50%",background:s.color,animation:"pulse 1.4s ease infinite",boxShadow:`0 0 6px ${s.color}` }} />
               <p style={{ fontSize:8.5,color:s.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,letterSpacing:"0.12em",textTransform:"uppercase" }}>{s.label}</p>
             </div>
-            {s.pill&&<div style={{ background:s.pill==="HOLO"?`linear-gradient(135deg,${C.lavender}dd,${C.blush}cc)`:s.pill==="LIVE"?`${C.rose}dd`:s.pill==="HOT"?`${C.berry}dd`:`${C.teal}dd`,borderRadius:6,padding:"2px 8px",fontSize:7.5,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.bg,letterSpacing:"0.04em" }}>{s.pill}</div>}
+            {s.pill&&<div style={{ background:s.pill==="HOLO"?`linear-gradient(135deg,${C.lavender}dd,${C.blush}cc)`:s.pill==="LIVE"?`${C.rose}dd`:s.pill==="HOT"?`${C.berry}dd`:s.pill==="PREVIEW"?`${C.accent}22`:s.pill==="UPCOMING"?`${C.gold}22`:`${C.teal}dd`,border:s.pill==="PREVIEW"||s.pill==="UPCOMING"?`1px solid ${s.pill==="PREVIEW"?C.accent:C.gold}55`:undefined,borderRadius:6,padding:"2px 8px",fontSize:7.5,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:s.pill==="PREVIEW"?C.accent:s.pill==="UPCOMING"?C.gold:C.bg,letterSpacing:"0.04em" }}>{s.pill}</div>}
           </div>
 
           <h1 className="bs-title" style={{ fontSize:24,lineHeight:1.15,color:C.white,marginBottom:8,textShadow:`0 2px 24px ${s.color}50` }}>{s.title}</h1>
