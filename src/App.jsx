@@ -981,18 +981,75 @@ function VipTutorialModal({ onDone, onNavigate }) {
 // ─── MOCK DATA ─────────────────────────────────────────────────────────────────
 const ALL_GROUPS = ["BTS","Stray Kids","NewJeans","aespa","BLACKPINK","TXT","ENHYPEN","IVE","LE SSERAFIM","ITZY","NCT Dream","EXO","SHINee","GOT7","SEVENTEEN","Ateez","Red Velvet","TWICE","Kep1er","NMIXX","RIIZE","ZEROBASEONE"];
 
+// ─── Concert data shape (API-ready) ──────────────────────────────────────────
+// verificationStatus: "confirmed" | "official" | "preview" | "fan_reported"
+// sourceType:         "ticketmaster" | "venue" | "official" | "preview" | "fan_reported"
+// Future sources:
+//   - Ticketmaster Discovery API  GET /discovery/v2/events?keyword={artist}&city={city}
+//   - Venue official feed
+//   - Admin-curated Supabase events table (daily sync job)
+//   - Fan-reported supplement layer
+// See: https://developer.ticketmaster.com/products-and-docs/apis/discovery-api/v2/
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Helper: compute live daysLeft from actual date string
+const computeDaysLeft = (dateStr) => {
+  try {
+    const d = new Date(dateStr.replace(/(\w+ \d+),?\s*(\d{4})?/, (_, md, yr) => `${md}, ${yr||2026}`));
+    const today = new Date(); today.setHours(0,0,0,0);
+    const diff = Math.round((d - today) / 86400000);
+    return diff >= 0 ? diff : null;
+  } catch { return null; }
+};
+
 const MOCK_CONCERTS = [
-  { id:"bts-dallas", name:"BTS World Tour", city:"Dallas, TX", date:"Apr 30, 2026", venue:"AT&T Stadium", group:"BTS", color:C.pink, attendees:412, buddies:38, traveling:64, daysLeft:8, state:"TX",
+  // ── LAUNCH FOCUS — CONFIRMED from official sources ───────────────────────────
+  {
+    id:                 "bts-lv-2026",
+    name:               "BTS WORLD TOUR 'ARIRANG'",
+    tourName:           "ARIRANG World Tour",
+    city:               "Las Vegas, NV",
+    state:              "NV",
+    venue:              "Allegiant Stadium",
+    dates:              ["May 23","May 24","May 27","May 28"],
+    date:               "May 23–28, 2026",
+    showTime:           "8:00 PM",
+    doorsOpen:          "6:00 PM",
+    group:              "BTS",
+    color:              C.pink,
+    attendees:          null,        // not fan-estimated; official capacity TBD
+    buddies:            null,
+    traveling:          null,
+    verificationStatus: "confirmed",
+    sourceType:         "official",
+    sourceName:         "Ticketmaster · Allegiant Stadium",
+    sourceUrl:          "https://www.ticketmaster.com",
+    gateInfo:           "Allegiant Stadium — multiple gate entries · check official app for gate assignment",
+    parkingTip:         "Stadium parking via MyPark app · book in advance · arrive 2h before doors",
+    merchTip:           "Official BTS merch inside stadium · cash and card accepted · lines open at doors",
+    lastSyncedAt:       "2026-05-20",
+  },
+  // ── PREVIEW CARDS — sample/demo data for app testing ─────────────────────────
+  // These are illustrative mock concerts. Not verified upcoming events.
+  {
+    id:"bts-dallas", name:"BTS World Tour", city:"Dallas, TX", date:"Apr 30, 2026", venue:"AT&T Stadium", group:"BTS", color:C.pink, attendees:412, buddies:38, traveling:64, state:"TX",
     showTime:"7:30 PM", doorsOpen:"5:00 PM", gateInfo:"Gate B opens 30min early · bag check at Gate A", parkingTip:"Deck 2 on Commerce St fills fast — arrive before 3pm", merchTip:"Merch at main entrance + Gate C · cash moves faster",
+    verificationStatus:"preview", sourceType:"preview", sourceName:"Sample concert card",
   },
-  { id:"skz-chicago", name:"Stray Kids 5-STAR Tour", city:"Chicago, IL", date:"May 14, 2026", venue:"United Center", group:"Stray Kids", color:C.accent, attendees:289, buddies:27, traveling:41, daysLeft:22, state:"IL",
+  {
+    id:"skz-chicago", name:"Stray Kids 5-STAR Tour", city:"Chicago, IL", date:"May 14, 2026", venue:"United Center", group:"Stray Kids", color:C.accent, attendees:289, buddies:27, traveling:41, state:"IL",
     showTime:"8:00 PM", doorsOpen:"6:00 PM", gateInfo:"United Center — enter via West Madison St", parkingTip:"United Lot B is closest · $30 · book online", merchTip:"Merch pop-up at the UC Pavilion 2h before doors",
+    verificationStatus:"preview", sourceType:"preview", sourceName:"Sample concert card",
   },
-  { id:"aespa-la", name:"aespa Drama World Tour", city:"Los Angeles, CA", date:"Jun 2, 2026", venue:"Crypto.com Arena", group:"aespa", color:C.mint, attendees:534, buddies:55, traveling:102, daysLeft:41, state:"CA",
+  {
+    id:"aespa-la", name:"aespa Drama World Tour", city:"Los Angeles, CA", date:"Jun 2, 2026", venue:"Crypto.com Arena", group:"aespa", color:C.mint, attendees:534, buddies:55, traveling:102, state:"CA",
     showTime:"8:00 PM", doorsOpen:"6:30 PM", gateInfo:"Staples Center — enter via Figueroa St main entrance", parkingTip:"LA Live Parking Structure P1 recommended", merchTip:"Merch lines open at 4pm · limited stock on UR set",
+    verificationStatus:"preview", sourceType:"preview", sourceName:"Sample concert card",
   },
-  { id:"nj-nyc", name:"NewJeans Get Up Tour", city:"New York, NY", date:"Jun 18, 2026", venue:"Madison Square Garden", group:"NewJeans", color:C.silver, attendees:621, buddies:72, traveling:134, daysLeft:57, state:"NY",
+  {
+    id:"nj-nyc", name:"NewJeans Get Up Tour", city:"New York, NY", date:"Jun 18, 2026", venue:"Madison Square Garden", group:"NewJeans", color:C.silver, attendees:621, buddies:72, traveling:134, state:"NY",
     showTime:"7:30 PM", doorsOpen:"5:30 PM", gateInfo:"MSG — enter via 33rd St entrance · 7th Ave side", parkingTip:"Subway recommended · 34th St Penn Station is 1 block", merchTip:"Merch at main lobby + online pickup area Level 2",
+    verificationStatus:"preview", sourceType:"preview", sourceName:"Sample concert card",
   },
 ];
 
@@ -3386,7 +3443,13 @@ function ConcertsPage({ go, isVip, onUpgrade }) {
   return (
     <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
       <div style={{ padding:"18px 20px 0", flexShrink:0, background:`linear-gradient(180deg,${C.bg} 80%,transparent)` }}>
-        <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, letterSpacing:"-0.02em", marginBottom:14 }}>Concerts</h2>
+        <div style={{ display:"flex", alignItems:"baseline", gap:8, marginBottom:6 }}>
+          <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, letterSpacing:"-0.02em" }}>Concerts</h2>
+        </div>
+        {/* Priority 4 — Data source disclaimer */}
+        <p style={{ fontSize:9.5, color:C.textDim, marginBottom:12, fontStyle:"italic", lineHeight:1.5 }}>
+          Confirmed events sourced from official venues. Preview cards are sample data.
+        </p>
         <div style={{ display:"flex", gap:7, overflowX:"auto", paddingBottom:12, scrollbarWidth:"none" }}>
           {views.map(([id,label])=>(
             <span key={id} onClick={()=>setView(id)} className="tap" style={{ flexShrink:0, padding:"8px 16px", borderRadius:99, fontSize:11, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:view===id?`linear-gradient(140deg,${C.accent}cc,${C.accentDim})`:C.surfaceHi, color:view===id?C.bg:C.textMid, border:`1px solid ${view===id?C.accent:C.border}`, boxShadow:view===id?`0 4px 14px ${C.accent}28`:"none" }}>{label}</span>
@@ -3397,54 +3460,79 @@ function ConcertsPage({ go, isVip, onUpgrade }) {
       <Screen style={{ padding:"0 20px 100px" }}>
         {view==="shows" && (
           <div style={{ display:"flex", flexDirection:"column", gap:14, paddingTop:4 }}>
-            {MOCK_CONCERTS.map((c,idx)=>(
+            {MOCK_CONCERTS.map((c,idx)=>{
+              const isConfirmed = c.verificationStatus === "confirmed" || c.verificationStatus === "official";
+              const isPreview   = c.verificationStatus === "preview";
+              const daysLeft    = computeDaysLeft(c.dates ? c.dates[0]+', 2026' : c.date);
+              const chipLabel   = isConfirmed ? "CONFIRMED" : isPreview ? "PREVIEW" : "PREVIEW";
+              const hasStats    = c.attendees != null;
+              const ticketUrl   = c.sourceUrl || `https://seatgeek.com/search?q=${encodeURIComponent(c.name)}#filters`;
+              return (
               <div key={c.id} onClick={()=>setSelected(c)} className="tap" style={{
                 ...VS.glowCard(c.color), padding:"18px 16px", cursor:"pointer",
-                boxShadow: idx===0 ? `0 12px 40px ${c.color}18, 0 0 0 1px ${c.color}18` : `0 6px 24px ${c.color}0c`,
-                border: idx===0 ? `1.5px solid ${c.color}44` : `1.5px solid ${c.color}28`,
+                boxShadow: idx===0 ? `0 12px 40px ${c.color}22, 0 0 0 1px ${c.color}28` : `0 6px 24px ${c.color}0c`,
+                border: idx===0 ? `1.5px solid ${c.color}55` : `1.5px solid ${c.color}28`,
               }}>
                 <div style={VS.shimmerLine(c.color)} />
                 <div style={{ position:"absolute",top:-20,right:-20,width:130,height:130,borderRadius:"50%",background:`radial-gradient(circle,${c.color}22,transparent 65%)`,pointerEvents:"none" }} />
                 <div style={{ position:"relative" }}>
-                  {/* Featured badge for first card */}
-                  {idx===0&&<div style={{ marginBottom:10 }}>
-                    <div style={{ display:"inline-flex", alignItems:"center", gap:5, background:`${c.color}18`, border:`1px solid ${c.color}38`, borderRadius:99, padding:"3px 10px" }}>
+                  {/* Top row: group pill + trust chip + featured badge */}
+                  <div style={{ display:"flex",alignItems:"center",gap:7,marginBottom:10,flexWrap:"wrap" }}>
+                    <Pill color={c.color} active small>{c.group}</Pill>
+                    <StatusChip label={chipLabel} />
+                    {isConfirmed && c.sourceName && (
+                      <span style={{ fontSize:8.5,color:C.textDim,fontStyle:"italic" }}>via {c.sourceName}</span>
+                    )}
+                    {idx===0&&<div style={{ marginLeft:"auto",display:"inline-flex",alignItems:"center",gap:5,background:`${c.color}18`,border:`1px solid ${c.color}38`,borderRadius:99,padding:"3px 10px" }}>
                       <div style={{ width:5,height:5,borderRadius:"50%",background:c.color,animation:"pulse 1.3s ease infinite" }} />
-                      <p style={{ fontSize:9, color:c.color, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em" }}>Next Up</p>
-                    </div>
-                  </div>}
+                      <p style={{ fontSize:9,color:c.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em" }}>Featured</p>
+                    </div>}
+                  </div>
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
-                    <div>
-                      <Pill color={c.color} active small>{c.group}</Pill>
-                      <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:idx===0?19:16, marginTop:8, marginBottom:3, letterSpacing:"-0.01em" }}>{c.name}</p>
-                      <p style={{ fontSize:11, color:C.textMid }}>📍 {c.city}</p>
-                      <p style={{ fontSize:11, color:C.textMid }}>📅 {c.date} · {c.venue}</p>
+                    <div style={{ flex:1,minWidth:0 }}>
+                      <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:idx===0?18:16, marginBottom:3, letterSpacing:"-0.01em", lineHeight:1.2 }}>{c.name}</p>
+                      <p style={{ fontSize:11, color:C.textMid }}>📍 {c.city} · {c.venue}</p>
+                      <p style={{ fontSize:11, color:C.textMid }}>📅 {c.date}</p>
+                      {isPreview&&<p style={{ fontSize:9.5,color:C.textDim,fontStyle:"italic",marginTop:3 }}>Sample concert card · not verified</p>}
                     </div>
-                    <div style={{ textAlign:"center", background:`${c.color}12`, border:`1px solid ${c.color}28`, borderRadius:14, padding:"10px 14px" }}>
-                      <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:idx===0?26:20, color:c.color, lineHeight:1 }}>{c.daysLeft}</p>
-                      <p style={{ fontSize:8.5, color:C.textMid, marginTop:2 }}>days left</p>
+                    {/* Days counter — computed from real date */}
+                    <div style={{ textAlign:"center",background:`${c.color}12`,border:`1px solid ${c.color}28`,borderRadius:14,padding:"10px 14px",flexShrink:0,marginLeft:12 }}>
+                      {daysLeft != null ? (<>
+                        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:idx===0?24:20,color:c.color,lineHeight:1 }}>{daysLeft}</p>
+                        <p style={{ fontSize:8.5,color:C.textMid,marginTop:2 }}>days</p>
+                      </>) : (
+                        <p style={{ fontSize:9,color:C.textDim,fontStyle:"italic" }}>TBD</p>
+                      )}
                       {going[c.id]&&<Pill color={C.mint} active xs style={{ marginTop:6 }}>✓ Going</Pill>}
                     </div>
                   </div>
-                  <div style={{ display:"flex", gap:16, marginBottom:14, padding:"10px 0", borderTop:`1px solid ${c.color}14`, borderBottom:`1px solid ${c.color}14` }}>
-                    {[["👥",c.attendees,"going"],["🤝",c.buddies,"buddy"],["✈️",c.traveling,"traveling"]].map(([icon,count,label])=>(
-                      <div key={label} style={{ textAlign:"center", flex:1 }}>
-                        <p style={{ fontSize:16, marginBottom:2 }}>{icon}</p>
-                        <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:16, color:c.color }}>{count}</p>
-                        <p style={{ fontSize:9, color:C.textMid }}>{label}</p>
-                      </div>
-                    ))}
-                  </div>
+                  {/* Stats row — only show for preview cards with mock data; confirmed shows fan-count CTA instead */}
+                  {hasStats ? (
+                    <div style={{ display:"flex",gap:16,marginBottom:14,padding:"10px 0",borderTop:`1px solid ${c.color}14`,borderBottom:`1px solid ${c.color}14` }}>
+                      {[["👥",c.attendees,"going"],["🤝",c.buddies,"buddy"],["✈️",c.traveling,"traveling"]].map(([icon,count,label])=>(
+                        <div key={label} style={{ textAlign:"center",flex:1 }}>
+                          <p style={{ fontSize:16,marginBottom:2 }}>{icon}</p>
+                          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:16,color:c.color }}>{count}</p>
+                          <p style={{ fontSize:9,color:C.textMid }}>{label}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ padding:"10px 0",borderTop:`1px solid ${c.color}14`,borderBottom:`1px solid ${c.color}14`,marginBottom:14 }}>
+                      <p style={{ fontSize:10.5,color:C.textMid,fontStyle:"italic" }}>💜 Find your Circle — connect with fans going to this show</p>
+                    </div>
+                  )}
                   <div style={{ display:"flex", gap:8 }}>
-                    <button onClick={e=>{e.stopPropagation();setGoing(g=>({...g,[c.id]:!g[c.id]}));}} className="tap" style={{ flex:1, padding:"11px", borderRadius:14, background:going[c.id]?`${C.mint}18`:`linear-gradient(140deg,${c.color}ee,${c.color}88)`, border:going[c.id]?`1.5px solid ${C.mint}`:"none", color:going[c.id]?C.mint:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:12, cursor:"pointer", boxShadow:going[c.id]?"none":`0 4px 14px ${c.color}30` }}>
+                    <button onClick={e=>{e.stopPropagation();setGoing(g=>({...g,[c.id]:!g[c.id]}));}} className="tap" style={{ flex:1,padding:"11px",borderRadius:14,background:going[c.id]?`${C.mint}18`:`linear-gradient(140deg,${c.color}ee,${c.color}88)`,border:going[c.id]?`1.5px solid ${C.mint}`:"none",color:going[c.id]?C.mint:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,cursor:"pointer",boxShadow:going[c.id]?"none":`0 4px 14px ${c.color}30` }}>
                       {going[c.id]?"✓ I'm Going!":"I'm Going"}
                     </button>
-                    <button onClick={e=>{e.stopPropagation();setSelected(c);}} className="tap" style={{ flex:1, padding:"11px", borderRadius:14, background:"transparent", border:`1.5px solid ${c.color}44`, color:c.color, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, cursor:"pointer" }}>Details →</button>
-                    <button onClick={e=>{e.stopPropagation();window.open(`https://seatgeek.com/search?q=${encodeURIComponent(c.name)}#filters`,"_blank");}} className="tap" style={{ padding:"11px 12px", borderRadius:14, background:"transparent", border:`1.5px solid ${C.gold}44`, color:C.gold, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, cursor:"pointer" }}>🎟️</button>
+                    <button onClick={e=>{e.stopPropagation();setSelected(c);}} className="tap" style={{ flex:1,padding:"11px",borderRadius:14,background:"transparent",border:`1.5px solid ${c.color}44`,color:c.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}>Details →</button>
+                    <button onClick={e=>{e.stopPropagation();window.open(ticketUrl,"_blank");}} className="tap" style={{ padding:"11px 12px",borderRadius:14,background:"transparent",border:`1.5px solid ${C.gold}44`,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}>🎟️</button>
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
         {view==="meetups" && (
@@ -3587,24 +3675,39 @@ function ShowDetail({ concert, onBack, going, setGoing, go, isVip, onUpgrade }) 
     <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
       <div style={{ padding:"16px 20px", display:"flex", gap:10, alignItems:"center", flexShrink:0 }}>
         <button onClick={onBack} style={{ background:"none", border:"none", color:C.textMid, fontSize:22, cursor:"pointer" }}>←</button>
-        <div>
-          <Pill color={concert.color} active small>{concert.group}</Pill>
-          <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:17, marginTop:4 }}>{concert.name}</h2>
+        <div style={{ flex:1,minWidth:0 }}>
+          <div style={{ display:"flex",alignItems:"center",gap:7,marginBottom:4 }}>
+            <Pill color={concert.color} active small>{concert.group}</Pill>
+            <StatusChip label={concert.verificationStatus==="confirmed"?"CONFIRMED":concert.verificationStatus==="official"?"OFFICIAL":"PREVIEW"} />
+          </div>
+          <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:17, letterSpacing:"-0.01em" }}>{concert.name}</h2>
+          {concert.verificationStatus==="confirmed"&&concert.sourceName&&(
+            <p style={{ fontSize:9,color:C.textDim,fontStyle:"italic",marginTop:2 }}>✦ {concert.sourceName}</p>
+          )}
+          {concert.verificationStatus==="preview"&&(
+            <p style={{ fontSize:9,color:C.textDim,fontStyle:"italic",marginTop:2 }}>Sample concert card · not verified data</p>
+          )}
         </div>
       </div>
       <Screen>
         <div style={{ background:`linear-gradient(140deg,${concert.color}22,${concert.color}08)`, border:`1.5px solid ${concert.color}40`, borderRadius:20, padding:18, marginBottom:16 }}>
           <p style={{ fontSize:12, color:C.textMid }}>📅 {concert.date}</p>
           <p style={{ fontSize:12, color:C.textMid, marginBottom:14 }}>📍 {concert.venue}, {concert.city}</p>
-          <div style={{ display:"flex", gap:20, marginBottom:14 }}>
-            {[["👥",concert.attendees,"going"],["🤝",concert.buddies,"buddy"],["✈️",concert.traveling,"traveling"]].map(([icon,count,label])=>(
-              <div key={label} style={{ textAlign:"center", flex:1 }}>
-                <p style={{ fontSize:20 }}>{icon}</p>
-                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:20, color:concert.color }}>{count}</p>
-                <p style={{ fontSize:9.5, color:C.textMid }}>{label}</p>
-              </div>
-            ))}
-          </div>
+          {concert.attendees != null ? (
+            <div style={{ display:"flex", gap:20, marginBottom:14 }}>
+              {[["👥",concert.attendees,"going"],["🤝",concert.buddies,"buddy"],["✈️",concert.traveling,"traveling"]].map(([icon,count,label])=>(
+                <div key={label} style={{ textAlign:"center", flex:1 }}>
+                  <p style={{ fontSize:20 }}>{icon}</p>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:20, color:concert.color }}>{count}</p>
+                  <p style={{ fontSize:9.5, color:C.textMid }}>{label}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ marginBottom:14,padding:"10px 12px",background:`${concert.color}08`,borderRadius:12,border:`1px solid ${concert.color}20` }}>
+              <p style={{ fontSize:11,color:C.textMid }}>💜 Find fans going — add this show and connect with your Circle.</p>
+            </div>
+          )}
           <Btn color={concert.color} onClick={()=>setGoing(g=>({...g,[concert.id]:!g[concert.id]}))}>
             {going[concert.id]?"✓ I'm Going!":"Mark I'm Going"}
           </Btn>
