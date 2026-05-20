@@ -1023,8 +1023,8 @@ const MOCK_ACTIVE_TRADES_DEFAULT = [
 const MOCK_NOTIF_EXAMPLES = [
   { id:"n1", type:"concert",      icon:"🎤", title:"Concert Day — BTS Dallas!",             body:"Show starts in 6 hours. Check your checklist and circle.",      color:C.pink,    time:"Today 1:30 PM", read:false },
   { id:"n2", type:"trade",        icon:"🃏", title:"Trade Match Found!",                    body:"@cardqueen_mia has your Karina MY WORLD UR. 1 match waiting.", color:C.accent,  time:"2h ago",        read:false },
-  { id:"n3", type:"friend_req",   icon:"💫", title:"Invite received",                       body:"@vegasarmy wants to add you to their Circle. BTS · Vegas weekend.", color:C.lavender, time:"3h ago",   read:false, fromUserId:"fu5", fromUsername:"vegasarmy", fromDisplayName:"Yuna", fromAvatar:"Y", fromColor:C.rose },
-  { id:"n4", type:"capsule",      icon:"✨", title:"Join the Concert Capsule",              body:"The BTS Vegas Capsule is live. Add your moment before it closes.", color:C.berry,  time:"4h ago",        read:false },
+  { id:"n3", type:"friend_req",   icon:"💫", title:"@vegasarmy wants to join your Circle",  body:"Yuna • BTS · Vegas weekend. Tap Accept to add them to your Circle.", color:C.lavender, time:"3h ago",   read:false, fromUserId:"fu5", fromUsername:"vegasarmy", fromDisplayName:"Yuna", fromAvatar:"Y", fromColor:C.rose },
+  { id:"n4", type:"capsule",      icon:"✨", title:"Tonight's capsule is live",              body:"Fans are adding moments to the BTS Vegas capsule right now. Join the memory.", color:C.berry,  time:"4h ago",        read:false },
   { id:"n5", type:"meetup",       icon:"📍", title:"Meetup Starting Soon",                  body:"Klyde Warren Pre-show Meetup starts in 30 minutes. 23 fans RSVP'd.", color:C.mint, time:"5h ago",     read:true },
   { id:"n6", type:"comeback",     icon:"🔔", title:"aespa Comeback Announced!",             body:"New mini-album drops July 12. Pre-save now for early photocard access.", color:C.rose, time:"6h ago", read:true },
   { id:"n7", type:"pass_reaction",icon:"💜", title:"Your Pass got a reaction",              body:"@staymia reacted 💜 to your Fit Check pass from tonight.",       color:C.gold,    time:"8h ago",        read:true, passId:"p1" },
@@ -1363,16 +1363,9 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade }) {
     const req = { id:`req-${Date.now()}`, userId:fu.id, username:fu.username, displayName:fu.displayName, avatar:fu.avatar, color:fu.color, fandoms:fu.fandoms, concertContext:fu.concertContext, sentAt:Date.now() };
     const reqs = [req, ...pendingReqs];
     setPendingReqs(reqs); ls.set("backstage_friend_requests", reqs);
-    // Add notification for the "receiver" — in a real app this would be server-side
-    const inbox = ls.get("backstage_notif_inbox", MOCK_NOTIF_EXAMPLES);
-    const newNotif = {
-      id:`nf-${Date.now()}`, type:"friend_req", icon:"💫",
-      title:"Invite received",
-      body:`@${user?.name||"you"} wants to join your Circle. ${fu.fandoms[0]||""} fan.`,
-      color:C.lavender, time:"Just now", read:false,
-      fromUserId:fu.id, fromUsername:fu.username, fromDisplayName:fu.displayName, fromAvatar:fu.avatar, fromColor:fu.color,
-    };
-    ls.set("backstage_notif_inbox", [newNotif,...inbox]);
+    // In a real app, a server-side notification would be sent to @fu.username.
+    // In demo mode, a pending "awaiting response" entry is written to the sent requests list above.
+    // We do NOT write a friend_req to the sender's own inbox — that's the receiver's notification.
     onNotif({title:`Circle invite sent to @${fu.username} ✦`,body:"They'll see your invite in their notifications.",icon:"💜",color:C.lavender});
   };
 
@@ -1440,12 +1433,14 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade }) {
         <div style={{ position:"absolute",top:-30,right:-30,width:120,height:120,borderRadius:"50%",background:`radial-gradient(circle,${C.accent}12,transparent 70%)`,pointerEvents:"none" }} />
         <div style={{ display:"flex",gap:10,alignItems:"center",marginBottom:12,position:"relative",zIndex:1 }}>
           <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
-          <div style={{ flex:1 }}>
-            <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:20,letterSpacing:"-0.02em" }}>Bring Your Crew</h2>
+          <div style={{ flex:1,minWidth:0 }}>
+            <div style={{ display:"flex",alignItems:"center",gap:7,marginBottom:2 }}>
+              <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:18,letterSpacing:"-0.02em",whiteSpace:"nowrap" }}>Bring Your Crew</h2>
+              {/* Concert-safe chip — inline with title so title stays on one line */}
+              <div style={{ padding:"3px 8px",borderRadius:99,background:`${C.mint}14`,border:`1px solid ${C.mint}30`,fontSize:8,color:C.mint,fontFamily:"'Epilogue',sans-serif",fontWeight:700,flexShrink:0 }}>✦ Safe</div>
+            </div>
             <p style={{ fontSize:11,color:C.textMid }}>Find your people before the show.</p>
           </div>
-          {/* Concert-safe chip */}
-          <div style={{ padding:"4px 10px",borderRadius:99,background:`${C.mint}14`,border:`1px solid ${C.mint}30`,fontSize:8.5,color:C.mint,fontFamily:"'Epilogue',sans-serif",fontWeight:700,letterSpacing:"0.04em",flexShrink:0 }}>✦ Concert-safe</div>
         </div>
         <div style={{ display:"flex",gap:5,position:"relative",zIndex:1 }}>
           {[["find","Find Fans"],["invite","Invite"],["milestones","Rewards"]].map(([id,label])=>(
@@ -1536,9 +1531,12 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade }) {
 
             {/* ── My Circle ── */}
             <div style={{ padding:"0 20px" }}>
-              <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:12 }}>
-                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5,flex:1 }}>Your Circle</p>
-                {circleMembers.length>0&&<div style={{ padding:"3px 10px",borderRadius:99,background:`${C.accent}14`,border:`1px solid ${C.accent}28`,fontSize:9,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{circleMembers.length} {circleMembers.length===1?"person":"people"}</div>}
+              <div style={{ marginBottom:12 }}>
+                <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:3 }}>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5,flex:1 }}>Your Circle</p>
+                  {circleMembers.length>0&&<div style={{ padding:"3px 10px",borderRadius:99,background:`${C.accent}14`,border:`1px solid ${C.accent}28`,fontSize:9,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{circleMembers.length} {circleMembers.length===1?"person":"people"}</div>}
+                </div>
+                <p style={{ fontSize:10.5,color:C.textMid,lineHeight:1.5 }}>Your concert people — fans you stay connected with before and after the show.</p>
               </div>
 
               {circleMembers.length===0 ? (
@@ -3004,6 +3002,9 @@ function Onboarding({ onDone }) {
   const [savedProfile, setSavedProfile] = useState(null);
   const [tourStep, setTourStep] = useState(0);
 
+  // Detect if user came from /capsule QR link — swap to capsule-first copy
+  const fromCapsule = !!(ls.get("backstage_capsule_context"));
+
   const filtered = search
     ? ALL_GROUPS.filter(g => g.toLowerCase().includes(search.toLowerCase()))
     : ALL_GROUPS.slice(0, 16);
@@ -3097,7 +3098,11 @@ function Onboarding({ onDone }) {
           style={{ width:120, height:120, objectFit:"contain", marginBottom:16 }}
         />
         <p style={{ fontSize:10, letterSpacing:"0.2em", textTransform:"uppercase", color:C.textMid, marginBottom:12 }}>Fanverse · K-pop Fandom App</p>
-        <p style={{ color:C.textMid, fontSize:13.5, lineHeight:1.7, maxWidth:270, margin:"0 auto 40px" }}>Concerts. Collecting. Community.<br/>Your all-in-one K-pop companion.</p>
+        <p style={{ color:C.textMid, fontSize:13.5, lineHeight:1.7, maxWidth:270, margin:"0 auto 40px" }}>
+          {fromCapsule
+            ? <>Your Concert Capsule is waiting.<br/>Join Backstage to save your moment.</>
+            : <>Concerts. Collecting. Community.<br/>Your all-in-one K-pop companion.</>}
+        </p>
         <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
           <Btn onClick={()=>setMode("signup")}>Get started →</Btn>
           <Btn ghost color={C.textMid} onClick={()=>setMode("login")}>I already have an account</Btn>
@@ -3121,7 +3126,11 @@ function Onboarding({ onDone }) {
           {mode==="login" ? "Welcome back ✦" : "Create your account"}
         </p>
         <p style={{ color:C.textMid, fontSize:13, marginBottom:28 }}>
-          {mode==="login" ? "Sign in to your Backstage account." : "Your fan journey starts here."}
+          {mode==="login"
+            ? "Sign in to your Backstage account."
+            : fromCapsule
+              ? "Create your profile to add your moment to tonight's capsule."
+              : "Your fan journey starts here."}
         </p>
         {err && <div style={{ background:`${C.rose}12`, border:`1px solid ${C.rose}40`, borderRadius:11, padding:"10px 13px", marginBottom:14, fontSize:12, color:C.rose }}>{err}</div>}
         <Input label="Email" value={email} onChange={e=>{setEmail(e.target.value);setErr("");}} placeholder="you@example.com" type="email" style={{ marginBottom:12 }} />
@@ -3276,8 +3285,14 @@ function Onboarding({ onDone }) {
       </div>
       {step===1 && (
         <div style={{ animation:"up .35s ease" }}>
+          {fromCapsule && (
+            <div style={{ background:`${C.berry}14`,border:`1px solid ${C.berry}30`,borderRadius:12,padding:"9px 13px",marginBottom:18,display:"flex",alignItems:"center",gap:8 }}>
+              <span style={{ fontSize:14 }}>📸</span>
+              <p style={{ fontSize:11.5,color:C.lavender,lineHeight:1.5 }}>Almost there — your name will appear on your capsule moment.</p>
+            </div>
+          )}
           <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:24, marginBottom:6 }}>What's your stan name?</p>
-          <p style={{ color:C.textMid, fontSize:13, marginBottom:22 }}>Your identity in the fanverse. Make it iconic.</p>
+          <p style={{ color:C.textMid, fontSize:13, marginBottom:22 }}>{fromCapsule?"This is how you'll show up in the capsule.":"Your identity in the fanverse. Make it iconic."}</p>
           <Input value={data.name} onChange={e=>setData({...data,name:e.target.value})} placeholder="e.g. stayforever_mia" autoFocus style={{ marginBottom:20 }} />
           <Btn onClick={()=>data.name.trim()&&setStep(2)} disabled={!data.name.trim()}>Continue →</Btn>
         </div>
@@ -11464,7 +11479,7 @@ function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNot
                     </div>
                   )}
                   {n.type==="capsule"&&(
-                    <button onClick={e=>{e.stopPropagation();markRead(n.id);}} className="tap" style={{ marginTop:9,padding:"6px 14px",borderRadius:99,background:`${C.berry}18`,border:`1px solid ${C.berry}44`,color:C.berry,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,cursor:"pointer" }}>Open Capsule →</button>
+                    <button onClick={e=>{e.stopPropagation();markRead(n.id);}} className="tap" style={{ marginTop:9,padding:"6px 14px",borderRadius:99,background:`${C.berry}18`,border:`1px solid ${C.berry}44`,color:C.berry,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,cursor:"pointer" }}>Join the Capsule ✦</button>
                   )}
                   {n.type==="pass_reaction"&&(
                     <button onClick={e=>{e.stopPropagation();markRead(n.id);}} className="tap" style={{ marginTop:9,padding:"6px 14px",borderRadius:99,background:`${C.gold}18`,border:`1px solid ${C.gold}44`,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,cursor:"pointer" }}>View Pass →</button>
@@ -12220,27 +12235,29 @@ function CapsuleLandingPage({ onJoin, onExplore }) {
       {/* Content wrapper */}
       <div style={{ position:"relative",zIndex:1,width:"100%",maxWidth:390,padding:"0 24px",display:"flex",flexDirection:"column",alignItems:"center" }}>
 
-        {/* Logo */}
-        <div style={{ marginTop:52,marginBottom:4,display:"flex",flexDirection:"column",alignItems:"center",gap:4 }}>
+        {/* Logo + app identity */}
+        <div style={{ marginTop:48,marginBottom:4,display:"flex",flexDirection:"column",alignItems:"center",gap:6 }}>
           <div style={{ width:52,height:52,borderRadius:16,background:`linear-gradient(135deg,${C.accent}30,${C.berry}20)`,border:`1.5px solid ${C.accent}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,fontFamily:"'Epilogue',sans-serif",fontWeight:900,color:C.accent,boxShadow:`0 0 28px ${C.accent}28,0 8px 24px rgba(0,0,0,0.4)`,animation:"glow 3s ease-in-out infinite" }}>B</div>
-          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,letterSpacing:"0.18em",color:C.textMid,marginTop:2 }}>BACKSTAGE · FANVERSE</p>
+          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,letterSpacing:"0.18em",color:C.textMid }}>BACKSTAGE · FANVERSE</p>
+          {/* One-liner app identity — visible immediately */}
+          <p style={{ fontSize:12,color:C.textMid,fontStyle:"italic",letterSpacing:"0.01em" }}>The fan memory app for concert lovers</p>
         </div>
 
         {/* Live badge */}
-        <div style={{ marginTop:20,padding:"5px 14px",borderRadius:99,background:`linear-gradient(90deg,${C.berry}28,${C.accent}22)`,border:`1px solid ${C.accent}44`,display:"flex",alignItems:"center",gap:6,animation:"pulse 2s ease-in-out infinite" }}>
+        <div style={{ marginTop:18,padding:"5px 14px",borderRadius:99,background:`linear-gradient(90deg,${C.berry}28,${C.accent}22)`,border:`1px solid ${C.accent}44`,display:"flex",alignItems:"center",gap:6,animation:"pulse 2s ease-in-out infinite" }}>
           <div style={{ width:6,height:6,borderRadius:"50%",background:C.berry,boxShadow:`0 0 8px ${C.berry}` }} />
           <span style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,color:C.lavender,letterSpacing:"0.1em" }}>TONIGHT'S CONCERT CAPSULE IS LIVE</span>
         </div>
 
         {/* Hero headline */}
-        <div style={{ marginTop:28,textAlign:"center" }}>
-          <h1 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:34,lineHeight:1.12,letterSpacing:"-0.025em",animation:"reveal .5s ease both" }}>
-            <span style={{ display:"block",color:C.text }}>Add your moment</span>
+        <div style={{ marginTop:24,textAlign:"center" }}>
+          <h1 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:32,lineHeight:1.12,letterSpacing:"-0.025em",animation:"reveal .5s ease both" }}>
+            <span style={{ display:"block",color:C.text }}>Save your moment</span>
             <span style={{ display:"block",fontStyle:"italic",background:`linear-gradient(135deg,${C.lavender},${C.pink})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent" }}>to the Concert</span>
             <span style={{ display:"block",fontStyle:"italic",background:`linear-gradient(135deg,${C.pink},${C.berry})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent" }}>Capsule ♡</span>
           </h1>
-          <p style={{ marginTop:14,fontSize:13.5,color:C.textMid,lineHeight:1.7,fontStyle:"italic" }}>
-            One show. One community. All the memories.
+          <p style={{ marginTop:12,fontSize:13,color:C.textMid,lineHeight:1.7 }}>
+            Your fit check, freebies, fanchants, and memories<br/>from tonight — saved together with every fan here.
           </p>
         </div>
 
@@ -12260,9 +12277,9 @@ function CapsuleLandingPage({ onJoin, onExplore }) {
         {/* Trust copy */}
         <div style={{ marginTop:28,background:`linear-gradient(135deg,${C.surfaceHi}cc,${C.surface}cc)`,border:`1px solid ${C.borderHi}`,borderRadius:18,padding:"16px 18px",width:"100%",backdropFilter:"blur(12px)" }}>
           {[
-            {icon:"🎟️",text:"Free to join tonight. Save everything with Backstage."},
-            {icon:"🔒",text:"Privacy first. You're in control of what you share."},
-            {icon:"💜",text:"No pressure — preview the capsule first."},
+            {icon:"🎟️",text:"Backstage is a free fan app — no subscription needed tonight."},
+            {icon:"💜",text:"Your Circle, your passes, your concert memories — all in one place."},
+            {icon:"🔒",text:"Privacy first. You're always in control of what you share."},
           ].map((item,i)=>(
             <div key={i} style={{ display:"flex",alignItems:"center",gap:12,paddingTop:i>0?10:0,paddingBottom:i<2?10:0,borderBottom:i<2?`1px solid ${C.border}`:"none" }}>
               <span style={{ fontSize:16,flexShrink:0 }}>{item.icon}</span>
