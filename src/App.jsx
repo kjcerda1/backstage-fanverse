@@ -218,6 +218,11 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 @keyframes notifDrop{from{transform:translateY(-20px);opacity:0}to{transform:translateY(0);opacity:1}}
 @keyframes checkBounce{0%{transform:scale(0)}60%{transform:scale(1.2)}100%{transform:scale(1)}}
 @keyframes starTwinkle{0%{opacity:0.12}50%{opacity:0.22}100%{opacity:0.15}}
+@keyframes bellPulse{0%,100%{transform:scale(1);box-shadow:0 0 10px rgba(184,162,255,.3)}50%{transform:scale(1.12);box-shadow:0 0 24px rgba(184,162,255,.7)}}
+@keyframes notifBadgePop{0%{transform:scale(0)}70%{transform:scale(1.25)}100%{transform:scale(1)}}
+@keyframes holoBorder{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
+@keyframes crewOrbit{0%{transform:rotate(0deg) translateX(28px) rotate(0deg)}100%{transform:rotate(360deg) translateX(28px) rotate(-360deg)}}
+@keyframes searchSlideIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
 @keyframes orbitSpin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
 @keyframes orbitPulse{0%,100%{transform:scale(1);opacity:0.7}50%{transform:scale(1.12);opacity:1}}
 @keyframes cardShimmer{0%{background-position:200% center}100%{background-position:-200% center}}
@@ -543,6 +548,29 @@ const VipBadge = ({ small }) => (
   </div>
 );
 
+const FounderBadge = ({ inline, showAura }) => (
+  <div style={{ position:"relative", display:"inline-flex", alignItems:"center" }}>
+    {showAura && <div style={{ position:"absolute",inset:-12,borderRadius:"50%",background:"radial-gradient(circle,rgba(240,204,136,0.14),rgba(184,162,255,0.10),transparent 70%)",pointerEvents:"none",animation:"auraDrift 6s ease-in-out infinite" }} />}
+    <div style={{
+      display:"inline-flex", alignItems:"center", gap:5,
+      padding: inline ? "3px 10px" : "7px 16px",
+      borderRadius:99,
+      background:"linear-gradient(140deg,#1a0840 0%,#2d0d60 40%,#1a0640 100%)",
+      border:"1.5px solid rgba(240,204,136,0.55)",
+      boxShadow:"0 0 18px rgba(240,204,136,0.18), 0 0 10px rgba(184,162,255,0.12), 0 4px 12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(240,204,136,0.14)",
+      position:"relative", overflow:"hidden",
+    }}>
+      <div style={{ position:"absolute",inset:0,background:"linear-gradient(90deg,transparent 0%,rgba(240,204,136,0.07) 50%,transparent 100%)",backgroundSize:"200% 100%",animation:"cardShimmer 3.5s linear infinite",pointerEvents:"none" }} />
+      <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:"linear-gradient(90deg,transparent,rgba(240,204,136,0.5),rgba(184,162,255,0.4),rgba(240,168,204,0.3),transparent)",pointerEvents:"none" }} />
+      <div style={{ fontSize:inline?8:10,color:"#f0cc88",animation:"sparkleFloat 2.2s ease-in-out infinite",flexShrink:0 }}>✦</div>
+      <div style={{ display:"flex",flexDirection:"column",gap:0.5 }}>
+        <span style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:inline?8:10,color:"#e8d5ff",letterSpacing:"0.07em",lineHeight:1 }}>FOUNDING FAN</span>
+        {!inline && <span style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:500,fontSize:7.5,color:"rgba(240,204,136,0.65)",letterSpacing:"0.12em",lineHeight:1 }}>BACKSTAGE FIRST ERA</span>}
+      </div>
+    </div>
+  </div>
+);
+
 function VipGate({ isVip, onUpgrade, children, feature="this feature" }) {
   if (isVip) return children;
   return (
@@ -589,10 +617,10 @@ function UpgradeModal({ onClose, onUpgrade }) {
       label:"Founding Fan Pass",
       price:"$19.99",
       period:"first year only",
-      tagline:"Be here from the beginning",
-      sub:"Unlock your Founder Badge (permanent)",
-      badge:"🔥 Limited early access",
-      badgeColor:C.rose,
+      tagline:"Here from the beginning",
+      sub:"Unlock your permanent Founding Fan badge",
+      badge:"✦ Limited first era",
+      badgeColor:C.gold,
       highlight:false,
     },
   ];
@@ -658,7 +686,7 @@ function UpgradeModal({ onClose, onUpgrade }) {
             const isFounder = p.id==="founder";
             const isAnnual = p.id==="annual";
             return (
-              <div key={p.id} onClick={()=>setPlan(p.id)} className="tap" style={{ position:"relative", background: isActive ? (isFounder?`linear-gradient(140deg,${C.rose}18,${C.gold}10)`:isAnnual?`linear-gradient(140deg,${C.accent}18,${C.gold}08)`:`${C.gold}10`) : C.surface, border:`2px solid ${isActive?(isFounder?C.rose:isAnnual?C.accent:C.gold):C.border}`, borderRadius:16, padding:"14px 16px", cursor:"pointer", transition:"all .22s", overflow:"hidden" }}>
+              <div key={p.id} onClick={()=>setPlan(p.id)} className="tap" style={{ position:"relative", background: isActive ? (isFounder?`linear-gradient(140deg,#1a0840,#2d0d60,#1a0640)`:isAnnual?`linear-gradient(140deg,${C.accent}18,${C.gold}08)`:`${C.gold}10`) : C.surface, border:`2px solid ${isActive?(isFounder?"rgba(240,204,136,0.55)":isAnnual?C.accent:C.gold):C.border}`, borderRadius:16, padding:"14px 16px", cursor:"pointer", transition:"all .22s", overflow:"hidden", boxShadow:isActive&&isFounder?"0 0 20px rgba(240,204,136,0.15), 0 0 10px rgba(184,162,255,0.1)":"none" }}>
 
                 {/* Recommended glow for annual */}
                 {isAnnual&&isActive&&<div style={{ position:"absolute",inset:0,borderRadius:14,background:`radial-gradient(ellipse at top,${C.accent}10,transparent 70%)`,pointerEvents:"none" }} />}
@@ -666,7 +694,10 @@ function UpgradeModal({ onClose, onUpgrade }) {
                 {/* Badge */}
                 {p.badge&&(
                   <div style={{ marginBottom:8 }}>
-                    <span style={{ fontSize:9.5, padding:"3px 9px", borderRadius:99, background:isFounder?`${C.rose}22`:`${C.accent}22`, color:isFounder?C.rose:C.accent, fontFamily:"'Epilogue',sans-serif", fontWeight:800, letterSpacing:"0.04em" }}>{p.badge}</span>
+                    {isFounder
+                      ? <FounderBadge inline />
+                      : <span style={{ fontSize:9.5, padding:"3px 9px", borderRadius:99, background:`${C.accent}22`, color:C.accent, fontFamily:"'Epilogue',sans-serif", fontWeight:800, letterSpacing:"0.04em" }}>{p.badge}</span>
+                    }
                   </div>
                 )}
 
@@ -678,7 +709,7 @@ function UpgradeModal({ onClose, onUpgrade }) {
 
                   {/* Label + tagline */}
                   <div style={{ flex:1 }}>
-                    <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:14, marginBottom:2, color:isActive?(isFounder?C.rose:isAnnual?C.accent:C.gold):C.text }}>{p.label}</p>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:14, marginBottom:2, color:isActive?(isFounder?C.gold:isAnnual?C.accent:C.gold):C.text }}>{p.label}</p>
                     <p style={{ fontSize:11.5, color:C.textMid, lineHeight:1.4 }}>{p.tagline}</p>
                     {isActive&&<p style={{ fontSize:10.5, color:C.textDim, marginTop:3, fontStyle:"italic" }}>{p.sub}</p>}
                   </div>
@@ -990,11 +1021,15 @@ const MOCK_ACTIVE_TRADES_DEFAULT = [
 
 // ─── MOCK NOTIFICATION EXAMPLES ────────────────────────────────────────────────
 const MOCK_NOTIF_EXAMPLES = [
-  { id:"n1", type:"concert",  icon:"🎤", title:"Concert Day — BTS Dallas!",         body:"Show starts in 6 hours. Check your checklist and circle.", color:C.pink,   time:"Today 1:30 PM", read:false },
-  { id:"n2", type:"trade",    icon:"🃏", title:"Trade Match Found!",                body:"@cardqueen_mia has your Karina MY WORLD UR. 1 match waiting.", color:C.accent, time:"2h ago", read:false },
-  { id:"n3", type:"meetup",   icon:"📍", title:"Meetup Starting Soon",              body:"Klyde Warren Pre-show Meetup starts in 30 minutes. 23 fans RSVP'd.", color:C.mint,   time:"3h ago", read:true },
-  { id:"n4", type:"comeback", icon:"🔔", title:"aespa Comeback Announced!",         body:"New mini-album drops July 12. Pre-save now for early photocard access.", color:C.rose,   time:"5h ago", read:true },
-  { id:"n5", type:"afterglow",icon:"🌙", title:"How was BTS Dallas last night? ✨", body:"Don't forget your Afterglow — save the memory while it's fresh.", color:C.gold,   time:"Yesterday", read:true },
+  { id:"n1", type:"concert",      icon:"🎤", title:"Concert Day — BTS Dallas!",             body:"Show starts in 6 hours. Check your checklist and circle.",      color:C.pink,    time:"Today 1:30 PM", read:false },
+  { id:"n2", type:"trade",        icon:"🃏", title:"Trade Match Found!",                    body:"@cardqueen_mia has your Karina MY WORLD UR. 1 match waiting.", color:C.accent,  time:"2h ago",        read:false },
+  { id:"n3", type:"friend_req",   icon:"💫", title:"Invite received",                       body:"@vegasarmy wants to add you to their Circle. BTS · Vegas weekend.", color:C.lavender, time:"3h ago",   read:false, fromUserId:"fu5", fromUsername:"vegasarmy", fromDisplayName:"Yuna", fromAvatar:"Y", fromColor:C.rose },
+  { id:"n4", type:"capsule",      icon:"✨", title:"Join the Concert Capsule",              body:"The BTS Vegas Capsule is live. Add your moment before it closes.", color:C.berry,  time:"4h ago",        read:false },
+  { id:"n5", type:"meetup",       icon:"📍", title:"Meetup Starting Soon",                  body:"Klyde Warren Pre-show Meetup starts in 30 minutes. 23 fans RSVP'd.", color:C.mint, time:"5h ago",     read:true },
+  { id:"n6", type:"comeback",     icon:"🔔", title:"aespa Comeback Announced!",             body:"New mini-album drops July 12. Pre-save now for early photocard access.", color:C.rose, time:"6h ago", read:true },
+  { id:"n7", type:"pass_reaction",icon:"💜", title:"Your Pass got a reaction",              body:"@staymia reacted 💜 to your Fit Check pass from tonight.",       color:C.gold,    time:"8h ago",        read:true, passId:"p1" },
+  { id:"n8", type:"accepted",     icon:"🌟", title:"Circle accepted",                       body:"@armyjoon accepted your invite. They're in your Circle now ✦",   color:C.mint,    time:"Yesterday",     read:true },
+  { id:"n9", type:"afterglow",    icon:"🌙", title:"How was BTS Dallas last night? ✨",     body:"Don't forget your Afterglow — save the memory while it's fresh.", color:C.gold,   time:"Yesterday",     read:true },
 ];
 
 const MOCK_MEETUPS = [
@@ -1287,11 +1322,19 @@ async function requestNotificationPermission(userId) {
 
 // ─── INVITE FRIENDS / REFERRAL HUB ────────────────────────────────────────────
 // POST /api/referrals/invite | GET /api/referrals/:userId | POST /api/referrals/claim
+// POST /api/circle/request | GET /api/circle/:userId | POST /api/circle/accept
 function InvitePage({ onBack, user, onNotif, isVip, onUpgrade }) {
   const [invites, setInvites] = useState(ls.get("backstage_invites", MOCK_INVITES));
-  const [tab, setTab] = useState("invite");
+  const [tab, setTab] = useState("find");
   const [copied, setCopied] = useState(false);
   const [showReward, setShowReward] = useState(false);
+
+  // ── Social search state ───────────────────────────────────────────────────
+  const [searchQ, setSearchQ] = useState("");
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [userStatuses, setUserStatuses] = useState(()=>ls.get("backstage_circle_statuses",{}));
+  const [circle, setCircle] = useState(()=>ls.get("backstage_circle",[]));
+  const [pendingReqs, setPendingReqs] = useState(()=>ls.get("backstage_friend_requests",[]));
 
   const myCode = `BACKSTAGE-${(user?.name||"FAN").toUpperCase().slice(0,6)}-2026`;
   const myLink = `https://backstageapp.co/join?ref=${myCode}`;
@@ -1312,26 +1355,261 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade }) {
     onNotif({title:"Invite sent! 🎉",body:"When they join, you both get VIP.",icon:"🎉",color:C.accent});
   };
 
+  // ── Social: send crew invite / circle request ─────────────────────────────
+  const sendRequest = (fu) => {
+    const next = {...userStatuses, [fu.id]:"sent"};
+    setUserStatuses(next); ls.set("backstage_circle_statuses", next);
+    // Add to pending requests
+    const req = { id:`req-${Date.now()}`, userId:fu.id, username:fu.username, displayName:fu.displayName, avatar:fu.avatar, color:fu.color, fandoms:fu.fandoms, concertContext:fu.concertContext, sentAt:Date.now() };
+    const reqs = [req, ...pendingReqs];
+    setPendingReqs(reqs); ls.set("backstage_friend_requests", reqs);
+    // Add notification for the "receiver" — in a real app this would be server-side
+    const inbox = ls.get("backstage_notif_inbox", MOCK_NOTIF_EXAMPLES);
+    const newNotif = {
+      id:`nf-${Date.now()}`, type:"friend_req", icon:"💫",
+      title:"Invite received",
+      body:`@${user?.name||"you"} wants to join your Circle. ${fu.fandoms[0]||""} fan.`,
+      color:C.lavender, time:"Just now", read:false,
+      fromUserId:fu.id, fromUsername:fu.username, fromDisplayName:fu.displayName, fromAvatar:fu.avatar, fromColor:fu.color,
+    };
+    ls.set("backstage_notif_inbox", [newNotif,...inbox]);
+    onNotif({title:`Circle invite sent to @${fu.username} ✦`,body:"They'll see your invite in their notifications.",icon:"💜",color:C.lavender});
+  };
+
+  const acceptRequest = (fu) => {
+    const next = {...userStatuses, [fu.id]:"accepted"};
+    setUserStatuses(next); ls.set("backstage_circle_statuses", next);
+    const member = { id:fu.id, name:`@${fu.username}`, avatar:fu.avatar, color:fu.color, type:"moot", groups:fu.fandoms, trust:5.0, concerts:0, status:"accepted" };
+    const nextCircle = [member, ...circle.filter(c=>c.id!==fu.id)];
+    setCircle(nextCircle); ls.set("backstage_circle", nextCircle);
+    // Also persist to backstage_friends so MyCircleSection picks it up
+    const friends = ls.get("backstage_friends", MOCK_FRIENDS);
+    if(!friends.find(f=>f.id===fu.id)) ls.set("backstage_friends", [member,...friends]);
+    // Add accepted notification
+    const inbox = ls.get("backstage_notif_inbox", []);
+    ls.set("backstage_notif_inbox", [{ id:`nf-acc-${Date.now()}`, type:"accepted", icon:"🌟", title:"Circle accepted", body:`@${fu.username} is now in your Circle ✦`, color:C.mint, time:"Just now", read:false },...inbox]);
+    onNotif({title:`@${fu.username} joined your Circle ✦`,body:"In Your Circle now.",icon:"✦",color:C.mint});
+  };
+
+  const declineRequest = (fu) => {
+    const next = {...userStatuses, [fu.id]:"declined"};
+    setUserStatuses(next); ls.set("backstage_circle_statuses", next);
+  };
+
+  const getStatus = (fu) => userStatuses[fu.id] || fu.status || "none";
+
+  // ── Search ────────────────────────────────────────────────────────────────
+  const q = searchQ.toLowerCase().trim();
+  const searchResults = q.length >= 1
+    ? MOCK_FANVERSE_USERS.filter(u =>
+        u.username.includes(q) ||
+        u.displayName.toLowerCase().includes(q) ||
+        u.fandoms.some(f=>f.toLowerCase().includes(q)) ||
+        u.city.toLowerCase().includes(q) ||
+        u.concertContext.toLowerCase().includes(q)
+      )
+    : MOCK_FANVERSE_USERS.slice(0,4); // show suggestions when empty
+
+  const circleMembers = [...circle, ...MOCK_FRIENDS.filter(f=>f.status==="accepted" && !circle.find(c=>c.id===f.id))];
+
+  // ── Highlight matching query text ─────────────────────────────────────────
+  const highlight = (text) => {
+    if(!q || !text) return text;
+    const idx = text.toLowerCase().indexOf(q);
+    if(idx<0) return text;
+    return <span>{text.slice(0,idx)}<span style={{ color:C.lavender,fontWeight:700 }}>{text.slice(idx,idx+q.length)}</span>{text.slice(idx+q.length)}</span>;
+  };
+
+  // ── Status button ─────────────────────────────────────────────────────────
+  const StatusBtn = ({fu}) => {
+    const st = getStatus(fu);
+    if(st==="accepted") return <div style={{ display:"flex",alignItems:"center",gap:4,padding:"5px 12px",borderRadius:99,background:`${C.mint}18`,border:`1px solid ${C.mint}44`,fontSize:10,color:C.mint,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap" }}>In Your Circle ✦</div>;
+    if(st==="sent")     return <div style={{ padding:"5px 12px",borderRadius:99,background:`${C.accent}12`,border:`1px solid ${C.accent}33`,fontSize:10,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap" }}>Request Sent</div>;
+    if(st==="declined") return <div style={{ padding:"5px 12px",borderRadius:99,background:`${C.textDim}22`,border:`1px solid ${C.border}`,fontSize:10,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:600,whiteSpace:"nowrap" }}>Declined</div>;
+    return (
+      <button onClick={()=>sendRequest(fu)} className="tap" style={{ padding:"6px 14px",borderRadius:99,background:`linear-gradient(135deg,${C.accent},${C.berry})`,border:"none",fontSize:10.5,color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",boxShadow:`0 0 12px ${C.accent}30` }}>Add to Circle</button>
+    );
+  };
+
   return (
     <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden" }}>
-      <div style={{ padding:"16px 20px",flexShrink:0,borderBottom:`1px solid ${C.border}` }}>
-        <div style={{ display:"flex",gap:10,alignItems:"center",marginBottom:14 }}>
+
+      {/* ── HEADER ── */}
+      <div style={{ padding:"14px 20px 0",flexShrink:0,background:`linear-gradient(180deg,${C.cosmic},transparent)`,position:"relative",overflow:"hidden" }}>
+        {/* Ambient orb */}
+        <div style={{ position:"absolute",top:-30,right:-30,width:120,height:120,borderRadius:"50%",background:`radial-gradient(circle,${C.accent}12,transparent 70%)`,pointerEvents:"none" }} />
+        <div style={{ display:"flex",gap:10,alignItems:"center",marginBottom:12,position:"relative",zIndex:1 }}>
           <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
-          <div>
-            <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:20 }}>Bring Your Crew 💜</h2>
-            <p style={{ fontSize:11,color:C.textMid }}>Invite friends. Earn VIP. Grow the fanverse.</p>
+          <div style={{ flex:1 }}>
+            <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:20,letterSpacing:"-0.02em" }}>Bring Your Crew</h2>
+            <p style={{ fontSize:11,color:C.textMid }}>Find your people before the show.</p>
           </div>
+          {/* Concert-safe chip */}
+          <div style={{ padding:"4px 10px",borderRadius:99,background:`${C.mint}14`,border:`1px solid ${C.mint}30`,fontSize:8.5,color:C.mint,fontFamily:"'Epilogue',sans-serif",fontWeight:700,letterSpacing:"0.04em",flexShrink:0 }}>✦ Concert-safe</div>
         </div>
-        <div style={{ display:"flex",gap:6 }}>
-          {[["invite","Invite"],["milestones","Rewards"],["crew","My Crew"]].map(([id,label])=>(
-            <span key={id} onClick={()=>setTab(id)} className="tap" style={{ flex:1,textAlign:"center",padding:"7px",borderRadius:11,fontSize:11,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:tab===id?C.accent:C.surfaceHi,color:tab===id?C.bg:C.textMid,border:`1px solid ${tab===id?C.accent:C.border}` }}>{label}</span>
+        <div style={{ display:"flex",gap:5,position:"relative",zIndex:1 }}>
+          {[["find","Find Fans"],["invite","Invite"],["milestones","Rewards"]].map(([id,label])=>(
+            <span key={id} onClick={()=>setTab(id)} className="tap" style={{ flex:1,textAlign:"center",padding:"7px 4px",borderRadius:11,fontSize:10.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:tab===id?`linear-gradient(135deg,${C.accent},${C.berry})`:C.surfaceHi,color:tab===id?C.bg:C.textMid,border:`1px solid ${tab===id?"transparent":C.border}`,boxShadow:tab===id?`0 0 12px ${C.accent}28`:"none",transition:"all .18s",whiteSpace:"nowrap" }}>{label}</span>
           ))}
         </div>
+        <div style={{ height:1,background:`linear-gradient(90deg,transparent,${C.borderHi},transparent)`,marginTop:12 }} />
       </div>
 
-      <Screen style={{ padding:"0 20px 100px" }}>
+      <Screen style={{ padding:"0 0 100px" }}>
+
+        {/* ══ FIND FANS TAB ══ */}
+        {tab==="find" && (
+          <div>
+            {/* ── Constellation hero ── */}
+            <div style={{ padding:"18px 20px 14px",background:`linear-gradient(160deg,${C.plum}40,${C.cosmic} 60%)`,position:"relative",overflow:"hidden",marginBottom:0 }}>
+              {/* Constellation lines SVG */}
+              <svg width="100%" height="56" style={{ position:"absolute",top:0,left:0,pointerEvents:"none",opacity:0.18 }} viewBox="0 0 350 56">
+                <line x1="40" y1="28" x2="120" y2="18" stroke={C.lavender} strokeWidth="0.8"/>
+                <line x1="120" y1="18" x2="200" y2="36" stroke={C.lavender} strokeWidth="0.8"/>
+                <line x1="200" y1="36" x2="300" y2="14" stroke={C.lavender} strokeWidth="0.8"/>
+                <circle cx="40" cy="28" r="2.5" fill={C.lavender}/><circle cx="120" cy="18" r="2.5" fill={C.pink}/><circle cx="200" cy="36" r="2.5" fill={C.lavender}/><circle cx="300" cy="14" r="2.5" fill={C.accent}/>
+              </svg>
+              {/* Floating avatar orbs */}
+              {[
+                {l:"6%",t:6,color:C.pink,init:"J"},{l:"28%",t:16,color:C.accent,init:"M"},
+                {l:"52%",t:4,color:C.lavender,init:"K"},{l:"74%",t:18,color:C.mint,init:"Y"},{l:"88%",t:8,color:C.berry,init:"S"}
+              ].map((o,i)=>(
+                <div key={i} style={{ position:"absolute",left:o.l,top:o.t,width:28,height:28,borderRadius:"50%",background:`linear-gradient(135deg,${o.color},${o.color}88)`,border:`1.5px solid ${o.color}80`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:10,color:C.bg,animation:`float ${3+i*0.4}s ease-in-out infinite`,animationDelay:`${i*0.55}s`,boxShadow:`0 0 10px ${o.color}44` }}>{o.init}</div>
+              ))}
+              <div style={{ height:50 }} />
+            </div>
+
+            {/* ── Search input ── */}
+            <div style={{ padding:"14px 20px 0",position:"relative",zIndex:10 }}>
+              <div style={{ position:"relative",marginBottom:searchResults.length>0&&(q||searchFocused)?0:14 }}>
+                <div style={{ position:"absolute",left:14,top:"50%",transform:"translateY(-50%)",fontSize:15,color:C.accent,pointerEvents:"none",zIndex:2 }}>✦</div>
+                <input
+                  value={searchQ}
+                  onChange={e=>setSearchQ(e.target.value)}
+                  onFocus={()=>setSearchFocused(true)}
+                  onBlur={()=>setTimeout(()=>setSearchFocused(false),160)}
+                  placeholder="Search a username, moot, or concert friend…"
+                  style={{ width:"100%",padding:"13px 14px 13px 38px",borderRadius:18,background:`linear-gradient(135deg,${C.surfaceMid},${C.surface})`,border:`1.5px solid ${searchFocused?C.accent:C.borderHi}`,color:C.text,fontSize:13,fontFamily:"'Instrument Sans',sans-serif",outline:"none",boxSizing:"border-box",boxShadow:searchFocused?`0 0 18px ${C.accent}22`:"none",transition:"all .2s" }}
+                />
+                {searchQ&&<button onClick={()=>setSearchQ("")} style={{ position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:C.textMid,fontSize:16,cursor:"pointer",padding:4 }}>✕</button>}
+              </div>
+
+              {/* ── Autocomplete results ── */}
+              {searchResults.length>0 && (
+                <div style={{ background:`linear-gradient(160deg,${C.surfaceMid},${C.surface})`,border:`1.5px solid ${C.borderHi}`,borderRadius:18,overflow:"hidden",marginBottom:16,animation:"searchSlideIn .18s ease",boxShadow:`0 8px 28px rgba(0,0,0,0.4)` }}>
+                  {searchResults.map((fu,i)=>{
+                    const st = getStatus(fu);
+                    return (
+                      <div key={fu.id} style={{ padding:"12px 14px",borderBottom:i<searchResults.length-1?`1px solid ${C.border}`:"none",position:"relative",background:st==="accepted"?`${C.mint}05`:"transparent" }}>
+                        <div style={{ display:"flex",gap:12,alignItems:"center" }}>
+                          {/* Avatar */}
+                          <div style={{ position:"relative",flexShrink:0 }}>
+                            <div style={{ width:44,height:44,borderRadius:"50%",background:`linear-gradient(135deg,${fu.color},${fu.color}77)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,color:C.bg,border:`2px solid ${fu.color}66`,boxShadow:`0 0 12px ${fu.color}33` }}>{fu.avatar}</div>
+                            {st==="accepted"&&<div style={{ position:"absolute",bottom:-1,right:-1,width:14,height:14,borderRadius:"50%",background:C.mint,border:`2px solid ${C.surface}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:7 }}>✦</div>}
+                          </div>
+                          {/* Info */}
+                          <div style={{ flex:1,minWidth:0 }}>
+                            <div style={{ display:"flex",alignItems:"center",gap:5,marginBottom:2 }}>
+                              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,color:C.text }}>{highlight(`@${fu.username}`)}</p>
+                            </div>
+                            <p style={{ fontSize:10.5,color:C.textMid,marginBottom:5,lineHeight:1.4 }}>{fu.bio}</p>
+                            <div style={{ display:"flex",gap:4,flexWrap:"wrap" }}>
+                              {fu.fandoms.slice(0,2).map(f=><span key={f} style={{ padding:"2px 8px",borderRadius:99,background:`${fu.color}18`,border:`1px solid ${fu.color}33`,fontSize:9,color:fu.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{f}</span>)}
+                              <span style={{ padding:"2px 8px",borderRadius:99,background:C.surfaceHi,border:`1px solid ${C.border}`,fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>📍 {fu.city.split(",")[0]}</span>
+                            </div>
+                          </div>
+                          {/* CTA */}
+                          <StatusBtn fu={fu} />
+                        </div>
+                        {fu.concertContext&&(
+                          <div style={{ marginTop:7,marginLeft:56,fontSize:9.5,color:C.textDim,fontStyle:"italic" }}>🎤 {fu.concertContext}</div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {q && searchResults.length===0 && (
+                    <div style={{ padding:"20px 16px",textAlign:"center" }}>
+                      <div style={{ fontSize:24,marginBottom:8 }}>🔭</div>
+                      <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,marginBottom:4 }}>No fan found yet</p>
+                      <p style={{ fontSize:11.5,color:C.textMid }}>Try a username, group, or city.</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* ── My Circle ── */}
+            <div style={{ padding:"0 20px" }}>
+              <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:12 }}>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5,flex:1 }}>Your Circle</p>
+                {circleMembers.length>0&&<div style={{ padding:"3px 10px",borderRadius:99,background:`${C.accent}14`,border:`1px solid ${C.accent}28`,fontSize:9,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{circleMembers.length} {circleMembers.length===1?"person":"people"}</div>}
+              </div>
+
+              {circleMembers.length===0 ? (
+                <div style={{ background:`linear-gradient(140deg,${C.surfaceMid},${C.surface})`,border:`1.5px solid ${C.border}`,borderRadius:20,padding:"24px 20px",textAlign:"center",position:"relative",overflow:"hidden" }}>
+                  <div style={{ position:"absolute",inset:0,background:`radial-gradient(ellipse at 50% 0%,${C.accent}05,transparent 70%)`,pointerEvents:"none" }} />
+                  <div style={{ fontSize:34,marginBottom:10,animation:"float 3s ease-in-out infinite" }}>🌌</div>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14,marginBottom:6 }}>Your Circle is waiting</p>
+                  <p style={{ fontSize:12,color:C.textMid,lineHeight:1.6,marginBottom:14 }}>Add your first concert friend above.<br/>Find your people before the show.</p>
+                  <div style={{ display:"flex",gap:6,justifyContent:"center",flexWrap:"wrap" }}>
+                    {["@armyjoon","@staymia","@purplehour"].map(u=>(
+                      <button key={u} onClick={()=>setSearchQ(u.slice(1))} className="tap" style={{ padding:"5px 12px",borderRadius:99,background:C.surfaceHi,border:`1px solid ${C.border}`,fontSize:10.5,color:C.textMid,cursor:"pointer",fontFamily:"'Instrument Sans',sans-serif" }}>{u}</button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div style={{ background:`linear-gradient(140deg,${C.surfaceMid},${C.surface})`,border:`1.5px solid ${C.borderHi}`,borderRadius:20,padding:16,position:"relative",overflow:"hidden" }}>
+                  <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.lavender}33,transparent)` }} />
+                  {/* Sparkle dots */}
+                  {[{t:"8%",l:"85%"},{t:"75%",l:"6%"},{t:"45%",l:"92%"}].map((s,i)=>(
+                    <div key={i} style={{ position:"absolute",top:s.t,left:s.l,fontSize:9,color:C.pink,opacity:0.3,animation:`sparkleFloat ${3+i*0.7}s ease-in-out infinite`,pointerEvents:"none" }}>✦</div>
+                  ))}
+                  <div style={{ display:"flex",gap:12,overflowX:"auto",paddingBottom:4,scrollbarWidth:"none" }}>
+                    {circleMembers.slice(0,8).map((m,i)=>(
+                      <div key={m.id||i} style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:5 }}>
+                        <div style={{ position:"relative" }}>
+                          <div style={{ width:52,height:52,borderRadius:"50%",background:`linear-gradient(135deg,${m.color},${m.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19,color:C.bg,border:`2.5px solid ${m.color}`,boxShadow:`0 0 16px ${m.color}44` }}>{m.avatar}</div>
+                          <div style={{ position:"absolute",top:2,right:2,width:12,height:12,borderRadius:"50%",background:C.mint,border:`2px solid ${C.surfaceMid}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:6.5 }}>✦</div>
+                        </div>
+                        <p style={{ fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,color:m.color,maxWidth:52,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textAlign:"center" }}>{m.name?.replace("@","")}</p>
+                        {m.groups?.[0]&&<span style={{ fontSize:7.5,padding:"1.5px 6px",borderRadius:99,background:`${m.color}18`,border:`1px solid ${m.color}28`,color:m.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{m.groups[0]}</span>}
+                      </div>
+                    ))}
+                    {circleMembers.length>8&&(
+                      <div style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:5 }}>
+                        <div style={{ width:52,height:52,borderRadius:"50%",background:C.surfaceHi,border:`2px dashed ${C.border}`,display:"flex",alignItems:"center",justifyContent:"center" }}>
+                          <p style={{ fontSize:11,fontFamily:"'Epilogue',sans-serif",fontWeight:700,color:C.textMid }}>+{circleMembers.length-8}</p>
+                        </div>
+                        <p style={{ fontSize:9,color:C.textDim }}>more</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Pending requests */}
+              {pendingReqs.length>0&&(
+                <div style={{ marginTop:14 }}>
+                  <p style={{ fontSize:10,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8 }}>Pending — {pendingReqs.length} sent</p>
+                  {pendingReqs.map(req=>(
+                    <div key={req.id} style={{ display:"flex",gap:10,alignItems:"center",background:C.surface,border:`1px solid ${C.accent}22`,borderRadius:14,padding:"10px 12px",marginBottom:8 }}>
+                      <div style={{ width:36,height:36,borderRadius:"50%",background:`linear-gradient(135deg,${req.color},${req.color}77)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.bg,flexShrink:0 }}>{req.avatar}</div>
+                      <div style={{ flex:1,minWidth:0 }}>
+                        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12 }}>@{req.username}</p>
+                        <p style={{ fontSize:10,color:C.textMid }}>{req.concertContext||req.fandoms?.[0]||""}</p>
+                      </div>
+                      <div style={{ padding:"4px 10px",borderRadius:99,background:`${C.accent}12`,border:`1px solid ${C.accent}28`,fontSize:9.5,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,flexShrink:0 }}>Request Sent</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ══ INVITE TAB ══ */}
         {tab==="invite" && (
-          <div style={{ paddingTop:16 }}>
+          <div style={{ padding:"16px 20px 0" }}>
             {/* Hero card */}
             <div style={{ background:`linear-gradient(140deg,${C.accent}18,${C.pink}12)`,border:`1.5px solid ${C.accent}40`,borderRadius:22,padding:20,marginBottom:18,textAlign:"center",position:"relative",overflow:"hidden",animation:"shareGlow 4s ease infinite" }}>
               <div style={{ position:"absolute",inset:0,background:`radial-gradient(ellipse at top,${C.accent}0a,transparent 70%)`,pointerEvents:"none" }} />
@@ -1361,18 +1639,26 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade }) {
             {/* What they get */}
             <div style={{ background:C.surface,border:`1px solid ${C.border}`,borderRadius:18,padding:16 }}>
               <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,marginBottom:12,color:C.silver }}>Both of you get 🎁</p>
-              {[["✨ VIP 7-day Trial","Access all premium features"],["🏷️ Founder Badge","Exclusive early adopter badge"],["💜 Crew Tag","Your connection on each other's profiles"]].map(([label,sub],i)=>(
+              {[
+                ["✨","VIP 7-day Trial","Access all premium features"],
+                [null,"Founding Fan Badge","Your permanent first-era collectible"],
+                ["💜","Crew Tag","Your connection on each other's profiles"]
+              ].map(([emoji,label,sub],i)=>(
                 <div key={i} style={{ display:"flex",gap:10,alignItems:"center",padding:"8px 0",borderBottom:i<2?`1px solid ${C.border}`:"none" }}>
-                  <div style={{ width:38,height:38,borderRadius:11,background:`${C.accent}18`,border:`1px solid ${C.accent}33`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0 }}>{label.split(" ")[0]}</div>
-                  <div><p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:12.5 }}>{label.slice(2)}</p><p style={{ fontSize:10.5,color:C.textMid }}>{sub}</p></div>
+                  <div style={{ width:38,height:38,borderRadius:11,background:`${C.accent}18`,border:`1px solid ${C.accent}33`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0 }}>{emoji||"✦"}</div>
+                  <div>
+                    {i===1 ? <div style={{ marginBottom:2 }}><FounderBadge inline /></div> : <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:12.5 }}>{label}</p>}
+                    <p style={{ fontSize:10.5,color:C.textMid }}>{sub}</p>
+                  </div>
                 </div>
               ))}
             </div>
           </div>
         )}
 
+        {/* ══ REWARDS TAB ══ */}
         {tab==="milestones" && (
-          <div style={{ paddingTop:16 }}>
+          <div style={{ padding:"16px 20px 0" }}>
             <div style={{ background:`${C.gold}0a`,border:`1px solid ${C.gold}22`,borderRadius:14,padding:"11px 14px",marginBottom:18 }}>
               <p style={{ fontSize:12,color:C.textMid }}>💜 You've converted <span style={{ color:C.gold,fontWeight:700 }}>{converted} friend{converted!==1?"s":""}</span>. Next milestone: <span style={{ color:C.mint,fontWeight:700 }}>{nextMilestone.reward}</span></p>
             </div>
@@ -1385,12 +1671,16 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade }) {
             </div>
             {REFERRAL_MILESTONES.map((m,i)=>{
               const unlocked = converted>=m.count;
+              const isFounderMilestone = m.reward==="Founder Badge";
               return (
                 <div key={i} style={{ background:unlocked?`${m.color}12`:C.surface,border:`1.5px solid ${unlocked?m.color:C.border}`,borderRadius:18,padding:16,marginBottom:10,display:"flex",gap:14,alignItems:"center",transition:"all .22s" }}>
                   <div style={{ width:48,height:48,borderRadius:14,background:`${m.color}22`,border:`1.5px solid ${m.color}${unlocked?"88":"33"}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0 }}>{m.icon}</div>
                   <div style={{ flex:1 }}>
                     <div style={{ display:"flex",gap:8,alignItems:"center",marginBottom:3 }}>
-                      <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5,color:unlocked?m.color:C.text }}>{m.reward}</p>
+                      {isFounderMilestone
+                        ? <FounderBadge inline />
+                        : <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5,color:unlocked?m.color:C.text }}>{m.reward}</p>
+                      }
                       {unlocked&&<Pill color={C.mint} active xs>Unlocked</Pill>}
                     </div>
                     <p style={{ fontSize:11,color:C.textMid }}>{m.desc} · {m.count} friend{m.count!==1?"s":""}</p>
@@ -1399,26 +1689,6 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade }) {
                 </div>
               );
             })}
-          </div>
-        )}
-
-        {tab==="crew" && (
-          <div style={{ paddingTop:16 }}>
-            <p style={{ fontSize:11.5,color:C.textMid,marginBottom:16 }}>{invites.length} invite{invites.length!==1?"s":""} sent · {converted} joined</p>
-            {invites.length===0 ? (
-              <Empty emoji="👯" title="No invites yet" sub="Share your code and grow your crew." action="Get My Invite Link" onAction={()=>setTab("invite")} />
-            ) : (
-              invites.map(inv=>(
-                <div key={inv.id} style={{ background:C.surface,border:`1.5px solid ${inv.joined?C.mint:C.border}`,borderRadius:16,padding:"12px 14px",marginBottom:10,display:"flex",gap:12,alignItems:"center" }}>
-                  <div style={{ width:40,height:40,borderRadius:12,background:`${inv.joined?C.mint:C.textMid}22`,border:`1.5px solid ${inv.joined?C.mint:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0 }}>{inv.joined?"✓":"⏳"}</div>
-                  <div style={{ flex:1 }}>
-                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13 }}>{inv.invitee}</p>
-                    <p style={{ fontSize:10.5,color:C.textMid }}>Sent {inv.date} · {inv.reward}</p>
-                  </div>
-                  <Pill color={inv.joined?C.mint:C.gold} active={inv.joined} xs>{inv.joined?"Joined":"Pending"}</Pill>
-                </div>
-              ))
-            )}
           </div>
         )}
       </Screen>
@@ -2632,6 +2902,62 @@ function HomeFeed({ user, go, weather, isVip, onUpgrade, onSmartNotifs }) {
   );
 }
 
+
+// ─── NOTIFICATION BELL ────────────────────────────────────────────────────────
+function NotificationBell({ onOpen }) {
+  const [unread, setUnread] = useState(()=>{
+    const inbox = ls.get("backstage_notif_inbox", MOCK_NOTIF_EXAMPLES);
+    return inbox.filter(n=>!n.read).length;
+  });
+
+  // Re-count unread every 2 seconds (simple polling for localStorage updates)
+  useEffect(()=>{
+    const iv = setInterval(()=>{
+      const inbox = ls.get("backstage_notif_inbox", MOCK_NOTIF_EXAMPLES);
+      setUnread(inbox.filter(n=>!n.read).length);
+    }, 2000);
+    return ()=>clearInterval(iv);
+  },[]);
+
+  return (
+    <div style={{ position:"absolute",top:14,right:16,zIndex:300 }}>
+      <button
+        onClick={onOpen}
+        className="tap"
+        title="Notifications"
+        style={{
+          width:38,height:38,
+          borderRadius:12,
+          background:`linear-gradient(140deg,${C.surfaceMid},${C.surface})`,
+          border:`1.5px solid ${unread>0?C.accent:C.borderHi}`,
+          color:unread>0?C.accent:C.textMid,
+          fontSize:17,
+          cursor:"pointer",
+          display:"flex",alignItems:"center",justifyContent:"center",
+          boxShadow:unread>0?`0 0 18px ${C.accent}30, 0 2px 8px rgba(0,0,0,0.3)`:`0 2px 8px rgba(0,0,0,0.2)`,
+          animation:unread>0?"bellPulse 2.5s ease-in-out infinite":"none",
+          position:"relative",
+          transition:"all .2s",
+        }}
+      >
+        🔔
+        {unread>0&&(
+          <div style={{
+            position:"absolute",top:-4,right:-4,
+            width:16,height:16,borderRadius:"50%",
+            background:`linear-gradient(135deg,${C.rose},${C.berry})`,
+            display:"flex",alignItems:"center",justifyContent:"center",
+            fontSize:8.5,color:"#fff",
+            fontFamily:"'Epilogue',sans-serif",fontWeight:800,
+            animation:"notifBadgePop .3s ease",
+            boxShadow:`0 0 8px ${C.rose}60`,
+            border:`1.5px solid ${C.bg}`,
+          }}>{unread>9?"9+":unread}</div>
+        )}
+      </button>
+    </div>
+  );
+}
 
 // ─── ASK BACKSTAGE BUTTON ─────────────────────────────────────────────────────
 function AskBackstageButton({ go }) {
@@ -6713,6 +7039,17 @@ const MOCK_FRIENDS = [
   { id:"fr3", name:"@kpopkween", avatar:"K", color:C.mint, type:"trade_buddy", groups:["aespa","NewJeans"], trust:4.5, concerts:7, status:"pending" },
 ];
 
+const MOCK_FANVERSE_USERS = [
+  { id:"fu1", username:"armyjoon",    displayName:"Joon",      fandoms:["BTS"],              city:"Las Vegas, NV",    concertContext:"BTS Vegas Night 1",     avatar:"J", color:C.pink,    status:"none",  tags:["concert buddy","lightsticks"],     bio:"Looking for concert buddies 💜" },
+  { id:"fu2", username:"kacyverse",   displayName:"Kacy",      fandoms:["aespa","NewJeans"],  city:"Los Angeles, CA",  concertContext:"aespa Drama Tour LA",   avatar:"K", color:C.mint,    status:"none",  tags:["photocards","K-pop fashion"],      bio:"Trading freebies at Gate 3 ✨" },
+  { id:"fu3", username:"staymia",     displayName:"Mia",       fandoms:["Stray Kids"],        city:"Chicago, IL",      concertContext:"SKZ 5-STAR Chicago",    avatar:"M", color:C.accent,  status:"none",  tags:["ult wrecker","section 107"],       bio:"Solo concert mode — find me 🖤" },
+  { id:"fu4", username:"jungkookfilm",displayName:"Jk",        fandoms:["BTS"],               city:"Las Vegas, NV",    concertContext:"BTS Vegas Night 2",     avatar:"J", color:C.lavender,status:"none",  tags:["fancam","film"],                   bio:"Film photographer + ARMY 📷" },
+  { id:"fu5", username:"vegasarmy",   displayName:"Yuna",      fandoms:["BTS","SEVENTEEN"],   city:"Las Vegas, NV",    concertContext:"BTS Vegas Weekend",     avatar:"Y", color:C.rose,    status:"none",  tags:["travel fan","pit mode"],           bio:"Vegas weekend crew — anyone?" },
+  { id:"fu6", username:"mochi.trades",displayName:"Mochi",     fandoms:["BTS"],               city:"Dallas, TX",       concertContext:"BTS Dallas Night 1",    avatar:"M", color:C.gold,    status:"none",  tags:["photocards","trusted trader"],     bio:"Jimin PC collector 🍡 DM to trade" },
+  { id:"fu7", username:"purplehour",  displayName:"Hana",      fandoms:["BTS","ENHYPEN"],     city:"New York, NY",     concertContext:"MSG Next Era",          avatar:"H", color:C.iris,    status:"none",  tags:["freebies maker","cup sleeves"],    bio:"Making freebies for the next show 💜" },
+  { id:"fu8", username:"biaswrecker", displayName:"Seo",       fandoms:["Stray Kids","aespa"],city:"Los Angeles, CA",  concertContext:"aespa + SKZ Era",       avatar:"S", color:C.berry,   status:"none",  tags:["multi fan","concert collector"],   bio:"Bias wrecker every single era 🫠" },
+];
+
 // ─── TODO: MAPBOX INTEGRATION ────────────────────────────────────────────────
 // Replace this SVG stub with Mapbox GL JS:
 // 1. npm install mapbox-gl
@@ -9765,9 +10102,10 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour }) {
             <input ref={fileRef} type="file" accept="image/*" onChange={e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>setPfp(ev.target.result);r.readAsDataURL(f);}} style={{ display:"none" }} />
           </div>
           <div style={{ flex:1 }}>
-            <div style={{ display:"flex", gap:6, alignItems:"center", marginBottom:3 }}>
+            <div style={{ display:"flex", gap:6, alignItems:"center", marginBottom:3, flexWrap:"wrap" }}>
               <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:19, letterSpacing:"-0.02em" }}>@{user?.username||user?.name||user?.stanName||"stan"}</p>
               {isVip&&<VipBadge />}
+              {(()=>{ const invites = ls.get("backstage_invites",[]); const converted=invites.filter(i=>i.joined).length; return converted>=3?<FounderBadge inline />:null; })()}
             </div>
             <p style={{ fontSize:10.5,color:C.textMid }}>Multi-fan · she/her · Seoul → LA</p>
             {/* Era tags — like the design reference */}
@@ -10341,6 +10679,7 @@ function BackstagePasses({ onBack, user }) {
   const [creating, setCreating] = useState(false);
   const [draft, setDraft]       = useState({type:"fitcheck",caption:"",duration:"tonight",venue:false,toCapsule:false,image:null});
   const [filter, setFilter]     = useState("all");
+  const [section, setSection]   = useState("live"); // live | circle | capsule
   const [viewing, setViewing]   = useState(null);
   const [showDetails, setShowDetails] = useState(false);
   const fileRef = useRef(null);
@@ -10365,9 +10704,26 @@ function BackstagePasses({ onBack, user }) {
     setDraft({type:"fitcheck",caption:"",duration:"tonight",venue:false,toCapsule:false,image:null}); setShowDetails(false); setCreating(false);
   };
 
-  const filtered = filter==="all"?passes:passes.filter(p=>p.type===filter);
+  // Section filtering
+  const circleUsernames = (()=>{
+    const f = ls.get("backstage_friends", MOCK_FRIENDS).filter(f=>f.status==="accepted").map(f=>f.name?.replace("@",""));
+    const c = ls.get("backstage_circle",[]).map(c=>c.name?.replace("@",""));
+    return [...new Set([...f,...c])];
+  })();
+  const sectionPasses = section==="circle"
+    ? passes.filter(p=>circleUsernames.some(u=>p.username?.includes(u)))
+    : section==="capsule"
+    ? passes.filter(p=>p.inCapsule||p.expires==="Era Memory"||p.expires==="Keep in Capsule")
+    : passes; // "live" = all public
+  const filtered = filter==="all"?sectionPasses:sectionPasses.filter(p=>p.type===filter);
   const unviewed = passes.filter(p=>!p.viewed).length;
   const selectedType = PASS_TYPES.find(t=>t.id===draft.type)||PASS_TYPES[0];
+
+  const SECTIONS = [
+    { id:"circle", label:"My Circle",     color:C.lavender, desc:"Moments from your people." },
+    { id:"live",   label:"Live Fanverse", color:C.berry,    desc:"Public passes lighting up the Fanverse." },
+    { id:"capsule",label:"Capsule",       color:C.gold,     desc:"The night, saved together." },
+  ];
 
   // Story rings — one ring per pass type that has unviewed passes
   const ringTypes = PASS_TYPES.filter(t=>passes.some(p=>p.type===t.id));
@@ -10411,6 +10767,15 @@ function BackstagePasses({ onBack, user }) {
           })}
         </div>
 
+        {/* ── SECTION TABS ── */}
+        <div style={{ display:"flex",gap:0,background:C.surfaceHi,borderRadius:14,padding:3,marginBottom:10 }}>
+          {SECTIONS.map(s=>(
+            <span key={s.id} onClick={()=>{setSection(s.id);setFilter("all");}} className="tap" style={{ flex:1,textAlign:"center",padding:"7px 4px",borderRadius:11,fontSize:10.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:section===s.id?s.color:"transparent",color:section===s.id?C.bg:C.textMid,transition:"all .18s",whiteSpace:"nowrap",boxShadow:section===s.id?`0 0 10px ${s.color}40`:"none" }}>{s.label}</span>
+          ))}
+        </div>
+        {/* Section explainer */}
+        {(() => { const s = SECTIONS.find(s=>s.id===section); return s ? <p style={{ fontSize:10,color:C.textMid,marginBottom:8,fontStyle:"italic" }}>{s.desc}</p> : null; })()}
+
         {/* ── FILTER PILLS ── */}
         <div style={{ display:"flex",gap:6,overflowX:"auto",paddingBottom:2,scrollbarWidth:"none" }}>
           <span onClick={()=>setFilter("all")} className="tap" style={{ flexShrink:0,padding:"5px 12px",borderRadius:99,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:600,cursor:"pointer",background:filter==="all"?C.accent:C.surfaceHi,color:filter==="all"?C.bg:C.textMid,border:`1px solid ${filter==="all"?C.accent:C.border}` }}>✦ All</span>
@@ -10424,9 +10789,17 @@ function BackstagePasses({ onBack, user }) {
       <Screen style={{ padding:"0 16px 100px" }}>
         {filtered.length===0?(
           <div style={{ textAlign:"center",padding:"50px 20px" }}>
-            <div style={{ fontSize:48,marginBottom:12,animation:"float 3s ease-in-out infinite" }}>🎟️</div>
-            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,marginBottom:6 }}>No passes yet</p>
-            <p style={{ fontSize:12,color:C.textMid,lineHeight:1.6,marginBottom:20 }}>Share your concert moment with the Fanverse.</p>
+            <div style={{ fontSize:48,marginBottom:12,animation:"float 3s ease-in-out infinite" }}>
+              {section==="circle"?"🌌":section==="capsule"?"🔮":"🎟️"}
+            </div>
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,marginBottom:6 }}>
+              {section==="circle"?"Your Circle hasn't posted yet":section==="capsule"?"No memories saved yet":"Nothing live yet"}
+            </p>
+            <p style={{ fontSize:12,color:C.textMid,lineHeight:1.6,marginBottom:20 }}>
+              {section==="circle"?"Your Circle moments will show here once your people start posting."
+                :section==="capsule"?"Start the capsule before the night disappears."
+                :"Be the first to light up the Fanverse."}
+            </p>
             <Btn onClick={()=>setCreating(true)}>Drop Your First Pass ✨</Btn>
           </div>
         ):(
@@ -10993,7 +11366,7 @@ function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNot
     setInbox(next); ls.set("backstage_notif_inbox", next);
   };
 
-  const NOTIF_TYPE_COLOR = { concert:C.pink, trade:C.accent, meetup:C.mint, comeback:C.rose, afterglow:C.gold };
+  const NOTIF_TYPE_COLOR = { concert:C.pink, trade:C.accent, meetup:C.mint, comeback:C.rose, afterglow:C.gold, friend_req:C.lavender, capsule:C.berry, pass_reaction:C.gold, accepted:C.mint };
 
   const CATS = [
     {key:"concertCountdown",label:"🎤 Concert Countdown",sub:"Reminders as show day approaches"},
@@ -11028,19 +11401,55 @@ function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNot
       {tab==="inbox" && (
         <div style={{ paddingTop:14 }}>
           {unread>0&&<button onClick={markAllRead} style={{ width:"100%",padding:"10px",borderRadius:12,background:`${C.accent}12`,border:`1px solid ${C.accent}28`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer",marginBottom:12 }}>Mark all as read</button>}
-          {inbox.map(n=>(
-            <div key={n.id} onClick={()=>markRead(n.id)} className="tap" style={{ background:n.read?C.surface:`${(NOTIF_TYPE_COLOR[n.type]||C.accent)}0e`,border:`1.5px solid ${n.read?C.border:(NOTIF_TYPE_COLOR[n.type]||C.accent)+"33"}`,borderRadius:16,padding:"12px 14px",marginBottom:10,cursor:"pointer",position:"relative" }}>
-              {!n.read&&<div style={{ position:"absolute",top:12,right:12,width:7,height:7,borderRadius:"50%",background:NOTIF_TYPE_COLOR[n.type]||C.accent }} />}
+          {inbox.map(n=>{
+            const tColor = NOTIF_TYPE_COLOR[n.type]||C.accent;
+            const acceptFriendReq = () => {
+              if(!n.fromUserId) return;
+              // Accept friend request from notification
+              const fu = MOCK_FANVERSE_USERS.find(u=>u.id===n.fromUserId)||{ id:n.fromUserId, username:n.fromUsername||"fan", displayName:n.fromDisplayName||"Fan", avatar:n.fromAvatar||"F", color:n.fromColor||C.accent, fandoms:[], groups:[] };
+              const member = { id:fu.id, name:`@${fu.username}`, avatar:fu.avatar, color:fu.color, type:"moot", groups:fu.fandoms||[], trust:5.0, concerts:0, status:"accepted" };
+              const friends = ls.get("backstage_friends", MOCK_FRIENDS);
+              if(!friends.find(f=>f.id===fu.id)) ls.set("backstage_friends", [member,...friends]);
+              const circle = ls.get("backstage_circle",[]);
+              if(!circle.find(c=>c.id===fu.id)) ls.set("backstage_circle",[member,...circle]);
+              // Mark read and update title
+              const next = inbox.map(x=>x.id===n.id?{...x,read:true,title:"Circle accepted",body:`@${fu.username} is now in your Circle ✦`,type:"accepted"}:x);
+              setInbox(next); ls.set("backstage_notif_inbox", next);
+            };
+            const declineFriendReq = () => {
+              const next = inbox.map(x=>x.id===n.id?{...x,read:true,title:"Invite declined",type:"meetup"}:x);
+              setInbox(next); ls.set("backstage_notif_inbox", next);
+            };
+            return (
+            <div key={n.id} onClick={()=>markRead(n.id)} className="tap" style={{ background:n.read?C.surface:`${tColor}08`,borderRadius:16,padding:"12px 14px",marginBottom:10,cursor:"pointer",position:"relative",borderLeft:`3px solid ${tColor}`,border:`1.5px solid ${n.read?C.border:tColor+"30"}`,borderLeftWidth:3,borderLeftColor:tColor }}>
+              {!n.read&&<div style={{ position:"absolute",top:12,right:12,width:7,height:7,borderRadius:"50%",background:tColor,boxShadow:`0 0 6px ${tColor}` }} />}
               <div style={{ display:"flex",gap:11,alignItems:"flex-start" }}>
-                <div style={{ width:40,height:40,borderRadius:12,background:`${(NOTIF_TYPE_COLOR[n.type]||C.accent)}18`,border:`1.5px solid ${(NOTIF_TYPE_COLOR[n.type]||C.accent)}30`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0 }}>{n.icon}</div>
+                {n.fromAvatar
+                  ? <div style={{ width:40,height:40,borderRadius:"50%",background:`linear-gradient(135deg,${n.fromColor||tColor},${n.fromColor||tColor}77)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,color:C.bg,flexShrink:0,border:`2px solid ${n.fromColor||tColor}55` }}>{n.fromAvatar}</div>
+                  : <div style={{ width:40,height:40,borderRadius:12,background:`${tColor}18`,border:`1.5px solid ${tColor}30`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0 }}>{n.icon}</div>
+                }
                 <div style={{ flex:1,minWidth:0 }}>
                   <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,color:C.text,marginBottom:3 }}>{n.title}</p>
                   <p style={{ fontSize:11.5,color:C.textMid,lineHeight:1.55 }}>{n.body}</p>
                   <p style={{ fontSize:9.5,color:C.textDim,marginTop:4 }}>{n.time}</p>
+                  {/* Action buttons by notification type */}
+                  {n.type==="friend_req"&&!n.read&&(
+                    <div style={{ display:"flex",gap:8,marginTop:10 }} onClick={e=>e.stopPropagation()}>
+                      <button onClick={acceptFriendReq} className="tap" style={{ flex:1,padding:"7px",borderRadius:11,background:`linear-gradient(135deg,${C.accent},${C.berry})`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>Accept ✦</button>
+                      <button onClick={declineFriendReq} className="tap" style={{ flex:1,padding:"7px",borderRadius:11,background:"transparent",border:`1.5px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:11,cursor:"pointer" }}>Decline</button>
+                    </div>
+                  )}
+                  {n.type==="capsule"&&(
+                    <button onClick={e=>{e.stopPropagation();markRead(n.id);}} className="tap" style={{ marginTop:9,padding:"6px 14px",borderRadius:99,background:`${C.berry}18`,border:`1px solid ${C.berry}44`,color:C.berry,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,cursor:"pointer" }}>Open Capsule →</button>
+                  )}
+                  {n.type==="pass_reaction"&&(
+                    <button onClick={e=>{e.stopPropagation();markRead(n.id);}} className="tap" style={{ marginTop:9,padding:"6px 14px",borderRadius:99,background:`${C.gold}18`,border:`1px solid ${C.gold}44`,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,cursor:"pointer" }}>View Pass →</button>
+                  )}
                 </div>
               </div>
             </div>
-          ))}
+            );
+          })}
           <div style={{ background:`${C.accent}08`,border:`1px solid ${C.accent}22`,borderRadius:12,padding:"10px 14px",textAlign:"center",marginTop:6 }}>
             <p style={{ fontSize:11,color:C.textMid }}>
               {/* TODO: Firebase Cloud Messaging — GET /api/notifications/inbox with auth token */}
@@ -11840,12 +12249,12 @@ function CapsuleLandingPage({ onJoin, onExplore }) {
 
         {/* Primary CTA */}
         <button onClick={onJoin} style={{ marginTop:28,width:"100%",padding:"17px 24px",borderRadius:16,border:"none",background:`linear-gradient(135deg,${C.accent},${C.berry})`,color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17,cursor:"pointer",boxShadow:`0 0 32px ${C.accent}40,0 8px 24px rgba(0,0,0,0.35)`,animation:"glow 2.5s ease-in-out infinite",letterSpacing:"-0.01em" }}>
-          Add My Moment 📸
+          Join the Capsule ✦
         </button>
 
         {/* Secondary CTA */}
-        <button onClick={onExplore} style={{ marginTop:14,background:"none",border:"none",color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:13.5,cursor:"pointer",padding:"10px 0",textDecoration:"underline",textDecorationColor:`${C.textMid}44`,textUnderlineOffset:3 }}>
-          Preview tonight's capsule first →
+        <button onClick={onExplore} style={{ marginTop:14,background:"none",border:`1px solid ${C.borderHi}`,borderRadius:12,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:13.5,cursor:"pointer",padding:"12px 24px",width:"100%",letterSpacing:"0.01em" }}>
+          Explore Backstage →
         </button>
 
         {/* Bottom wordmark */}
@@ -11863,6 +12272,14 @@ export default function App() {
 }
 
 const _IS_CAPSULE_PATH = typeof window!=="undefined" && (window.location.pathname==="/capsule"||window.location.pathname==="/capsule/");
+
+// Preserve capsule/invite context through the signup flow
+if(_IS_CAPSULE_PATH && typeof window!=="undefined") {
+  const params = new URLSearchParams(window.location.search);
+  const ctx = { capsuleId:"bts-lv-1", inviteCode:params.get("ref")||null, landedAt:Date.now() };
+  ls.set("backstage_capsule_context", ctx);
+  ls.set("backstage_pending_invite", ctx.inviteCode ? { code:ctx.inviteCode, capsuleId:ctx.capsuleId } : null);
+}
 
 function AppInner() {
   const [user, setUser] = useState(()=>ls.get("backstage_session")?.user||null);
@@ -12119,8 +12536,10 @@ function AppInner() {
             setUser(data);
             setAppState("main");
             ls.set("backstage_session", { user: data });
-            ls.set("backstage_onboarding_complete", true); // prevent repeat onboarding
-            if (fromCapsule) setModal("capsule");
+            ls.set("backstage_onboarding_complete", true);
+            // Restore capsule context if user came from QR/capsule link
+            const capsuleCtx = ls.get("backstage_capsule_context");
+            if (fromCapsule || capsuleCtx) setModal("capsule");
           }} />}
           {appState==="main"&&!modal&&(
             <>
@@ -12132,6 +12551,8 @@ function AppInner() {
               {tab==="profile"&&<ProfileTab user={user} cards={cards} go={go} isVip={isVip} onUpgrade={openUpgrade} onReplayTour={()=>setShowVipTour(true)} />}
               {/* Ask Backstage AI — hidden on profile (has its own Studio/Preview actions) */}
               {tab!=="profile"&&<AskBackstageButton go={go} />}
+              {/* Notification Bell — global floating */}
+              <NotificationBell onOpen={()=>setModal("notifications")} />
             </>
           )}
         </div>
