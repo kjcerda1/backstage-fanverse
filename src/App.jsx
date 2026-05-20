@@ -6728,22 +6728,43 @@ const MOCK_FRIENDS = [
 function FanverseMap({ onBack }) {
   const [view, setView] = useState("world");
   const [proximityOn, setProximityOn] = useState(()=>ls.get("backstage_proximity_sharing", false));
-  const FAN_DOTS = [
-    { x:22, y:38, size:18, color:C.accent, city:"New York", fans:"4.2K", level:"Very Active" },
-    { x:16, y:40, size:14, color:C.pink, city:"Los Angeles", fans:"3.8K", level:"Spiking" },
-    { x:18, y:41, size:11, color:C.accent, city:"Dallas", fans:"1.2K", level:"Very Active" },
-    { x:50, y:35, size:16, color:C.rose, city:"London", fans:"3.1K", level:"Active" },
-    { x:55, y:38, size:12, color:C.mint, city:"Paris", fans:"2.0K", level:"Active" },
-    { x:60, y:34, size:10, color:C.silver, city:"Berlin", fans:"1.4K", level:"Active" },
-    { x:75, y:37, size:20, color:C.pink, city:"Seoul", fans:"12K", level:"Extremely Active" },
-    { x:78, y:42, size:16, color:C.accent, city:"Tokyo", fans:"8.5K", level:"Very Active" },
-    { x:72, y:50, size:10, color:C.mint, city:"Manila", fans:"2.2K", level:"Active" },
-    { x:52, y:58, size:8, color:C.gold, city:"Nairobi", fans:"800", level:"Growing" },
-    { x:65, y:55, size:9, color:C.rose, city:"Bangkok", fans:"1.8K", level:"Active" },
-    { x:30, y:55, size:7, color:C.accent, city:"São Paulo", fans:"1.1K", level:"Active" },
-    { x:73, y:44, size:8, color:C.pink, city:"Shanghai", fans:"2.9K", level:"Active" },
-    { x:88, y:48, size:7, color:C.mint, city:"Sydney", fans:"900", level:"Active" },
-  ];
+  const [selectedCity, setSelectedCity] = useState(null);
+  const worldMapRef   = useRef(null);
+  const heatmapMapRef = useRef(null);
+  const chipTimerRef  = useRef(null);
+
+  // Derive full GeoJSON feature so MapboxMap can highlight it on the globe
+  const selectedCityFeature = selectedCity
+    ? CITY_DENSITY_GEOJSON.features.find(f => f.properties.city === selectedCity.city) ?? null
+    : null;
+
+  // Auto-dismiss the info chip after 5s — user can also tap × to dismiss early
+  useEffect(() => {
+    if (selectedCity) {
+      clearTimeout(chipTimerRef.current);
+      chipTimerRef.current = setTimeout(() => setSelectedCity(null), 5000);
+    }
+    return () => clearTimeout(chipTimerRef.current);
+  }, [selectedCity?.city]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function flyToCity(feature) {
+    const [lng, lat] = feature.geometry.coordinates;
+    // Tapping the same city again resets the view
+    if (selectedCity?.city === feature.properties.city) {
+      setSelectedCity(null);
+      worldMapRef.current?.flyTo(20, 18, 1.5);
+      return;
+    }
+    setSelectedCity(feature.properties);
+    setView("world");
+    setTimeout(() => worldMapRef.current?.flyTo(lng, lat, 4.5), 80);
+  }
+
+  function resetView() {
+    setSelectedCity(null);
+    clearTimeout(chipTimerRef.current);
+    worldMapRef.current?.flyTo(20, 18, 1.5);
+  }
 
   const LOCAL_FANS = [
     { name:"starryy ✦", handle:"@starryy_atiny", dist:"2km away", status:"Going solo", statusColor:C.accent, groups:["ATINY","Same bias","Hongjoong"], avatar:"S", color:C.accent },
@@ -6753,23 +6774,28 @@ function FanverseMap({ onBack }) {
   ];
 
   return (
-    <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden", background:"linear-gradient(160deg,#0d0b1e 0%,#1a1333 50%,#2b1e4d 100%)" }}>
-      {/* Header */}
-      <div style={{ padding:"16px 20px", display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0 }}>
+    <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden", background:`radial-gradient(ellipse at top,rgba(155,93,229,0.18),transparent 40%),radial-gradient(ellipse at bottom right,rgba(247,37,133,0.09),transparent 38%),linear-gradient(to bottom,#070711 0%,#0a0a16 45%,#111126 100%)` }}>
+      {/* Header — glassmorphism */}
+      <div style={{ padding:"16px 20px 14px", display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0, backdropFilter:"blur(24px)", background:"rgba(10,10,22,0.48)", borderBottom:"1px solid rgba(255,255,255,0.055)" }}>
         <div style={{ display:"flex", gap:10, alignItems:"center" }}>
-          <button onClick={onBack} style={{ background:"none",border:"none",color:"rgba(196,181,253,0.7)",fontSize:22,cursor:"pointer" }}>←</button>
-          <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:19, color:"#ede8ff" }}>Fanverse Map 🗺️</h2>
+          <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer",lineHeight:1 }}>←</button>
+          <div>
+            <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:20, letterSpacing:"-0.02em", lineHeight:1.1 }}>Fanverse Map 🌍</h2>
+            <p style={{ fontSize:9.5, color:C.textMid, letterSpacing:"0.01em", marginTop:1 }}>See where the fandom is glowing right now.</p>
+          </div>
         </div>
-        <button style={{ width:36,height:36,borderRadius:"50%",background:"rgba(255,255,255,0.07)",border:"1.5px solid rgba(196,181,253,0.2)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer" }}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><line x1="4" y1="6" x2="20" y2="6" stroke="rgba(196,181,253,0.7)" strokeWidth="1.8" strokeLinecap="round"/><line x1="4" y1="12" x2="14" y2="12" stroke="rgba(196,181,253,0.7)" strokeWidth="1.8" strokeLinecap="round"/><line x1="4" y1="18" x2="10" y2="18" stroke="rgba(196,181,253,0.7)" strokeWidth="1.8" strokeLinecap="round"/></svg>
+        <button style={{ width:36,height:36,borderRadius:"50%",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.08)",backdropFilter:"blur(12px)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer" }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><line x1="4" y1="6" x2="20" y2="6" stroke={C.textMid} strokeWidth="1.8" strokeLinecap="round"/><line x1="4" y1="12" x2="14" y2="12" stroke={C.textMid} strokeWidth="1.8" strokeLinecap="round"/><line x1="4" y1="18" x2="10" y2="18" stroke={C.textMid} strokeWidth="1.8" strokeLinecap="round"/></svg>
         </button>
       </div>
 
-      {/* Toggle */}
-      <div style={{ padding:"0 20px 14px", display:"flex", gap:6, flexShrink:0 }}>
-        {[["world","World"],["local","Nearby"],["heatmap","Heatmap"]].map(([id,label])=>(
-          <span key={id} onClick={()=>setView(id)} className="tap" style={{ flex:1, textAlign:"center", padding:"9px 8px", borderRadius:14, fontSize:12, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:view===id?"#c4b5fd":"rgba(255,255,255,0.06)", color:view===id?"#1a0f3a":"rgba(196,181,253,0.65)", border:`1.5px solid ${view===id?"#c4b5fd":"rgba(196,181,253,0.15)"}`, transition:"all .2s ease", boxShadow:view===id?"0 2px 16px rgba(180,140,255,0.35)":"none" }}>{label}</span>
-        ))}
+      {/* Floating segmented control */}
+      <div style={{ padding:"14px 20px 10px", flexShrink:0 }}>
+        <div style={{ display:"flex", gap:0, background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.07)", backdropFilter:"blur(20px)", borderRadius:16, padding:4 }}>
+          {[["world","World"],["local","Nearby"],["heatmap","Heatmap"]].map(([id,label])=>(
+            <span key={id} onClick={()=>setView(id)} className="tap" style={{ flex:1, textAlign:"center", padding:"8px 6px", borderRadius:12, fontSize:12, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", transition:"all .22s", background:view===id?`linear-gradient(to bottom,rgba(205,180,255,0.95),rgba(168,132,255,0.85))`:"transparent", color:view===id?"#1a0a2e":C.textMid, boxShadow:view===id?"0 2px 12px rgba(184,162,255,0.30),inset 0 1px 0 rgba(255,255,255,0.25)":"none" }}>{label}</span>
+          ))}
+        </div>
       </div>
 
       {/* Map / Content */}
@@ -6777,37 +6803,80 @@ function FanverseMap({ onBack }) {
         {view==="world" ? (
           <div style={{ position:"relative" }}>
             {/* Real Mapbox GL map */}
-            <div style={{ margin:"0 16px 20px", borderRadius:24, overflow:"hidden", height:300, position:"relative", border:"1.5px solid rgba(196,181,253,0.22)", boxShadow:"0 0 60px rgba(120,80,255,0.14), 0 0 120px rgba(180,100,255,0.07), inset 0 0 30px rgba(0,0,30,0.5)" }}>
-              <MapboxMap densityData={CITY_DENSITY_GEOJSON} showHeatmap={false} />
-              {/* Density legend */}
-              <div style={{ position:"absolute",bottom:10,left:14,display:"flex",gap:8,alignItems:"center",pointerEvents:"none",zIndex:1,background:"rgba(10,8,32,0.6)",borderRadius:20,padding:"4px 10px",backdropFilter:"blur(8px)" }}>
-                <div style={{ display:"flex",gap:4,alignItems:"center" }}>
-                  <div style={{ width:7,height:7,borderRadius:"50%",background:"#00e5ff",boxShadow:"0 0 6px #00e5ff88" }} />
-                  <p style={{ fontSize:8,color:"rgba(200,190,255,0.8)",fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>Low</p>
-                </div>
-                <div style={{ width:52,height:2.5,background:"linear-gradient(90deg,#00e5ff,#9060ff,#ff7dd8)",borderRadius:99 }} />
-                <p style={{ fontSize:8,color:"rgba(200,190,255,0.8)",fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>High</p>
+            <div style={{ margin:"0 18px 18px", borderRadius:28, overflow:"hidden", height:310, position:"relative", border:"1px solid rgba(255,255,255,0.09)", boxShadow:`0 24px 72px rgba(0,0,0,0.55),inset 0 1px 0 rgba(255,255,255,0.08)${selectedCity?`,0 0 60px ${selectedCity.color}0c`:""}` }}>
+              <MapboxMap ref={worldMapRef} densityData={CITY_DENSITY_GEOJSON} showHeatmap={false} onCityClick={p=>setSelectedCity(p)} selectedCityFeature={selectedCityFeature} />
+              {/* Density legend — floating minimal pill */}
+              <div style={{ position:"absolute",bottom:10,left:12,display:"flex",gap:8,alignItems:"center",pointerEvents:"none",zIndex:1,background:"rgba(6,6,15,0.55)",backdropFilter:"blur(10px)",borderRadius:99,padding:"4px 10px",border:"1px solid rgba(255,255,255,0.06)" }}>
+                <p style={{ fontSize:7.5,color:"rgba(255,255,255,0.4)",textTransform:"uppercase",letterSpacing:"0.1em" }}>LOW</p>
+                <div style={{ width:40,height:2,background:"linear-gradient(90deg,#00e6ff,#b8a2ff,#f0a8cc)",borderRadius:99,opacity:0.7 }} />
+                <p style={{ fontSize:7.5,color:"rgba(255,255,255,0.4)",textTransform:"uppercase",letterSpacing:"0.1em" }}>HIGH</p>
               </div>
+              {/* Selected city info pill — top of map */}
+              {selectedCity && (
+                <div style={{ position:"absolute",top:10,left:12,right:12,background:"rgba(6,6,15,0.90)",borderRadius:14,padding:"10px 14px",border:`1.5px solid ${selectedCity.color}55`,backdropFilter:"blur(16px)",zIndex:2,display:"flex",alignItems:"center",gap:10,boxShadow:`0 4px 24px ${selectedCity.color}18` }}>
+                  <div style={{ position:"relative",flexShrink:0,width:10,height:10 }}>
+                    <div style={{ position:"absolute",inset:-3,borderRadius:"50%",background:selectedCity.color,opacity:0.25,animation:"pulse 1.4s ease infinite" }} />
+                    <div style={{ width:10,height:10,borderRadius:"50%",background:selectedCity.color }} />
+                  </div>
+                  <div style={{ flex:1,minWidth:0 }}>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,color:"white",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>📍 {selectedCity.city}</p>
+                    <p style={{ fontSize:9.5,color:"rgba(255,255,255,0.5)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",marginTop:1 }}>{selectedCity.level} · {selectedCity.event}</p>
+                  </div>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,background:`linear-gradient(135deg,${selectedCity.color},${selectedCity.color}bb)`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",flexShrink:0 }}>
+                    {selectedCity.fans >= 1000 ? `${(selectedCity.fans/1000).toFixed(selectedCity.fans>=10000?0:1)}K` : selectedCity.fans}
+                  </p>
+                  <button onClick={resetView} style={{ background:"none",border:"none",color:"rgba(255,255,255,0.35)",fontSize:18,cursor:"pointer",lineHeight:1,padding:"0 2px",flexShrink:0 }}>×</button>
+                </div>
+              )}
             </div>
 
-            {/* Hot cities — driven by the same GeoJSON */}
-            <div style={{ padding:"0 16px" }}>
-              <p style={{ fontSize:10, color:"#7d5fff", fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.12em", marginBottom:12 }}>Hottest Cities Right Now</p>
-              {[...CITY_DENSITY_GEOJSON.features]
-                .sort((a,b)=>b.properties.fans - a.properties.fans)
-                .slice(0,5)
-                .map(({ properties:p },i)=>(
-                <div key={p.city} style={{ background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:16, padding:"14px 16px", marginBottom:10, display:"flex", alignItems:"center", gap:12, backdropFilter:"blur(12px)", boxShadow:"0 2px 20px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.07)" }}>
-                  <div style={{ width:10,height:10,borderRadius:"50%",background:p.color,flexShrink:0,boxShadow:`0 0 8px ${p.color}99, 0 0 20px ${p.color}44`,animation:i<2?"pulse 1.5s infinite":"none" }} />
-                  <div style={{ flex:1 }}>
-                    <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13, color:"#ede8ff" }}>{p.city}</p>
-                    <p style={{ fontSize:10.5, color:"rgba(196,181,253,0.6)" }}>{p.level} · {p.event}</p>
-                  </div>
-                  <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:16, background:"linear-gradient(135deg,#c4b5fd,#f0a8cc)", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text" }}>
-                    {p.fans >= 1000 ? `${(p.fans/1000).toFixed(p.fans>=10000?0:1)}K` : p.fans}
-                  </p>
+            {/* Viewing city pill — shown below map when a city is selected */}
+            {selectedCity && (
+              <div onClick={resetView} className="tap" style={{ margin:"-6px 18px 10px",display:"flex",alignItems:"center",justifyContent:"space-between",background:"rgba(255,255,255,0.04)",border:`1px solid ${selectedCity.color}33`,borderRadius:99,padding:"7px 16px",backdropFilter:"blur(12px)",cursor:"pointer" }}>
+                <div style={{ display:"flex",alignItems:"center",gap:7 }}>
+                  <div style={{ width:6,height:6,borderRadius:"50%",background:selectedCity.color,animation:"pulse 1.4s ease infinite" }} />
+                  <p style={{ fontSize:11,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>Viewing {selectedCity.city}</p>
                 </div>
-              ))}
+                <p style={{ fontSize:9.5,color:"rgba(255,255,255,0.28)",fontFamily:"'Instrument Sans',sans-serif" }}>Tap to reset</p>
+              </div>
+            )}
+
+            {/* Fandom Pulse section */}
+            <div style={{ padding:"0 18px" }}>
+              <div style={{ marginBottom:14 }}>
+                <p style={{ fontSize:13, color:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:800, letterSpacing:"-0.01em" }}>Fandom Pulse</p>
+                <p style={{ fontSize:10, color:C.textMid, marginTop:2 }}>Where the energy is exploding tonight.</p>
+              </div>
+              {[...CITY_DENSITY_GEOJSON.features]
+                .sort((a,b) => {
+                  if (selectedCity?.city === a.properties.city) return -1;
+                  if (selectedCity?.city === b.properties.city) return  1;
+                  return b.properties.fans - a.properties.fans;
+                })
+                .slice(0,5)
+                .map((feature,i)=>{ const p = feature.properties; const isSelected = selectedCity?.city === p.city; return (
+                <div key={p.city} onClick={()=>flyToCity(feature)} className="tap" style={{ background:isSelected?`linear-gradient(135deg,${p.color}18,rgba(255,255,255,0.06))`:"linear-gradient(135deg,rgba(255,255,255,0.05),rgba(255,255,255,0.025))", backdropFilter:"blur(18px)", border:`1px solid ${isSelected?p.color+"66":"rgba(255,255,255,0.07)"}`, borderRadius:22, padding:"16px 18px", marginBottom:10, display:"flex", alignItems:"center", gap:14, cursor:"pointer", transition:"border-color .22s,background .22s,box-shadow .22s", boxShadow:isSelected?`0 0 32px ${p.color}22,0 6px 20px rgba(0,0,0,0.36)`:"0 2px 12px rgba(0,0,0,0.2)" }}>
+                  {/* Glowing activity orb */}
+                  <div style={{ position:"relative",flexShrink:0,width:isSelected?42:36,height:isSelected?42:36,display:"flex",alignItems:"center",justifyContent:"center",transition:"width .3s,height .3s" }}>
+                    <div style={{ position:"absolute",inset:isSelected?-6:-4,borderRadius:"50%",background:p.color,opacity:isSelected?0.2:0.12,animation:"ambientGlow 2s ease infinite" }} />
+                    <div style={{ position:"absolute",inset:0,borderRadius:"50%",background:p.color,opacity:isSelected?0.28:0.18,animation:"pulse 1.8s ease infinite" }} />
+                    <div style={{ width:isSelected?20:16,height:isSelected?20:16,borderRadius:"50%",background:p.color,opacity:0.95,position:"relative",boxShadow:`0 0 ${isSelected?18:10}px ${p.color}`,transition:"width .3s,height .3s,box-shadow .3s" }} />
+                  </div>
+                  <div style={{ flex:1,minWidth:0 }}>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:isSelected?15:14, color:"#f2f0ff", letterSpacing:"-0.01em", transition:"font-size .2s" }}>{p.city}</p>
+                    <p style={{ fontSize:10.5, color:"rgba(255,255,255,0.42)", marginTop:2, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{p.level} · {p.event}</p>
+                  </div>
+                  <div style={{ display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4,flexShrink:0 }}>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:15, background:`linear-gradient(135deg,${p.color},${p.color}bb)`, WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent" }}>
+                      {p.fans >= 1000 ? `${(p.fans/1000).toFixed(p.fans>=10000?0:1)}K` : p.fans}
+                    </p>
+                    {p.trending && <p style={{ fontSize:9,color:"#ff8fa3",fontFamily:"'Epilogue',sans-serif",fontWeight:700,letterSpacing:"0.02em" }}>🔥 Trending</p>}
+                  </div>
+                </div>
+              );})}
+              <button onClick={resetView} style={{ width:"100%",marginTop:4,padding:"9px",borderRadius:14,background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.06)",color:"rgba(255,255,255,0.28)",fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:11,cursor:"pointer",backdropFilter:"blur(8px)",display:"flex",alignItems:"center",justifyContent:"center",gap:7 }}>
+                <span style={{ fontSize:12 }}>↺</span> Reset view
+              </button>
             </div>
           </div>
         ) : view==="local" ? (
@@ -6870,37 +6939,37 @@ function FanverseMap({ onBack }) {
           /* ── HEATMAP TAB ── */
           <div>
             {/* Full-width Mapbox heatmap */}
-            <div style={{ margin:"0 16px 20px", borderRadius:24, overflow:"hidden", height:260, position:"relative", border:"1.5px solid rgba(196,181,253,0.22)", boxShadow:"0 0 60px rgba(120,80,255,0.14), inset 0 0 30px rgba(0,0,30,0.5)" }}>
-              <MapboxMap densityData={CITY_DENSITY_GEOJSON} showHeatmap={true} />
+            <div style={{ margin:"0 20px 16px", borderRadius:20, overflow:"hidden", height:240, position:"relative", border:`1.5px solid ${C.borderHi}` }}>
+              <MapboxMap ref={heatmapMapRef} densityData={CITY_DENSITY_GEOJSON} showHeatmap={true} />
               {/* LIVE badge overlay */}
-              <div style={{ position:"absolute",top:10,left:12,display:"flex",gap:6,alignItems:"center",background:"rgba(10,8,32,0.7)",borderRadius:99,padding:"4px 12px",pointerEvents:"none",backdropFilter:"blur(10px)",zIndex:1,border:"1px solid rgba(255,80,140,0.25)" }}>
+              <div style={{ position:"absolute",top:10,left:12,display:"flex",gap:6,alignItems:"center",background:"rgba(6,6,15,0.72)",borderRadius:99,padding:"4px 10px",pointerEvents:"none",backdropFilter:"blur(8px)",zIndex:1 }}>
                 <div style={{ width:6,height:6,borderRadius:"50%",background:C.rose,animation:"pulse 1.2s ease infinite" }} />
                 <p style={{ fontSize:9.5,color:C.rose,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>LIVE · fan density</p>
               </div>
             </div>
 
-            {/* Bar chart — derived from same GeoJSON so it stays in sync */}
-            <div style={{ padding:"0 16px" }}>
+            {/* Bar chart — clickable, drives flyToCity */}
+            <div style={{ padding:"0 20px" }}>
               {[...CITY_DENSITY_GEOJSON.features]
                 .sort((a,b)=>b.properties.fans - a.properties.fans)
-                .map(({ properties:p }) => {
+                .map((feature) => { const p = feature.properties;
                   const maxFans = 12000;
                   const pct = Math.round((p.fans / maxFans) * 100);
                   return (
-                    <div key={p.city} style={{ marginBottom:12 }}>
+                    <div key={p.city} onClick={()=>flyToCity(feature)} className="tap" style={{ marginBottom:12, cursor:"pointer" }}>
                       <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5 }}>
                         <div>
-                          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,color:"#ede8ff",marginBottom:1 }}>{p.city}</p>
-                          <p style={{ fontSize:10,color:"rgba(196,181,253,0.55)" }}>{p.event}</p>
+                          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,marginBottom:1 }}>{p.city}</p>
+                          <p style={{ fontSize:10,color:C.textMid }}>{p.event}</p>
                         </div>
                         <div style={{ textAlign:"right" }}>
-                          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,background:"linear-gradient(135deg,#c4b5fd,#f0a8cc)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",backgroundClip:"text" }}>
+                          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,color:p.color }}>
                             {p.fans >= 1000 ? `${(p.fans/1000).toFixed(p.fans>=10000?0:1)}K` : p.fans}
                           </p>
                           <p style={{ fontSize:10,color:p.color }}>{p.trending ? "🔥 Trending" : p.level}</p>
                         </div>
                       </div>
-                      <div style={{ height:5,borderRadius:99,background:"rgba(196,181,253,0.12)",overflow:"hidden" }}>
+                      <div style={{ height:5,borderRadius:99,background:`${C.border}66`,overflow:"hidden" }}>
                         <div style={{ height:"100%",width:`${pct}%`,background:`linear-gradient(90deg,${p.color}88,${p.color})`,borderRadius:99,transition:"width .6s ease" }} />
                       </div>
                     </div>
