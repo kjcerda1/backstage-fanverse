@@ -1012,7 +1012,7 @@ const MOCK_CONCERTS = [
     state:              "NV",
     venue:              "Allegiant Stadium",
     dates:              ["May 23","May 24","May 27","May 28"],
-    date:               "May 23–28, 2026",
+    date:               "May 23, 24, 27 & 28, 2026",
     showTime:           "8:00 PM",
     doorsOpen:          "6:00 PM",
     group:              "BTS",
@@ -3442,15 +3442,16 @@ function ConcertsPage({ go, isVip, onUpgrade }) {
 
   return (
     <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
-      <div style={{ padding:"18px 20px 0", flexShrink:0, background:`linear-gradient(180deg,${C.bg} 80%,transparent)` }}>
-        <div style={{ display:"flex", alignItems:"baseline", gap:8, marginBottom:6 }}>
-          <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, letterSpacing:"-0.02em" }}>Concerts</h2>
-        </div>
-        {/* Priority 4 — Data source disclaimer */}
-        <p style={{ fontSize:9.5, color:C.textDim, marginBottom:12, fontStyle:"italic", lineHeight:1.5 }}>
-          Confirmed events sourced from official venues. Preview cards are sample data.
+      {/* ── HEADER — title + disclaimer + tabs ── */}
+      <div style={{ padding:"16px 20px 0", flexShrink:0, background:`linear-gradient(180deg,${C.bg} 85%,transparent)` }}>
+        <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, letterSpacing:"-0.02em", marginBottom:6 }}>Concerts</h2>
+        {/* Data source disclaimer — legible, not hidden */}
+        <p style={{ fontSize:10, color:C.textMid, marginBottom:14, lineHeight:1.55 }}>
+          Confirmed events are from official ticketing or venue pages.{" "}
+          <span style={{ color:C.textDim }}>Preview cards are sample data.</span>
         </p>
-        <div style={{ display:"flex", gap:7, overflowX:"auto", paddingBottom:12, scrollbarWidth:"none" }}>
+        {/* Tab row — paddingRight so last tab doesn't clip at edge */}
+        <div style={{ display:"flex", gap:7, overflowX:"auto", paddingBottom:12, paddingRight:20, scrollbarWidth:"none", WebkitOverflowScrolling:"touch" }}>
           {views.map(([id,label])=>(
             <span key={id} onClick={()=>setView(id)} className="tap" style={{ flexShrink:0, padding:"8px 16px", borderRadius:99, fontSize:11, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:view===id?`linear-gradient(140deg,${C.accent}cc,${C.accentDim})`:C.surfaceHi, color:view===id?C.bg:C.textMid, border:`1px solid ${view===id?C.accent:C.border}`, boxShadow:view===id?`0 4px 14px ${C.accent}28`:"none" }}>{label}</span>
           ))}
@@ -3464,71 +3465,107 @@ function ConcertsPage({ go, isVip, onUpgrade }) {
               const isConfirmed = c.verificationStatus === "confirmed" || c.verificationStatus === "official";
               const isPreview   = c.verificationStatus === "preview";
               const daysLeft    = computeDaysLeft(c.dates ? c.dates[0]+', 2026' : c.date);
-              const chipLabel   = isConfirmed ? "CONFIRMED" : isPreview ? "PREVIEW" : "PREVIEW";
+              const chipLabel   = isConfirmed ? "CONFIRMED" : "PREVIEW";
               const hasStats    = c.attendees != null;
               const ticketUrl   = c.sourceUrl || `https://seatgeek.com/search?q=${encodeURIComponent(c.name)}#filters`;
               return (
-              <div key={c.id} onClick={()=>setSelected(c)} className="tap" style={{
-                ...VS.glowCard(c.color), padding:"18px 16px", cursor:"pointer",
-                boxShadow: idx===0 ? `0 12px 40px ${c.color}22, 0 0 0 1px ${c.color}28` : `0 6px 24px ${c.color}0c`,
-                border: idx===0 ? `1.5px solid ${c.color}55` : `1.5px solid ${c.color}28`,
+              <div key={c.id} onClick={()=>setSelected(c)} className="tap card-lift" style={{
+                ...VS.glowCard(c.color),
+                padding:"18px 16px",
+                cursor:"pointer",
+                opacity: isPreview ? 0.88 : 1,  // preview cards slightly dimmed
+                boxShadow: isConfirmed
+                  ? `0 12px 44px ${c.color}28, 0 0 0 1px ${c.color}30`
+                  : `0 4px 18px ${c.color}0a`,
+                border: isConfirmed
+                  ? `1.5px solid ${c.color}55`
+                  : `1px solid ${c.color}22`,
               }}>
-                <div style={VS.shimmerLine(c.color)} />
-                <div style={{ position:"absolute",top:-20,right:-20,width:130,height:130,borderRadius:"50%",background:`radial-gradient(circle,${c.color}22,transparent 65%)`,pointerEvents:"none" }} />
+                <div style={VS.shimmerLine(isConfirmed ? c.color : C.border)} />
+                <div style={{ position:"absolute",top:-20,right:-20,width:130,height:130,borderRadius:"50%",background:`radial-gradient(circle,${c.color}${isConfirmed?"22":"12"},transparent 65%)`,pointerEvents:"none" }} />
                 <div style={{ position:"relative" }}>
-                  {/* Top row: group pill + trust chip + featured badge */}
-                  <div style={{ display:"flex",alignItems:"center",gap:7,marginBottom:10,flexWrap:"wrap" }}>
+
+                  {/* ── Top badge row ── */}
+                  <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:10,flexWrap:"wrap" }}>
                     <Pill color={c.color} active small>{c.group}</Pill>
                     <StatusChip label={chipLabel} />
+                    {/* Source attribution — readable, not hidden */}
                     {isConfirmed && c.sourceName && (
-                      <span style={{ fontSize:8.5,color:C.textDim,fontStyle:"italic" }}>via {c.sourceName}</span>
+                      <span style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>via {c.sourceName}</span>
                     )}
-                    {idx===0&&<div style={{ marginLeft:"auto",display:"inline-flex",alignItems:"center",gap:5,background:`${c.color}18`,border:`1px solid ${c.color}38`,borderRadius:99,padding:"3px 10px" }}>
-                      <div style={{ width:5,height:5,borderRadius:"50%",background:c.color,animation:"pulse 1.3s ease infinite" }} />
-                      <p style={{ fontSize:9,color:c.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em" }}>Featured</p>
-                    </div>}
+                    {/* Featured badge pushed to the right for confirmed top card */}
+                    {isConfirmed && idx===0 && (
+                      <div style={{ marginLeft:"auto",display:"inline-flex",alignItems:"center",gap:5,background:`${c.color}18`,border:`1px solid ${c.color}40`,borderRadius:99,padding:"3px 10px" }}>
+                        <div style={{ width:5,height:5,borderRadius:"50%",background:c.color,animation:"pulse 1.3s ease infinite" }} />
+                        <p style={{ fontSize:9,color:c.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em" }}>Featured</p>
+                      </div>
+                    )}
                   </div>
+
+                  {/* ── Name / venue / date + day counter ── */}
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
-                    <div style={{ flex:1,minWidth:0 }}>
-                      <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:idx===0?18:16, marginBottom:3, letterSpacing:"-0.01em", lineHeight:1.2 }}>{c.name}</p>
-                      <p style={{ fontSize:11, color:C.textMid }}>📍 {c.city} · {c.venue}</p>
-                      <p style={{ fontSize:11, color:C.textMid }}>📅 {c.date}</p>
-                      {isPreview&&<p style={{ fontSize:9.5,color:C.textDim,fontStyle:"italic",marginTop:3 }}>Sample concert card · not verified</p>}
+                    <div style={{ flex:1,minWidth:0,paddingRight:10 }}>
+                      <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:isConfirmed?18:16, marginBottom:4, letterSpacing:"-0.01em", lineHeight:1.2 }}>{c.name}</p>
+                      <p style={{ fontSize:11, color:C.textMid, marginBottom:2 }}>📍 {c.city} · {c.venue}</p>
+                      <p style={{ fontSize:11, color:C.textMid }}>{isConfirmed?"🗓️":"📅"} {c.date}</p>
                     </div>
-                    {/* Days counter — computed from real date */}
-                    <div style={{ textAlign:"center",background:`${c.color}12`,border:`1px solid ${c.color}28`,borderRadius:14,padding:"10px 14px",flexShrink:0,marginLeft:12 }}>
-                      {daysLeft != null ? (<>
-                        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:idx===0?24:20,color:c.color,lineHeight:1 }}>{daysLeft}</p>
-                        <p style={{ fontSize:8.5,color:C.textMid,marginTop:2 }}>days</p>
-                      </>) : (
-                        <p style={{ fontSize:9,color:C.textDim,fontStyle:"italic" }}>TBD</p>
-                      )}
-                      {going[c.id]&&<Pill color={C.mint} active xs style={{ marginTop:6 }}>✓ Going</Pill>}
-                    </div>
+
+                    {/* Day counter — confirmed: real number | preview: "SAMPLE" badge */}
+                    {isConfirmed ? (
+                      <div style={{ textAlign:"center",background:`${c.color}14`,border:`1.5px solid ${c.color}33`,borderRadius:14,padding:"10px 14px",flexShrink:0,minWidth:56 }}>
+                        {daysLeft != null ? (<>
+                          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:24,color:c.color,lineHeight:1 }}>{daysLeft}</p>
+                          <p style={{ fontSize:8.5,color:C.textMid,marginTop:2 }}>days</p>
+                        </>) : (
+                          <p style={{ fontSize:8.5,color:C.textMid,fontStyle:"italic" }}>TBD</p>
+                        )}
+                        {going[c.id]&&<Pill color={C.mint} active xs style={{ marginTop:6 }}>✓ Going</Pill>}
+                      </div>
+                    ) : (
+                      /* Preview cards: no days counter — show SAMPLE label instead */
+                      <div style={{ textAlign:"center",background:C.surfaceHi,border:`1px solid ${C.border}`,borderRadius:14,padding:"8px 12px",flexShrink:0 }}>
+                        <p style={{ fontSize:8,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em" }}>SAMPLE</p>
+                      </div>
+                    )}
                   </div>
-                  {/* Stats row — only show for preview cards with mock data; confirmed shows fan-count CTA instead */}
-                  {hasStats ? (
-                    <div style={{ display:"flex",gap:16,marginBottom:14,padding:"10px 0",borderTop:`1px solid ${c.color}14`,borderBottom:`1px solid ${c.color}14` }}>
-                      {[["👥",c.attendees,"going"],["🤝",c.buddies,"buddy"],["✈️",c.traveling,"traveling"]].map(([icon,count,label])=>(
-                        <div key={label} style={{ textAlign:"center",flex:1 }}>
-                          <p style={{ fontSize:16,marginBottom:2 }}>{icon}</p>
-                          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:16,color:c.color }}>{count}</p>
-                          <p style={{ fontSize:9,color:C.textMid }}>{label}</p>
-                        </div>
-                      ))}
+
+                  {/* ── Stats / call-to-join row ── */}
+                  {isConfirmed ? (
+                    /* Confirmed: no fake stats — show Circle CTA */
+                    <div style={{ padding:"10px 0",borderTop:`1px solid ${c.color}18`,borderBottom:`1px solid ${c.color}18`,marginBottom:14 }}>
+                      <p style={{ fontSize:10.5,color:C.textMid }}>💜 Find your Circle — connect with fans going to this show</p>
+                    </div>
+                  ) : hasStats ? (
+                    /* Preview: stats labelled as sample */
+                    <div style={{ borderTop:`1px solid ${C.border}`,borderBottom:`1px solid ${C.border}`,marginBottom:14,paddingTop:10,paddingBottom:8 }}>
+                      <p style={{ fontSize:8.5,color:C.textDim,fontStyle:"italic",marginBottom:8 }}>Sample stats shown for layout preview</p>
+                      <div style={{ display:"flex",gap:14 }}>
+                        {[["👥",c.attendees,"going"],["🤝",c.buddies,"buddy"],["✈️",c.traveling,"traveling"]].map(([icon,count,label])=>(
+                          <div key={label} style={{ textAlign:"center",flex:1 }}>
+                            <p style={{ fontSize:14,marginBottom:2 }}>{icon}</p>
+                            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:14,color:C.textMid }}>{count}</p>
+                            <p style={{ fontSize:9,color:C.textDim }}>{label}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {/* ── CTAs ── confirmed: I'm Going | preview: View Sample */}
+                  {isConfirmed ? (
+                    <div style={{ display:"flex",gap:8 }}>
+                      <button onClick={e=>{e.stopPropagation();setGoing(g=>({...g,[c.id]:!g[c.id]}));}} className="tap" style={{ flex:1,padding:"11px",borderRadius:14,background:going[c.id]?`${C.mint}18`:`linear-gradient(140deg,${c.color}ee,${c.color}88)`,border:going[c.id]?`1.5px solid ${C.mint}`:"none",color:going[c.id]?C.mint:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,cursor:"pointer",boxShadow:going[c.id]?"none":`0 4px 14px ${c.color}30` }}>
+                        {going[c.id]?"✓ I'm Going!":"I'm Going"}
+                      </button>
+                      <button onClick={e=>{e.stopPropagation();setSelected(c);}} className="tap" style={{ flex:1,padding:"11px",borderRadius:14,background:"transparent",border:`1.5px solid ${c.color}44`,color:c.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}>Details →</button>
+                      <button onClick={e=>{e.stopPropagation();window.open(ticketUrl,"_blank");}} className="tap" style={{ padding:"11px 12px",borderRadius:14,background:"transparent",border:`1.5px solid ${C.gold}44`,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}>🎟️</button>
                     </div>
                   ) : (
-                    <div style={{ padding:"10px 0",borderTop:`1px solid ${c.color}14`,borderBottom:`1px solid ${c.color}14`,marginBottom:14 }}>
-                      <p style={{ fontSize:10.5,color:C.textMid,fontStyle:"italic" }}>💜 Find your Circle — connect with fans going to this show</p>
+                    /* Preview: single ghost CTA — no "I'm Going" to avoid false commitment */
+                    <div style={{ display:"flex",gap:8 }}>
+                      <button onClick={e=>{e.stopPropagation();setSelected(c);}} className="tap" style={{ flex:1,padding:"11px",borderRadius:14,background:"transparent",border:`1px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer" }}>View Sample →</button>
                     </div>
                   )}
-                  <div style={{ display:"flex", gap:8 }}>
-                    <button onClick={e=>{e.stopPropagation();setGoing(g=>({...g,[c.id]:!g[c.id]}));}} className="tap" style={{ flex:1,padding:"11px",borderRadius:14,background:going[c.id]?`${C.mint}18`:`linear-gradient(140deg,${c.color}ee,${c.color}88)`,border:going[c.id]?`1.5px solid ${C.mint}`:"none",color:going[c.id]?C.mint:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,cursor:"pointer",boxShadow:going[c.id]?"none":`0 4px 14px ${c.color}30` }}>
-                      {going[c.id]?"✓ I'm Going!":"I'm Going"}
-                    </button>
-                    <button onClick={e=>{e.stopPropagation();setSelected(c);}} className="tap" style={{ flex:1,padding:"11px",borderRadius:14,background:"transparent",border:`1.5px solid ${c.color}44`,color:c.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}>Details →</button>
-                    <button onClick={e=>{e.stopPropagation();window.open(ticketUrl,"_blank");}} className="tap" style={{ padding:"11px 12px",borderRadius:14,background:"transparent",border:`1.5px solid ${C.gold}44`,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}>🎟️</button>
-                  </div>
                 </div>
               </div>
               );
