@@ -3002,22 +3002,14 @@ function HomeFeed({ user, go, weather, isVip, onUpgrade, onSmartNotifs }) {
               {greeting.toLowerCase()}, {name.toLowerCase()} ✦
             </h2>
           </div>
-          <div style={{ display:"flex",gap:9,alignItems:"center" }}>
-            {/* Search */}
-            <button onClick={()=>setSearchOpen(v=>!v)} style={{ width:38,height:38,borderRadius:"50%",background:C.surfaceHi,border:`1.5px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer" }}>
+          {/* Header actions — order: Search | Messages | Backstage Buzz
+               Avatar removed: Profile is the bottom nav tab */}
+          <div style={{ display:"flex",gap:8,alignItems:"center" }}>
+            {/* 1. Search */}
+            <button onClick={()=>setSearchOpen(v=>!v)} title="Search" style={{ width:36,height:36,borderRadius:"50%",background:C.surfaceHi,border:`1.5px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",transition:"border-color .2s" }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="8" stroke={C.textMid} strokeWidth="1.8"/><path d="m21 21-4.35-4.35" stroke={C.textMid} strokeWidth="1.8" strokeLinecap="round"/></svg>
             </button>
-            {/* Bell — opens Backstage Buzz; badge reflects unread alerts */}
-            {(()=>{
-              const unreadCount = (()=>{ try { const i=JSON.parse(localStorage.getItem("backstage_notif_inbox")||"null"); return Array.isArray(i)?i.filter(n=>!n.read).length:4; } catch{return 4;} })();
-              return (
-                <button onClick={()=>go("notifications")} title="Backstage Buzz" style={{ width:36,height:36,borderRadius:"50%",background:C.surfaceHi,border:`1.5px solid ${unreadCount>0?C.accent:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",position:"relative",boxShadow:unreadCount>0?`0 0 12px ${C.accent}28`:"none",transition:"all .2s" }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M18 8A6 6 0 1 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" stroke={unreadCount>0?C.accent:C.text} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.73 21a2 2 0 0 1-3.46 0" stroke={unreadCount>0?C.accent:C.text} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                  {unreadCount>0&&<div style={{ position:"absolute",top:-3,right:-3,minWidth:16,height:16,borderRadius:99,background:`linear-gradient(135deg,${C.rose},${C.berry})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,color:"#fff",fontFamily:"'Epilogue',sans-serif",fontWeight:800,border:`1.5px solid ${C.bg}`,padding:"0 3px" }}>{unreadCount>9?"9+":unreadCount}</div>}
-                </button>
-              );
-            })()}
-            {/* Messages — opens Circle DMs; badge reflects unread conversations */}
+            {/* 2. Messages — opens Circle DMs; badge reflects unread conversations */}
             {(()=>{
               const dmUnread = (()=>{ try { const c=JSON.parse(localStorage.getItem("backstage_dms")||"null"); return Array.isArray(c)?c.reduce((s,x)=>s+(x.unread||0),0):0; } catch{return 0;} })();
               return (
@@ -3027,10 +3019,16 @@ function HomeFeed({ user, go, weather, isVip, onUpgrade, onSmartNotifs }) {
                 </button>
               );
             })()}
-            {/* Avatar */}
-            <div onClick={()=>go("profile")} style={{ width:36,height:36,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.pink})`,border:`2px solid ${C.borderHi}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:C.bg,cursor:"pointer",boxShadow:`0 0 14px ${C.accent}28` }}>
-              {(name[0]||"M").toUpperCase()}
-            </div>
+            {/* 3. Backstage Buzz bell — badge reflects unread alerts */}
+            {(()=>{
+              const unreadCount = (()=>{ try { const i=JSON.parse(localStorage.getItem("backstage_notif_inbox")||"null"); return Array.isArray(i)?i.filter(n=>!n.read).length:4; } catch{return 4;} })();
+              return (
+                <button onClick={()=>go("notifications")} title="Backstage Buzz" style={{ width:36,height:36,borderRadius:"50%",background:C.surfaceHi,border:`1.5px solid ${unreadCount>0?C.accent:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",position:"relative",boxShadow:unreadCount>0?`0 0 12px ${C.accent}28`:"none",transition:"all .2s" }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M18 8A6 6 0 1 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" stroke={unreadCount>0?C.accent:C.text} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.73 21a2 2 0 0 1-3.46 0" stroke={unreadCount>0?C.accent:C.text} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  {unreadCount>0&&<div style={{ position:"absolute",top:-3,right:-3,minWidth:16,height:16,borderRadius:99,background:`linear-gradient(135deg,${C.rose},${C.berry})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,color:"#fff",fontFamily:"'Epilogue',sans-serif",fontWeight:800,border:`1.5px solid ${C.bg}`,padding:"0 3px" }}>{unreadCount>9?"9+":unreadCount}</div>}
+                </button>
+              );
+            })()}
           </div>
         </div>
 
@@ -13089,7 +13087,7 @@ function AppInner() {
                     {/* DM unread badge on Profile tab */}
                     {n.id==="profile"&&(()=>{const u=ls.get("backstage_dms",[]).reduce((s,c)=>s+c.unread,0); return u>0?<div style={{ position:"absolute",top:-3,right:-3,width:14,height:14,borderRadius:"50%",background:C.rose,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.bg }}>{u}</div>:null; })()}
                   </div>
-                  <span style={{ fontSize:8, fontFamily:"'Epilogue',sans-serif", fontWeight:active?800:500, color:active?C.accent:C.textDim, letterSpacing:"0.04em", transition:"color .18s" }}>{n.label}</span>
+                  <span style={{ fontSize:8, fontFamily:"'Epilogue',sans-serif", fontWeight:active?800:500, color:active?C.accent:C.textMid, letterSpacing:"0.04em", transition:"color .18s" }}>{n.label}</span>
                 </button>
               );
             })}
