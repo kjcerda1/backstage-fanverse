@@ -9842,8 +9842,9 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack })
 // TODO Phase 2: GET /api/dms — fetch with Supabase Realtime subscription
 //
 // Message type shape:
-//   { from, type:"text"|"sticker"|"voice"|"gif"|"media",
-//     text?, stickerId?, stickerEmoji?, stickerLabel?,
+//   { from, type:"text"|"charm"|"voice"|"gif"|"media",
+//     text?, charmId?, charmEmoji?, charmLabel?,  (new — charm)
+//     stickerId?, stickerEmoji?, stickerLabel?,   (legacy — renders as charm)
 //     image?, mediaUrl?, time }
 //
 // Entry points:
@@ -9851,12 +9852,12 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack })
 //   2. My Circle member → ls.set("backstage_dm_target", fan) + go("chats")
 //   3. go("chats") from InvitePage My Circle
 
-// ── Backstage Kit sticker catalog ────────────────────────────────────────────
-const BACKSTAGE_STICKERS = [
-  { id:"borahae",    emoji:"💜", label:"Borahae Heart" },
-  { id:"sparkle",    emoji:"✨", label:"Bias Sparkle"  },
+// ── Backstage Kit charm catalog (formerly stickers — more premium, less cheesy) ──
+const BACKSTAGE_CHARMS = [
+  { id:"borahae",    emoji:"💜", label:"Purple Heart"  },
+  { id:"sparkle",    emoji:"✨", label:"Bias Spark"    },
   { id:"fanchant",   emoji:"🎤", label:"Fan Chant"     },
-  { id:"freebie",    emoji:"🎁", label:"Freebie Queen" },
+  { id:"freebie",    emoji:"🎁", label:"Freebie Drop"  },
   { id:"lightstick", emoji:"🔦", label:"Lightstick Glow" },
   { id:"afterglow",  emoji:"🌙", label:"Afterglow"     },
   { id:"heart",      emoji:"🫰", label:"Finger Heart"  },
@@ -9885,9 +9886,9 @@ function DirectMessages({ onBack, user, initialFan }) {
   const [activeConvo, setActiveConvo] = useState(dmTarget ? convos.find(c=>c.fan.name===dmTarget?.name)||null : null);
   const [circleGuard, setCircleGuard] = useState(null); // fan not in Circle
   // Backstage Kit tray state
-  const [kitOpen, setKitOpen]         = useState(false);
-  const [stickerPickerOpen, setStickerPickerOpen] = useState(false);
-  const [kitPlaceholder, setKitPlaceholder]       = useState(null); // temp toast msg
+  const [kitOpen, setKitOpen]           = useState(false);
+  const [charmPickerOpen, setCharmPickerOpen] = useState(false);
+  const [kitPlaceholder, setKitPlaceholder]   = useState(null); // temp toast msg
   const [msgDraft, setMsgDraft]       = useState("");
   const [attachPreview, setAttachPreview] = useState(null); // base64 image for attachment
   const msgEndRef  = useRef(null);
@@ -9930,15 +9931,18 @@ function DirectMessages({ onBack, user, initialFan }) {
     // TODO: POST /api/dms/:fanId — Supabase Realtime; upload image to Supabase Storage
   };
 
-  // Send a sticker message into the active conversation
-  const sendSticker = (stickerId, emoji, label) => {
+  // Send a charm into the active conversation
+  // type:"charm" for new sends; old "sticker" messages render identically (backward compat)
+  const sendCharm = (charmId, emoji, label) => {
     if(!activeConvo) return;
-    const msg = { from:"me", type:"sticker", stickerId, stickerEmoji:emoji, stickerLabel:label, time:"now" };
+    const msg = { from:"me", type:"charm", charmId, charmEmoji:emoji, charmLabel:label, time:"now" };
     const updated = convos.map(c=>c.id===activeConvo.id ? {...c, messages:[...c.messages,msg], lastTime:"now"} : c);
     setConvos(updated);
     setActiveConvo(prev=>({...prev, messages:[...prev.messages,msg]}));
-    setStickerPickerOpen(false); setKitOpen(false);
+    setCharmPickerOpen(false); setKitOpen(false);
   };
+  // Legacy alias — keeps old inline Freebie/Lightstick calls working
+  const sendSticker = sendCharm;
 
   // Show a short placeholder toast for unbuilt Kit features
   const showKitPlaceholder = (msg) => {
@@ -9950,10 +9954,10 @@ function DirectMessages({ onBack, user, initialFan }) {
   const KIT_OPTIONS = [
     { id:"photo",      emoji:"📸", label:"Photo / Video",      action:()=>{ setKitOpen(false); attachRef.current?.click(); } },
     { id:"voice",      emoji:"🎤", label:"Voice Note",         action:()=>showKitPlaceholder("Voice notes are warming up backstage.") },
-    { id:"stickers",   emoji:"💜", label:"Stickers",           action:()=>{ setStickerPickerOpen(true); setKitOpen(false); } },
+    { id:"charms",     emoji:"✦",  label:"Charms",             action:()=>{ setCharmPickerOpen(true); setKitOpen(false); },  style:`background:linear-gradient(135deg,${C.accent}18,${C.berry}0e)` },
     { id:"gif",        emoji:"✨", label:"GIF",                action:()=>showKitPlaceholder("GIF search coming soon.") },
-    { id:"freebie",    emoji:"🎁", label:"Freebie",            action:()=>sendSticker("freebie","🎁","Freebie Drop") },
-    { id:"lightstick", emoji:"🔦", label:"Lightstick Moment",  action:()=>sendSticker("lightstick","🔦","Lightstick Glow") },
+    { id:"freebie",    emoji:"🎁", label:"Freebie",            action:()=>sendCharm("freebie","🎁","Freebie Drop") },
+    { id:"lightstick", emoji:"🔦", label:"Lightstick Moment",  action:()=>sendCharm("lightstick","🔦","Lightstick Glow") },
   ];
 
   const openConvo = (convo) => {
@@ -9992,18 +9996,24 @@ function DirectMessages({ onBack, user, initialFan }) {
         )}
         {activeConvo.messages.map((msg,i)=>{
           const isMe = msg.from==="me";
-          const isSticker = msg.type==="sticker";
+          // Support both new "charm" type and legacy "sticker" type (backward compat)
+          const isCharm = msg.type==="charm" || msg.type==="sticker";
+          const charmEmoji = msg.charmEmoji || msg.stickerEmoji;
+          const charmLabel = msg.charmLabel || msg.stickerLabel;
           return (
             <div key={i} style={{ display:"flex",gap:8,alignItems:"flex-end",flexDirection:isMe?"row-reverse":"row" }}>
               {!isMe&&<div style={{ width:28,height:28,borderRadius:"50%",background:`linear-gradient(135deg,${activeConvo.fan.color},${activeConvo.fan.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:11,color:C.bg,flexShrink:0 }}>{activeConvo.fan.avatar}</div>}
-              {isSticker ? (
-                /* Sticker bubble — large emoji + label */
-                <div style={{ maxWidth:"60%",display:"flex",flexDirection:"column",alignItems:isMe?"flex-end":"flex-start",gap:3 }}>
-                  <div style={{ fontSize:44,lineHeight:1,animation:"pop .25s ease both" }}>{msg.stickerEmoji}</div>
-                  <div style={{ background:isMe?`${C.accent}22`:`${C.lavender}14`,borderRadius:10,padding:"3px 9px",border:`1px solid ${isMe?C.accent:C.lavender}33` }}>
-                    <p style={{ fontSize:9,color:isMe?C.accent:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{msg.stickerLabel}</p>
+              {isCharm ? (
+                /* Charm bubble — premium floating reaction, not giant childish sticker */
+                <div style={{ display:"flex",flexDirection:"column",alignItems:isMe?"flex-end":"flex-start",gap:3,animation:"pop .22s ease both" }}>
+                  <div style={{ background:isMe?`linear-gradient(135deg,${C.accent}28,${C.berry}18)`:`linear-gradient(135deg,${C.lavender}14,${C.accent}0a)`,borderRadius:16,padding:"8px 13px",border:`1.5px solid ${isMe?C.accent:C.lavender}30`,display:"flex",alignItems:"center",gap:8,backdropFilter:"blur(8px)",boxShadow:isMe?`0 0 12px ${C.accent}20, 0 2px 8px rgba(0,0,0,0.3)`:`0 0 12px ${C.lavender}14, 0 2px 8px rgba(0,0,0,0.2)` }}>
+                    <span style={{ fontSize:22,lineHeight:1,filter:`drop-shadow(0 0 6px ${isMe?C.accent:C.lavender}80)` }}>{charmEmoji}</span>
+                    <div>
+                      <p style={{ fontSize:11,color:isMe?C.lavender:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,lineHeight:1,marginBottom:1 }}>{charmLabel}</p>
+                      <p style={{ fontSize:8,color:isMe?`rgba(196,181,253,0.5)`:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:500,letterSpacing:"0.02em" }}>✦ charm</p>
+                    </div>
                   </div>
-                  <p style={{ fontSize:8.5,color:C.textDim }}>{msg.time}</p>
+                  <p style={{ fontSize:8,color:C.textDim,paddingRight:isMe?4:0,paddingLeft:isMe?0:4 }}>{msg.time}</p>
                 </div>
               ) : (
                 /* Text / image bubble */
@@ -10040,25 +10050,27 @@ function DirectMessages({ onBack, user, initialFan }) {
 
       {/* ── INPUT BAR ── */}
       <div style={{ padding:"10px 14px 14px",display:"flex",gap:8,alignItems:"center",borderTop:`1px solid ${C.border}`,flexShrink:0,background:C.bg }}>
-        {/* Backstage Kit button — replaces generic paperclip */}
+        {/* Backstage Kit button */}
         <button
-          onClick={()=>{ setKitOpen(v=>!v); setStickerPickerOpen(false); }}
+          onClick={()=>{ setKitOpen(v=>!v); setCharmPickerOpen(false); }}
           title="Open Backstage Kit"
-          style={{ width:42,height:42,borderRadius:13,background:kitOpen?`linear-gradient(135deg,${C.accent}33,${C.berry}22)`:`${C.surfaceHi}`,border:`1.5px solid ${kitOpen?C.accent:C.borderHi}`,color:kitOpen?C.accent:C.textMid,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,transition:"all .2s",boxShadow:kitOpen?`0 0 14px ${C.accent}28`:"none",fontSize:18 }}>
+          style={{ width:40,height:40,borderRadius:12,background:kitOpen?`linear-gradient(135deg,${C.accent}33,${C.berry}22)`:`${C.surfaceHi}`,border:`1.5px solid ${kitOpen?C.accent:C.borderHi}`,color:kitOpen?C.accent:C.silver,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,transition:"all .2s",boxShadow:kitOpen?`0 0 14px ${C.accent}28`:"none",fontSize:16,fontFamily:"'Epilogue',sans-serif",fontWeight:800 }}>
           {kitOpen?"✕":"✦"}
         </button>
         <input ref={attachRef} type="file" accept="image/*,video/*" onChange={handleAttach} style={{ display:"none" }} />
+        {/* Input — improved contrast: brighter border + placeholder, strong text */}
         <input
           value={msgDraft}
           onChange={e=>setMsgDraft(e.target.value)}
           onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); sendMessage(); }}}
           placeholder={attachPreview?"Add a caption...":"Send a message..."}
-          style={{ flex:1,padding:"11px 14px",borderRadius:13,background:C.surfaceHi,border:`1.5px solid ${C.borderHi}`,color:C.text,fontSize:13,outline:"none",fontFamily:"'Instrument Sans',sans-serif" }}
+          style={{ flex:1,padding:"11px 14px",borderRadius:13,background:C.surfaceMid,border:`1.5px solid ${C.borderHi}`,color:C.text,fontSize:13,outline:"none",fontFamily:"'Instrument Sans',sans-serif","::placeholder":{color:C.textMid} }}
         />
+        {/* Send button — glow when active, legible when muted */}
         <button
           onClick={sendMessage}
           disabled={!msgDraft.trim()&&!attachPreview}
-          style={{ width:42,height:42,borderRadius:13,background:(msgDraft.trim()||attachPreview)?`linear-gradient(140deg,${C.accent},${C.pink})`:`${C.accent}22`,border:"none",color:(msgDraft.trim()||attachPreview)?C.bg:C.textDim,fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all .2s" }}>
+          style={{ width:40,height:40,borderRadius:12,background:(msgDraft.trim()||attachPreview)?`linear-gradient(140deg,${C.accent},${C.pink})`:`${C.surfaceHi}`,border:(msgDraft.trim()||attachPreview)?"none":`1.5px solid ${C.border}`,color:(msgDraft.trim()||attachPreview)?C.bg:C.textMid,fontSize:15,fontWeight:700,cursor:(msgDraft.trim()||attachPreview)?"pointer":"default",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all .2s",boxShadow:(msgDraft.trim()||attachPreview)?`0 0 14px ${C.accent}40`:"none" }}>
           →
         </button>
       </div>
@@ -10091,21 +10103,26 @@ function DirectMessages({ onBack, user, initialFan }) {
         </div>
       )}
 
-      {/* ── STICKER PICKER ── */}
-      {stickerPickerOpen&&(
+      {/* ── CHARM PICKER ── */}
+      {charmPickerOpen&&(
         <div style={{ position:"absolute",bottom:0,left:0,right:0,zIndex:200,animation:"slideUp .24s ease" }}>
           <div style={{ background:`linear-gradient(160deg,${C.surfaceMid},${C.cosmic})`,borderRadius:"22px 22px 0 0",border:`1.5px solid ${C.borderHi}`,borderBottom:"none",padding:"18px 18px 32px",position:"relative",overflow:"hidden" }}>
             <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.lavender}55,${C.pink}44,transparent)` }} />
-            <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 16px" }} />
-            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}>
-              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14 }}>💜 Stickers</p>
-              <button onClick={()=>setStickerPickerOpen(false)} style={{ background:"none",border:"none",color:C.textMid,fontSize:16,cursor:"pointer" }}>✕</button>
+            {[{t:"8%",l:"90%",s:9},{t:"72%",l:"4%",s:7}].map((sp,i)=>(
+              <div key={i} style={{ position:"absolute",top:sp.t,left:sp.l,fontSize:sp.s,opacity:0.22,animation:`sparkleFloat 3s ease-in-out infinite`,pointerEvents:"none",color:C.lavender }}>✦</div>
+            ))}
+            <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 14px" }} />
+            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4 }}>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14 }}>✦ Message Charms</p>
+              <button onClick={()=>setCharmPickerOpen(false)} style={{ background:"none",border:"none",color:C.textMid,fontSize:16,cursor:"pointer" }}>✕</button>
             </div>
-            <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10 }}>
-              {BACKSTAGE_STICKERS.map(s=>(
-                <button key={s.id} onClick={()=>sendSticker(s.id,s.emoji,s.label)} className="tap" style={{ padding:"14px 8px",borderRadius:16,background:`linear-gradient(150deg,${C.surfaceHi},${C.surface})`,border:`1.5px solid ${C.borderHi}`,display:"flex",flexDirection:"column",alignItems:"center",gap:5,cursor:"pointer" }}>
-                  <span style={{ fontSize:30 }}>{s.emoji}</span>
-                  <span style={{ fontSize:8.5,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textAlign:"center",lineHeight:1.3 }}>{s.label}</span>
+            <p style={{ fontSize:10.5,color:C.textMid,marginBottom:16 }}>Send a little fan magic.</p>
+            {/* Charms grid — compact tiles, premium feel */}
+            <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8 }}>
+              {BACKSTAGE_CHARMS.map(s=>(
+                <button key={s.id} onClick={()=>sendCharm(s.id,s.emoji,s.label)} className="tap" style={{ padding:"12px 6px",borderRadius:14,background:`linear-gradient(150deg,${C.surfaceHi},${C.surface})`,border:`1.5px solid ${C.borderHi}`,display:"flex",flexDirection:"column",alignItems:"center",gap:5,cursor:"pointer",transition:"all .18s",boxShadow:`0 2px 8px rgba(0,0,0,0.2)` }}>
+                  <span style={{ fontSize:24,lineHeight:1,filter:`drop-shadow(0 0 4px ${C.lavender}44)` }}>{s.emoji}</span>
+                  <span style={{ fontSize:8,color:C.silver,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textAlign:"center",lineHeight:1.3 }}>{s.label}</span>
                 </button>
               ))}
             </div>
@@ -10161,8 +10178,11 @@ function DirectMessages({ onBack, user, initialFan }) {
                 </div>
                 {(()=>{
                   const last = convo.messages[convo.messages.length-1];
-                  const preview = last?.type==="sticker"
-                    ? `${last.stickerEmoji} ${last.stickerLabel}`
+                  const isLastCharm = last?.type==="charm"||last?.type==="sticker";
+                  const charmPreviewEmoji = last?.charmEmoji||last?.stickerEmoji||"✦";
+                  const charmPreviewLabel = last?.charmLabel||last?.stickerLabel||"charm";
+                  const preview = isLastCharm
+                    ? `${charmPreviewEmoji} ${charmPreviewLabel}`
                     : last?.text||"Start a conversation 💜";
                   return <p style={{ fontSize:11.5,color:convo.unread>0?C.textMid:C.textDim,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{preview}</p>;
                 })()}
