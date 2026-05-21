@@ -1408,11 +1408,41 @@ const DEFAULT_PROFILE_STYLE = {
   collectionVisible: true, discoveryVisible: true,
 };
 
-// FCM HELPER
+// ─── FCM / Push Notification Helper ──────────────────────────────────────────
+//
+// CURRENT STATE (in-app only):
+//   In-app notifications work via backstage_notif_inbox localStorage.
+//   Deep-link routing is implemented (NotificationCenter.handleNotifTap).
+//   This function requests browser permission but generates a MOCK token.
+//   No real Firebase SDK is imported — device push is not active.
+//
+// TO ENABLE REAL DEVICE/BROWSER PUSH:
+//   1. Create a Firebase project → enable Cloud Messaging.
+//   2. Add VITE_FIREBASE_* env vars (see .env.example) to initialize Firebase.
+//   3. Add VITE_FIREBASE_VAPID_KEY — the VAPID key the browser uses to register.
+//   4. Create public/firebase-messaging-sw.js (service worker for background push).
+//   5. Use firebase/messaging → getToken({ vapidKey: VITE_FIREBASE_VAPID_KEY })
+//      instead of the mock token below.
+//   6. Backend FIREBASE_PROJECT_ID + FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY
+//      enable Firebase Admin SDK to send via FCM HTTP v1 API.
+//   7. Push payload should include `data.targetModal` or `data.targetTab` so
+//      the notification click can deep-link into the correct Backstage screen.
+//
+// STATUS CHECKLIST:
+//   ✅ Browser permission request
+//   ✅ /api/save-token backend route
+//   ✅ In-app notification routing (handleNotifTap)
+//   ❌ firebase-messaging-sw.js (not created)
+//   ❌ Firebase SDK import (not installed)
+//   ❌ Real FCM token from getToken()
+//   ❌ /api/send-notification wired to Firebase Admin SDK
+//   ❌ Firebase env vars configured
+// ─────────────────────────────────────────────────────────────────────────────
 async function requestNotificationPermission(userId) {
   if (!("Notification" in window) || !("serviceWorker" in navigator)) return null;
   const permission = await Notification.requestPermission();
   if (permission !== "granted") return null;
+  // TODO Phase 3 FCM: replace with Firebase getToken({ vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY })
   const mockToken = `mock-fcm-${userId}-${Date.now()}`;
   await fetch("/api/save-token", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ token:mockToken, userId }) }).catch(()=>{});
   return mockToken;
@@ -9860,7 +9890,7 @@ function DirectMessages({ onBack, user, initialFan }) {
   );
 }
 
-// ─── FAN ANNIVERSARY WIDGET ───────────────────────────────────────────────────
+// ─── FANIVERSARIES WIDGET ───────────────────────────────────────────────────
 function FanAnniversaryWidget({ user }) {
   const KEY = "backstage_fan_anniversaries";
   const [annivs, setAnnivs] = useState(()=>ls.get(KEY,[
@@ -9891,7 +9921,7 @@ function FanAnniversaryWidget({ user }) {
   return (
     <div style={{ marginBottom:18 }}>
       <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12 }}>
-        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5 }}>🎂 Fan Anniversaries</p>
+        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5 }}>🎂 Faniversaries</p>
         <button onClick={()=>setAdding(v=>!v)} style={{ background:"none",border:`1px solid ${C.border}`,borderRadius:8,padding:"4px 10px",color:C.textMid,fontSize:11,fontFamily:"'Epilogue',sans-serif",fontWeight:600,cursor:"pointer" }}>+ Add</button>
       </div>
 
@@ -10405,7 +10435,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour }) {
           <p style={{ fontSize:10.5, color:C.textDim, marginTop:4 }}>+{top5.length-3} more — tap to edit ranking</p>
         </div>
 
-        {/* FAN ANNIVERSARY */}
+        {/* FANIVERSARIES */}
         <FanAnniversaryWidget user={user} />
 
         {/* TOP BIASES ⭐ */}
@@ -11587,7 +11617,8 @@ function PrivacySettings({ settings, setSettings, onBack }) {
 // ─── STANDALONE NOTIFICATION CENTER WRAPPER ───────────────────────────────────
 // Used by NotificationBell → setModal("notifications") path.
 // Owns its own settings/notifOn state so it works outside ProfileTab.
-function StandaloneNotifCenter({ onBack }) {
+// onNavigate({modal?, tab?}) — called when a notification card is tapped.
+function StandaloneNotifCenter({ onBack, onNavigate }) {
   const [settings, setSettings] = useState(()=>ls.get("backstage_notification_settings", DEFAULT_NOTIF_SETTINGS));
   const [notifOn, setNotifOn]   = useState(false);
   const saveSettings = (v) => { setSettings(v); ls.set("backstage_notification_settings", v); };
@@ -11595,12 +11626,20 @@ function StandaloneNotifCenter({ onBack }) {
     const token = await requestNotificationPermission("user");
     if (token) setNotifOn(true);
   };
-  return <NotificationCenter settings={settings} setSettings={saveSettings} onBack={onBack} notifOn={notifOn} requestNotif={requestNotif} />;
+  return <NotificationCenter settings={settings} setSettings={saveSettings} onBack={onBack} notifOn={notifOn} requestNotif={requestNotif} onNavigate={onNavigate} />;
 }
 
 // ─── NOTIFICATION CENTER ──────────────────────────────────────────────────────
 // GET /api/notifications/settings | POST /api/notifications/settings | POST /api/notifications/token
-function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNotif }) {
+//
+// Notification data shape (current + future push payload):
+//   { id, type, title, body, icon, time, read,
+//     fromUserId?, fromUsername?, fromAvatar?, fromColor?,
+//     targetModal?, targetTab?, targetId? }
+//
+// FCM push payload should mirror the same shape in the `data` field so
+// that notification taps from the system tray open the correct modal/tab.
+function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNotif, onNavigate }) {
   const [inbox, setInbox] = useState(()=>ls.get("backstage_notif_inbox", MOCK_NOTIF_EXAMPLES));
   const [tab, setTab]     = useState("inbox"); // inbox | settings
   const unread = inbox.filter(n=>!n.read).length;
@@ -11612,6 +11651,43 @@ function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNot
   const markAllRead = () => {
     const next = inbox.map(n=>({...n,read:true}));
     setInbox(next); ls.set("backstage_notif_inbox", next);
+  };
+
+  // ── Deep-link route map: notification type → target modal or tab ─────────────
+  // Whole-card tap routes here. Action buttons (Accept/Decline/etc.) stopPropagation.
+  //
+  // Rules:
+  //   - modal: must be in FULL_MODALS list and have a {modal==="..."&&...} render.
+  //   - tab:   must be a valid tab id ("home","concerts","community","collect","fanverse","profile").
+  //   - "collect" is a TAB (renders LibraryTab), NOT a modal — use tab:"collect".
+  //   - "community" is the tab id for FanverseTab (Fanverse/Community screen).
+  //   - "fanverse" tab id renders ExploreTab (Tools & Culture).
+  const NOTIF_ROUTES = {
+    crew_invite:  { modal:"invite"      }, // Bring Your Crew / My Circle
+    capsule:      { modal:"capsule"     }, // Concert Capsule
+    pass_reaction:{ modal:"passes"      }, // Backstage Passes
+    meetup:       { tab:"concerts"      }, // Concerts tab → Meetups
+    concert_day:  { modal:"concertday"  }, // Concert Day Mode
+    concert:      { modal:"concertday"  }, // Concert Day Mode (alias)
+    trade:        { tab:"collect"       }, // My World / Collection tab (Trade Hub inside)
+    afterglow:    { modal:"myshows"     }, // My Shows → Afterglow section
+    comeback:     { tab:"community"     }, // Fanverse/Community tab
+    announcement: { tab:"community"     }, // Fanverse/Community tab
+    accepted:     { modal:"invite"      }, // Bring Your Crew to see Circle
+    // friend_req intentionally omitted — stays open for inline Accept/Decline
+  };
+
+  const handleNotifTap = (n) => {
+    markRead(n.id);
+    // friend_req: keep notifications center open so Accept/Decline are reachable
+    if (n.type === "friend_req") return;
+    // Explicit targetModal/targetTab on the notification overrides the type map
+    const dest = n.targetModal || n.targetTab
+      ? { modal: n.targetModal, tab: n.targetTab }
+      : NOTIF_ROUTES[n.type];
+    // Graceful no-op if no route mapped
+    if (!dest || (!dest.modal && !dest.tab)) return;
+    if (onNavigate) onNavigate(dest);
   };
 
   const NOTIF_TYPE_COLOR = { concert:C.pink, trade:C.accent, meetup:C.mint, comeback:C.rose, afterglow:C.gold, friend_req:C.lavender, capsule:C.berry, pass_reaction:C.gold, accepted:C.mint };
@@ -11678,7 +11754,7 @@ function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNot
               setInbox(next); ls.set("backstage_notif_inbox", next);
             };
             return (
-            <div key={n.id} onClick={()=>markRead(n.id)} className="tap" style={{ background:n.read?C.surface:`${tColor}08`,borderRadius:16,padding:"12px 14px",marginBottom:10,cursor:"pointer",position:"relative",borderLeft:`3px solid ${tColor}`,border:`1.5px solid ${n.read?C.border:tColor+"30"}`,borderLeftWidth:3,borderLeftColor:tColor }}>
+            <div key={n.id} onClick={()=>handleNotifTap(n)} className="tap" style={{ background:n.read?C.surface:`${tColor}08`,borderRadius:16,padding:"12px 14px",marginBottom:10,cursor:"pointer",position:"relative",borderLeft:`3px solid ${tColor}`,border:`1.5px solid ${n.read?C.border:tColor+"30"}`,borderLeftWidth:3,borderLeftColor:tColor }}>
               {!n.read&&<div style={{ position:"absolute",top:12,right:12,width:7,height:7,borderRadius:"50%",background:tColor,boxShadow:`0 0 6px ${tColor}` }} />}
               <div style={{ display:"flex",gap:11,alignItems:"flex-start" }}>
                 {n.fromAvatar
@@ -11697,10 +11773,10 @@ function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNot
                     </div>
                   )}
                   {n.type==="capsule"&&(
-                    <button onClick={e=>{e.stopPropagation();markRead(n.id);}} className="tap" style={{ marginTop:9,padding:"6px 14px",borderRadius:99,background:`${C.berry}18`,border:`1px solid ${C.berry}44`,color:C.berry,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,cursor:"pointer" }}>Join the Capsule ✦</button>
+                    <button onClick={e=>{e.stopPropagation();handleNotifTap(n);}} className="tap" style={{ marginTop:9,padding:"6px 14px",borderRadius:99,background:`${C.berry}18`,border:`1px solid ${C.berry}44`,color:C.berry,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,cursor:"pointer" }}>Join the Capsule ✦</button>
                   )}
                   {n.type==="pass_reaction"&&(
-                    <button onClick={e=>{e.stopPropagation();markRead(n.id);}} className="tap" style={{ marginTop:9,padding:"6px 14px",borderRadius:99,background:`${C.gold}18`,border:`1px solid ${C.gold}44`,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,cursor:"pointer" }}>View Pass →</button>
+                    <button onClick={e=>{e.stopPropagation();handleNotifTap(n);}} className="tap" style={{ marginTop:9,padding:"6px 14px",borderRadius:99,background:`${C.gold}18`,border:`1px solid ${C.gold}44`,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,cursor:"pointer" }}>View Pass →</button>
                   )}
                 </div>
               </div>
@@ -12791,7 +12867,15 @@ function AppInner() {
         {modal==="explore"&&<ModalWrapper><ExploreTab user={user} weather={weatherData} isVip={isVip} onUpgrade={openUpgrade} go={go} onBack={()=>setModal(null)} /></ModalWrapper>}
         {modal==="livefeed"&&<ModalWrapper><LiveFeedTab user={user} go={go} onBack={()=>setModal(null)} /></ModalWrapper>}
         {/* PHASE 5 MODALS */}
-        {modal==="notifications"&&<ModalWrapper><StandaloneNotifCenter onBack={()=>setModal(null)} /></ModalWrapper>}
+        {modal==="notifications"&&<ModalWrapper><StandaloneNotifCenter
+          onBack={()=>setModal(null)}
+          onNavigate={(dest)=>{
+            // Close notifications, then open the target modal or tab
+            setModal(null);
+            if (dest.modal) setTimeout(()=>setModal(dest.modal), 60);
+            else if (dest.tab) { setTimeout(()=>setTab(dest.tab), 60); }
+          }}
+        /></ModalWrapper>}
         {modal==="invite"&&<ModalWrapper><InvitePage onBack={()=>setModal(null)} user={user} onNotif={showNotif} isVip={isVip} onUpgrade={openUpgrade} /></ModalWrapper>}
         {modal==="contentgen"&&<ModalWrapper><ContentGenerator onBack={()=>setModal(null)} user={user} go={go} onNotif={showNotif} /></ModalWrapper>}
         {modal==="capsule"&&<ModalWrapper><ConcertCapsule concert={MOCK_CONCERTS[0]} onBack={()=>setModal(null)} user={user} isVip={isVip} onUpgrade={openUpgrade} /></ModalWrapper>}

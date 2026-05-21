@@ -1379,6 +1379,27 @@ app.post('/api/trades/review', requireAuth, async (req, res) => {
 // ═════════════════════════════════════════════════════════════════════════════
 // NOTIFICATIONS (Firebase FCM)
 // ═════════════════════════════════════════════════════════════════════════════
+//
+// CURRENT STATE:
+//   In-app notifications work via localStorage (backstage_notif_inbox).
+//   /api/save-token stores FCM tokens in Supabase fcm_tokens table.
+//   /api/send-notification is a stub — Firebase Admin SDK not wired.
+//   firebase-messaging-sw.js does NOT exist in public/ yet.
+//
+// TO ENABLE REAL PUSH (FCM HTTP v1 — NOT the deprecated legacy server key):
+//   1. npm install firebase-admin on the backend.
+//   2. Set FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY
+//      from your Firebase service account JSON (never commit this file).
+//   3. Initialize: admin.initializeApp({ credential: admin.credential.cert({ ... }) })
+//   4. Wire /api/send-notification to admin.messaging().send({ token, notification, data })
+//   5. Push `data` payload should include: { targetModal, targetTab, targetId }
+//      so the frontend click handler can deep-link into the right screen.
+//   6. Frontend needs firebase-messaging-sw.js in public/ and VAPID key in .env.
+//
+// WHY HTTP v1 (not legacy):
+//   Legacy FCM server key approach is deprecated as of June 2024.
+//   HTTP v1 uses OAuth2 service account credentials — more secure.
+// ═════════════════════════════════════════════════════════════════════════════
 
 app.post('/api/save-token', requireAuth, async (req, res) => {
   const { token, platform } = req.body;
