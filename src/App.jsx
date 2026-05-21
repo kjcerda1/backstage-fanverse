@@ -12606,40 +12606,29 @@ function ScrapbookDetail({ book, onBack, isVip, onUpgrade }) {
 
     setUploadLoading(true);
 
-    // Show base64 preview immediately
+    // Show base64 preview immediately, then upload via backend route
     const reader = new FileReader();
     reader.onload = async (ev) => {
-      setForm(prev => ({ ...prev, imageData: ev.target.result }));
+      const imageBase64 = ev.target.result;
+      setForm(prev => ({ ...prev, imageData: imageBase64 }));
 
       try {
-        const ts = Date.now();
-        const safeFilename = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').toLowerCase();
-        const bookId = book.id.replace(/[^a-zA-Z0-9_-]/g, '_');
-        // Path must start with the real Supabase auth uid to satisfy RLS
-        const storagePath = `${authUser.id}/concert-memories/${bookId}/${ts}-${safeFilename}`;
-        console.log('UPLOAD DEBUG: storage path', storagePath);
+        console.log('UPLOAD DEBUG: posting to /api/memories/upload-image');
+        const result = await api.post('/api/memories/upload-image', {
+          imageBase64,
+          filename: file.name,
+          mimeType: file.type,
+          scrapbookId: book.id,
+        });
+        console.log('UPLOAD DEBUG: upload result path', result?.path ?? null, '| error', result?.error ?? null);
 
-        const { data: upData, error: upErr } = await _supabase.storage
-          .from('memories')
-          .upload(storagePath, file, { contentType: file.type, upsert: false });
-        console.log('UPLOAD DEBUG: upload data', upData);
-        console.log('UPLOAD DEBUG: upload error', upErr);
-
-        if(upErr) {
-          // Surface the real error — do NOT silently fall back while Supabase is active
-          setUploadError(`Cloud upload failed: ${upErr.message}`);
-        } else {
-          // Private bucket: signed URL for display only; path is what gets persisted
-          const { data: sd, error: signErr } = await _supabase.storage
-            .from('memories')
-            .createSignedUrl(storagePath, 3600);
-          console.log('UPLOAD DEBUG: signed url', sd?.signedUrl ?? null, '| sign error', signErr?.message ?? null);
-          if(sd?.signedUrl) {
-            setForm(prev => ({ ...prev, imageData: sd.signedUrl, imageStoragePath: storagePath }));
-          } else {
-            setUploadError(`Upload succeeded but signing failed: ${signErr?.message}`);
-          }
+        if(result?.error && !result?.mock) {
+          setUploadError(`Cloud upload failed: ${result.error}`);
+        } else if(result?.path) {
+          // Replace base64 preview with signed URL; store path for persistence
+          setForm(prev => ({ ...prev, imageData: result.url || imageBase64, imageStoragePath: result.path }));
         }
+        // result.mock === true: backend in mock mode — keep base64 preview, no path stored
       } catch(err) {
         console.log('UPLOAD DEBUG: unexpected exception', err?.message);
         setUploadError(`Cloud upload failed: ${err?.message || 'Unknown error'}`);
