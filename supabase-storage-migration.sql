@@ -32,6 +32,7 @@ ON CONFLICT (id) DO UPDATE SET
 --    Skip any policy below if you already created it in the dashboard.
 
 -- Allow authenticated users to INSERT into their own folder
+DROP POLICY IF EXISTS "memories: owner upload" ON storage.objects;
 CREATE POLICY "memories: owner upload"
 ON storage.objects FOR INSERT
 TO authenticated
@@ -42,6 +43,7 @@ WITH CHECK (
 
 -- Allow authenticated users to SELECT (read) their own files
 -- Required for createSignedUrl() to succeed
+DROP POLICY IF EXISTS "memories: owner read" ON storage.objects;
 CREATE POLICY "memories: owner read"
 ON storage.objects FOR SELECT
 TO authenticated
@@ -51,6 +53,7 @@ USING (
 );
 
 -- Allow authenticated users to DELETE their own files
+DROP POLICY IF EXISTS "memories: owner delete" ON storage.objects;
 CREATE POLICY "memories: owner delete"
 ON storage.objects FOR DELETE
 TO authenticated
@@ -60,6 +63,7 @@ USING (
 );
 
 -- Allow authenticated users to UPDATE their own files
+DROP POLICY IF EXISTS "memories: owner update" ON storage.objects;
 CREATE POLICY "memories: owner update"
 ON storage.objects FOR UPDATE
 TO authenticated
@@ -102,18 +106,21 @@ CREATE INDEX IF NOT EXISTS concert_memories_user_id_idx
 ALTER TABLE public.concert_memories ENABLE ROW LEVEL SECURITY;
 
 -- Users can only read their own memories
+DROP POLICY IF EXISTS "concert_memories: owner select" ON public.concert_memories;
 CREATE POLICY "concert_memories: owner select"
 ON public.concert_memories FOR SELECT
 TO authenticated
 USING (user_id = auth.uid());
 
 -- Users can only insert their own memories
+DROP POLICY IF EXISTS "concert_memories: owner insert" ON public.concert_memories;
 CREATE POLICY "concert_memories: owner insert"
 ON public.concert_memories FOR INSERT
 TO authenticated
 WITH CHECK (user_id = auth.uid());
 
 -- Users can only delete their own memories
+DROP POLICY IF EXISTS "concert_memories: owner delete" ON public.concert_memories;
 CREATE POLICY "concert_memories: owner delete"
 ON public.concert_memories FOR DELETE
 TO authenticated
