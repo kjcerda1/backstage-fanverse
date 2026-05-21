@@ -39,3 +39,7 @@ backstage_v16_patches.md
 env_v16.txt
 *.log
 .worktrees/
+*firebase-adminsdk*.json
+*service-account*.json
+*.private.json
+SecureKeys/
