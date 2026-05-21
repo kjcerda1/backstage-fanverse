@@ -9841,10 +9841,28 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack })
 // TODO Phase 2: POST /api/dms/:userId — Supabase Realtime channel
 // TODO Phase 2: GET /api/dms — fetch with Supabase Realtime subscription
 //
+// Message type shape:
+//   { from, type:"text"|"sticker"|"voice"|"gif"|"media",
+//     text?, stickerId?, stickerEmoji?, stickerLabel?,
+//     image?, mediaUrl?, time }
+//
 // Entry points:
 //   1. HomeFeed header message icon → go("chats")
 //   2. My Circle member → ls.set("backstage_dm_target", fan) + go("chats")
 //   3. go("chats") from InvitePage My Circle
+
+// ── Backstage Kit sticker catalog ────────────────────────────────────────────
+const BACKSTAGE_STICKERS = [
+  { id:"borahae",    emoji:"💜", label:"Borahae Heart" },
+  { id:"sparkle",    emoji:"✨", label:"Bias Sparkle"  },
+  { id:"fanchant",   emoji:"🎤", label:"Fan Chant"     },
+  { id:"freebie",    emoji:"🎁", label:"Freebie Queen" },
+  { id:"lightstick", emoji:"🔦", label:"Lightstick Glow" },
+  { id:"afterglow",  emoji:"🌙", label:"Afterglow"     },
+  { id:"heart",      emoji:"🫰", label:"Finger Heart"  },
+  { id:"crown",      emoji:"👑", label:"Bias Wrecker"  },
+];
+
 function DirectMessages({ onBack, user, initialFan }) {
   const KEY = "backstage_dms";
   // Read dm-target from localStorage if not explicitly passed (set by Message buttons)
@@ -9866,6 +9884,10 @@ function DirectMessages({ onBack, user, initialFan }) {
   ]));
   const [activeConvo, setActiveConvo] = useState(dmTarget ? convos.find(c=>c.fan.name===dmTarget?.name)||null : null);
   const [circleGuard, setCircleGuard] = useState(null); // fan not in Circle
+  // Backstage Kit tray state
+  const [kitOpen, setKitOpen]         = useState(false);
+  const [stickerPickerOpen, setStickerPickerOpen] = useState(false);
+  const [kitPlaceholder, setKitPlaceholder]       = useState(null); // temp toast msg
   const [msgDraft, setMsgDraft]       = useState("");
   const [attachPreview, setAttachPreview] = useState(null); // base64 image for attachment
   const msgEndRef  = useRef(null);
@@ -9900,13 +9922,39 @@ function DirectMessages({ onBack, user, initialFan }) {
 
   const sendMessage = () => {
     if((!msgDraft.trim() && !attachPreview)||!activeConvo) return;
-    const msg = { from:"me", text:msgDraft, time:"now", image:attachPreview||null };
+    const msg = { from:"me", type:"text", text:msgDraft, time:"now", image:attachPreview||null };
     const updated = convos.map(c=>c.id===activeConvo.id ? {...c, messages:[...c.messages,msg], lastTime:"now"} : c);
     setConvos(updated);
     setActiveConvo(prev=>({...prev, messages:[...prev.messages,msg]}));
     setMsgDraft(""); setAttachPreview(null);
     // TODO: POST /api/dms/:fanId — Supabase Realtime; upload image to Supabase Storage
   };
+
+  // Send a sticker message into the active conversation
+  const sendSticker = (stickerId, emoji, label) => {
+    if(!activeConvo) return;
+    const msg = { from:"me", type:"sticker", stickerId, stickerEmoji:emoji, stickerLabel:label, time:"now" };
+    const updated = convos.map(c=>c.id===activeConvo.id ? {...c, messages:[...c.messages,msg], lastTime:"now"} : c);
+    setConvos(updated);
+    setActiveConvo(prev=>({...prev, messages:[...prev.messages,msg]}));
+    setStickerPickerOpen(false); setKitOpen(false);
+  };
+
+  // Show a short placeholder toast for unbuilt Kit features
+  const showKitPlaceholder = (msg) => {
+    setKitPlaceholder(msg); setKitOpen(false);
+    setTimeout(()=>setKitPlaceholder(null), 3000);
+  };
+
+  // Backstage Kit option definitions
+  const KIT_OPTIONS = [
+    { id:"photo",      emoji:"📸", label:"Photo / Video",      action:()=>{ setKitOpen(false); attachRef.current?.click(); } },
+    { id:"voice",      emoji:"🎤", label:"Voice Note",         action:()=>showKitPlaceholder("Voice notes are warming up backstage.") },
+    { id:"stickers",   emoji:"💜", label:"Stickers",           action:()=>{ setStickerPickerOpen(true); setKitOpen(false); } },
+    { id:"gif",        emoji:"✨", label:"GIF",                action:()=>showKitPlaceholder("GIF search coming soon.") },
+    { id:"freebie",    emoji:"🎁", label:"Freebie",            action:()=>sendSticker("freebie","🎁","Freebie Drop") },
+    { id:"lightstick", emoji:"🔦", label:"Lightstick Moment",  action:()=>sendSticker("lightstick","🔦","Lightstick Glow") },
+  ];
 
   const openConvo = (convo) => {
     // Mark as read
@@ -9933,8 +9981,8 @@ function DirectMessages({ onBack, user, initialFan }) {
         <div style={{ ...VS.activePill(activeConvo.fan.color),fontSize:8.5 }}>Direct Message</div>
       </div>
 
-      {/* Messages */}
-      <div style={{ flex:1,overflowY:"auto",padding:"14px 16px",display:"flex",flexDirection:"column",gap:10 }}>
+      {/* Messages scroll area */}
+      <div style={{ flex:1,overflowY:"auto",padding:"14px 16px",display:"flex",flexDirection:"column",gap:10,position:"relative" }}>
         {activeConvo.messages.length===0&&(
           <div style={{ textAlign:"center",padding:"40px 20px" }}>
             <div style={{ width:64,height:64,borderRadius:"50%",background:`linear-gradient(135deg,${activeConvo.fan.color},${activeConvo.fan.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:24,color:C.bg,margin:"0 auto 14px" }}>{activeConvo.fan.avatar}</div>
@@ -9942,18 +9990,43 @@ function DirectMessages({ onBack, user, initialFan }) {
             <p style={{ fontSize:11.5,color:C.textMid }}>Start a conversation. Fan-to-fan, private and safe.</p>
           </div>
         )}
-        {activeConvo.messages.map((msg,i)=>(
-          <div key={i} style={{ display:"flex",gap:8,alignItems:"flex-end",flexDirection:msg.from==="me"?"row-reverse":"row" }}>
-            {msg.from==="them"&&<div style={{ width:28,height:28,borderRadius:"50%",background:`linear-gradient(135deg,${activeConvo.fan.color},${activeConvo.fan.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:11,color:C.bg,flexShrink:0 }}>{activeConvo.fan.avatar}</div>}
-            <div style={{ maxWidth:"78%",background:msg.from==="me"?`linear-gradient(140deg,${C.accent},${C.accentDim})`:C.surfaceHi,borderRadius:msg.from==="me"?"18px 18px 4px 18px":"18px 18px 18px 4px",padding:msg.image?"4px":"10px 14px",border:msg.from==="me"?"none":`1px solid ${C.border}`,overflow:"hidden" }}>
-              {msg.image&&<img src={msg.image} alt="attachment" style={{ width:"100%",maxHeight:200,objectFit:"cover",borderRadius:msg.text?"8px 8px 0 0":"10px",display:"block",marginBottom:msg.text?0:0 }} />}
-              {msg.text&&<p style={{ fontSize:13,lineHeight:1.6,color:msg.from==="me"?C.white:C.text,padding:msg.image?"6px 10px 2px":"0" }}>{msg.text}</p>}
-              <p style={{ fontSize:8.5,color:msg.from==="me"?"rgba(255,255,255,0.5)":C.textDim,padding:msg.image?"0 10px 6px":"3px 0 0" }}>{msg.time}</p>
+        {activeConvo.messages.map((msg,i)=>{
+          const isMe = msg.from==="me";
+          const isSticker = msg.type==="sticker";
+          return (
+            <div key={i} style={{ display:"flex",gap:8,alignItems:"flex-end",flexDirection:isMe?"row-reverse":"row" }}>
+              {!isMe&&<div style={{ width:28,height:28,borderRadius:"50%",background:`linear-gradient(135deg,${activeConvo.fan.color},${activeConvo.fan.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:11,color:C.bg,flexShrink:0 }}>{activeConvo.fan.avatar}</div>}
+              {isSticker ? (
+                /* Sticker bubble — large emoji + label */
+                <div style={{ maxWidth:"60%",display:"flex",flexDirection:"column",alignItems:isMe?"flex-end":"flex-start",gap:3 }}>
+                  <div style={{ fontSize:44,lineHeight:1,animation:"pop .25s ease both" }}>{msg.stickerEmoji}</div>
+                  <div style={{ background:isMe?`${C.accent}22`:`${C.lavender}14`,borderRadius:10,padding:"3px 9px",border:`1px solid ${isMe?C.accent:C.lavender}33` }}>
+                    <p style={{ fontSize:9,color:isMe?C.accent:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{msg.stickerLabel}</p>
+                  </div>
+                  <p style={{ fontSize:8.5,color:C.textDim }}>{msg.time}</p>
+                </div>
+              ) : (
+                /* Text / image bubble */
+                <div style={{ maxWidth:"78%",background:isMe?`linear-gradient(140deg,${C.accent},${C.accentDim})`:C.surfaceHi,borderRadius:isMe?"18px 18px 4px 18px":"18px 18px 18px 4px",padding:msg.image?"4px":"10px 14px",border:isMe?"none":`1px solid ${C.border}`,overflow:"hidden" }}>
+                  {msg.image&&<img src={msg.image} alt="attachment" style={{ width:"100%",maxHeight:200,objectFit:"cover",borderRadius:msg.text?"8px 8px 0 0":"10px",display:"block" }} />}
+                  {msg.text&&<p style={{ fontSize:13,lineHeight:1.6,color:isMe?C.white:C.text,padding:msg.image?"6px 10px 2px":"0" }}>{msg.text}</p>}
+                  <p style={{ fontSize:8.5,color:isMe?"rgba(255,255,255,0.5)":C.textDim,padding:msg.image?"0 10px 6px":"3px 0 0" }}>{msg.time}</p>
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
         <div ref={msgEndRef} />
       </div>
+
+      {/* Kit placeholder toast */}
+      {kitPlaceholder&&(
+        <div style={{ position:"absolute",bottom:72,left:16,right:16,zIndex:50,animation:"up .2s ease",pointerEvents:"none" }}>
+          <div style={{ background:`${C.surfaceMid}f0`,backdropFilter:"blur(16px)",borderRadius:14,padding:"11px 16px",border:`1px solid ${C.borderHi}`,textAlign:"center" }}>
+            <p style={{ fontSize:12,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>{kitPlaceholder}</p>
+          </div>
+        </div>
+      )}
 
       {/* Attachment preview */}
       {attachPreview&&(
@@ -9964,14 +10037,81 @@ function DirectMessages({ onBack, user, initialFan }) {
           </div>
         </div>
       )}
-      {/* Input */}
-      <div style={{ padding:"10px 16px 12px",display:"flex",gap:8,borderTop:`1px solid ${C.border}`,flexShrink:0,background:C.bg }}>
-        {/* Attachment button */}
-        <button onClick={()=>attachRef.current?.click()} style={{ width:44,height:44,borderRadius:13,background:attachPreview?`${C.pink}22`:C.surfaceHi,border:`1.5px solid ${attachPreview?C.pink:C.border}`,color:attachPreview?C.pink:C.textMid,fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>📎</button>
-        <input ref={attachRef} type="file" accept="image/*,video/*,audio/*,.pdf" onChange={handleAttach} style={{ display:"none" }} />
-        <input value={msgDraft} onChange={e=>setMsgDraft(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendMessage()} placeholder={attachPreview?"Add a caption...":"Message..."} style={{ flex:1,padding:"11px 14px",borderRadius:13,background:C.surfaceHi,border:`1.5px solid ${C.borderHi}`,color:C.text,fontSize:13,outline:"none" }} autoFocus />
-        <button onClick={sendMessage} disabled={!msgDraft.trim()&&!attachPreview} style={{ width:44,height:44,borderRadius:13,background:(msgDraft.trim()||attachPreview)?`linear-gradient(140deg,${C.accent},${C.pink})`:`${C.accent}33`,border:"none",color:C.bg,fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>→</button>
+
+      {/* ── INPUT BAR ── */}
+      <div style={{ padding:"10px 14px 14px",display:"flex",gap:8,alignItems:"center",borderTop:`1px solid ${C.border}`,flexShrink:0,background:C.bg }}>
+        {/* Backstage Kit button — replaces generic paperclip */}
+        <button
+          onClick={()=>{ setKitOpen(v=>!v); setStickerPickerOpen(false); }}
+          title="Open Backstage Kit"
+          style={{ width:42,height:42,borderRadius:13,background:kitOpen?`linear-gradient(135deg,${C.accent}33,${C.berry}22)`:`${C.surfaceHi}`,border:`1.5px solid ${kitOpen?C.accent:C.borderHi}`,color:kitOpen?C.accent:C.textMid,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,transition:"all .2s",boxShadow:kitOpen?`0 0 14px ${C.accent}28`:"none",fontSize:18 }}>
+          {kitOpen?"✕":"✦"}
+        </button>
+        <input ref={attachRef} type="file" accept="image/*,video/*" onChange={handleAttach} style={{ display:"none" }} />
+        <input
+          value={msgDraft}
+          onChange={e=>setMsgDraft(e.target.value)}
+          onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); sendMessage(); }}}
+          placeholder={attachPreview?"Add a caption...":"Send a message..."}
+          style={{ flex:1,padding:"11px 14px",borderRadius:13,background:C.surfaceHi,border:`1.5px solid ${C.borderHi}`,color:C.text,fontSize:13,outline:"none",fontFamily:"'Instrument Sans',sans-serif" }}
+        />
+        <button
+          onClick={sendMessage}
+          disabled={!msgDraft.trim()&&!attachPreview}
+          style={{ width:42,height:42,borderRadius:13,background:(msgDraft.trim()||attachPreview)?`linear-gradient(140deg,${C.accent},${C.pink})`:`${C.accent}22`,border:"none",color:(msgDraft.trim()||attachPreview)?C.bg:C.textDim,fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all .2s" }}>
+          →
+        </button>
       </div>
+
+      {/* ── BACKSTAGE KIT TRAY ── */}
+      {kitOpen&&(
+        <div style={{ position:"absolute",bottom:0,left:0,right:0,zIndex:200,animation:"slideUp .24s ease" }}>
+          <div style={{ background:`linear-gradient(160deg,${C.surfaceMid},${C.cosmic})`,borderRadius:"22px 22px 0 0",border:`1.5px solid ${C.borderHi}`,borderBottom:"none",padding:"18px 18px 32px",position:"relative",overflow:"hidden" }}>
+            {/* Shimmer top line */}
+            <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.lavender}55,${C.pink}44,transparent)` }} />
+            {/* Sparkle accents */}
+            {[{t:"10%",l:"88%",s:10},{t:"70%",l:"4%",s:8}].map((sp,i)=>(
+              <div key={i} style={{ position:"absolute",top:sp.t,left:sp.l,fontSize:sp.s,opacity:0.28,animation:`sparkleFloat 3s ease-in-out infinite`,pointerEvents:"none",color:C.lavender }}>✦</div>
+            ))}
+            {/* Drag handle */}
+            <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 16px" }} />
+            {/* Header */}
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,marginBottom:3 }}>Backstage Kit</p>
+            <p style={{ fontSize:11,color:C.textMid,marginBottom:18 }}>Send a little concert magic.</p>
+            {/* Options grid */}
+            <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10 }}>
+              {KIT_OPTIONS.map(opt=>(
+                <button key={opt.id} onClick={opt.action} className="tap" style={{ padding:"14px 10px",borderRadius:16,background:`linear-gradient(150deg,${C.surfaceHi},${C.surface})`,border:`1.5px solid ${C.borderHi}`,display:"flex",flexDirection:"column",alignItems:"center",gap:7,cursor:"pointer",transition:"all .18s" }}>
+                  <span style={{ fontSize:26 }}>{opt.emoji}</span>
+                  <span style={{ fontSize:10,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textAlign:"center",lineHeight:1.3 }}>{opt.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── STICKER PICKER ── */}
+      {stickerPickerOpen&&(
+        <div style={{ position:"absolute",bottom:0,left:0,right:0,zIndex:200,animation:"slideUp .24s ease" }}>
+          <div style={{ background:`linear-gradient(160deg,${C.surfaceMid},${C.cosmic})`,borderRadius:"22px 22px 0 0",border:`1.5px solid ${C.borderHi}`,borderBottom:"none",padding:"18px 18px 32px",position:"relative",overflow:"hidden" }}>
+            <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.lavender}55,${C.pink}44,transparent)` }} />
+            <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 16px" }} />
+            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14 }}>💜 Stickers</p>
+              <button onClick={()=>setStickerPickerOpen(false)} style={{ background:"none",border:"none",color:C.textMid,fontSize:16,cursor:"pointer" }}>✕</button>
+            </div>
+            <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10 }}>
+              {BACKSTAGE_STICKERS.map(s=>(
+                <button key={s.id} onClick={()=>sendSticker(s.id,s.emoji,s.label)} className="tap" style={{ padding:"14px 8px",borderRadius:16,background:`linear-gradient(150deg,${C.surfaceHi},${C.surface})`,border:`1.5px solid ${C.borderHi}`,display:"flex",flexDirection:"column",alignItems:"center",gap:5,cursor:"pointer" }}>
+                  <span style={{ fontSize:30 }}>{s.emoji}</span>
+                  <span style={{ fontSize:8.5,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textAlign:"center",lineHeight:1.3 }}>{s.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -10019,7 +10159,13 @@ function DirectMessages({ onBack, user, initialFan }) {
                   <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:convo.unread>0?800:600,fontSize:13.5,color:convo.unread>0?C.text:C.textMid }}>{convo.fan.name}</p>
                   <p style={{ fontSize:9.5,color:C.textDim }}>{convo.lastTime}</p>
                 </div>
-                <p style={{ fontSize:11.5,color:convo.unread>0?C.textMid:C.textDim,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{convo.messages[convo.messages.length-1]?.text||"Start a conversation 💜"}</p>
+                {(()=>{
+                  const last = convo.messages[convo.messages.length-1];
+                  const preview = last?.type==="sticker"
+                    ? `${last.stickerEmoji} ${last.stickerLabel}`
+                    : last?.text||"Start a conversation 💜";
+                  return <p style={{ fontSize:11.5,color:convo.unread>0?C.textMid:C.textDim,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{preview}</p>;
+                })()}
               </div>
               {convo.unread>0&&<div style={{ width:8,height:8,borderRadius:"50%",background:C.lavender,flexShrink:0 }} />}
             </div>
