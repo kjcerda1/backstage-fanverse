@@ -3150,6 +3150,9 @@ function Onboarding({ onDone }) {
     console.log('[Onboarding] handleProfileDone start', { name: data.name, bias: data.bias });
     setLoading(true);
     const uid  = ls.get('backstage_pending_uid') || `mock_${Date.now()}`;
+    // fandoms = canonical selected-groups field. data.groups comes from the
+    // fandom picker (step 2 of onboarding). Stored as user.fandoms everywhere.
+    // PHASE 2: user.fandoms will personalize GET /api/events (Ticketmaster-backed).
     const profile = { id:uid, email, username:data.name, fandoms:data.groups, bias:data.bias, city:data.city, is_vip:false };
 
     if (!MOCK_AUTH && _supabase) {
@@ -3461,6 +3464,11 @@ function ConcertsPage({ go, isVip, onUpgrade }) {
       <Screen style={{ padding:"0 20px 100px" }}>
         {view==="shows" && (
           <div style={{ display:"flex", flexDirection:"column", gap:14, paddingTop:4 }}>
+            {/* PHASE 1: Renders MOCK_CONCERTS directly (hardcoded in frontend).
+                PHASE 2: Will call GET /api/events?groups={user.fandoms.join(',')}
+                         and merge with manually-confirmed cards (e.g. bts-lv-2026).
+                PHASE 3: Backend populates events table from Ticketmaster Discovery API.
+                Preview fallback (MOCK_CONCERTS) stays available when API is unavailable. */}
             {MOCK_CONCERTS.map((c,idx)=>{
               const isConfirmed = c.verificationStatus === "confirmed" || c.verificationStatus === "official";
               const isPreview   = c.verificationStatus === "preview";
@@ -10316,6 +10324,33 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour }) {
             </div>
           </div>
         </div>
+
+        {/* ── MY GROUPS — canonical field: user.fandoms ─────────────────────────
+            user.fandoms is set during onboarding (data.groups → profile.fandoms)
+            and persisted via PATCH /api/users/me + backstage_session localStorage.
+            PHASE 2: these fandoms will filter GET /api/events for personalized concerts. */}
+        {(()=>{
+          const fandoms = user?.fandoms?.length
+            ? user.fandoms
+            : ls.get('backstage_session')?.user?.fandoms || [];
+          if (!fandoms.length) return null;
+          return (
+            <div style={{ background:`linear-gradient(140deg,${C.surfaceMid},${C.surface})`, border:`1px solid ${C.borderHi}`, borderRadius:18, padding:"13px 15px", marginBottom:16 }}>
+              <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:8 }}>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12.5,flex:1 }}>💜 My Groups</p>
+                <button onClick={()=>setSection("top5")} style={{ background:"none",border:"none",color:C.accentDim,fontSize:10.5,cursor:"pointer",fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>Edit →</button>
+              </div>
+              <div style={{ display:"flex",flexWrap:"wrap",gap:6,marginBottom:8 }}>
+                {fandoms.map(f=>(
+                  <span key={f} style={{ padding:"4px 11px",borderRadius:99,background:`${C.accent}14`,border:`1px solid ${C.accent}30`,fontSize:10.5,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{f}</span>
+                ))}
+              </div>
+              <p style={{ fontSize:9.5,color:C.textDim,fontStyle:"italic",lineHeight:1.5 }}>
+                Backstage uses these to personalize concerts and fan signals.
+              </p>
+            </div>
+          );
+        })()}
 
         {/* STATS — playful, sparkly */}
         <div style={{ display:"flex", gap:8, marginBottom:18, position:"relative" }}>

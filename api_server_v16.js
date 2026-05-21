@@ -783,7 +783,26 @@ app.post('/api/outfits/save-inspo', requireAuth, async (req, res) => {
 
 
 // ═════════════════════════════════════════════════════════════════════════════
-// EVENTS (Ticketmaster-ready)
+// EVENTS
+// ═════════════════════════════════════════════════════════════════════════════
+//
+// CURRENT STATE (Phase 1):
+//   - Frontend ConcertsPage renders MOCK_CONCERTS directly (not this route).
+//   - This route exists but is NOT called by the frontend yet.
+//   - Mock fallback returns MOCK_EVENTS (outdated 2025 test data).
+//
+// PHASE 2 PLAN — wire frontend ConcertsPage to this route:
+//   1. Frontend calls GET /api/events?groups=BTS,aespa (from user.fandoms)
+//   2. Backend queries Supabase events table OR Ticketmaster Discovery API
+//   3. Merge with manually-confirmed events (e.g. Vegas BTS ARIRANG)
+//   4. Return ranked by user's fandoms
+//
+// PHASE 3 PLAN — Ticketmaster integration:
+//   Required env: TICKETMASTER_API_KEY (server-side only, never frontend)
+//   Endpoint: https://app.ticketmaster.com/discovery/v2/events.json
+//     ?classificationName=K-Pop&keyword={group}&apikey={TICKETMASTER_API_KEY}
+//   Sync strategy: nightly cron → populate supabase.from('events') table
+//   Frontend never calls Ticketmaster directly — always through this proxy.
 // ═════════════════════════════════════════════════════════════════════════════
 
 const MOCK_EVENTS = [
@@ -1178,6 +1197,70 @@ app.get('/api/users/me', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('[GET /api/users/me] Exception:', err.message);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── PATCH /api/users/me ──────────────────────────────────────────────────────
+// Updates user profile fields — fandoms is the canonical selected-groups field.
+// Called by: Onboarding (handleProfileDone), future Profile edit UI.
+//
+// PHASE 2 NOTE: user.fandoms will be used to filter/personalize
+//   GET /api/events when Ticketmaster Discovery API is wired in.
+//   e.g. GET /api/events?groups=BTS,aespa will return matching events.
+//   Do not rename this field — fandoms is the stable contract.
+// ─────────────────────────────────────────────────────────────────────────────
+app.patch('/api/users/me', requireAuth, async (req, res) => {
+  const { username, displayName, fandoms, bias, city, bio } = req.body;
+
+  // Validate fandoms is an array if provided
+  const fandomsClean = Array.isArray(fandoms) ? fandoms.filter(f => typeof f === 'string' && f.trim()) : undefined;
+
+  // MOCK_MODE — return updated profile without touching DB
+  if (MOCK_MODE) {
+    const updated = {
+      id:           'mock_user_1',
+      email:        'fan@backstage.app',
+      username:     username     ?? 'kacy.stays',
+      display_name: displayName  ?? username ?? 'kacy.stays',
+      fandoms:      fandomsClean ?? ['Stray Kids', 'aespa'],
+      bias:         bias         ?? 'Felix',
+      city:         city         ?? 'Dallas',
+      bio:          bio          ?? 'STAY since 2018 💜',
+      is_vip:       false,
+      mock:         true,
+    };
+    console.log('[PATCH /api/users/me] MOCK — fandoms:', updated.fandoms);
+    return res.json(updated);
+  }
+
+  try {
+    // Build sparse update — only include defined fields
+    const updates = { id: req.userId, email: req.userEmail || '' };
+    if (username     !== undefined) updates.username      = username;
+    if (displayName  !== undefined) updates.display_name  = displayName;
+    if (fandomsClean !== undefined) updates.fandoms        = fandomsClean;
+    if (bias         !== undefined) updates.bias           = bias;
+    if (city         !== undefined) updates.city           = city;
+    if (bio          !== undefined) updates.bio            = bio;
+
+    const { data, error } = await supabase
+      .from('users')
+      .upsert(updates, { onConflict: 'id' })
+      .select('id, username, display_name, fandoms, bias, city, bio, is_vip')
+      .single();
+
+    if (error) {
+      console.error('[PATCH /api/users/me] DB error:', error.message);
+      return res.status(500).json({ error: error.message });
+    }
+
+    console.log('[PATCH /api/users/me] updated fandoms for', req.userId, ':', data.fandoms);
+    res.json(data);
+  } catch (err) {
+    console.error('[PATCH /api/users/me] Exception:', err.message);
+    // Never crash the frontend — return a safe partial response so
+    // localStorage fallback can still proceed with the onboarding profile.
+    res.json({ id: req.userId, fandoms: fandomsClean, bias, city, username, patched: true });
   }
 });
 
