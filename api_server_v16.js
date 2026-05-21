@@ -1200,6 +1200,34 @@ app.get('/api/users/me', requireAuth, async (req, res) => {
   }
 });
 
+// ─── RESERVED USERNAME PROTECTION (server-side mirror of frontend list) ───────
+// Applied in PATCH /api/users/me and POST /api/profile/update.
+// Future: sync to Supabase reserved_usernames table for admin management.
+const BACKEND_RESERVED_USERNAMES = new Set([
+  "bts","bangtan","rm","namjoon","jin","seokjin","suga","yoongi","agust_d",
+  "jhope","hoseok","jimin","taehyung","v","jungkook",
+  "ateez","hongjoong","seonghwa","yunho","yeosang","san","mingi","wooyoung","jongho",
+  "straykids","stray_kids","bang_chan","bangchan","leeknoow","leeknow","changbin",
+  "hyunjin","han","felix","seungmin","i_n","i.n",
+  "blackpink","jennie","jisoo","rose","lisa",
+  "newjeans","minji","hanni","danielle","haerin","hyein",
+  "aespa","karina","giselle","winter","ningning",
+  "ive","yujin","gaeul","rei","wonyoung","liz","leeseo",
+  "lesserafim","le_sserafim","sakura","chaewon","yunjin","kazuha","eunchae",
+  "itzy","yeji","lia","ryujin","chaeryeong","yuna",
+  "twice","nayeon","jeongyeon","momo","sana","jihyo","mina","dahyun","chaeyoung","tzuyu",
+  "seventeen","enhypen","txt","tomorrow_by_together","nct","exo","shinee","got7",
+  "redvelvet","gidle","mamamoo","vixx","infinite","kep1er","nmixx","riize","zerobaseone",
+  "bighit","hybe","sm","smtown","jyp","jypentertainment","yg","ygentertainment",
+  "starship","pledis","cube","woollim","mnet","weverse",
+  "backstage","backstagefanverse","fanverse","admin","support","official",
+  "help","moderator","mod","staff","team","bot","system","root",
+]);
+const isBackendReservedUsername = (name) => {
+  if (!name || typeof name !== 'string') return false;
+  return BACKEND_RESERVED_USERNAMES.has(name.toLowerCase().replace(/[^a-z0-9_]/g,''));
+};
+
 // ─── PATCH /api/users/me ──────────────────────────────────────────────────────
 // Updates user profile fields — fandoms is the canonical selected-groups field.
 // Called by: Onboarding (handleProfileDone), future Profile edit UI.
@@ -1211,6 +1239,14 @@ app.get('/api/users/me', requireAuth, async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 app.patch('/api/users/me', requireAuth, async (req, res) => {
   const { username, displayName, fandoms, bias, city, bio } = req.body;
+
+  // Reserved username check — reject before touching DB
+  if (username !== undefined && isBackendReservedUsername(username)) {
+    return res.status(400).json({
+      error: 'reserved_username',
+      message: "That name is reserved for official use. Try adding your own twist, like a number, era, or fan tag.",
+    });
+  }
 
   // Validate fandoms is an array if provided
   const fandomsClean = Array.isArray(fandoms) ? fandoms.filter(f => typeof f === 'string' && f.trim()) : undefined;
@@ -1266,6 +1302,13 @@ app.patch('/api/users/me', requireAuth, async (req, res) => {
 
 app.post('/api/profile/update', requireAuth, async (req, res) => {
   const { username, bio, city, fandoms, bias, nowPlaying, profileStyle, discoverable } = req.body;
+  // Reserved username check
+  if (username !== undefined && isBackendReservedUsername(username)) {
+    return res.status(400).json({
+      error: 'reserved_username',
+      message: "That name is reserved for official use. Try adding your own twist, like a number, era, or fan tag.",
+    });
+  }
   if (MOCK_MODE) return res.json({ success: true, mock: true });
   // Seed id + email so upsert creates the row for users who signed up but
   // whose public.users row was never inserted by the DB trigger.
