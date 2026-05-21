@@ -2965,18 +2965,28 @@ function HomeFeed({ user, go, weather, isVip, onUpgrade, onSmartNotifs }) {
             <button onClick={()=>setSearchOpen(v=>!v)} style={{ width:38,height:38,borderRadius:"50%",background:C.surfaceHi,border:`1.5px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer" }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="8" stroke={C.textMid} strokeWidth="1.8"/><path d="m21 21-4.35-4.35" stroke={C.textMid} strokeWidth="1.8" strokeLinecap="round"/></svg>
             </button>
-            {/* Bell — opens notification inbox; badge reflects live unread count */}
+            {/* Bell — opens Backstage Buzz; badge reflects unread alerts */}
             {(()=>{
               const unreadCount = (()=>{ try { const i=JSON.parse(localStorage.getItem("backstage_notif_inbox")||"null"); return Array.isArray(i)?i.filter(n=>!n.read).length:4; } catch{return 4;} })();
               return (
-                <button onClick={()=>go("notifications")} style={{ width:38,height:38,borderRadius:"50%",background:C.surfaceHi,border:`1.5px solid ${unreadCount>0?C.accent:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",position:"relative",boxShadow:unreadCount>0?`0 0 12px ${C.accent}28`:"none",transition:"all .2s" }}>
-                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M18 8A6 6 0 1 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" stroke={unreadCount>0?C.accent:C.text} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.73 21a2 2 0 0 1-3.46 0" stroke={unreadCount>0?C.accent:C.text} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                <button onClick={()=>go("notifications")} title="Backstage Buzz" style={{ width:36,height:36,borderRadius:"50%",background:C.surfaceHi,border:`1.5px solid ${unreadCount>0?C.accent:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",position:"relative",boxShadow:unreadCount>0?`0 0 12px ${C.accent}28`:"none",transition:"all .2s" }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M18 8A6 6 0 1 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" stroke={unreadCount>0?C.accent:C.text} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.73 21a2 2 0 0 1-3.46 0" stroke={unreadCount>0?C.accent:C.text} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
                   {unreadCount>0&&<div style={{ position:"absolute",top:-3,right:-3,minWidth:16,height:16,borderRadius:99,background:`linear-gradient(135deg,${C.rose},${C.berry})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,color:"#fff",fontFamily:"'Epilogue',sans-serif",fontWeight:800,border:`1.5px solid ${C.bg}`,padding:"0 3px" }}>{unreadCount>9?"9+":unreadCount}</div>}
                 </button>
               );
             })()}
+            {/* Messages — opens Circle DMs; badge reflects unread conversations */}
+            {(()=>{
+              const dmUnread = (()=>{ try { const c=JSON.parse(localStorage.getItem("backstage_dms")||"null"); return Array.isArray(c)?c.reduce((s,x)=>s+(x.unread||0),0):0; } catch{return 0;} })();
+              return (
+                <button onClick={()=>go("chats")} title="Messages" style={{ width:36,height:36,borderRadius:"50%",background:C.surfaceHi,border:`1.5px solid ${dmUnread>0?C.lavender:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",position:"relative",boxShadow:dmUnread>0?`0 0 12px ${C.lavender}28`:"none",transition:"all .2s" }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke={dmUnread>0?C.lavender:C.text} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  {dmUnread>0&&<div style={{ position:"absolute",top:-3,right:-3,minWidth:16,height:16,borderRadius:99,background:`linear-gradient(135deg,${C.lavender},${C.accent})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,border:`1.5px solid ${C.bg}`,padding:"0 3px" }}>{dmUnread>9?"9+":dmUnread}</div>}
+                </button>
+              );
+            })()}
             {/* Avatar */}
-            <div onClick={()=>go("profile")} style={{ width:38,height:38,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.pink})`,border:`2px solid ${C.borderHi}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,color:C.bg,cursor:"pointer",boxShadow:`0 0 14px ${C.accent}28` }}>
+            <div onClick={()=>go("profile")} style={{ width:36,height:36,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.pink})`,border:`2px solid ${C.borderHi}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:C.bg,cursor:"pointer",boxShadow:`0 0 14px ${C.accent}28` }}>
               {(name[0]||"M").toUpperCase()}
             </div>
           </div>
@@ -3053,7 +3063,7 @@ function NotificationBell({ onOpen }) {
       <button
         onClick={onOpen}
         className="tap"
-        title="Notifications"
+        title="Backstage Buzz"
         style={{
           width:38,height:38,
           borderRadius:12,
@@ -9735,11 +9745,25 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack })
 }
 
 // ─── DIRECT MESSAGES ─────────────────────────────────────────────────────────
-// P2P fan messaging — stored in localStorage, API-ready
-// TODO: POST /api/dms/:userId — send message via Supabase Realtime
-// TODO: GET /api/dms — fetch conversation list with real-time subscriptions
+// ─── MESSAGES — Circle-only P2P chat ─────────────────────────────────────────
+// Circle-only: only fans accepted into backstage_circle can be messaged.
+// Data shape is Supabase-ready (see conversation/message schema in comments).
+// TODO Phase 2: POST /api/dms/:userId — Supabase Realtime channel
+// TODO Phase 2: GET /api/dms — fetch with Supabase Realtime subscription
+//
+// Entry points:
+//   1. HomeFeed header message icon → go("chats")
+//   2. My Circle member → ls.set("backstage_dm_target", fan) + go("chats")
+//   3. go("chats") from InvitePage My Circle
 function DirectMessages({ onBack, user, initialFan }) {
   const KEY = "backstage_dms";
+  // Read dm-target from localStorage if not explicitly passed (set by Message buttons)
+  const [dmTarget] = useState(()=>{
+    if(initialFan) return initialFan;
+    const t = ls.get("backstage_dm_target",null);
+    ls.del("backstage_dm_target");
+    return t;
+  });
   const [convos, setConvos]     = useState(()=>ls.get(KEY,[
     { id:"dm-mia",   fan:{ name:"@mia_stays",  avatar:"M", color:C.accent }, messages:[
       {from:"them",text:"Hey!! You going to the BTS show in Dallas? 💜",time:"2h ago"},
@@ -9750,7 +9774,8 @@ function DirectMessages({ onBack, user, initialFan }) {
       {from:"me",   text:"Thank you!! It was so fun putting together 💜",time:"4h ago"},
     ], unread:0, lastTime:"4h ago" },
   ]));
-  const [activeConvo, setActiveConvo] = useState(initialFan ? convos.find(c=>c.fan.name===initialFan?.name)||null : null);
+  const [activeConvo, setActiveConvo] = useState(dmTarget ? convos.find(c=>c.fan.name===dmTarget?.name)||null : null);
+  const [circleGuard, setCircleGuard] = useState(null); // fan not in Circle
   const [msgDraft, setMsgDraft]       = useState("");
   const [attachPreview, setAttachPreview] = useState(null); // base64 image for attachment
   const msgEndRef  = useRef(null);
@@ -9759,12 +9784,18 @@ function DirectMessages({ onBack, user, initialFan }) {
   useEffect(()=>{ ls.set(KEY, convos); }, [convos]);
   useEffect(()=>{ msgEndRef.current?.scrollIntoView({behavior:"smooth"}); }, [activeConvo?.messages?.length]);
 
-  // Open DM with a specific fan (from buddy matcher, trade hub, etc.)
+  // Open DM with a specific fan — Circle-only guard
   useEffect(()=>{
-    if(!initialFan) return;
-    const existing = convos.find(c=>c.fan.name===initialFan.name);
+    if(!dmTarget) return;
+    // Validate that this fan is in the user's Circle
+    const circle = ls.get("backstage_circle",[]);
+    const friends = ls.get("backstage_friends",[]);
+    const inCircle = circle.find(c=>c.name===dmTarget.name||c.id===dmTarget.id) ||
+                     friends.find(f=>(f.name===dmTarget.name||f.id===dmTarget.id) && f.status==="accepted");
+    if(!inCircle) { setCircleGuard(dmTarget); return; }
+    const existing = convos.find(c=>c.fan.name===dmTarget.name);
     if(existing) { setActiveConvo(existing); return; }
-    const newConvo = { id:`dm-${Date.now()}`, fan:initialFan, messages:[], unread:0, lastTime:"now" };
+    const newConvo = { id:`dm-${Date.now()}`, fan:dmTarget, messages:[], unread:0, lastTime:"now" };
     const next = [newConvo,...convos];
     setConvos(next); setActiveConvo(newConvo);
   },[]);
@@ -9854,16 +9885,35 @@ function DirectMessages({ onBack, user, initialFan }) {
     </div>
   );
 
-  // Inbox view
+  // Circle guard — fan not yet accepted
+  if(circleGuard) return (
+    <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden" }}>
+      <div style={{ padding:"14px 20px 12px",display:"flex",gap:10,alignItems:"center",flexShrink:0 }}>
+        <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
+        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18 }}>Messages</p>
+      </div>
+      <div style={{ flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"32px 28px",textAlign:"center" }}>
+        <div style={{ width:64,height:64,borderRadius:"50%",background:`linear-gradient(135deg,${circleGuard.color||C.accent},${circleGuard.color||C.accent}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:24,color:C.bg,margin:"0 auto 16px" }}>{circleGuard.avatar||"?"}</div>
+        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:15,marginBottom:8 }}>{circleGuard.name||circleGuard.username}</p>
+        <p style={{ fontSize:13.5,color:C.textMid,lineHeight:1.7,marginBottom:6 }}>Add them to your Circle before messaging.</p>
+        <p style={{ fontSize:11,color:C.textDim,lineHeight:1.6 }}>Messages are only available with fans you've accepted into your Circle. Find them in Bring Your Crew.</p>
+      </div>
+    </div>
+  );
+
+  // Conversation list
   return (
     <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden",background:C.bg }}>
-      <div style={{ padding:"14px 20px 12px",display:"flex",gap:10,alignItems:"center",flexShrink:0,borderBottom:`1px solid ${C.border}` }}>
-        <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
-        <div style={{ flex:1 }}>
-          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18 }}>Messages 💬</p>
-          <p style={{ fontSize:10.5,color:C.textMid }}>Private fan-to-fan DMs</p>
+      <div style={{ padding:"14px 20px 0",flexShrink:0,background:`linear-gradient(180deg,${C.cosmic},transparent)` }}>
+        <div style={{ display:"flex",gap:10,alignItems:"center",marginBottom:4 }}>
+          <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
+          <div style={{ flex:1 }}>
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18 }}>Messages</p>
+            <p style={{ fontSize:10.5,color:C.textMid,marginTop:1 }}>Chat with your Circle.</p>
+          </div>
+          {totalUnread>0&&<div style={{ ...VS.activePill(C.lavender),fontSize:9,flexShrink:0 }}>{totalUnread} new</div>}
         </div>
-        {totalUnread>0&&<div style={{ ...VS.activePill(C.rose),fontSize:9 }}>{totalUnread} new</div>}
+        <div style={{ height:1,background:`linear-gradient(90deg,transparent,${C.borderHi},transparent)`,marginBottom:0 }} />
       </div>
 
       <Screen style={{ padding:"0 0 100px" }}>
@@ -9871,19 +9921,27 @@ function DirectMessages({ onBack, user, initialFan }) {
           {convos.map(convo=>(
             <div key={convo.id} onClick={()=>openConvo(convo)} className="tap" style={{ display:"flex",gap:12,alignItems:"center",padding:"13px 0",borderBottom:`1px solid ${C.border}`,cursor:"pointer" }}>
               <div style={{ position:"relative",flexShrink:0 }}>
-                <div style={{ width:50,height:50,borderRadius:"50%",background:`linear-gradient(135deg,${convo.fan.color},${convo.fan.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19,color:C.bg }}>{convo.fan.avatar}</div>
-                {convo.unread>0&&<div style={{ position:"absolute",top:-2,right:-2,width:18,height:18,borderRadius:"50%",background:C.rose,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.bg }}>{convo.unread}</div>}
+                <div style={{ width:50,height:50,borderRadius:"50%",background:`linear-gradient(135deg,${convo.fan.color},${convo.fan.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19,color:C.bg,boxShadow:`0 0 12px ${convo.fan.color}28` }}>{convo.fan.avatar}</div>
+                {convo.unread>0&&<div style={{ position:"absolute",top:-2,right:-2,width:18,height:18,borderRadius:"50%",background:`linear-gradient(135deg,${C.rose},${C.berry})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.bg }}>{convo.unread}</div>}
               </div>
               <div style={{ flex:1,minWidth:0 }}>
                 <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3 }}>
                   <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:convo.unread>0?800:600,fontSize:13.5,color:convo.unread>0?C.text:C.textMid }}>{convo.fan.name}</p>
                   <p style={{ fontSize:9.5,color:C.textDim }}>{convo.lastTime}</p>
                 </div>
-                <p style={{ fontSize:11.5,color:C.textMid,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{convo.messages[convo.messages.length-1]?.text||"No messages yet"}</p>
+                <p style={{ fontSize:11.5,color:convo.unread>0?C.textMid:C.textDim,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{convo.messages[convo.messages.length-1]?.text||"Start a conversation 💜"}</p>
               </div>
+              {convo.unread>0&&<div style={{ width:8,height:8,borderRadius:"50%",background:C.lavender,flexShrink:0 }} />}
             </div>
           ))}
-          {convos.length===0&&<div style={{ textAlign:"center",padding:"48px 20px" }}><p style={{ fontSize:28,marginBottom:12 }}>💬</p><p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14,marginBottom:6 }}>No messages yet</p><p style={{ fontSize:11.5,color:C.textMid }}>Connect with fans from Buddy Matching or Trade Hub to start a conversation.</p></div>}
+          {convos.length===0&&(
+            <div style={{ textAlign:"center",padding:"52px 20px" }}>
+              <div style={{ fontSize:38,marginBottom:14,animation:"float 3s ease-in-out infinite",display:"inline-block" }}>💬</div>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:15,marginBottom:8 }}>No messages yet</p>
+              <p style={{ fontSize:12.5,color:C.textMid,lineHeight:1.7,marginBottom:16 }}>Your backstage chats will show here once you message your Circle.</p>
+              <p style={{ fontSize:11,color:C.textDim,lineHeight:1.6 }}>Add fans to your Circle first, then tap Message to start a chat.</p>
+            </div>
+          )}
         </div>
       </Screen>
     </div>
@@ -10100,8 +10158,9 @@ function MyCircleSection({ go }) {
           </div>
           {/* Actions */}
           <div style={{ display:"flex", gap:8 }}>
-            <button onClick={()=>setAdding(true)} style={{ flex:1, padding:"9px", borderRadius:11, background:`${C.accent}18`, border:`1.5px solid ${C.accent}44`, color:C.accent, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>+ Add Friend</button>
-            <button onClick={()=>go("friends")} style={{ flex:1, padding:"9px", borderRadius:11, background:"transparent", border:`1.5px solid ${C.border}`, color:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:600, fontSize:11, cursor:"pointer" }}>Manage →</button>
+            <button onClick={()=>setAdding(true)} style={{ flex:1, padding:"9px", borderRadius:11, background:`${C.accent}18`, border:`1.5px solid ${C.accent}44`, color:C.accent, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>+ Add</button>
+            <button onClick={()=>go("chats")} style={{ flex:1, padding:"9px", borderRadius:11, background:`${C.lavender}14`, border:`1.5px solid ${C.lavender}33`, color:C.lavender, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>💬 Message</button>
+            <button onClick={()=>go("friends")} style={{ padding:"9px 11px", borderRadius:11, background:"transparent", border:`1.5px solid ${C.border}`, color:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:600, fontSize:11, cursor:"pointer" }}>All →</button>
           </div>
         </div>
       )}
@@ -11641,7 +11700,7 @@ function StandaloneNotifCenter({ onBack, onNavigate }) {
 // that notification taps from the system tray open the correct modal/tab.
 function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNotif, onNavigate }) {
   const [inbox, setInbox] = useState(()=>ls.get("backstage_notif_inbox", MOCK_NOTIF_EXAMPLES));
-  const [tab, setTab]     = useState("inbox"); // inbox | settings
+  const [tab, setTab]     = useState("updates"); // updates | settings
   const unread = inbox.filter(n=>!n.read).length;
 
   const markRead = (id) => {
@@ -11712,17 +11771,20 @@ function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNot
       <div style={{ padding:"14px 20px 0",flexShrink:0 }}>
         <div style={{ display:"flex",gap:10,alignItems:"center",marginBottom:12 }}>
           <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
-          <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18,flex:1 }}>Notifications 🔔</h2>
-          {unread>0&&<div style={{ ...VS.activePill(C.rose),fontSize:9 }}>{unread} new</div>}
+          <div style={{ flex:1 }}>
+            <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18,lineHeight:1.1 }}>Backstage Buzz ✦</h2>
+            <p style={{ fontSize:9.5,color:C.textMid,marginTop:2 }}>Requests, capsule alerts, pass reactions, and fan updates.</p>
+          </div>
+          {unread>0&&<div style={{ ...VS.activePill(C.rose),fontSize:9,flexShrink:0 }}>{unread} new</div>}
         </div>
         <div style={{ display:"flex",gap:0,background:C.surfaceHi,borderRadius:12,padding:3,marginBottom:0 }}>
-          {[["inbox",`📥 Inbox${unread>0?` (${unread})`:""}` ],["settings","⚙️ Settings"]].map(([id,label])=>(
+          {[["updates",`✦ Updates${unread>0?` (${unread})`:""}` ],["settings","⚙️ Settings"]].map(([id,label])=>(
             <span key={id} onClick={()=>setTab(id)} style={{ flex:1,textAlign:"center",padding:"8px 4px",borderRadius:9,fontSize:11,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:tab===id?C.accent:"transparent",color:tab===id?C.bg:C.textMid,transition:"all .18s" }}>{label}</span>
           ))}
         </div>
       </div>
       <Screen>
-      {tab==="inbox" && (
+      {tab==="updates" && (
         <div style={{ paddingTop:14 }}>
           {unread>0&&<button onClick={markAllRead} style={{ width:"100%",padding:"10px",borderRadius:12,background:`${C.accent}12`,border:`1px solid ${C.accent}28`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer",marginBottom:12 }}>Mark all as read</button>}
           {inbox.map(n=>{
