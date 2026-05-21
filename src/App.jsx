@@ -7946,7 +7946,7 @@ function EventDiscovery({ onBack, go }) {
           <button onClick={search} style={{ background:C.accent,border:"none",borderRadius:11,padding:"0 14px",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>{loading?"...":"Go"}</button>
         </div>
         <div style={{ background:`${C.gold}08`,border:`1px solid ${C.gold}22`,borderRadius:11,padding:"8px 13px",marginBottom:14 }}>
-          <p style={{ fontSize:11,color:C.textMid }}>🎫 Set VITE_TICKETMASTER_KEY to go live.</p>
+          <p style={{ fontSize:11,color:C.textMid }}>🎫 Concert search — connect backend events API to show live shows.</p>
         </div>
         {results.map(c=>(
           <Card key={c.id} color={c.color} glow style={{ marginBottom:12 }}>
