@@ -9889,6 +9889,8 @@ function DirectMessages({ onBack, user, initialFan }) {
   const [kitOpen, setKitOpen]           = useState(false);
   const [charmPickerOpen, setCharmPickerOpen] = useState(false);
   const [kitPlaceholder, setKitPlaceholder]   = useState(null); // temp toast msg
+  // Message reactions — which message row has the picker open (convoId + msgIdx)
+  const [reactionPicker, setReactionPicker] = useState(null); // {convoId, msgIdx}
   const [msgDraft, setMsgDraft]       = useState("");
   const [attachPreview, setAttachPreview] = useState(null); // base64 image for attachment
   const msgEndRef  = useRef(null);
@@ -9944,6 +9946,43 @@ function DirectMessages({ onBack, user, initialFan }) {
   // Legacy alias — keeps old inline Freebie/Lightstick calls working
   const sendSticker = sendCharm;
 
+  // ── Message reactions ──────────────────────────────────────────────────────
+  // Reaction emojis available for direct message reactions
+  const REACTION_EMOJIS = ["💜","😂","😭","✨","👀","🔥","🫶","👑"];
+
+  // Toggle a reaction on a specific message — add or remove current user's reaction
+  const toggleReaction = (convoId, msgIdx, emoji) => {
+    const myId = user?.username || user?.name || "me";
+    const myName = user?.username || user?.name || "me";
+    const next = convos.map(c => {
+      if(c.id !== convoId) return c;
+      const msgs = c.messages.map((m, i) => {
+        if(i !== msgIdx) return m;
+        const reactions = m.reactions || [];
+        const existingIdx = reactions.findIndex(r => r.emoji===emoji && r.userId===myId);
+        const updated = existingIdx >= 0
+          ? reactions.filter((_,ri) => ri !== existingIdx) // toggle off
+          : [...reactions, { emoji, userId:myId, username:myName, createdAt:new Date().toISOString() }];
+        return { ...m, reactions: updated };
+      });
+      return { ...c, messages: msgs };
+    });
+    setConvos(next);
+    if(activeConvo?.id === convoId) setActiveConvo(next.find(c=>c.id===convoId)||activeConvo);
+    setReactionPicker(null);
+  };
+
+  // Group reactions by emoji for display: [{emoji, count, myReacted}]
+  const groupReactions = (reactions=[], myId="me") => {
+    const map = {};
+    (reactions||[]).forEach(r => {
+      if(!map[r.emoji]) map[r.emoji] = { emoji:r.emoji, count:0, myReacted:false };
+      map[r.emoji].count++;
+      if(r.userId===myId) map[r.emoji].myReacted=true;
+    });
+    return Object.values(map);
+  };
+
   // Show a short placeholder toast for unbuilt Kit features
   const showKitPlaceholder = (msg) => {
     setKitPlaceholder(msg); setKitOpen(false);
@@ -9996,31 +10035,70 @@ function DirectMessages({ onBack, user, initialFan }) {
         )}
         {activeConvo.messages.map((msg,i)=>{
           const isMe = msg.from==="me";
-          // Support both new "charm" type and legacy "sticker" type (backward compat)
           const isCharm = msg.type==="charm" || msg.type==="sticker";
           const charmEmoji = msg.charmEmoji || msg.stickerEmoji;
           const charmLabel = msg.charmLabel || msg.stickerLabel;
+          const myId = user?.username || user?.name || "me";
+          const grouped = groupReactions(msg.reactions, myId);
+          const isPickerOpen = reactionPicker?.convoId===activeConvo.id && reactionPicker?.msgIdx===i;
           return (
-            <div key={i} style={{ display:"flex",gap:8,alignItems:"flex-end",flexDirection:isMe?"row-reverse":"row" }}>
-              {!isMe&&<div style={{ width:28,height:28,borderRadius:"50%",background:`linear-gradient(135deg,${activeConvo.fan.color},${activeConvo.fan.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:11,color:C.bg,flexShrink:0 }}>{activeConvo.fan.avatar}</div>}
-              {isCharm ? (
-                /* Charm bubble — premium floating reaction, not giant childish sticker */
-                <div style={{ display:"flex",flexDirection:"column",alignItems:isMe?"flex-end":"flex-start",gap:3,animation:"pop .22s ease both" }}>
-                  <div style={{ background:isMe?`linear-gradient(135deg,${C.accent}28,${C.berry}18)`:`linear-gradient(135deg,${C.lavender}14,${C.accent}0a)`,borderRadius:16,padding:"8px 13px",border:`1.5px solid ${isMe?C.accent:C.lavender}30`,display:"flex",alignItems:"center",gap:8,backdropFilter:"blur(8px)",boxShadow:isMe?`0 0 12px ${C.accent}20, 0 2px 8px rgba(0,0,0,0.3)`:`0 0 12px ${C.lavender}14, 0 2px 8px rgba(0,0,0,0.2)` }}>
-                    <span style={{ fontSize:22,lineHeight:1,filter:`drop-shadow(0 0 6px ${isMe?C.accent:C.lavender}80)` }}>{charmEmoji}</span>
-                    <div>
-                      <p style={{ fontSize:11,color:isMe?C.lavender:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,lineHeight:1,marginBottom:1 }}>{charmLabel}</p>
-                      <p style={{ fontSize:8,color:isMe?`rgba(196,181,253,0.5)`:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:500,letterSpacing:"0.02em" }}>✦ charm</p>
+            <div key={i} style={{ display:"flex",flexDirection:"column",alignItems:isMe?"flex-end":"flex-start",gap:0 }}>
+              {/* ── REACTION PICKER — inline, appears above/near the tapped message ── */}
+              {isPickerOpen&&(
+                <div style={{ alignSelf:isMe?"flex-end":"flex-start",marginBottom:6,animation:"up .15s ease" }}>
+                  <div style={{ display:"flex",gap:5,background:`${C.surfaceMid}ee`,backdropFilter:"blur(16px)",borderRadius:99,padding:"7px 11px",border:`1.5px solid ${C.borderHi}`,boxShadow:`0 4px 20px rgba(0,0,0,0.5), 0 0 0 1px ${C.lavender}18` }}>
+                    {REACTION_EMOJIS.map(em=>{
+                      const alreadyReacted = (msg.reactions||[]).some(r=>r.emoji===em&&r.userId===myId);
+                      return (
+                        <button key={em} onClick={()=>toggleReaction(activeConvo.id,i,em)} className="tap" style={{ fontSize:20,background:alreadyReacted?`${C.lavender}22`:"transparent",border:alreadyReacted?`1.5px solid ${C.lavender}44`:"1.5px solid transparent",borderRadius:99,width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",transition:"all .15s",transform:alreadyReacted?"scale(1.15)":"scale(1)" }}>
+                          {em}
+                        </button>
+                      );
+                    })}
+                    <button onClick={()=>setReactionPicker(null)} style={{ fontSize:10,color:C.textDim,background:"transparent",border:"none",cursor:"pointer",paddingLeft:2,fontFamily:"'Epilogue',sans-serif" }}>✕</button>
+                  </div>
+                </div>
+              )}
+
+              {/* ── MESSAGE ROW ── */}
+              <div style={{ display:"flex",gap:8,alignItems:"flex-end",flexDirection:isMe?"row-reverse":"row",width:"100%" }}>
+                {!isMe&&<div style={{ width:28,height:28,borderRadius:"50%",background:`linear-gradient(135deg,${activeConvo.fan.color},${activeConvo.fan.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:11,color:C.bg,flexShrink:0 }}>{activeConvo.fan.avatar}</div>}
+                {isCharm ? (
+                  <div
+                    onClick={()=>setReactionPicker(isPickerOpen?null:{convoId:activeConvo.id,msgIdx:i})}
+                    style={{ display:"flex",flexDirection:"column",alignItems:isMe?"flex-end":"flex-start",gap:3,animation:"pop .22s ease both",cursor:"pointer" }}>
+                    <div style={{ background:isMe?`linear-gradient(135deg,${C.accent}28,${C.berry}18)`:`linear-gradient(135deg,${C.lavender}14,${C.accent}0a)`,borderRadius:16,padding:"8px 13px",border:`1.5px solid ${isMe?C.accent:C.lavender}30`,display:"flex",alignItems:"center",gap:8,backdropFilter:"blur(8px)",boxShadow:isMe?`0 0 12px ${C.accent}20, 0 2px 8px rgba(0,0,0,0.3)`:`0 0 12px ${C.lavender}14, 0 2px 8px rgba(0,0,0,0.2)` }}>
+                      <span style={{ fontSize:22,lineHeight:1,filter:`drop-shadow(0 0 6px ${isMe?C.accent:C.lavender}80)` }}>{charmEmoji}</span>
+                      <div>
+                        <p style={{ fontSize:11,color:isMe?C.lavender:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,lineHeight:1,marginBottom:1 }}>{charmLabel}</p>
+                        <p style={{ fontSize:8,color:isMe?`rgba(196,181,253,0.5)`:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:500,letterSpacing:"0.02em" }}>✦ charm</p>
+                      </div>
+                    </div>
+                    <p style={{ fontSize:8,color:C.textDim,paddingRight:isMe?4:0,paddingLeft:isMe?0:4 }}>{msg.time}</p>
+                  </div>
+                ) : (
+                  /* Text / image bubble — tappable for reactions */
+                  <div
+                    onClick={()=>{ setReactionPicker(isPickerOpen?null:{convoId:activeConvo.id,msgIdx:i}); setKitOpen(false); setCharmPickerOpen(false); }}
+                    style={{ maxWidth:"78%",cursor:"pointer" }}>
+                    <div style={{ background:isMe?`linear-gradient(140deg,${C.accent},${C.accentDim})`:C.surfaceHi,borderRadius:isMe?"18px 18px 4px 18px":"18px 18px 18px 4px",padding:msg.image?"4px":"10px 14px",border:isMe?"none":`1px solid ${C.border}`,overflow:"hidden" }}>
+                      {msg.image&&<img src={msg.image} alt="attachment" style={{ width:"100%",maxHeight:200,objectFit:"cover",borderRadius:msg.text?"8px 8px 0 0":"10px",display:"block" }} />}
+                      {msg.text&&<p style={{ fontSize:13,lineHeight:1.6,color:isMe?C.white:C.text,padding:msg.image?"6px 10px 2px":"0" }}>{msg.text}</p>}
+                      <p style={{ fontSize:8.5,color:isMe?"rgba(255,255,255,0.5)":C.textDim,padding:msg.image?"0 10px 6px":"3px 0 0" }}>{msg.time}</p>
                     </div>
                   </div>
-                  <p style={{ fontSize:8,color:C.textDim,paddingRight:isMe?4:0,paddingLeft:isMe?0:4 }}>{msg.time}</p>
-                </div>
-              ) : (
-                /* Text / image bubble */
-                <div style={{ maxWidth:"78%",background:isMe?`linear-gradient(140deg,${C.accent},${C.accentDim})`:C.surfaceHi,borderRadius:isMe?"18px 18px 4px 18px":"18px 18px 18px 4px",padding:msg.image?"4px":"10px 14px",border:isMe?"none":`1px solid ${C.border}`,overflow:"hidden" }}>
-                  {msg.image&&<img src={msg.image} alt="attachment" style={{ width:"100%",maxHeight:200,objectFit:"cover",borderRadius:msg.text?"8px 8px 0 0":"10px",display:"block" }} />}
-                  {msg.text&&<p style={{ fontSize:13,lineHeight:1.6,color:isMe?C.white:C.text,padding:msg.image?"6px 10px 2px":"0" }}>{msg.text}</p>}
-                  <p style={{ fontSize:8.5,color:isMe?"rgba(255,255,255,0.5)":C.textDim,padding:msg.image?"0 10px 6px":"3px 0 0" }}>{msg.time}</p>
+                )}
+              </div>
+
+              {/* ── REACTION PILLS — appear below the message bubble ── */}
+              {grouped.length>0&&(
+                <div style={{ display:"flex",gap:4,flexWrap:"wrap",marginTop:4,paddingLeft:isMe?0:36,paddingRight:isMe?0:0,justifyContent:isMe?"flex-end":"flex-start",animation:"up .2s ease" }}>
+                  {grouped.map(({emoji:em,count,myReacted})=>(
+                    <button key={em} onClick={()=>toggleReaction(activeConvo.id,i,em)} className="tap" style={{ display:"flex",alignItems:"center",gap:4,padding:"3px 9px",borderRadius:99,background:myReacted?`${C.lavender}20`:`${C.surfaceHi}`,border:`1.5px solid ${myReacted?C.lavender:C.borderHi}`,cursor:"pointer",transition:"all .18s",boxShadow:myReacted?`0 0 8px ${C.lavender}30`:"none" }}>
+                      <span style={{ fontSize:13,lineHeight:1 }}>{em}</span>
+                      {count>1&&<span style={{ fontSize:9.5,color:myReacted?C.lavender:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{count}</span>}
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
