@@ -6148,13 +6148,77 @@ function ExploreTab({ user, weather, isVip, onUpgrade, go, onBack }) {
           </div>
         )}
         {view==="buildday"&&<BuildMyDay go={go} />}
-        {view==="comebacks"&&<ComebacksEraWatch user={user} go={go} />}
+        {view==="comebacks"&&<ComebacksEraWatch user={user} go={go} onBack={()=>setView("grid")} />}
         {view==="chants"&&<ChantVault />}
         {view==="outfits"&&<OutfitGenerator user={user} weather={weather} isVip={isVip} onUpgrade={onUpgrade} />}
         {view==="trip"&&<TripPlanner isVip={isVip} onUpgrade={onUpgrade} />}
         {view==="prep"&&<ConcertPrep />}
         {view==="kdramas"&&<KDramaTracker />}
       </Screen>
+    </div>
+  );
+}
+
+// ─── COMEBACKS & DROPS ───────────────────────────────────────────────────────
+// Safe placeholder — full comeback alert system is a future phase.
+// Renders dark Backstage UI with watched groups list and a back button.
+function ComebacksEraWatch({ user, go, onBack }) {
+  const watchedGroups = user?.fandoms?.length
+    ? user.fandoms
+    : ["BTS","Stray Kids","aespa","NewJeans","SEVENTEEN"];
+
+  const GROUP_COLORS = {
+    "BTS":C.accent,"Stray Kids":C.rose,"aespa":C.mint,"NewJeans":C.pink,
+    "SEVENTEEN":C.sky,"BLACKPINK":C.rose,"EXO":C.silver,"NCT":C.teal,
+    "ATEEZ":C.gold,"TWICE":C.pink,
+  };
+
+  return (
+    <div>
+      {/* Header card */}
+      <div style={{ background:`${C.rose}0a`, border:`1.5px solid ${C.rose}28`, borderRadius:18, padding:"16px 18px", marginBottom:18 }}>
+        <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:17, marginBottom:6 }}>🔔 Comebacks & Drops</p>
+        <p style={{ fontSize:12.5, color:C.textMid, lineHeight:1.75 }}>
+          Track comeback announcements, album drops, merch releases, and fan deadlines.
+          Full real-time alerts are coming soon.
+        </p>
+      </div>
+
+      {/* Watched group rows */}
+      <p style={{ fontSize:10, color:C.textDim, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:10 }}>
+        Your groups
+      </p>
+      <div style={{ display:"flex", flexDirection:"column", gap:9, marginBottom:22 }}>
+        {watchedGroups.slice(0,6).map(group => {
+          const col = GROUP_COLORS[group] || C.accent;
+          return (
+            <div key={group} style={{ background:C.surface, border:`1.5px solid ${col}28`, borderRadius:14, padding:"12px 14px", display:"flex", alignItems:"center", gap:12 }}>
+              <div style={{ width:38, height:38, borderRadius:11, background:`${col}18`, border:`1px solid ${col}33`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>🔔</div>
+              <div style={{ flex:1 }}>
+                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13 }}>{group}</p>
+                <p style={{ fontSize:11, color:C.textMid }}>No announced comebacks yet</p>
+              </div>
+              <Pill color={col} small>Watching</Pill>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Coming soon notice */}
+      <div style={{ background:C.surfaceHi, border:`1px solid ${C.border}`, borderRadius:14, padding:"12px 14px", marginBottom:18, display:"flex", gap:10, alignItems:"flex-start" }}>
+        <span style={{ fontSize:18, flexShrink:0 }}>✦</span>
+        <p style={{ fontSize:11.5, color:C.textMid, lineHeight:1.7 }}>
+          Full comeback alerts — pre-save reminders, merch drop countdowns, and fan deadline tracking — are being built for the next release.
+        </p>
+      </div>
+
+      {/* Back button */}
+      <button
+        onClick={onBack}
+        style={{ width:"100%", padding:"13px", borderRadius:14, background:C.surfaceHi, border:`1.5px solid ${C.border}`, color:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13, cursor:"pointer" }}
+      >
+        ← Back to Tools
+      </button>
     </div>
   );
 }
@@ -6190,12 +6254,8 @@ function ChantVault() {
       if(res.ok){ const d = await res.json(); setAiResult(d.result||"No chant data found for this song. Try searching for the official fanchant guide."); }
       else throw new Error();
     } catch {
-      // Fallback mock
-      if(aiQuery.toLowerCase().includes("bts")||aiQuery.toLowerCase().includes("dynamite")){
-        setAiResult("Dynamite fanchant:\nIntro: BTS! / Verse 1: Sing along with 'Dun dun dah' / Chorus: Shout 'BTS!' at the end of each line.\nNote: Always verify with official ARMY fanchant guides for accuracy.");
-      } else {
-        setAiResult(`Chant data for "${aiQuery}" couldn't be verified. Please check official fandom resources or the group's fansite for accurate chant guides.`);
-      }
+      // Never show invented chant text — safe resource fallback only
+      setAiResult(`Chant lookup is unavailable right now. To find the fanchant for "${aiQuery}", check YouTube ("[song name] fanchant guide"), the group's official fan wiki, or trusted fansites.`);
     }
     setAiLoading(false);
   };
@@ -12622,13 +12682,14 @@ function ScrapbookDetail({ book, onBack, isVip, onUpgrade }) {
         });
         console.log('UPLOAD DEBUG: upload result path', result?.path ?? null, '| error', result?.error ?? null);
 
-        if(result?.error && !result?.mock) {
+        if(result?.error) {
+          // Surface all backend/network errors — do not swallow non-2xx responses
           setUploadError(`Cloud upload failed: ${result.error}`);
         } else if(result?.path) {
           // Replace base64 preview with signed URL; store path for persistence
           setForm(prev => ({ ...prev, imageData: result.url || imageBase64, imageStoragePath: result.path }));
         }
-        // result.mock === true: backend in mock mode — keep base64 preview, no path stored
+        // result.mock true + no error + no path = backend in explicit mock mode — keep base64 preview
       } catch(err) {
         console.log('UPLOAD DEBUG: unexpected exception', err?.message);
         setUploadError(`Cloud upload failed: ${err?.message || 'Unknown error'}`);

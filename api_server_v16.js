@@ -290,41 +290,73 @@ Return the single JSON object described in your instructions.`,
 
 
 // ── AI: CHANT HELPER ──────────────────────────────────────────────────────────
-// CRITICAL RULE: Never return invented chant text. Verified or nothing.
+// SAFETY RULE: NEVER call Anthropic for chant text generation.
+// AI cannot reliably produce accurate fanchants — wrong chants embarrass fans.
+// Only serve text that exists in VERIFIED_CHANT_INDEX below.
+// For all other queries return resource-only guidance.
+
+// Add entries here ONLY after manually verifying against an official fanchant source.
+// Format: 'normalized-song-name': { type:'verified', result:'...' }
+const VERIFIED_CHANT_INDEX = {};
+
+// Normalize common shorthand and aliases before lookup.
+const CHANT_ALIASES = {
+  'bwl':               'boy with luv',
+  'boy w luv':         'boy with luv',
+  'boy w/ luv':        'boy with luv',
+  '작은것들을 위한 시': 'boy with luv',
+  'ptd':               'permission to dance',
+  'lgb':               'life goes on',
+  'god\'s menu':       'gods menu',
+  'gods menu':         'gods menu',
+  'next lvl':          'next level',
+};
+
+// Songs we can recognize but have not yet verified chant text for.
+// Used to give a more specific "not verified yet" message vs "never heard of it".
+const KNOWN_SONGS = new Set([
+  'boy with luv','dynamite','butter','permission to dance','life goes on',
+  'on','black swan','mikrokosmos','dna','fake love','idol','spring day',
+  'film out','telepathy','fly to my room','blue & grey','yet to come',
+  'miroh','gods menu','back door','thunderous','maniac','circus','case 143',
+  'victory song','s-class','lalalala',
+  'savage','next level','drama','whiplash','spicy','supernova',
+  'ditto','hype boy','attention','cookie','omg','super shy','new jeans','asap',
+  'left & right','very nice','thanks','aju nice','clap','home',
+  'pink venom','shut down','lovesick girls','ice cream','as if its your last',
+  '2.0',
+]);
+
+function _chantSafeResult(rawQuery) {
+  const normalized = CHANT_ALIASES[rawQuery] || rawQuery;
+
+  // 1. Verified index match
+  if (VERIFIED_CHANT_INDEX[normalized]) return VERIFIED_CHANT_INDEX[normalized];
+
+  // 2. Recognized but not yet verified
+  const display = normalized.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  if (KNOWN_SONGS.has(normalized)) {
+    return {
+      type: 'not_verified',
+      result: `We don't have verified chant data for "${display}" yet.\n\nTo find the official fanchant:\n• YouTube — search "${display} fanchant guide"\n• The group's official fandom wiki or fan cafe\n• Reddit (r/bangtan, r/StrayKids, r/aespa, etc.)\n• Trusted fansites with chant PDFs`,
+    };
+  }
+
+  // 3. Unrecognized — still safe resource guidance, no invented text
+  if (!rawQuery) {
+    return { type: 'not_verified', result: 'Please enter a song name to look up fanchant guidance.' };
+  }
+  return {
+    type: 'not_verified',
+    result: `We don't have verified chant data for "${display}" yet.\n\nTo find the official fanchant:\n• YouTube — search "${display} fanchant guide"\n• The group's official fandom wiki\n• Reddit fandom communities\n• Trusted fansites`,
+  };
+}
+
 app.post('/api/ai/chant-helper', aiLimiter, requireAuth, async (req, res) => {
-  const { query, song, group } = req.body;
-  const songName  = song  || query || 'Miroh';
-  const groupName = group || 'Stray Kids';
-
-  if (!HAS_AI) {
-    return res.json({
-      result: `Verified fan chant for "${songName}" by ${groupName}:\n\nChant data requires the AI key to be active. In mock mode, practice by following fan chant PDFs on r/${groupName.replace(/\s+/g,'')} or fandom wikis.\n\nTip: YouTube "[song name] fanchant guide" for audio references.`,
-      mock: true,
-    });
-  }
-
-  try {
-    const response = await anthropic.messages.create({
-      model:      'claude-sonnet-4-20250514',
-      max_tokens: 700,
-      system: `You are a K-pop fan chant guide assistant.
-CRITICAL RULES:
-1. ONLY provide fanchants that are widely documented and verified in the fandom community.
-2. If you are NOT CERTAIN a specific fanchant is real and accurate, say so explicitly.
-3. NEVER invent, approximate, or guess fanchant text. Wrong chants embarrass fans at concerts.
-4. If uncertain, say "I don't have verified chant data" and provide resources instead.
-5. Return plain text — not JSON.`,
-      messages: [{
-        role: 'user',
-        content: `Provide the verified fanchant guide for "${songName}" by ${groupName}. If you're not certain, say so and list where fans can find it.`,
-      }],
-    });
-
-    res.json({ result: response.content[0].text });
-  } catch (err) {
-    console.error('[AI Chant] Error:', err.message);
-    res.status(500).json({ result: 'Chant helper temporarily unavailable. Please try again.' });
-  }
+  const { query, song } = req.body;
+  const rawQuery = (song || query || '').toLowerCase().trim();
+  // No Anthropic call — AI must not generate fanchant text.
+  res.json(_chantSafeResult(rawQuery));
 });
 
 
