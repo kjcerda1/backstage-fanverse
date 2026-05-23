@@ -812,17 +812,32 @@ function UpgradeModal({ onClose, onUpgrade }) {
           })}
         </div>
 
-        {/* CTA */}
+        {/* CTA — shows live checkout when backend is configured, coming-soon otherwise */}
         <div style={{ padding:"0 26px 10px" }}>
-          <button onClick={onUpgrade} className="tap" style={{ width:"100%", padding:"15px", borderRadius:15, background:"linear-gradient(140deg,#f0cc88,#d4a820,#c8a2ff,#f0a8cc)", backgroundSize:"300%", animation:"vipShimmer 4s linear infinite", border:"none", color:"#0a0a14", fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:15, cursor:"pointer", letterSpacing:"0.01em", boxShadow:"0 6px 28px rgba(240,204,136,0.3)", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
-            ✨ Start My VIP Era
-          </button>
+          {API_URL ? (
+            <button onClick={onUpgrade} className="tap" style={{ width:"100%", padding:"15px", borderRadius:15, background:"linear-gradient(140deg,#f0cc88,#d4a820,#c8a2ff,#f0a8cc)", backgroundSize:"300%", animation:"vipShimmer 4s linear infinite", border:"none", color:"#0a0a14", fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:15, cursor:"pointer", letterSpacing:"0.01em", boxShadow:"0 6px 28px rgba(240,204,136,0.3)", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+              ✨ Start My VIP Era
+            </button>
+          ) : (
+            <div style={{ textAlign:"center", padding:"4px 0 6px" }}>
+              <div style={{ display:"inline-flex", alignItems:"center", gap:7, padding:"5px 14px", borderRadius:99, background:`${C.gold}18`, border:`1.5px solid ${C.gold}44`, marginBottom:16 }}>
+                <span style={{ fontSize:11 }}>✦</span>
+                <span style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:9.5, color:C.gold, letterSpacing:"0.08em" }}>FOUNDING FAN PASS — OPENING SOON</span>
+              </div>
+              <p style={{ fontSize:13, color:C.silver, lineHeight:1.65, marginBottom:20, fontFamily:"'Instrument Sans',sans-serif", padding:"0 4px" }}>
+                Backstage VIP is almost ready.<br/>For now, explore the full preview — you'll be first to know when Founder Pass opens.
+              </p>
+              <button onClick={onClose} className="tap" style={{ width:"100%", padding:"14px", borderRadius:15, background:`linear-gradient(140deg,${C.gold}22,${C.accent}14)`, border:`1.5px solid ${C.gold}50`, color:C.gold, fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:14, cursor:"pointer", letterSpacing:"0.01em", boxShadow:`0 4px 18px ${C.gold}12` }}>
+                ✦ Explore Backstage Preview
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Reassurance + micro-links */}
-        <p style={{ textAlign:"center", fontSize:11, color:C.textDim, padding:"10px 26px 0", fontStyle:"italic" }}>Cancel anytime. No pressure.</p>
-        <div style={{ display:"flex", justifyContent:"space-between", padding:"12px 26px 32px" }}>
-          <button onClick={()=>{}} style={{ background:"none",border:"none",color:C.textDim,fontSize:11.5,cursor:"pointer",fontFamily:"'Instrument Sans',sans-serif" }}>Restore Purchase</button>
+        {API_URL && <p style={{ textAlign:"center", fontSize:11, color:C.textDim, padding:"10px 26px 0", fontStyle:"italic" }}>Cancel anytime. No pressure.</p>}
+        <div style={{ display:"flex", justifyContent:API_URL?"space-between":"flex-end", padding:"12px 26px 32px" }}>
+          {API_URL && <button onClick={()=>{}} style={{ background:"none",border:"none",color:C.textDim,fontSize:11.5,cursor:"pointer",fontFamily:"'Instrument Sans',sans-serif" }}>Restore Purchase</button>}
           <button onClick={onClose} style={{ background:"none",border:"none",color:C.textDim,fontSize:11.5,cursor:"pointer",fontFamily:"'Instrument Sans',sans-serif" }}>Maybe later</button>
         </div>
       </div>
@@ -13103,6 +13118,8 @@ function AppInner() {
   },[user?.id, appState]);
 
   const handleUpgrade = async () => {
+    // Guard: no backend configured — prevent silent VIP grant without payment
+    if (!API_URL) { setShowUpgradeModal(false); return; }
     if(!MOCK_AUTH && user?.id){
       // Real Stripe checkout
       const { url } = await api.post('/api/subscriptions/checkout', { plan:'annual' });
