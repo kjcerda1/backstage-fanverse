@@ -6247,6 +6247,8 @@ function ChantVault() {
   const [aiResult, setAiResult] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
   const intRef = useRef(null);
+  const safeChantLookupFallback = () =>
+    `Chant lookup is unavailable right now. To find the fanchant for "${aiQuery}", check YouTube ("[song name] fanchant guide"), the group's official fan wiki, or trusted fansites.`;
 
   useEffect(()=>{
     if(running&&active){
@@ -6266,11 +6268,17 @@ function ChantVault() {
         method:"POST", headers:{"Content-Type":"application/json"},
         body: JSON.stringify({ query: aiQuery })
       });
-      if(res.ok){ const d = await res.json(); setAiResult(d.result||"No chant data found for this song. Try searching for the official fanchant guide."); }
+      if(res.ok){
+        const d = await res.json();
+        setAiResult(d.verified === true && typeof d.result === "string" && d.result.trim()
+          ? d.result
+          : safeChantLookupFallback()
+        );
+      }
       else throw new Error();
     } catch {
       // Never show invented chant text — safe resource fallback only
-      setAiResult(`Chant lookup is unavailable right now. To find the fanchant for "${aiQuery}", check YouTube ("[song name] fanchant guide"), the group's official fan wiki, or trusted fansites.`);
+      setAiResult(safeChantLookupFallback());
     }
     setAiLoading(false);
   };
