@@ -13254,13 +13254,34 @@ function AppInner() {
       setNotif({ title:"VIP checkout is almost ready.", body:"Please try again soon.", icon:"✦", color:C.gold });
     };
     if (!API_URL) { showCheckoutUnavailable(); return; }
-    const data = await api.post('/api/subscriptions/checkout', {
-      plan: selectedPlan,
-      userId: user?.id,
-      email: user?.email,
-      successUrl: `${window.location.origin}?checkout=success`,
-      cancelUrl: `${window.location.origin}?checkout=cancel`,
-    });
+    let data;
+    try {
+      const res = await fetch(`${API_URL}/api/subscriptions/checkout`, {
+        method:"POST",
+        headers:api._headers(),
+        body:JSON.stringify({
+          plan: selectedPlan,
+          userId: user?.id,
+          email: user?.email,
+          successUrl: `${window.location.origin}?checkout=success`,
+          cancelUrl: `${window.location.origin}?checkout=cancel`,
+        }),
+      });
+      data = await res.json().catch(()=>({}));
+      if (res.status === 409 && data?.soldOut) {
+        setShowUpgradeModal(false);
+        setNotif({
+          title:"Founder Pass Sold Out ✦",
+          body:"The first 500 Backstagers claimed this drop. Monthly and Annual VIP are still available.",
+          icon:"✦",
+          color:C.gold,
+        });
+        return;
+      }
+    } catch {
+      showCheckoutUnavailable();
+      return;
+    }
     if (data?.url) { window.location.href = data.url; return; }
     showCheckoutUnavailable();
   };

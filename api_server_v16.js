@@ -521,8 +521,26 @@ app.post('/api/subscriptions/mock-activate', requireAuth, async (req, res) => {
 });
 
 // Real Stripe checkout — used by frontend handleUpgrade
+const FOUNDER_PASS_CAP = 500;
+
+async function countCompletedFounderPasses() {
+  let total = 0;
+  let page;
+  do {
+    const result = await stripe.paymentIntents.search({
+      query: "metadata['product']:'founder_pass' AND status:'succeeded'",
+      limit: 100,
+      ...(page ? { page } : {}),
+    });
+    total += result.data.length;
+    if (total >= FOUNDER_PASS_CAP) return total;
+    page = result.has_more ? result.next_page : null;
+  } while (page);
+  return total;
+}
+
 app.post('/api/subscriptions/checkout', requireAuth, async (req, res) => {
-  const { plan, priceId } = req.body;
+  const { plan, priceId, successUrl, cancelUrl, email, userId } = req.body;
 
   if (!HAS_STRIPE) {
     return res.json({
@@ -537,15 +555,36 @@ app.post('/api/subscriptions/checkout', requireAuth, async (req, res) => {
     annual:   process.env.STRIPE_PRICE_ANNUAL   || priceId,
     founder:  process.env.STRIPE_PRICE_FOUNDER  || priceId,
   };
+  const metadata = {
+    userId: String(req.userId || userId || ''),
+    email: String(req.userEmail || email || ''),
+    plan,
+    ...(plan === 'founder' ? { product: 'founder_pass', founder_cap: String(FOUNDER_PASS_CAP) } : {}),
+  };
 
   try {
-    const session = await stripe.checkout.sessions.create({
+    if (plan === 'founder') {
+      let founderCount;
+      try {
+        founderCount = await countCompletedFounderPasses();
+      } catch (countErr) {
+        console.error('[Founder Pass Count] Error:', countErr.message);
+        return res.status(503).json({ error: 'Founder Pass count unavailable', founderCountUnavailable: true });
+      }
+      if (founderCount >= FOUNDER_PASS_CAP) {
+        return res.status(409).json({ error: 'Founder Pass sold out', soldOut: true });
+      }
+    }
+    const sessionConfig = {
       mode:       plan === 'founder' ? 'payment' : 'subscription',
       line_items: [{ price: PRICE_MAP[plan] || priceId, quantity: 1 }],
-      success_url: `${process.env.FRONTEND_URL}?payment=success&plan=${plan}`,
-      cancel_url:  `${process.env.FRONTEND_URL}?payment=cancelled`,
-      metadata:    { userId: req.userId, plan },
-    });
+      success_url: successUrl || `${process.env.FRONTEND_URL}?payment=success&plan=${plan}`,
+      cancel_url:  cancelUrl  || `${process.env.FRONTEND_URL}?payment=cancelled`,
+      metadata,
+    };
+    if (plan === 'founder') sessionConfig.payment_intent_data = { metadata };
+    else sessionConfig.subscription_data = { metadata };
+    const session = await stripe.checkout.sessions.create(sessionConfig);
     res.json({ url: session.url });
   } catch (err) {
     console.error('[Subscriptions Checkout] Error:', err.message);
@@ -557,18 +596,43 @@ app.post('/api/subscriptions/checkout', requireAuth, async (req, res) => {
 app.post('/api/stripe/checkout', requireAuth, async (req, res) => {
   req.url = '/api/subscriptions/checkout';
   // Forward to subscriptions handler
-  const { plan, priceId } = req.body;
+  const { plan, priceId, successUrl, cancelUrl, email, userId } = req.body;
   if (!HAS_STRIPE) {
     return res.json({ mock: true, url: null, message: 'Stripe not configured.' });
   }
+  if (plan === 'founder') {
+    try {
+      const founderCount = await countCompletedFounderPasses();
+      if (founderCount >= FOUNDER_PASS_CAP) {
+        return res.status(409).json({ error: 'Founder Pass sold out', soldOut: true });
+      }
+    } catch (countErr) {
+      console.error('[Founder Pass Count] Error:', countErr.message);
+      return res.status(503).json({ error: 'Founder Pass count unavailable', founderCountUnavailable: true });
+    }
+  }
+  const PRICE_MAP = {
+    monthly:  process.env.STRIPE_PRICE_MONTHLY  || priceId,
+    annual:   process.env.STRIPE_PRICE_ANNUAL   || priceId,
+    founder:  process.env.STRIPE_PRICE_FOUNDER  || priceId,
+  };
+  const metadata = {
+    userId: String(req.userId || userId || ''),
+    email: String(req.userEmail || email || ''),
+    plan,
+    ...(plan === 'founder' ? { product: 'founder_pass', founder_cap: String(FOUNDER_PASS_CAP) } : {}),
+  };
   try {
-    const session = await stripe.checkout.sessions.create({
+    const sessionConfig = {
       mode:       plan === 'founder' ? 'payment' : 'subscription',
-      line_items: [{ price: priceId, quantity: 1 }],
-      success_url: `${process.env.FRONTEND_URL}?payment=success&plan=${plan}`,
-      cancel_url:  `${process.env.FRONTEND_URL}?payment=cancelled`,
-      metadata:    { userId: req.userId, plan },
-    });
+      line_items: [{ price: PRICE_MAP[plan] || priceId, quantity: 1 }],
+      success_url: successUrl || `${process.env.FRONTEND_URL}?payment=success&plan=${plan}`,
+      cancel_url:  cancelUrl  || `${process.env.FRONTEND_URL}?payment=cancelled`,
+      metadata,
+    };
+    if (plan === 'founder') sessionConfig.payment_intent_data = { metadata };
+    else sessionConfig.subscription_data = { metadata };
+    const session = await stripe.checkout.sessions.create(sessionConfig);
     res.json({ url: session.url });
   } catch (err) {
     res.status(500).json({ error: 'Could not create checkout session' });
