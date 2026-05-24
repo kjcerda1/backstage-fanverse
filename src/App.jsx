@@ -894,7 +894,7 @@ function UpgradeModal({ onClose, onUpgrade }) {
         {/* CTA — shows live checkout when backend is configured, coming-soon otherwise */}
         <div style={{ padding:"0 26px 10px" }}>
           {API_URL ? (
-            <button onClick={onUpgrade} className="tap" style={{ width:"100%", padding:"15px", borderRadius:15, background:"linear-gradient(140deg,#f0cc88,#d4a820,#c8a2ff,#f0a8cc)", backgroundSize:"300%", animation:"vipShimmer 4s linear infinite", border:"none", color:"#0a0a14", fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:15, cursor:"pointer", letterSpacing:"0.01em", boxShadow:"0 6px 28px rgba(240,204,136,0.3)", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+            <button onClick={()=>onUpgrade(plan)} className="tap" style={{ width:"100%", padding:"15px", borderRadius:15, background:"linear-gradient(140deg,#f0cc88,#d4a820,#c8a2ff,#f0a8cc)", backgroundSize:"300%", animation:"vipShimmer 4s linear infinite", border:"none", color:"#0a0a14", fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:15, cursor:"pointer", letterSpacing:"0.01em", boxShadow:"0 6px 28px rgba(240,204,136,0.3)", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
               ✨ Start My VIP Era
             </button>
           ) : (
@@ -13247,24 +13247,22 @@ function AppInner() {
     }
   },[user?.id, appState]);
 
-  const handleUpgrade = async () => {
+  const handleUpgrade = async (selectedPlan = "annual") => {
     // Guard: no backend configured — prevent silent VIP grant without payment
-    if (!API_URL) { setShowUpgradeModal(false); return; }
-    if(!MOCK_AUTH && user?.id){
-      // Real Stripe checkout
-      const { url } = await api.post('/api/subscriptions/checkout', { plan:'annual' });
-      if(url){ window.location.href = url; return; }
-    }
-    // Mock / dev activate
-    await api.post('/api/subscriptions/mock-activate', {});
-    setIsVip(true);
-    ls.set("backstage_is_vip", true);
-    // Update cached user
-    const updated = { ...user, is_vip: true };
-    setUser(updated);
-    ls.set('backstage_session', { user: updated });
-    setShowUpgradeModal(false);
-    setShowVipCelebration(true);
+    const showCheckoutUnavailable = () => {
+      setShowUpgradeModal(false);
+      setNotif({ title:"VIP checkout is almost ready.", body:"Please try again soon.", icon:"✦", color:C.gold });
+    };
+    if (!API_URL) { showCheckoutUnavailable(); return; }
+    const data = await api.post('/api/subscriptions/checkout', {
+      plan: selectedPlan,
+      userId: user?.id,
+      email: user?.email,
+      successUrl: `${window.location.origin}?checkout=success`,
+      cancelUrl: `${window.location.origin}?checkout=cancel`,
+    });
+    if (data?.url) { window.location.href = data.url; return; }
+    showCheckoutUnavailable();
   };
 
   const openUpgrade = () => setShowUpgradeModal(true);
