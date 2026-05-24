@@ -4003,6 +4003,9 @@ function ShowDetail({ concert, onBack, going, setGoing, go, isVip, onUpgrade }) 
   const [chatMsg, setChatMsg] = useState("");
   const [messages, setMessages] = useState(["Anyone doing the merch line early? 👀","outfit reveal at 6pm meet me at gate 3 ✨","Freebies station at Gate 5 after 3pm 🎁"]);
   const [itineraryOpen, setItineraryOpen] = useState(false);
+  const isArirangEvent = concert?.id === "bts-lv-2026" || concert?.id === "bts-lv-1" || /ARIRANG/i.test(concert?.name || "");
+  const capsuleBannerKey = `backstage_arirang_capsule_banner_dismissed_${concert?.id || "event"}`;
+  const [showCapsuleBanner, setShowCapsuleBanner] = useState(() => isArirangEvent && !ls.get(capsuleBannerKey, false));
   const myMeetups = MOCK_MEETUPS.filter(m=>m.concertId===concert.id);
 
   return (
@@ -4062,6 +4065,16 @@ function ShowDetail({ concert, onBack, going, setGoing, go, isVip, onUpgrade }) 
             URL.revokeObjectURL(url);
           }} style={{ width:"100%",marginTop:9,padding:"9px",borderRadius:13,background:`${concert.color}10`,border:`1.5px solid ${concert.color}33`,color:concert.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer" }}>📅 Add to Calendar</button>
         </div>
+        {showCapsuleBanner && (
+          <div style={{ background:`linear-gradient(140deg,${C.accent}18,${C.pink}0c)`, border:`1.5px solid ${C.accent}38`, borderRadius:16, padding:14, marginBottom:16 }}>
+            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:13.5, color:C.lavender, marginBottom:5 }}>✨ Add your ARIRANG memories to the Concert Capsule</p>
+            <p style={{ fontSize:11.5, color:C.textMid, lineHeight:1.55, marginBottom:12 }}>Share your photos, freebies, banners, outfits, and favorite Vegas moments with ARMY.</p>
+            <div style={{ display:"flex", gap:8 }}>
+              <button onClick={()=>go("capsule")} style={{ flex:1, padding:"9px 12px", borderRadius:11, background:C.accent, border:"none", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:11.5, cursor:"pointer" }}>Open Capsule</button>
+              <button onClick={()=>{ ls.set(capsuleBannerKey, true); setShowCapsuleBanner(false); }} style={{ padding:"9px 12px", borderRadius:11, background:"transparent", border:`1px solid ${C.border}`, color:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, cursor:"pointer" }}>Maybe later</button>
+            </div>
+          </div>
+        )}
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:18 }}>
           {[["💬 Show Chat",()=>setChatOpen(!chatOpen)],["✈️ Trip Planner",()=>go("trip")],["📋 Prep Checklist",()=>go("concertprep")],["✨ Outfit Generator",()=>go("outfits")],["🎵 Fan Chants",()=>go("explore")],["📸 My Shows",()=>go("myshows")]].map(([label,action])=>(
             <button key={label} onClick={action} className="tap" style={{ padding:14, borderRadius:14, background:C.surfaceHi, border:`1.5px solid ${C.border}`, color:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, cursor:"pointer", textAlign:"center" }}>{label}</button>
