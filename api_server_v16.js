@@ -1334,10 +1334,13 @@ const isBackendReservedUsername = (name) => {
 //   Do not rename this field — fandoms is the stable contract.
 // ─────────────────────────────────────────────────────────────────────────────
 app.patch('/api/users/me', requireAuth, async (req, res) => {
-  const { username, displayName, fandoms, bias, city, bio } = req.body;
+  const { username, handle, displayName, display_name, backstage_name, favorite_groups, fandoms, bias, city, bio } = req.body;
+  const usernameValue = username ?? handle;
+  const displayNameValue = displayName ?? display_name ?? backstage_name ?? usernameValue;
+  const groupsInput = Array.isArray(favorite_groups) ? favorite_groups : fandoms;
 
   // Reserved username check — reject before touching DB
-  if (username !== undefined && isBackendReservedUsername(username)) {
+  if (usernameValue !== undefined && isBackendReservedUsername(usernameValue)) {
     return res.status(400).json({
       error: 'reserved_username',
       message: "That name is reserved for official use. Try adding your own twist, like a number, era, or fan tag.",
@@ -1345,15 +1348,15 @@ app.patch('/api/users/me', requireAuth, async (req, res) => {
   }
 
   // Validate fandoms is an array if provided
-  const fandomsClean = Array.isArray(fandoms) ? fandoms.filter(f => typeof f === 'string' && f.trim()) : undefined;
+  const fandomsClean = Array.isArray(groupsInput) ? groupsInput.filter(f => typeof f === 'string' && f.trim()) : undefined;
 
   // MOCK_MODE — return updated profile without touching DB
   if (MOCK_MODE) {
     const updated = {
       id:           'mock_user_1',
       email:        'fan@backstage.app',
-      username:     username     ?? 'kacy.stays',
-      display_name: displayName  ?? username ?? 'kacy.stays',
+      username:     usernameValue     ?? 'kacy.stays',
+      display_name: displayNameValue  ?? 'kacy.stays',
       fandoms:      fandomsClean ?? ['Stray Kids', 'aespa'],
       bias:         bias         ?? 'Felix',
       city:         city         ?? 'Dallas',
@@ -1368,8 +1371,8 @@ app.patch('/api/users/me', requireAuth, async (req, res) => {
   try {
     // Build sparse update — only include defined fields
     const updates = { id: req.userId, email: req.userEmail || '' };
-    if (username     !== undefined) updates.username      = username;
-    if (displayName  !== undefined) updates.display_name  = displayName;
+    if (usernameValue     !== undefined) updates.username      = usernameValue;
+    if (displayNameValue  !== undefined) updates.display_name  = displayNameValue;
     if (fandomsClean !== undefined) updates.fandoms        = fandomsClean;
     if (bias         !== undefined) updates.bias           = bias;
     if (city         !== undefined) updates.city           = city;
@@ -1387,12 +1390,67 @@ app.patch('/api/users/me', requireAuth, async (req, res) => {
     }
 
     console.log('[PATCH /api/users/me] updated fandoms for', req.userId, ':', data.fandoms);
-    res.json(data);
+    res.json({ ...data, handle:data.username, backstage_name:data.display_name, favorite_groups:data.fandoms, onboarding_complete:true, profile_complete:true });
   } catch (err) {
     console.error('[PATCH /api/users/me] Exception:', err.message);
     // Never crash the frontend — return a safe partial response so
     // localStorage fallback can still proceed with the onboarding profile.
-    res.json({ id: req.userId, fandoms: fandomsClean, bias, city, username, patched: true });
+    res.json({ id: req.userId, fandoms: fandomsClean, favorite_groups:fandomsClean, bias, city, username:usernameValue, handle:usernameValue, display_name:displayNameValue, backstage_name:displayNameValue, onboarding_complete:true, profile_complete:true, patched: true });
+  }
+});
+
+app.get('/api/users/search', requireAuth, async (req, res) => {
+  const q = String(req.query.q || '').trim().replace(/^@/, '');
+  if (q.length < 2) return res.json({ users: [] });
+
+  const publicUser = (u) => {
+    const groups = Array.isArray(u.fandoms) ? u.fandoms : [];
+    const handle = u.username || '';
+    const displayName = u.display_name || handle || 'Backstage fan';
+    return {
+      id: u.id,
+      handle,
+      username: handle,
+      display_name: displayName,
+      backstage_name: displayName,
+      favorite_groups: groups,
+      fandoms: groups,
+      avatar: String(displayName || handle || 'B').trim().slice(0, 1).toUpperCase(),
+      city: u.city || '',
+    };
+  };
+
+  if (MOCK_MODE) {
+    const mockUsers = [
+      { id:'mock_merci', username:'mercilicious21', display_name:'Merci', fandoms:['BTS'], city:'San Antonio' },
+      { id:'mock_army', username:'army.bestie', display_name:'ARMY Bestie', fandoms:['BTS'], city:'Dallas' },
+    ];
+    const needle = q.toLowerCase();
+    return res.json({ users: mockUsers.filter(u =>
+      u.username.toLowerCase().includes(needle) ||
+      u.display_name.toLowerCase().includes(needle)
+    ).map(publicUser) });
+  }
+
+  try {
+    const safe = q.replace(/[%_,]/g, '');
+    const contains = `%${safe}%`;
+    const prefix = `${safe}%`;
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, username, display_name, email, fandoms, avatar_url, city')
+      .or(`username.ilike.${contains},display_name.ilike.${contains},email.ilike.${prefix}`)
+      .limit(10);
+
+    if (error) {
+      console.error('[GET /api/users/search] DB error:', error.message);
+      return res.status(500).json({ error: 'Search unavailable' });
+    }
+
+    res.json({ users: (data || []).filter(u => u.id !== req.userId).map(publicUser) });
+  } catch (err) {
+    console.error('[GET /api/users/search] Exception:', err.message);
+    res.status(500).json({ error: 'Search unavailable' });
   }
 });
 

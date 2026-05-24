@@ -48,7 +48,20 @@ function normalizeProfile(user) {
   const groups = Array.isArray(user.favorite_groups) ? user.favorite_groups : Array.isArray(user.fandoms) ? user.fandoms : [];
   const handle = user.handle || user.username || user.name || user.stanName || "";
   const backstageName = user.backstage_name || user.display_name || user.displayName || user.name || user.stanName || user.username || "";
-  return { ...user, handle, username:user.username || handle, backstage_name:backstageName, display_name:user.display_name || backstageName, favorite_groups:groups, fandoms:groups };
+  const complete = Boolean((backstageName || user.display_name) && handle && groups.length > 0);
+  return {
+    ...user,
+    handle,
+    username:user.username || handle,
+    backstage_name:backstageName,
+    display_name:user.display_name || backstageName,
+    favorite_groups:groups,
+    fandoms:groups,
+    bias:user.bias || "",
+    bias_wrecker:user.bias_wrecker || user.biasWrecker || "",
+    onboarding_complete:user.onboarding_complete === true || complete,
+    profile_complete:user.profile_complete === true || complete,
+  };
 }
 
 function isProfileComplete(user) {
@@ -63,6 +76,16 @@ function isProfileComplete(user) {
 
 function canEnterApp(user) {
   return isProfileComplete(user) || user?.onboarding_skipped === true;
+}
+
+function mergeStoredProfile(localProfile, remoteProfile, fallbackProfile = null) {
+  const local = normalizeProfile(localProfile);
+  const remote = normalizeProfile(remoteProfile);
+  const fallback = normalizeProfile(fallbackProfile);
+  if (canEnterApp(local) && !canEnterApp(remote)) return local;
+  const merged = normalizeProfile({ ...(fallback || {}), ...(local || {}), ...(remote || {}) });
+  if (canEnterApp(local) && !canEnterApp(merged)) return local;
+  return merged;
 }
 
 // ─── SUPABASE CONFIG (inline — replace with lib/supabase.js import in production) ──
@@ -159,10 +182,20 @@ function AuthProvider({ children }) {
       _supabase.auth.getSession().then(({ data }) => {
         if (data.session) {
           const u = data.session.user;
-          const profile = normalizeProfile(ls.get(`backstage_profile_${u.id}`) || { id:u.id, email:u.email, username:u.email.split('@')[0], fandoms:[], bias:'', is_vip:false });
-          setUser(profile);
+          const fallback = { id:u.id, email:u.email, username:u.email.split('@')[0], fandoms:[], bias:'', is_vip:false };
           api._setToken(data.session.access_token);
-          ls.set('backstage_session', { user: profile });
+          api.get('/api/users/me').then(remote=>{
+            const profile = mergeStoredProfile(ls.get(`backstage_profile_${u.id}`), remote?.id ? remote : null, fallback);
+            setUser(profile);
+            ls.set('backstage_session', { user: profile });
+            if (profile?.id) ls.set(`backstage_profile_${profile.id}`, profile);
+          }).catch(()=>{
+            const profile = mergeStoredProfile(ls.get(`backstage_profile_${u.id}`), null, fallback);
+            setUser(profile);
+            ls.set('backstage_session', { user: profile });
+            if (profile?.id) ls.set(`backstage_profile_${profile.id}`, profile);
+          }).finally(()=>setLoading(false));
+          return;
         }
         setLoading(false);
       });
@@ -170,8 +203,9 @@ function AuthProvider({ children }) {
       const { data: { subscription } } = _supabase.auth.onAuthStateChange(async (event, session) => {
         if (session) {
           api._setToken(session.access_token);
+          const fallback = { id:session.user.id, email:session.user.email, username:session.user.email.split('@')[0], fandoms:[], bias:'', is_vip:false };
           const profile = await api.get('/api/users/me').catch(() => null);
-          const u = normalizeProfile(profile?.id ? profile : { id:session.user.id, email:session.user.email, username:session.user.email.split('@')[0], fandoms:[], bias:'', is_vip:false });
+          const u = mergeStoredProfile(ls.get(`backstage_profile_${session.user.id}`), profile?.id ? profile : null, fallback);
           setUser(u);
           ls.set('backstage_session', { user: u });
           if (u.id) ls.set(`backstage_profile_${u.id}`, u);
@@ -3097,6 +3131,34 @@ function HomeAfterglow({ go }) {
 
 
 // ─── HOME FEED (V15 ORCHESTRATOR) ─────────────────────────────────────────────
+function InstallPromptCard() {
+  const [dismissed, setDismissed] = useState(() => ls.get("backstage_install_prompt_dismissed", false));
+  const [open, setOpen] = useState(false);
+  if (dismissed) return null;
+  return (
+    <div style={{ margin:"0 18px 16px", background:`linear-gradient(140deg,${C.surfaceMid},${C.surface})`, border:`1.5px solid ${C.borderHi}`, borderRadius:18, padding:16 }}>
+      <div style={{ display:"flex", gap:12, alignItems:"flex-start" }}>
+        <div style={{ width:38, height:38, borderRadius:12, background:`${C.accent}18`, border:`1.5px solid ${C.accent}44`, display:"flex", alignItems:"center", justifyContent:"center", color:C.accent, fontSize:18, flexShrink:0 }}>✦</div>
+        <div style={{ flex:1 }}>
+          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:14, marginBottom:5 }}>Add Backstage to your phone ✦</p>
+          <p style={{ fontSize:11.5, color:C.textMid, lineHeight:1.55 }}>Backstage works as a web app today. Add it to your Home Screen for quick concert-day access.</p>
+          <p style={{ fontSize:11.5, color:C.textMid, lineHeight:1.55, marginTop:4 }}>App Store and Google Play versions are coming soon.</p>
+          {open && (
+            <div style={{ marginTop:10, padding:"10px 12px", borderRadius:12, background:C.surfaceHi, border:`1px solid ${C.border}` }}>
+              <p style={{ fontSize:10.5, color:C.textMid, lineHeight:1.6 }}>iPhone: Open in Safari → Share → Add to Home Screen.</p>
+              <p style={{ fontSize:10.5, color:C.textMid, lineHeight:1.6 }}>Android: Open in Chrome → menu → Add to Home screen / Install app.</p>
+            </div>
+          )}
+          <div style={{ display:"flex", gap:8, marginTop:12 }}>
+            <button onClick={()=>setOpen(v=>!v)} style={{ padding:"8px 13px", borderRadius:10, background:C.accent, border:"none", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:11.5, cursor:"pointer" }}>How to add</button>
+            <button onClick={()=>{ ls.set("backstage_install_prompt_dismissed", true); setDismissed(true); }} style={{ padding:"8px 13px", borderRadius:10, background:"transparent", border:`1px solid ${C.border}`, color:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, cursor:"pointer" }}>Maybe later</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function HomeFeed({ user, go, weather, isVip, onUpgrade, onSmartNotifs }) {
   const [searchVal, setSearchVal] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -3160,6 +3222,8 @@ function HomeFeed({ user, go, weather, isVip, onUpgrade, onSmartNotifs }) {
 
         {/* 1. CINEMATIC HERO — alive, atmospheric */}
         <HomeHero go={go} />
+
+        <InstallPromptCard />
 
         {/* 1b. CONCERT DAY BANNER — auto-shown when show is today/imminent */}
         <ConcertDayBanner go={go} />
@@ -3356,7 +3420,23 @@ function Onboarding({ onDone }) {
     // fandoms = canonical selected-groups field. data.groups comes from the
     // fandom picker (step 2 of onboarding). Stored as user.fandoms everywhere.
     // PHASE 2: user.fandoms will personalize GET /api/events (Ticketmaster-backed).
-    const profile = normalizeProfile({ id:uid, email, username:data.name, handle:data.name, backstage_name:data.name, display_name:data.name, fandoms:data.groups, favorite_groups:data.groups, bias:data.bias, city:data.city, is_vip:false, onboarding_skipped:data.skippedRequiredProfile === true });
+    const profile = normalizeProfile({
+      id:uid,
+      email,
+      username:data.name,
+      handle:data.name,
+      backstage_name:data.name,
+      display_name:data.name,
+      fandoms:data.groups,
+      favorite_groups:data.groups,
+      bias:data.bias,
+      bias_wrecker:data.bias_wrecker || "",
+      city:data.city,
+      is_vip:false,
+      onboarding_skipped:data.skippedRequiredProfile === true,
+      onboarding_complete:true,
+      profile_complete:true,
+    });
 
     if (!MOCK_AUTH && _supabase) {
       try {
@@ -3366,7 +3446,7 @@ function Onboarding({ onDone }) {
         const r = await fetch(`${API_URL}/api/users/me`, {
           method:'PATCH',
           headers:{ 'Content-Type':'application/json', 'Authorization':`Bearer ${token||''}` },
-          body: JSON.stringify({ username:data.name, handle:data.name, backstage_name:data.name, display_name:data.name, fandoms:data.groups, favorite_groups:data.groups, bias:data.bias, city:data.city }),
+          body: JSON.stringify({ username:data.name, handle:data.name, backstage_name:data.name, display_name:data.name, fandoms:data.groups, favorite_groups:data.groups, bias:data.bias, bias_wrecker:data.bias_wrecker || "", city:data.city, onboarding_complete:true, profile_complete:true }),
         });
         console.log('[Onboarding] PATCH response status:', r.status);
       } catch(e) {
@@ -10627,19 +10707,48 @@ function TopBiasesSection({ isVip, onUpgrade }) {
 
 // ─── MY CIRCLE ────────────────────────────────────────────────────────────────
 // GET /api/friends | POST /api/friends/add | DELETE /api/friends/:id
-function MyCircleSection({ go }) {
+function MyCircleSection({ go, user }) {
   const [friends, setFriends] = useState(ls.get("backstage_friends", MOCK_FRIENDS));
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ name:"", fandom:"", avatar:"" });
+  const [results, setResults] = useState([]);
+  const [selectedProfile, setSelectedProfile] = useState(null);
+  const [searching, setSearching] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const accepted = friends.filter(f=>f.status==="accepted");
+  const query = form.name.replace(/^@/, "").trim();
+
+  useEffect(() => {
+    if (!adding || query.length < 2) {
+      setResults([]);
+      setSearching(false);
+      return;
+    }
+    let cancelled = false;
+    setSearching(true);
+    const t = setTimeout(async () => {
+      try {
+        const res = await api.get(`/api/users/search?q=${encodeURIComponent(query)}`);
+        if (!cancelled) setResults(Array.isArray(res?.users) ? res.users : []);
+      } catch {
+        if (!cancelled) setResults([]);
+      } finally {
+        if (!cancelled) setSearching(false);
+      }
+    }, 250);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [adding, query]);
 
   const addFriend = () => {
-    if(!form.name.trim()) return;
-    const newF = { id:`fr-${Date.now()}`, name:form.name.startsWith("@")?form.name:`@${form.name}`, avatar:form.name.trim()[0].toUpperCase(), color:C.accent, type:"moot", groups:form.fandom?[form.fandom]:[], trust:5.0, concerts:0, status:"accepted" };
+    if(!selectedProfile?.id) return;
+    const groups = selectedProfile.favorite_groups || selectedProfile.fandoms || [];
+    const name = selectedProfile.handle ? `@${selectedProfile.handle}` : selectedProfile.display_name || "Backstage fan";
+    const avatar = selectedProfile.avatar || (selectedProfile.display_name || selectedProfile.handle || "B").trim()[0].toUpperCase();
+    const newF = { id:selectedProfile.id, profileId:selectedProfile.id, name, displayName:selectedProfile.display_name || name, avatar, color:C.accent, type:"moot", groups, trust:5.0, concerts:0, status:"accepted", realProfile:true };
     const next = [newF, ...friends];
     setFriends(next); ls.set("backstage_friends", next);
-    setForm({name:"",fandom:"",avatar:""}); setAdding(false);
+    setForm({name:"",fandom:"",avatar:""}); setResults([]); setSelectedProfile(null); setAdding(false);
   };
 
   return (
@@ -10698,14 +10807,36 @@ function MyCircleSection({ go }) {
             <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 20px" }} />
             <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17,marginBottom:18 }}>Add to My Circle</p>
             <div style={{ marginBottom:12 }}>
-              <Input label="Username *" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder="@their_username" />
+              <Input label="Username *" value={form.name} onChange={e=>{ setForm({...form,name:e.target.value}); setSelectedProfile(null); }} placeholder="@their_username" />
             </div>
-            <div style={{ marginBottom:18 }}>
-              <Input label="Fandom" value={form.fandom} onChange={e=>setForm({...form,fandom:e.target.value})} placeholder="e.g. STAY, ARMY..." />
-            </div>
+            {query.length >= 2 && (
+              <div style={{ marginBottom:14 }}>
+                {searching && <p style={{ fontSize:11, color:C.textMid, marginBottom:8 }}>Searching Backstage profiles...</p>}
+                {!searching && results.map(r => {
+                  const groups = r.favorite_groups || r.fandoms || [];
+                  const active = selectedProfile?.id === r.id;
+                  return (
+                    <button key={r.id} onClick={()=>setSelectedProfile(r)} style={{ width:"100%", textAlign:"left", marginBottom:8, padding:"10px 12px", borderRadius:12, background:active?`${C.accent}18`:C.surface, border:`1.5px solid ${active?C.accent:C.border}`, color:C.text, cursor:"pointer" }}>
+                      <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:12.5 }}>@{r.handle || r.username || "fan"} {groups[0]?`— ${groups[0]}`:""}</p>
+                      <p style={{ fontSize:11, color:C.textMid, marginTop:3 }}>{r.display_name || r.backstage_name || "Backstage fan"}{groups.length?` — ${groups.join(", ")} fan`:""}</p>
+                    </button>
+                  );
+                })}
+                {!searching && results.length === 0 && (
+                  <div style={{ padding:"12px", borderRadius:12, background:C.surface, border:`1px solid ${C.border}` }}>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:12.5, marginBottom:5 }}>No Backstage fans found with that handle yet.</p>
+                    <p style={{ fontSize:11, color:C.textMid, lineHeight:1.55, marginBottom:10 }}>We’re still syncing new Backstage profiles. Try searching by handle, or invite your friend with your link.</p>
+                    <div style={{ display:"flex", gap:8 }}>
+                      <button onClick={()=>go("invite")} style={{ flex:1, padding:"8px", borderRadius:10, background:`${C.accent}18`, border:`1px solid ${C.accent}44`, color:C.accent, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>Invite Friend</button>
+                      <button onClick={async()=>{ const link = `${window.location.origin}?ref=${encodeURIComponent(user?.handle || user?.username || "backstage")}`; await navigator.clipboard?.writeText(link); setCopied(true); }} style={{ flex:1, padding:"8px", borderRadius:10, background:"transparent", border:`1px solid ${C.border}`, color:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>{copied?"Copied":"Copy Link"}</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             <p style={{ fontSize:11, color:C.textMid, marginBottom:16 }}>💡 Or use QR Quick Add to connect instantly in person.</p>
             <div style={{ display:"flex", gap:10 }}>
-              <Btn onClick={addFriend} disabled={!form.name.trim()} style={{ flex:1 }} small>Add to Circle</Btn>
+              <Btn onClick={addFriend} disabled={!selectedProfile?.id} style={{ flex:1 }} small>Add to Circle</Btn>
               <Btn ghost color={C.textMid} onClick={()=>setAdding(false)} style={{ width:82,flex:"none" }} small>Cancel</Btn>
             </div>
           </div>
@@ -11027,7 +11158,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour }) {
         <TopBiasesSection isVip={isVip} onUpgrade={onUpgrade} />
 
         {/* MY CIRCLE 💜 */}
-        <MyCircleSection go={go} />
+        <MyCircleSection go={go} user={user} />
 
         {/* BADGES */}
         <div style={{ marginBottom:18 }}>
@@ -13238,7 +13369,7 @@ function AppInner() {
       setAppState("onboarding");
       setModal(null);
     }
-  },[auth.user?.id]);
+  },[auth.user]);
 
   // Boot: sync VIP status from backend on session restore
   useEffect(()=>{
@@ -13502,6 +13633,7 @@ function AppInner() {
             const profile = normalizeProfile(data);
             setUser(profile);
             ls.set("backstage_session", { user: profile });
+            if (profile.id) ls.set(`backstage_profile_${profile.id}`, profile);
             if (!canEnterApp(profile)) {
               setAppState("onboarding");
               return;
