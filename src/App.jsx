@@ -43,6 +43,28 @@ const api = {
 const AuthCtx = createContext({ user: null, session: null, loading: true, signOut: ()=>{} });
 const useAuth = () => useContext(AuthCtx);
 
+function normalizeProfile(user) {
+  if (!user) return null;
+  const groups = Array.isArray(user.favorite_groups) ? user.favorite_groups : Array.isArray(user.fandoms) ? user.fandoms : [];
+  const handle = user.handle || user.username || user.name || user.stanName || "";
+  const backstageName = user.backstage_name || user.display_name || user.displayName || user.name || user.stanName || user.username || "";
+  return { ...user, handle, username:user.username || handle, backstage_name:backstageName, display_name:user.display_name || backstageName, favorite_groups:groups, fandoms:groups };
+}
+
+function isProfileComplete(user) {
+  const profile = normalizeProfile(user);
+  return Boolean(
+    (profile?.display_name || profile?.backstage_name) &&
+    profile?.handle &&
+    Array.isArray(profile?.favorite_groups) &&
+    profile.favorite_groups.length > 0
+  );
+}
+
+function canEnterApp(user) {
+  return isProfileComplete(user) || user?.onboarding_skipped === true;
+}
+
 // ─── SUPABASE CONFIG (inline — replace with lib/supabase.js import in production) ──
 const RAW_SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
 const RAW_SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
@@ -137,7 +159,7 @@ function AuthProvider({ children }) {
       _supabase.auth.getSession().then(({ data }) => {
         if (data.session) {
           const u = data.session.user;
-          const profile = ls.get(`backstage_profile_${u.id}`) || { id:u.id, email:u.email, username:u.email.split('@')[0], fandoms:[], bias:'', is_vip:false };
+          const profile = normalizeProfile(ls.get(`backstage_profile_${u.id}`) || { id:u.id, email:u.email, username:u.email.split('@')[0], fandoms:[], bias:'', is_vip:false });
           setUser(profile);
           api._setToken(data.session.access_token);
           ls.set('backstage_session', { user: profile });
@@ -149,7 +171,7 @@ function AuthProvider({ children }) {
         if (session) {
           api._setToken(session.access_token);
           const profile = await api.get('/api/users/me').catch(() => null);
-          const u = profile?.id ? profile : { id:session.user.id, email:session.user.email, username:session.user.email.split('@')[0], fandoms:[], bias:'', is_vip:false };
+          const u = normalizeProfile(profile?.id ? profile : { id:session.user.id, email:session.user.email, username:session.user.email.split('@')[0], fandoms:[], bias:'', is_vip:false });
           setUser(u);
           ls.set('backstage_session', { user: u });
           if (u.id) ls.set(`backstage_profile_${u.id}`, u);
@@ -1639,15 +1661,34 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade }) {
 
   // ── Search ────────────────────────────────────────────────────────────────
   const q = searchQ.toLowerCase().trim();
+  const localProfiles = (() => {
+    try {
+      return Object.keys(localStorage)
+        .filter(k=>k.startsWith("backstage_profile_"))
+        .map(k=>normalizeProfile(ls.get(k)))
+        .filter(p=>p?.id && p.id!==user?.id && canEnterApp(p))
+        .map(p=>({
+          id:p.id, username:p.handle, displayName:p.display_name || p.backstage_name || p.handle,
+          avatar:(p.display_name || p.handle || "F").slice(0,1).toUpperCase(), color:C.accent,
+          fandoms:p.favorite_groups || [], city:p.city || "Backstage", concertContext:"Signed-up fan",
+          bio:`${p.display_name || p.handle} is on Backstage`, emailPrefix:p.email?.split("@")[0] || "",
+        }));
+    } catch { return []; }
+  })();
+  const searchableUsers = [
+    ...localProfiles,
+    ...MOCK_FANVERSE_USERS.filter(u=>!localProfiles.find(p=>p.username===u.username || p.id===u.id)),
+  ];
   const searchResults = q.length >= 1
-    ? MOCK_FANVERSE_USERS.filter(u =>
+    ? searchableUsers.filter(u =>
         u.username.includes(q) ||
         u.displayName.toLowerCase().includes(q) ||
+        (u.emailPrefix || "").toLowerCase().includes(q) ||
         u.fandoms.some(f=>f.toLowerCase().includes(q)) ||
         u.city.toLowerCase().includes(q) ||
         u.concertContext.toLowerCase().includes(q)
       )
-    : MOCK_FANVERSE_USERS.slice(0,4); // show suggestions when empty
+    : searchableUsers.slice(0,4); // show suggestions when empty
 
   const circleMembers = [...circle, ...MOCK_FRIENDS.filter(f=>f.status==="accepted" && !circle.find(c=>c.id===f.id))];
 
@@ -1768,7 +1809,8 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade }) {
                     <div style={{ padding:"20px 16px",textAlign:"center" }}>
                       <div style={{ fontSize:24,marginBottom:8 }}>🔭</div>
                       <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,marginBottom:4 }}>No fan found yet</p>
-                      <p style={{ fontSize:11.5,color:C.textMid }}>Try a username, group, or city.</p>
+                      <p style={{ fontSize:11.5,color:C.textMid,lineHeight:1.6,marginBottom:12 }}>We're still syncing new Backstage profiles. Try searching by handle, or invite your friend with your Backstage link.</p>
+                      <button onMouseDown={e=>e.preventDefault()} onClick={copyLink} className="tap" style={{ padding:"8px 14px",borderRadius:99,background:`${C.accent}18`,border:`1px solid ${C.accent}44`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>{copied?"Link Copied":"Copy Link"}</button>
                     </div>
                   )}
                 </div>
@@ -3243,11 +3285,13 @@ function AskBackstageButton({ go }) {
 // Handles: login, sign-up, and 3-step profile setup after first registration.
 // Falls back to mock mode when Supabase is not configured.
 function Onboarding({ onDone }) {
-  const [mode, setMode]     = useState("landing");    // landing | login | signup | profile | tour
+  const pendingProfile = normalizeProfile(ls.get("backstage_session")?.user);
+  const needsProfileRecovery = Boolean(pendingProfile && !canEnterApp(pendingProfile));
+  const [mode, setMode]     = useState(()=>needsProfileRecovery || ls.get("backstage_pending_uid") ? "profile" : "landing");    // landing | login | signup | profile | tour
   const [step, setStep]     = useState(1);
-  const [email, setEmail]   = useState("");
+  const [email, setEmail]   = useState(pendingProfile?.email || "");
   const [pass, setPass]     = useState("");
-  const [data, setData]     = useState({ name:"", groups:[], bias:"", city:"" });
+  const [data, setData]     = useState({ name:pendingProfile?.handle || "", groups:pendingProfile?.fandoms || [], bias:pendingProfile?.bias || "", city:pendingProfile?.city || "", skippedRequiredProfile:false });
   const [search, setSearch] = useState("");
   const [err, setErr]       = useState("");
   const [loading, setLoading] = useState(false);
@@ -3276,8 +3320,15 @@ function Onboarding({ onDone }) {
       const { data: d, error } = await _supabase.auth.signInWithPassword({ email, password: pass });
       if (error) { setErr(error.message); setLoading(false); return; }
       const profile = await api.get('/api/users/me');
-      const u = { id:d.user.id, email:d.user.email, username:profile?.username||email.split('@')[0], fandoms:profile?.fandoms||[], bias:profile?.bias||'', is_vip:profile?.is_vip||false };
+      const u = normalizeProfile({ id:d.user.id, email:d.user.email, username:profile?.username||email.split('@')[0], fandoms:profile?.fandoms||[], favorite_groups:profile?.favorite_groups, handle:profile?.handle, backstage_name:profile?.backstage_name, display_name:profile?.display_name, bias:profile?.bias||'', is_vip:profile?.is_vip||false });
       ls.set('backstage_session', { user: u });
+      if (!canEnterApp(u)) {
+        ls.set('backstage_pending_uid', d.user.id);
+        setData(prev=>({ ...prev, name:u.handle || email.split('@')[0], groups:u.fandoms || [], bias:u.bias || "" }));
+        setMode("profile");
+        setLoading(false);
+        return;
+      }
       onDone(u);
     } catch(e) { setErr('Connection error. Try again.'); }
     setLoading(false);
@@ -3298,14 +3349,14 @@ function Onboarding({ onDone }) {
 
   // ── COMPLETE PROFILE ──
   const handleProfileDone = async () => {
-    if (!data.name.trim() || !data.bias.trim()) return;
+    if (!data.name.trim() || (!data.groups.length && !data.skippedRequiredProfile)) return;
     console.log('[Onboarding] handleProfileDone start', { name: data.name, bias: data.bias });
     setLoading(true);
-    const uid  = ls.get('backstage_pending_uid') || `mock_${Date.now()}`;
+    const uid  = ls.get('backstage_pending_uid') || pendingProfile?.id || `mock_${Date.now()}`;
     // fandoms = canonical selected-groups field. data.groups comes from the
     // fandom picker (step 2 of onboarding). Stored as user.fandoms everywhere.
     // PHASE 2: user.fandoms will personalize GET /api/events (Ticketmaster-backed).
-    const profile = { id:uid, email, username:data.name, fandoms:data.groups, bias:data.bias, city:data.city, is_vip:false };
+    const profile = normalizeProfile({ id:uid, email, username:data.name, handle:data.name, backstage_name:data.name, display_name:data.name, fandoms:data.groups, favorite_groups:data.groups, bias:data.bias, city:data.city, is_vip:false, onboarding_skipped:data.skippedRequiredProfile === true });
 
     if (!MOCK_AUTH && _supabase) {
       try {
@@ -3315,7 +3366,7 @@ function Onboarding({ onDone }) {
         const r = await fetch(`${API_URL}/api/users/me`, {
           method:'PATCH',
           headers:{ 'Content-Type':'application/json', 'Authorization':`Bearer ${token||''}` },
-          body: JSON.stringify({ username:data.name, fandoms:data.groups, bias:data.bias, city:data.city }),
+          body: JSON.stringify({ username:data.name, handle:data.name, backstage_name:data.name, display_name:data.name, fandoms:data.groups, favorite_groups:data.groups, bias:data.bias, city:data.city }),
         });
         console.log('[Onboarding] PATCH response status:', r.status);
       } catch(e) {
@@ -3327,6 +3378,7 @@ function Onboarding({ onDone }) {
     try {
       ls.set('backstage_mock_user', profile);
       ls.set('backstage_session', { user: profile });
+      if (profile.id) ls.set(`backstage_profile_${profile.id}`, profile);
       ls.del('backstage_pending_uid');
       console.log('[Onboarding] localStorage written, transitioning to tour');
     } catch(e) {
@@ -3570,7 +3622,7 @@ function Onboarding({ onDone }) {
           {data.groups.length>0&&<p style={{ fontSize:11, color:C.accentDim, marginBottom:12 }}>{data.groups.length} selected</p>}
           <Btn onClick={()=>data.groups.length&&setStep(3)} disabled={!data.groups.length}>Continue →</Btn>
           <div style={{ height:10 }} />
-          <Btn ghost color={C.textMid} onClick={()=>setStep(3)} small>Skip for now</Btn>
+          <Btn ghost color={C.textMid} onClick={()=>{ setData(d=>({...d, skippedRequiredProfile:true})); setStep(3); }} small>Skip for now</Btn>
         </div>
       )}
       {step===3 && (
@@ -3578,7 +3630,7 @@ function Onboarding({ onDone }) {
           <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:24, marginBottom:6 }}>Who's your bias?</p>
           <p style={{ color:C.textMid, fontSize:13, marginBottom:22 }}>Just one. We know how hard that is.</p>
           <Input value={data.bias} onChange={e=>setData({...data,bias:e.target.value})} placeholder="e.g. Felix, Jimin, Karina..." autoFocus style={{ marginBottom:20 }} />
-          <Btn onClick={handleProfileDone} disabled={!data.bias.trim()||loading}>
+          <Btn onClick={handleProfileDone} disabled={loading}>
             {loading?"Setting up...":"Enter Backstage ✦"}
           </Btn>
         </div>
@@ -13143,16 +13195,16 @@ if(_IS_CAPSULE_PATH && typeof window!=="undefined") {
 }
 
 function AppInner() {
-  const [user, setUser] = useState(()=>ls.get("backstage_session")?.user||null);
+  const auth = useAuth();
+  const [user, setUser] = useState(()=>normalizeProfile(ls.get("backstage_session")?.user)||null);
   const [appState, setAppState] = useState(()=>{
-    const u = ls.get("backstage_session")?.user;
-    // Treat session as complete if user has username/stanName AND onboarding flag is set
-    if(u && (ls.get("backstage_onboarding_complete") || u.username || u.stanName || u.name || u.id)) return "main";
+    const u = normalizeProfile(ls.get("backstage_session")?.user);
+    if(u && canEnterApp(u)) return "main";
     return "onboarding";
   });
   const [tab, setTab] = useState("home");
   // Auto-open capsule modal if signed-in user lands on /capsule
-  const [modal, setModal] = useState(()=>_IS_CAPSULE_PATH&&ls.get("backstage_session")?.user?"capsule":null);
+  const [modal, setModal] = useState(()=>_IS_CAPSULE_PATH&&canEnterApp(normalizeProfile(ls.get("backstage_session")?.user))?"capsule":null);
   const [fromCapsule, setFromCapsule] = useState(_IS_CAPSULE_PATH);
   const [showCapsuleLanding, setShowCapsuleLanding] = useState(()=>_IS_CAPSULE_PATH&&!ls.get("backstage_session")?.user);
   // Capsule preview: signed-out fan sees the capsule before being asked to sign up
@@ -13174,6 +13226,19 @@ function AppInner() {
 
   // Tools paused for polish — intercept before they open
   const COMING_SOON_TOOLS = ["outfits", "trip"];
+
+  useEffect(()=>{
+    const nextUser = normalizeProfile(auth.user || ls.get("backstage_session")?.user);
+    if (!nextUser) return;
+    setUser(nextUser);
+    if (canEnterApp(nextUser)) {
+      setAppState("main");
+    } else {
+      ls.set("backstage_pending_uid", nextUser.id);
+      setAppState("onboarding");
+      setModal(null);
+    }
+  },[auth.user?.id]);
 
   // Boot: sync VIP status from backend on session restore
   useEffect(()=>{
@@ -13415,9 +13480,14 @@ function AppInner() {
         <div style={{ flex:1, overflow:"hidden", position:"relative" }}>
           {appState==="onboarding"&&<Onboarding onDone={data=>{
             if (!data) { console.error('[App] onDone called with null — skipping'); return; }
-            setUser(data);
+            const profile = normalizeProfile(data);
+            setUser(profile);
+            ls.set("backstage_session", { user: profile });
+            if (!canEnterApp(profile)) {
+              setAppState("onboarding");
+              return;
+            }
             setAppState("main");
-            ls.set("backstage_session", { user: data });
             ls.set("backstage_onboarding_complete", true);
             // Restore capsule context if user came from QR/capsule link
             const capsuleCtx = ls.get("backstage_capsule_context");
