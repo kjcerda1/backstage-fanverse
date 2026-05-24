@@ -44,9 +44,66 @@ const AuthCtx = createContext({ user: null, session: null, loading: true, signOu
 const useAuth = () => useContext(AuthCtx);
 
 // ─── SUPABASE CONFIG (inline — replace with lib/supabase.js import in production) ──
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
-const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
-const MOCK_AUTH = !SUPABASE_URL || !SUPABASE_ANON;
+const RAW_SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
+const RAW_SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+
+function stripWrappingQuotes(value) {
+  const trimmed = String(value || "").trim();
+  const pairs = [["'", "'"], ['"', '"'], ["`", "`"], ["“", "”"], ["‘", "’"]];
+  const pair = pairs.find(([open, close]) => trimmed.startsWith(open) && trimmed.endsWith(close));
+  return pair ? trimmed.slice(1, -1).trim() : trimmed;
+}
+
+function inspectSupabaseEnv(rawUrl, rawAnon) {
+  const url = stripWrappingQuotes(rawUrl);
+  const anon = stripWrappingQuotes(rawAnon);
+  const anonRawTrimmed = String(rawAnon || "").trim();
+  const anonChecks = {
+    hasWhitespace: /\s/.test(anonRawTrimmed),
+    hasNewline: /[\r\n]/.test(anonRawTrimmed),
+    hasSmartQuotes: /[“”‘’]/.test(anonRawTrimmed),
+    hasNonAscii: /[^\x00-\x7F]/.test(anonRawTrimmed),
+  };
+  const issues = [];
+  let host = null;
+
+  if (url) {
+    try {
+      const parsed = new URL(url);
+      host = parsed.host;
+      if (parsed.pathname.includes("/rest/v1") || parsed.pathname.includes("/auth/v1")) {
+        issues.push("VITE_SUPABASE_URL must be the project URL only, without /rest/v1 or /auth/v1.");
+      }
+    } catch {
+      issues.push("VITE_SUPABASE_URL is not a valid URL.");
+    }
+  }
+
+  if (anon && (/\s/.test(anon) || /[^\x00-\x7F]/.test(anon))) {
+    issues.push("VITE_SUPABASE_ANON_KEY contains whitespace, newlines, smart quotes, or non-ASCII characters.");
+  }
+
+  console.info("[launch:supabase-env]", {
+    hasUrl: Boolean(url),
+    urlHost: host,
+    hasAnonKey: Boolean(anon),
+    anonKeyLength: anon.length,
+    anonKeyHasWhitespace: anonChecks.hasWhitespace,
+    anonKeyHasNewline: anonChecks.hasNewline,
+    anonKeyHasSmartQuotes: anonChecks.hasSmartQuotes,
+    anonKeyHasNonAscii: anonChecks.hasNonAscii,
+    anonKeyPrefix: anon.slice(0, 8),
+  });
+
+  return { url, anon, issues };
+}
+
+const SUPABASE_ENV = inspectSupabaseEnv(RAW_SUPABASE_URL, RAW_SUPABASE_ANON);
+const SUPABASE_URL = SUPABASE_ENV.url;
+const SUPABASE_ANON = SUPABASE_ENV.anon;
+const SUPABASE_CONFIG_ERROR = SUPABASE_ENV.issues.length ? "Supabase configuration issue. Check VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY." : "";
+if (SUPABASE_CONFIG_ERROR) console.error(SUPABASE_CONFIG_ERROR, SUPABASE_ENV.issues);
+const MOCK_AUTH = !SUPABASE_URL || !SUPABASE_ANON || Boolean(SUPABASE_CONFIG_ERROR);
 
 
 let _supabase = null;
