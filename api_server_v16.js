@@ -113,6 +113,9 @@ const allowedOrigins = new Set([
   'http://192.168.1.177:5175',
   'http://192.168.1.177:5176',
   'http://192.168.1.177:5177',
+  'https://backstagefanverse.com',
+  'https://www.backstagefanverse.com',
+  'https://backstage-fanverse-01.vercel.app',
 ]);
 if (process.env.FRONTEND_URL) allowedOrigins.add(process.env.FRONTEND_URL);
 
