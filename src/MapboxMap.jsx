@@ -47,6 +47,24 @@ export const CONCERT_CHECKINS_GEOJSON = { type:"FeatureCollection", features:[] 
 export const NEARBY_FANS_GEOJSON      = { type:"FeatureCollection", features:[] };
 const EMPTY_FC                        = { type:"FeatureCollection", features:[] };
 
+// ─── Cosmic starfield — edge-zone pearls (x%, y%, size-px, anim-delay-s) ─────
+// Positions are near the border (outside the 50% vignette transparent zone)
+// so they live in the dark rim and never compete with map data.
+const EDGE_STARS = [
+  [4,8,1.5,0.0],[12,4,1.0,0.8],[88,5,1.5,0.3],[96,12,1.0,1.2],
+  [2,28,1.0,1.8],[97,36,1.5,0.5],[3,58,1.5,1.1],[97,65,1.0,0.7],
+  [6,90,1.5,1.6],[14,96,1.0,0.2],[86,94,1.5,0.9],[94,86,1.0,1.4],
+  [28,3,1.0,0.6],[68,4,1.5,1.3],[26,95,1.0,1.9],[74,97,1.5,0.4],
+  [1,50,1.5,1.7],[99,52,1.0,0.3],[50,1,2.0,1.0],[52,98,1.0,0.8],
+  [18,8,1.0,1.3],[82,6,1.5,0.6],[16,88,1.0,0.9],[84,92,1.5,1.5],
+];
+const STAR_PALETTE = [
+  "rgba(240,215,255,0.90)",  // pearl white-lavender
+  "rgba(240,168,204,0.85)",  // sakura pink
+  "rgba(142,239,212,0.80)",  // teal lightstick
+  "rgba(248,235,168,0.82)",  // moonlight gold
+];
+
 const MAPBOX_CDN_VERSION = "3.3.0";
 const MAPBOX_CDN_BASE    = `https://api.mapbox.com/mapbox-gl-js/v${MAPBOX_CDN_VERSION}`;
 
@@ -480,7 +498,7 @@ const MapboxMap = forwardRef(function MapboxMap({
     <div style={{ width:"100%", height:"100%", position:"relative", borderRadius:"inherit" }}>
       <div ref={containerRef} style={{ width:"100%", height:"100%", borderRadius:"inherit" }} />
 
-      {/* Globe depth vignette — darkens edges, adds spherical depth without adding more glow */}
+      {/* Globe depth vignette — darkens edges, adds spherical depth */}
       <div style={{
         position:      "absolute",
         inset:         0,
@@ -489,6 +507,56 @@ const MapboxMap = forwardRef(function MapboxMap({
         background:    "radial-gradient(ellipse 74% 74% at 50% 50%, transparent 50%, rgba(3,2,12,0.72) 100%)",
         zIndex:        1,
       }} />
+
+      {/* Iridescent aurora — lavender/pink/teal/gold blobs in the dark edge zone.
+          ambientGlow breathes them slowly (scale 1→1.08, opacity 0.6→1). */}
+      <div style={{
+        position:      "absolute",
+        inset:         0,
+        borderRadius:  "inherit",
+        pointerEvents: "none",
+        background:    [
+          "radial-gradient(ellipse 55% 42% at 8% 14%, rgba(184,162,255,0.10), transparent 70%)",
+          "radial-gradient(ellipse 50% 38% at 93% 18%, rgba(240,168,204,0.08), transparent 68%)",
+          "radial-gradient(ellipse 55% 44% at 91% 84%, rgba(142,239,212,0.07), transparent 72%)",
+          "radial-gradient(ellipse 48% 36% at 9% 87%, rgba(248,215,128,0.06), transparent 68%)",
+        ].join(","),
+        animation:     "ambientGlow 16s ease-in-out infinite",
+        zIndex:        2,
+      }} />
+
+      {/* Iridescent rim light — inset box-shadow halo (no added blur/fog) */}
+      <div style={{
+        position:      "absolute",
+        inset:         0,
+        borderRadius:  "inherit",
+        pointerEvents: "none",
+        boxShadow:     [
+          "inset 0 0 55px rgba(184,162,255,0.09)",
+          "inset 0 0 28px rgba(240,168,204,0.06)",
+          "inset 0 0 18px rgba(142,239,212,0.04)",
+        ].join(", "),
+        zIndex:        2,
+      }} />
+
+      {/* Cosmic starfield — tiny pearls in the dark vignette rim.
+          starTwinkle oscillates between 0.12–0.22 opacity — refined, not cheesy. */}
+      {EDGE_STARS.map(([x, y, s, d], i) => (
+        <div key={i} style={{
+          position:       "absolute",
+          left:           `${x}%`,
+          top:            `${y}%`,
+          width:          s,
+          height:         s,
+          borderRadius:   "50%",
+          background:     STAR_PALETTE[i % 4],
+          boxShadow:      `0 0 ${s * 2.5}px ${STAR_PALETTE[i % 4]}`,
+          pointerEvents:  "none",
+          animation:      `starTwinkle ${2.0 + d}s ease-in-out infinite`,
+          animationDelay: `${d}s`,
+          zIndex:         2,
+        }} />
+      ))}
 
       {/* Gesture hint — auto-fades after 3s */}
       {hintVisible && (

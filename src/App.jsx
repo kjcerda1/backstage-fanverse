@@ -7897,14 +7897,14 @@ function FanverseMap({ onBack }) {
         {view==="world" ? (
           <div style={{ position:"relative" }}>
             {/* Real Mapbox GL map */}
-            <div style={{ margin:"0 18px 18px", borderRadius:28, overflow:"hidden", height:390, position:"relative", border:"1px solid rgba(255,255,255,0.09)", boxShadow:`0 24px 72px rgba(0,0,0,0.55),inset 0 1px 0 rgba(255,255,255,0.08)${selectedCity?`,0 0 60px ${selectedCity.color}0c`:""}` }}>
+            <div style={{ margin:"0 18px 18px", borderRadius:28, overflow:"hidden", height:390, position:"relative", border:"1.5px solid rgba(184,162,255,0.28)", boxShadow:`0 28px 80px rgba(0,0,0,0.65), 0 0 0 1px rgba(184,162,255,0.10), 0 0 40px rgba(184,162,255,0.06), inset 0 1px 0 rgba(255,255,255,0.12)${selectedCity?`, 0 0 80px ${selectedCity.color}1a`:""}` }}>
               <MapboxMap ref={worldMapRef} densityData={CITY_DENSITY_GEOJSON} showHeatmap={false} onCityClick={p=>setSelectedCity(p)} selectedCityFeature={selectedCityFeature} />
               {/* Activity type legend */}
               <div style={{ position:"absolute",bottom:10,left:10,display:"flex",gap:6,alignItems:"center",pointerEvents:"none",zIndex:1,background:"rgba(6,6,15,0.72)",backdropFilter:"blur(12px)",borderRadius:99,padding:"5px 10px",border:"1px solid rgba(255,255,255,0.10)" }}>
                 {[["#ffc8ec","Trending"],["#a5d8ff","Concert"],["#f0cc88","Event"],["#c4b5fd","Hub"]].map(([color,label])=>(
                   <div key={label} style={{ display:"flex",alignItems:"center",gap:3 }}>
-                    <div style={{ width:5,height:5,borderRadius:"50%",background:color,flexShrink:0 }} />
-                    <p style={{ fontSize:7.5,color:"rgba(255,255,255,0.62)",letterSpacing:"0.04em",whiteSpace:"nowrap" }}>{label}</p>
+                    <div style={{ width:5,height:5,borderRadius:"50%",background:color,flexShrink:0,boxShadow:`0 0 5px ${color}` }} />
+                    <p style={{ fontSize:7.5,color:"rgba(255,255,255,0.72)",letterSpacing:"0.04em",whiteSpace:"nowrap" }}>{label}</p>
                   </div>
                 ))}
               </div>
