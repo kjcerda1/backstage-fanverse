@@ -566,7 +566,7 @@ async function countCompletedFounderPasses() {
   return total;
 }
 
-app.post('/api/subscriptions/checkout', requireAuth, async (req, res) => {
+app.post('/api/subscriptions/checkout', optionalAuth, async (req, res) => {
   const { plan, priceId, successUrl, cancelUrl, email, userId } = req.body;
 
   if (!HAS_STRIPE) {
@@ -620,7 +620,7 @@ app.post('/api/subscriptions/checkout', requireAuth, async (req, res) => {
 });
 
 // Legacy alias — keep this so any old references still work
-app.post('/api/stripe/checkout', requireAuth, async (req, res) => {
+app.post('/api/stripe/checkout', optionalAuth, async (req, res) => {
   req.url = '/api/subscriptions/checkout';
   // Forward to subscriptions handler
   const { plan, priceId, successUrl, cancelUrl, email, userId } = req.body;

@@ -13586,7 +13586,7 @@ function AppInner() {
     try {
       const res = await fetch(`${API_URL}/api/subscriptions/checkout`, {
         method:"POST",
-        headers:api._headers(),
+        headers:{ 'Content-Type':'application/json', ...(api._token ? { Authorization:`Bearer ${api._token}` } : {}) },
         body:JSON.stringify({
           plan: selectedPlan,
           userId: user?.id,
@@ -13596,6 +13596,7 @@ function AppInner() {
         }),
       });
       data = await res.json().catch(()=>({}));
+      if (!res.ok && !data?.url) { console.warn('[Checkout] Backend error:', res.status, data); }
       if (res.status === 409 && data?.soldOut) {
         setShowUpgradeModal(false);
         setNotif({
