@@ -7897,10 +7897,23 @@ function FanverseMap({ onBack }) {
         {view==="world" ? (
           <div style={{ position:"relative" }}>
             {/* Real Mapbox GL map */}
-            <div style={{ margin:"0 18px 18px", borderRadius:28, overflow:"hidden", height:390, position:"relative", border:"1.5px solid rgba(184,162,255,0.28)", boxShadow:`0 28px 80px rgba(0,0,0,0.65), 0 0 0 1px rgba(184,162,255,0.10), 0 0 40px rgba(184,162,255,0.06), inset 0 1px 0 rgba(255,255,255,0.12)${selectedCity?`, 0 0 80px ${selectedCity.color}1a`:""}` }}>
+            <div style={{ margin:"0 18px 18px", borderRadius:28, overflow:"hidden", height:390, position:"relative",
+              border:"none",
+              boxShadow:[
+                "0 36px 100px rgba(0,0,0,0.72)",             // outer depth
+                "0 0 0 1.5px rgba(184,162,255,0.38)",          // lavender glass ring
+                "0 0 0 2.5px rgba(240,168,204,0.14)",          // pink second ring
+                "0 0 0 4.5px rgba(0,0,0,0.32)",               // dark separation gap
+                "inset 0 1.5px 0 rgba(255,255,255,0.22)",     // top inner pearl highlight
+                "inset 1px 0 0 rgba(255,255,255,0.06)",       // left inner edge light
+                "inset 0 -1px 0 rgba(0,0,0,0.55)",            // bottom inner depth
+                "0 0 60px rgba(184,162,255,0.09)",             // ambient lavender bloom
+                selectedCity ? `0 0 100px ${selectedCity.color}1e` : null,
+              ].filter(Boolean).join(", ")
+            }}>
               <MapboxMap ref={worldMapRef} densityData={CITY_DENSITY_GEOJSON} showHeatmap={false} onCityClick={p=>setSelectedCity(p)} selectedCityFeature={selectedCityFeature} />
               {/* Activity type legend */}
-              <div style={{ position:"absolute",bottom:10,left:10,display:"flex",gap:6,alignItems:"center",pointerEvents:"none",zIndex:1,background:"rgba(6,6,15,0.72)",backdropFilter:"blur(12px)",borderRadius:99,padding:"5px 10px",border:"1px solid rgba(255,255,255,0.10)" }}>
+              <div style={{ position:"absolute",bottom:10,left:10,display:"flex",gap:6,alignItems:"center",pointerEvents:"none",zIndex:1, background:"rgba(6,4,18,0.88)", backdropFilter:"blur(22px)", WebkitBackdropFilter:"blur(22px)", borderRadius:99,padding:"5px 11px", border:"none", boxShadow:"0 0 0 1px rgba(184,162,255,0.32), 0 0 0 2px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.14), 0 4px 14px rgba(0,0,0,0.40)" }}>
                 {[["#ffc8ec","Trending"],["#a5d8ff","Concert"],["#f0cc88","Event"],["#c4b5fd","Hub"]].map(([color,label])=>(
                   <div key={label} style={{ display:"flex",alignItems:"center",gap:3 }}>
                     <div style={{ width:5,height:5,borderRadius:"50%",background:color,flexShrink:0,boxShadow:`0 0 5px ${color}` }} />
@@ -7910,7 +7923,7 @@ function FanverseMap({ onBack }) {
               </div>
               {/* Selected city info pill — top of map */}
               {selectedCity && (
-                <div style={{ position:"absolute",top:10,left:12,right:12,background:"rgba(6,6,15,0.90)",borderRadius:14,padding:"10px 14px",border:`1.5px solid ${selectedCity.color}55`,backdropFilter:"blur(16px)",zIndex:2,display:"flex",alignItems:"center",gap:10,boxShadow:`0 4px 24px ${selectedCity.color}18` }}>
+                <div style={{ position:"absolute",top:10,left:12,right:12, background:"rgba(6,4,20,0.90)", backdropFilter:"blur(28px)", WebkitBackdropFilter:"blur(28px)", borderRadius:18, padding:"10px 14px", border:`1.5px solid ${selectedCity.color}3e`, zIndex:2, display:"flex", alignItems:"center", gap:10, boxShadow:[`0 10px 36px ${selectedCity.color}24`, `0 0 0 0.5px ${selectedCity.color}2a`, "inset 0 1.5px 0 rgba(255,255,255,0.16)", "inset 0 -1px 0 rgba(0,0,0,0.38)", "0 2px 12px rgba(0,0,0,0.50)"].join(", ") }}>
                   <div style={{ position:"relative",flexShrink:0,width:10,height:10 }}>
                     <div style={{ position:"absolute",inset:-3,borderRadius:"50%",background:selectedCity.color,opacity:0.25,animation:"pulse 1.4s ease infinite" }} />
                     <div style={{ width:10,height:10,borderRadius:"50%",background:selectedCity.color }} />
@@ -7932,7 +7945,7 @@ function FanverseMap({ onBack }) {
 
             {/* Viewing city pill — shown below map when a city is selected */}
             {selectedCity && (
-              <div onClick={resetView} className="tap" style={{ margin:"-6px 18px 10px",display:"flex",alignItems:"center",justifyContent:"space-between",background:"rgba(255,255,255,0.04)",border:`1px solid ${selectedCity.color}33`,borderRadius:99,padding:"7px 16px",backdropFilter:"blur(12px)",cursor:"pointer" }}>
+              <div onClick={resetView} className="tap" style={{ margin:"-6px 18px 10px",display:"flex",alignItems:"center",justifyContent:"space-between", background:"rgba(6,4,18,0.75)", backdropFilter:"blur(22px)", WebkitBackdropFilter:"blur(22px)", border:`1px solid ${selectedCity.color}3a`, borderRadius:99, padding:"7px 16px", cursor:"pointer", boxShadow:[`0 0 0 0.5px ${selectedCity.color}22`, "inset 0 1px 0 rgba(255,255,255,0.11)", "0 3px 14px rgba(0,0,0,0.32)"].join(", ") }}>
                 <div style={{ display:"flex",alignItems:"center",gap:7 }}>
                   <div style={{ width:6,height:6,borderRadius:"50%",background:selectedCity.color,animation:"pulse 1.4s ease infinite" }} />
                   <p style={{ fontSize:11,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>Viewing {selectedCity.city}</p>

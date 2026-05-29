@@ -76,6 +76,20 @@ function injectMapboxCSS() {
   link.rel  = "stylesheet";
   link.href = `${MAPBOX_CDN_BASE}/mapbox-gl.css`;
   document.head.appendChild(link);
+
+  // Attribution refinement — reduces visual competition while remaining
+  // fully legible and compliant with Mapbox ToS (opacity ≥ 0.78, text readable).
+  // Attribution text and logo remain visible; only brightness is softened.
+  if (!document.getElementById("mapbox-attrib-style")) {
+    const style = document.createElement("style");
+    style.id = "mapbox-attrib-style";
+    style.textContent = [
+      ".mapboxgl-ctrl-attrib{font-size:9px!important;opacity:0.78}",
+      ".mapboxgl-ctrl-attrib a{color:rgba(200,185,255,0.88)!important;text-decoration:none}",
+      ".mapboxgl-ctrl-logo{opacity:0.80}",
+    ].join("");
+    document.head.appendChild(style);
+  }
 }
 
 // ─── JS injection — loads CDN UMD bundle so window.mapboxgl is always set ────
@@ -557,6 +571,33 @@ const MapboxMap = forwardRef(function MapboxMap({
           zIndex:         2,
         }} />
       ))}
+
+      {/* Diagonal glass sheen — top-left pearl reflection (liquid glass technique).
+          Covers top 40% only; gradient fades to transparent so map is unobstructed. */}
+      <div style={{
+        position:      "absolute",
+        top:           0,
+        left:          0,
+        right:         0,
+        height:        "40%",
+        borderRadius:  "inherit",
+        pointerEvents: "none",
+        background:    "linear-gradient(138deg, rgba(255,255,255,0.038) 0%, rgba(255,255,255,0.016) 38%, transparent 62%)",
+        zIndex:        3,
+      }} />
+
+      {/* Top pearl edge highlight — the glass rim light.
+          Single-pixel line at top, fades through lavender/pink/white. */}
+      <div style={{
+        position:      "absolute",
+        top:           0,
+        left:          "6%",
+        right:         "6%",
+        height:        "1px",
+        pointerEvents: "none",
+        background:    "linear-gradient(90deg, transparent, rgba(255,255,255,0.22), rgba(200,185,255,0.34), rgba(255,220,238,0.28), rgba(255,255,255,0.22), transparent)",
+        zIndex:        3,
+      }} />
 
       {/* Gesture hint — auto-fades after 3s */}
       {hintVisible && (
