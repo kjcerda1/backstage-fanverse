@@ -1,4 +1,4 @@
-import { useEffect, useRef, forwardRef, useImperativeHandle } from "react";
+import { useEffect, useRef, useState, forwardRef, useImperativeHandle } from "react";
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
@@ -75,37 +75,40 @@ function loadMapboxGL() {
   return window.__mapboxGLPromise;
 }
 
-// ─── Cosmic style — deep space dark map ──────────────────────────────────────
+// ─── Cosmic style — deep space dark map, improved contrast ───────────────────
 function applyCosmicStyle(map) {
   const layers = map.getStyle().layers;
 
   const paintOverrides = [
-    ["background",               "background-color",  "#06060f"],
-    ["water",                    "fill-color",        "#070711"],
-    ["land",                     "background-color",  "#111126"],
-    ["landuse",                  "fill-color",        "#0f0e28"],
-    ["landuse-shadow",           "fill-color",        "#0f0e28"],
-    ["national-park",            "fill-color",        "#0e0c24"],
-    ["admin-0-boundary",         "line-color",        "rgba(184,162,255,0.28)"],
-    ["admin-0-boundary",         "line-opacity",      0.55],
-    ["admin-0-boundary",         "line-width",        0.6],
-    ["admin-0-boundary-disputed","line-color",        "rgba(184,162,255,0.15)"],
-    ["admin-0-boundary-disputed","line-opacity",      0.3],
-    ["admin-1-boundary",         "line-color",        "rgba(184,162,255,0.08)"],
-    ["admin-1-boundary",         "line-opacity",      0.35],
-    ["admin-state-province",     "line-color",        "rgba(184,162,255,0.08)"],
-    ["admin-state-province",     "line-opacity",      0.35],
-    ["country-label",            "text-color",        "rgba(184,162,255,0.35)"],
-    ["country-label",            "text-halo-color",   "#06060f"],
-    ["country-label",            "text-opacity",      0.4],
-    ["state-label",              "text-color",        "rgba(184,162,255,0.15)"],
-    ["state-label",              "text-opacity",      0.2],
-    ["settlement-major-label",   "text-color",        "rgba(184,162,255,0.22)"],
-    ["settlement-major-label",   "text-halo-color",   "#06060f"],
-    ["settlement-major-label",   "text-opacity",      0.28],
-    ["settlement-minor-label",   "text-color",        "rgba(184,162,255,0.12)"],
-    ["settlement-minor-label",   "text-halo-color",   "#06060f"],
-    ["settlement-minor-label",   "text-opacity",      0.15],
+    // Slightly brighter land/water so globe reads clearly without looking generic
+    ["background",               "background-color",  "#08061a"],
+    ["water",                    "fill-color",        "#050a18"],   // distinct blue-dark from land
+    ["land",                     "background-color",  "#16122e"],   // richer purple-dark
+    ["landuse",                  "fill-color",        "#141030"],
+    ["landuse-shadow",           "fill-color",        "#141030"],
+    ["national-park",            "fill-color",        "#11102a"],
+    // More visible country boundaries
+    ["admin-0-boundary",         "line-color",        "rgba(184,162,255,0.40)"],
+    ["admin-0-boundary",         "line-opacity",      0.72],
+    ["admin-0-boundary",         "line-width",        0.7],
+    ["admin-0-boundary-disputed","line-color",        "rgba(184,162,255,0.22)"],
+    ["admin-0-boundary-disputed","line-opacity",      0.40],
+    ["admin-1-boundary",         "line-color",        "rgba(184,162,255,0.11)"],
+    ["admin-1-boundary",         "line-opacity",      0.42],
+    ["admin-state-province",     "line-color",        "rgba(184,162,255,0.11)"],
+    ["admin-state-province",     "line-opacity",      0.42],
+    // More readable country labels
+    ["country-label",            "text-color",        "rgba(184,162,255,0.58)"],
+    ["country-label",            "text-halo-color",   "#08061a"],
+    ["country-label",            "text-opacity",      0.62],
+    ["state-label",              "text-color",        "rgba(184,162,255,0.22)"],
+    ["state-label",              "text-opacity",      0.26],
+    ["settlement-major-label",   "text-color",        "rgba(184,162,255,0.30)"],
+    ["settlement-major-label",   "text-halo-color",   "#08061a"],
+    ["settlement-major-label",   "text-opacity",      0.36],
+    ["settlement-minor-label",   "text-color",        "rgba(184,162,255,0.16)"],
+    ["settlement-minor-label",   "text-halo-color",   "#08061a"],
+    ["settlement-minor-label",   "text-opacity",      0.20],
   ];
 
   paintOverrides.forEach(([id, prop, value]) => {
@@ -121,7 +124,7 @@ function applyCosmicStyle(map) {
 // ─── Layer definitions ────────────────────────────────────────────────────────
 function buildLayers(showHeatmap) {
   return [
-    // Heatmap
+    // ── Heatmap ───────────────────────────────────────────────────────────────
     {
       id: "fan-heatmap", type: "heatmap", source: "fan-density", maxzoom: 6,
       paint: {
@@ -129,53 +132,65 @@ function buildLayers(showHeatmap) {
         "heatmap-intensity": ["interpolate",["linear"],["zoom"], 0,1, 6,3],
         "heatmap-color": [
           "interpolate",["linear"],["heatmap-density"],
-          0,"rgba(6,6,15,0)", 0.2,"rgba(90,40,160,0.5)", 0.5,"rgba(184,162,255,0.7)",
-          0.8,"rgba(240,168,204,0.9)", 1,"rgba(255,80,140,1)",
+          0,"rgba(6,6,15,0)", 0.2,"rgba(90,40,160,0.6)", 0.5,"rgba(184,162,255,0.78)",
+          0.8,"rgba(240,168,204,0.95)", 1,"rgba(255,80,140,1)",
         ],
-        "heatmap-radius":  ["interpolate",["linear"],["zoom"], 0,20, 6,80],
-        "heatmap-opacity": showHeatmap ? 0.85 : 0,
+        "heatmap-radius":  ["interpolate",["linear"],["zoom"], 0,26, 6,110],
+        "heatmap-opacity": showHeatmap ? 0.9 : 0,
       },
     },
 
-    // City glows + core
+    // ── City glow — 4 layered halos for depth ─────────────────────────────────
+    // Wide atmospheric bloom
+    { id:"fan-glow-atmosphere", type:"circle", source:"fan-density",
+      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,62,12000,190], "circle-color":["get","color"], "circle-opacity":0.04, "circle-blur":1.5 }},
+    // Soft outer glow
     { id:"fan-glow-outer", type:"circle", source:"fan-density",
-      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,32,12000,100], "circle-color":["get","color"], "circle-opacity":0.05, "circle-blur":1.4 }},
+      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,44,12000,132], "circle-color":["get","color"], "circle-opacity":0.09, "circle-blur":1.2 }},
+    // Mid glow
     { id:"fan-glow-mid", type:"circle", source:"fan-density",
-      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,15,12000,52], "circle-color":["get","color"], "circle-opacity":0.14, "circle-blur":0.7 }},
+      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,24,12000,70], "circle-color":["get","color"], "circle-opacity":0.20, "circle-blur":0.55 }},
+    // Inner halo — new layer for extra premium layering
+    { id:"fan-glow-inner", type:"circle", source:"fan-density",
+      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,12,12000,36], "circle-color":["get","color"], "circle-opacity":0.44, "circle-blur":0.22 }},
+    // Bright crisp core
     { id:"fan-core", type:"circle", source:"fan-density",
-      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,5,12000,20], "circle-color":["get","color"], "circle-opacity":0.9, "circle-stroke-width":1.5, "circle-stroke-color":"rgba(255,255,255,0.25)" }},
+      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,6,12000,22], "circle-color":["get","color"], "circle-opacity":1.0, "circle-stroke-width":1.5, "circle-stroke-color":"rgba(255,255,255,0.55)" }},
 
-    // Trending pulse (RAF-animated)
+    // ── Trending pulse ring (RAF-animated) ────────────────────────────────────
     { id:"fan-pulse", type:"circle", source:"fan-density",
       filter:["==",["get","trending"],true],
-      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,22,12000,75], "circle-color":["get","color"], "circle-opacity":0.25, "circle-blur":0.9 }},
+      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,28,12000,92], "circle-color":["get","color"], "circle-opacity":0.28, "circle-blur":0.80 }},
 
-    // Labels
+    // ── City labels ───────────────────────────────────────────────────────────
     { id:"fan-labels", type:"symbol", source:"fan-density", minzoom:2,
       layout:{
         "text-field":["concat",["get","city"],"\n",["case",[">=",["get","fans"],1000],["concat",["to-string",["round",["/",["get","fans"],1000]]],"K"],["to-string",["get","fans"]]]],
         "text-font":["DIN Offc Pro Bold","Arial Unicode MS Bold"],
-        "text-size":["interpolate",["linear"],["get","fans"],800,9,12000,13],
+        "text-size":["interpolate",["linear"],["get","fans"],800,10,12000,14],
         "text-offset":[0,1.8], "text-anchor":"top", "text-allow-overlap":false,
       },
-      paint:{ "text-color":["get","color"], "text-halo-color":"#06060f", "text-halo-width":1.5, "text-opacity":0.9 },
+      paint:{ "text-color":["get","color"], "text-halo-color":"#06060f", "text-halo-width":2, "text-opacity":0.95 },
     },
 
-    // Future layers (Supabase Realtime)
+    // ── Future Supabase Realtime layers ───────────────────────────────────────
     { id:"concert-checkins", type:"circle", source:"concert-checkins",
       paint:{ "circle-radius":8, "circle-color":"#f0cc88", "circle-opacity":0.8, "circle-blur":0.2 }},
     { id:"nearby-fans", type:"circle", source:"nearby-fans",
       paint:{ "circle-radius":6, "circle-color":"#64c88c", "circle-opacity":0.85, "circle-stroke-width":1, "circle-stroke-color":"rgba(255,255,255,0.3)" }},
 
-    // Selected city emphasis (empty source until a city is tapped)
+    // ── Selected city — premium ring set (RAF-animated, empty until tap) ──────
     { id:"sel-bloom", type:"circle", source:"selected-city",
-      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,56,12000,160], "circle-color":["get","color"], "circle-opacity":0.07, "circle-blur":1.2 }},
+      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,82,12000,225], "circle-color":["get","color"], "circle-opacity":0.08, "circle-blur":1.35 }},
+    // Slow outermost ring
+    { id:"sel-ring-outermost", type:"circle", source:"selected-city",
+      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,58,12000,150], "circle-color":"rgba(0,0,0,0)", "circle-opacity":0, "circle-stroke-width":1, "circle-stroke-color":["get","color"], "circle-stroke-opacity":0.20 }},
     { id:"sel-ring-outer", type:"circle", source:"selected-city",
-      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,40,12000,115], "circle-color":"rgba(0,0,0,0)", "circle-opacity":0, "circle-stroke-width":1.5, "circle-stroke-color":["get","color"], "circle-stroke-opacity":0.35 }},
+      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,42,12000,118], "circle-color":"rgba(0,0,0,0)", "circle-opacity":0, "circle-stroke-width":1.5, "circle-stroke-color":["get","color"], "circle-stroke-opacity":0.38 }},
     { id:"sel-ring-inner", type:"circle", source:"selected-city",
-      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,27,12000,76], "circle-color":"rgba(0,0,0,0)", "circle-opacity":0, "circle-stroke-width":2, "circle-stroke-color":["get","color"], "circle-stroke-opacity":0.6 }},
+      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,28,12000,80], "circle-color":"rgba(0,0,0,0)", "circle-opacity":0, "circle-stroke-width":2, "circle-stroke-color":["get","color"], "circle-stroke-opacity":0.65 }},
     { id:"sel-core", type:"circle", source:"selected-city",
-      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,10,12000,26], "circle-color":"#ffffff", "circle-opacity":0.95, "circle-stroke-width":3, "circle-stroke-color":["get","color"], "circle-stroke-opacity":1 }},
+      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,11,12000,28], "circle-color":"#ffffff", "circle-opacity":1.0, "circle-stroke-width":3, "circle-stroke-color":["get","color"], "circle-stroke-opacity":1 }},
   ];
 }
 
@@ -192,12 +207,24 @@ const MapboxMap = forwardRef(function MapboxMap({
   const phaseRef     = useRef(0);
   const readyRef     = useRef(false);
 
+  // Gesture hint — auto-fades after 3s, removed from DOM at 3.8s
+  const [hintOpacity, setHintOpacity] = useState(1);
+  const [hintVisible, setHintVisible] = useState(true);
+
   useImperativeHandle(ref, () => ({
     flyTo(lng, lat, zoom = 4.5) {
       if (!mapRef.current || !readyRef.current) return;
-      mapRef.current.flyTo({ center:[lng,lat], zoom, speed:0.8, curve:1.4, essential:true });
+      mapRef.current.flyTo({ center:[lng,lat], zoom, speed:0.9, curve:1.3, essential:true });
     },
   }), []);
+
+  // Auto-fade gesture hint
+  useEffect(() => {
+    if (!MAPBOX_TOKEN) return;
+    const fadeT = setTimeout(() => setHintOpacity(0), 3000);
+    const hideT = setTimeout(() => setHintVisible(false), 3800);
+    return () => { clearTimeout(fadeT); clearTimeout(hideT); };
+  }, []);
 
   // ── Init map ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -213,20 +240,34 @@ const MapboxMap = forwardRef(function MapboxMap({
         container: containerRef.current,
         style:     "mapbox://styles/mapbox/dark-v11",
         center:    [20, 18],
-        zoom:      1.5,
-        minZoom:   1,
-        maxZoom:   8,
+        zoom:      1.3,             // slightly more zoomed out — globe visible
+        minZoom:   0.8,             // allow full globe pull-back
+        maxZoom:   10,              // allow city-level detail
         attributionControl: false,
         logoPosition: "bottom-right",
         fadeDuration: 300,
-        dragRotate:   false,
-        touchZoomRotate: false,
+        dragRotate:      true,      // enables globe spinning (right-click drag / ctrl+drag)
+        touchZoomRotate: true,      // enables pinch-to-zoom + two-finger rotate
+        touchPitch:      false,     // prevent accidental tilt on mobile
+        pitchWithRotate: false,     // keep flat pitch while spinning
       });
 
       mapRef.current = map;
       map.addControl(new mapboxgl.AttributionControl({ compact:true }), "bottom-right");
 
       map.on("load", () => {
+        // Globe projection — 3D spinning sphere
+        map.setProjection({ name: "globe" });
+
+        // Space atmosphere — horizon glow + deep space color + subtle stars
+        map.setFog({
+          color:            "#06060f",   // near-ground fog color
+          "high-color":     "#1e1250",   // upper atmosphere purple glow
+          "horizon-blend":  0.28,        // blend softness at horizon
+          "space-color":    "#050318",   // deep space
+          "star-intensity": 0.15,        // subtle native Mapbox stars
+        });
+
         applyCosmicStyle(map);
 
         map.addSource("fan-density",      { type:"geojson", data: densityData });
@@ -237,29 +278,36 @@ const MapboxMap = forwardRef(function MapboxMap({
         buildLayers(showHeatmap).forEach(layer => map.addLayer(layer));
         readyRef.current = true;
 
-        // RAF animation loop
+        // ── RAF pulse animation ──────────────────────────────────────────────
         const animate = () => {
           if (!mapRef.current) return;
           phaseRef.current = (phaseRef.current + 0.022) % (Math.PI * 2);
-          const sin        = Math.sin(phaseRef.current);
+          const sin = Math.sin(phaseRef.current);
 
-          const pOpacity = 0.08 + sin * 0.14;
-          const pMult    = 1 + sin * 0.18;
-          const s1 = Math.sin(phaseRef.current * 0.65);
-          const s2 = Math.sin(phaseRef.current * 1.15 + 1.9);
+          // Trending pulse — more vivid
+          const pOpacity = 0.10 + sin * 0.20;
+          const pMult    = 1 + sin * 0.22;
+          // Three ring phases — each at different frequencies
+          const s1 = Math.sin(phaseRef.current * 0.65);         // mid ring
+          const s2 = Math.sin(phaseRef.current * 1.15 + 1.9);   // inner ring (faster)
+          const s3 = Math.sin(phaseRef.current * 0.42 + 0.8);   // outermost ring (slowest)
 
           try {
             map.setPaintProperty("fan-pulse", "circle-opacity", Math.max(0, pOpacity));
             map.setPaintProperty("fan-pulse", "circle-radius", [
-              "interpolate",["linear"],["get","fans"], 800,22*pMult, 12000,75*pMult,
+              "interpolate",["linear"],["get","fans"], 800,28*pMult, 12000,92*pMult,
             ]);
-            map.setPaintProperty("sel-ring-outer", "circle-stroke-opacity", Math.max(0, 0.18 + s1 * 0.22));
+            map.setPaintProperty("sel-ring-outermost", "circle-stroke-opacity", Math.max(0, 0.10 + s3 * 0.14));
+            map.setPaintProperty("sel-ring-outermost", "circle-radius", [
+              "interpolate",["linear"],["get","fans"], 800,58*(1+s3*0.08), 12000,150*(1+s3*0.08),
+            ]);
+            map.setPaintProperty("sel-ring-outer", "circle-stroke-opacity", Math.max(0, 0.20 + s1 * 0.22));
             map.setPaintProperty("sel-ring-outer", "circle-radius", [
-              "interpolate",["linear"],["get","fans"], 800,40*(1+s1*0.14), 12000,115*(1+s1*0.14),
+              "interpolate",["linear"],["get","fans"], 800,42*(1+s1*0.14), 12000,118*(1+s1*0.14),
             ]);
-            map.setPaintProperty("sel-ring-inner", "circle-stroke-opacity", Math.max(0, 0.38 + s2 * 0.28));
+            map.setPaintProperty("sel-ring-inner", "circle-stroke-opacity", Math.max(0, 0.40 + s2 * 0.28));
             map.setPaintProperty("sel-ring-inner", "circle-radius", [
-              "interpolate",["linear"],["get","fans"], 800,27*(1+s2*0.1), 12000,76*(1+s2*0.1),
+              "interpolate",["linear"],["get","fans"], 800,28*(1+s2*0.10), 12000,80*(1+s2*0.10),
             ]);
           } catch (_) {
             return;
@@ -268,6 +316,7 @@ const MapboxMap = forwardRef(function MapboxMap({
         };
         rafRef.current = requestAnimationFrame(animate);
 
+        // City click
         map.on("click", "fan-core", e => {
           if (!e.features?.length || !onCityClick) return;
           onCityClick(e.features[0].properties);
@@ -293,7 +342,7 @@ const MapboxMap = forwardRef(function MapboxMap({
   // ── Heatmap toggle ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (!readyRef.current || !mapRef.current) return;
-    try { mapRef.current.setPaintProperty("fan-heatmap", "heatmap-opacity", showHeatmap ? 0.85 : 0); } catch (_) {}
+    try { mapRef.current.setPaintProperty("fan-heatmap", "heatmap-opacity", showHeatmap ? 0.9 : 0); } catch (_) {}
   }, [showHeatmap]);
 
   // ── Selected city emphasis ─────────────────────────────────────────────────
@@ -307,20 +356,28 @@ const MapboxMap = forwardRef(function MapboxMap({
       if (selectedCityFeature) {
         const city = selectedCityFeature.properties.city;
         const notSel = ["!=", ["get","city"], city];
-        mapRef.current.setPaintProperty("fan-core",       "circle-opacity", ["case", notSel, 0.28, 0.95]);
-        mapRef.current.setPaintProperty("fan-glow-outer", "circle-opacity", ["case", notSel, 0.01, 0.08]);
-        mapRef.current.setPaintProperty("fan-glow-mid",   "circle-opacity", ["case", notSel, 0.04, 0.18]);
-        mapRef.current.setPaintProperty("fan-labels",     "text-opacity",   ["case", notSel, 0.18, 1.0]);
+        // Dim all non-selected cities, spotlight the selected one
+        mapRef.current.setPaintProperty("fan-core",            "circle-opacity", ["case", notSel, 0.20, 1.0]);
+        mapRef.current.setPaintProperty("fan-glow-atmosphere", "circle-opacity", ["case", notSel, 0.01, 0.07]);
+        mapRef.current.setPaintProperty("fan-glow-outer",      "circle-opacity", ["case", notSel, 0.01, 0.12]);
+        mapRef.current.setPaintProperty("fan-glow-mid",        "circle-opacity", ["case", notSel, 0.03, 0.24]);
+        mapRef.current.setPaintProperty("fan-glow-inner",      "circle-opacity", ["case", notSel, 0.04, 0.55]);
+        mapRef.current.setPaintProperty("fan-labels",          "text-opacity",   ["case", notSel, 0.10, 1.0]);
       } else {
-        mapRef.current.setPaintProperty("fan-core",       "circle-opacity", 0.9);
-        mapRef.current.setPaintProperty("fan-glow-outer", "circle-opacity", 0.05);
-        mapRef.current.setPaintProperty("fan-glow-mid",   "circle-opacity", 0.14);
-        mapRef.current.setPaintProperty("fan-labels",     "text-opacity",   0.9);
+        // Restore all layers to default values matching buildLayers()
+        mapRef.current.setPaintProperty("fan-core",            "circle-opacity", 1.0);
+        mapRef.current.setPaintProperty("fan-glow-atmosphere", "circle-opacity", 0.04);
+        mapRef.current.setPaintProperty("fan-glow-outer",      "circle-opacity", 0.09);
+        mapRef.current.setPaintProperty("fan-glow-mid",        "circle-opacity", 0.20);
+        mapRef.current.setPaintProperty("fan-glow-inner",      "circle-opacity", 0.44);
+        mapRef.current.setPaintProperty("fan-labels",          "text-opacity",   0.95);
       }
     } catch (_) {}
   }, [selectedCityFeature]);
 
   // ── No-token fallback — cinematic interactive city visualization ──────────
+  // IMPORTANT: This block must stay completely unchanged.
+  // It renders when VITE_MAPBOX_TOKEN is missing — no white screen, no crash.
   if (!MAPBOX_TOKEN) {
     const selName = selectedCityFeature?.properties?.city ?? null;
     const cityDots = CITY_DENSITY_GEOJSON.features.map(f => {
@@ -411,7 +468,36 @@ const MapboxMap = forwardRef(function MapboxMap({
     );
   }
 
-  return <div ref={containerRef} style={{ width:"100%", height:"100%", borderRadius:"inherit" }} />;
+  // ── Real Mapbox globe ─────────────────────────────────────────────────────
+  return (
+    <div style={{ width:"100%", height:"100%", position:"relative", borderRadius:"inherit" }}>
+      <div ref={containerRef} style={{ width:"100%", height:"100%", borderRadius:"inherit" }} />
+
+      {/* Gesture hint — auto-fades after 3s */}
+      {hintVisible && (
+        <div style={{
+          position:       "absolute",
+          bottom:         14,
+          left:           "50%",
+          transform:      "translateX(-50%)",
+          background:     "rgba(6,4,20,0.82)",
+          backdropFilter: "blur(14px)",
+          border:         "1px solid rgba(184,162,255,0.22)",
+          borderRadius:   99,
+          padding:        "6px 15px",
+          pointerEvents:  "none",
+          zIndex:         2,
+          opacity:        hintOpacity,
+          transition:     "opacity 0.8s ease",
+          whiteSpace:     "nowrap",
+        }}>
+          <p style={{ fontSize:9, color:"rgba(184,162,255,0.80)", fontFamily:"'Epilogue',sans-serif", fontWeight:600, letterSpacing:"0.09em", textTransform:"uppercase" }}>
+            pinch to zoom · drag to spin
+          </p>
+        </div>
+      )}
+    </div>
+  );
 });
 
 export default MapboxMap;
