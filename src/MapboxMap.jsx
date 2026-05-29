@@ -140,27 +140,27 @@ function buildLayers(showHeatmap) {
       },
     },
 
-    // ── City glow — 4 layered halos for depth ─────────────────────────────────
-    // Wide atmospheric bloom
+    // ── City glow — 4 layered halos (reduced for clarity, not fog) ───────────
+    // Wide atmospheric bloom — kept subtle, well below labels
     { id:"fan-glow-atmosphere", type:"circle", source:"fan-density",
-      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,62,12000,190], "circle-color":["get","color"], "circle-opacity":0.04, "circle-blur":1.5 }},
+      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,48,12000,150], "circle-color":["get","color"], "circle-opacity":0.03, "circle-blur":1.2 }},
     // Soft outer glow
     { id:"fan-glow-outer", type:"circle", source:"fan-density",
-      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,44,12000,132], "circle-color":["get","color"], "circle-opacity":0.09, "circle-blur":1.2 }},
+      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,34,12000,105], "circle-color":["get","color"], "circle-opacity":0.07, "circle-blur":0.95 }},
     // Mid glow
     { id:"fan-glow-mid", type:"circle", source:"fan-density",
-      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,24,12000,70], "circle-color":["get","color"], "circle-opacity":0.20, "circle-blur":0.55 }},
-    // Inner halo — new layer for extra premium layering
+      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,19,12000,56], "circle-color":["get","color"], "circle-opacity":0.16, "circle-blur":0.38 }},
+    // Inner halo — tight, sharp aura ring
     { id:"fan-glow-inner", type:"circle", source:"fan-density",
-      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,12,12000,36], "circle-color":["get","color"], "circle-opacity":0.44, "circle-blur":0.22 }},
-    // Bright crisp core
+      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,10,12000,28], "circle-color":["get","color"], "circle-opacity":0.36, "circle-blur":0.12 }},
+    // Bright crisp core dot — slightly larger to compensate for tighter halos
     { id:"fan-core", type:"circle", source:"fan-density",
-      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,6,12000,22], "circle-color":["get","color"], "circle-opacity":1.0, "circle-stroke-width":1.5, "circle-stroke-color":"rgba(255,255,255,0.55)" }},
+      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,7,12000,24], "circle-color":["get","color"], "circle-opacity":1.0, "circle-stroke-width":1.8, "circle-stroke-color":"rgba(255,255,255,0.65)" }},
 
-    // ── Trending pulse ring (RAF-animated) ────────────────────────────────────
+    // ── Trending pulse ring (RAF-animated, goes below labels) ─────────────────
     { id:"fan-pulse", type:"circle", source:"fan-density",
       filter:["==",["get","trending"],true],
-      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,28,12000,92], "circle-color":["get","color"], "circle-opacity":0.28, "circle-blur":0.80 }},
+      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,22,12000,74], "circle-color":["get","color"], "circle-opacity":0.22, "circle-blur":0.70 }},
 
     // ── City labels ───────────────────────────────────────────────────────────
     { id:"fan-labels", type:"symbol", source:"fan-density", minzoom:2,
@@ -181,14 +181,14 @@ function buildLayers(showHeatmap) {
 
     // ── Selected city — premium ring set (RAF-animated, empty until tap) ──────
     { id:"sel-bloom", type:"circle", source:"selected-city",
-      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,82,12000,225], "circle-color":["get","color"], "circle-opacity":0.08, "circle-blur":1.35 }},
+      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,65,12000,178], "circle-color":["get","color"], "circle-opacity":0.06, "circle-blur":1.15 }},
     // Slow outermost ring
     { id:"sel-ring-outermost", type:"circle", source:"selected-city",
-      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,58,12000,150], "circle-color":"rgba(0,0,0,0)", "circle-opacity":0, "circle-stroke-width":1, "circle-stroke-color":["get","color"], "circle-stroke-opacity":0.20 }},
+      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,46,12000,120], "circle-color":"rgba(0,0,0,0)", "circle-opacity":0, "circle-stroke-width":1, "circle-stroke-color":["get","color"], "circle-stroke-opacity":0.20 }},
     { id:"sel-ring-outer", type:"circle", source:"selected-city",
-      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,42,12000,118], "circle-color":"rgba(0,0,0,0)", "circle-opacity":0, "circle-stroke-width":1.5, "circle-stroke-color":["get","color"], "circle-stroke-opacity":0.38 }},
+      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,34,12000,95], "circle-color":"rgba(0,0,0,0)", "circle-opacity":0, "circle-stroke-width":1.5, "circle-stroke-color":["get","color"], "circle-stroke-opacity":0.38 }},
     { id:"sel-ring-inner", type:"circle", source:"selected-city",
-      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,28,12000,80], "circle-color":"rgba(0,0,0,0)", "circle-opacity":0, "circle-stroke-width":2, "circle-stroke-color":["get","color"], "circle-stroke-opacity":0.65 }},
+      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,22,12000,64], "circle-color":"rgba(0,0,0,0)", "circle-opacity":0, "circle-stroke-width":2, "circle-stroke-color":["get","color"], "circle-stroke-opacity":0.65 }},
     { id:"sel-core", type:"circle", source:"selected-city",
       paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,11,12000,28], "circle-color":"#ffffff", "circle-opacity":1.0, "circle-stroke-width":3, "circle-stroke-color":["get","color"], "circle-stroke-opacity":1 }},
   ];
@@ -275,7 +275,14 @@ const MapboxMap = forwardRef(function MapboxMap({
         map.addSource("nearby-fans",      { type:"geojson", data: NEARBY_FANS_GEOJSON });
         map.addSource("selected-city",    { type:"geojson", data: EMPTY_FC });
 
-        buildLayers(showHeatmap).forEach(layer => map.addLayer(layer));
+        // Insert haze/glow/pulse layers BELOW the base-map's own symbol layers
+        // so country and continent labels show through. Core dots and our custom
+        // fan-labels stay on top (no beforeId = appended above everything).
+        const firstSymbolId = map.getStyle().layers.find(l => l.type === 'symbol')?.id;
+        const BELOW_LABELS = new Set(['fan-heatmap','fan-glow-atmosphere','fan-glow-outer','fan-glow-mid','fan-glow-inner','fan-pulse']);
+        buildLayers(showHeatmap).forEach(layer => {
+          map.addLayer(layer, BELOW_LABELS.has(layer.id) && firstSymbolId ? firstSymbolId : undefined);
+        });
         readyRef.current = true;
 
         // ── RAF pulse animation ──────────────────────────────────────────────
@@ -295,19 +302,19 @@ const MapboxMap = forwardRef(function MapboxMap({
           try {
             map.setPaintProperty("fan-pulse", "circle-opacity", Math.max(0, pOpacity));
             map.setPaintProperty("fan-pulse", "circle-radius", [
-              "interpolate",["linear"],["get","fans"], 800,28*pMult, 12000,92*pMult,
+              "interpolate",["linear"],["get","fans"], 800,22*pMult, 12000,74*pMult,
             ]);
             map.setPaintProperty("sel-ring-outermost", "circle-stroke-opacity", Math.max(0, 0.10 + s3 * 0.14));
             map.setPaintProperty("sel-ring-outermost", "circle-radius", [
-              "interpolate",["linear"],["get","fans"], 800,58*(1+s3*0.08), 12000,150*(1+s3*0.08),
+              "interpolate",["linear"],["get","fans"], 800,46*(1+s3*0.08), 12000,120*(1+s3*0.08),
             ]);
             map.setPaintProperty("sel-ring-outer", "circle-stroke-opacity", Math.max(0, 0.20 + s1 * 0.22));
             map.setPaintProperty("sel-ring-outer", "circle-radius", [
-              "interpolate",["linear"],["get","fans"], 800,42*(1+s1*0.14), 12000,118*(1+s1*0.14),
+              "interpolate",["linear"],["get","fans"], 800,34*(1+s1*0.14), 12000,95*(1+s1*0.14),
             ]);
             map.setPaintProperty("sel-ring-inner", "circle-stroke-opacity", Math.max(0, 0.40 + s2 * 0.28));
             map.setPaintProperty("sel-ring-inner", "circle-radius", [
-              "interpolate",["linear"],["get","fans"], 800,28*(1+s2*0.10), 12000,80*(1+s2*0.10),
+              "interpolate",["linear"],["get","fans"], 800,22*(1+s2*0.10), 12000,64*(1+s2*0.10),
             ]);
           } catch (_) {
             return;
@@ -357,19 +364,19 @@ const MapboxMap = forwardRef(function MapboxMap({
         const city = selectedCityFeature.properties.city;
         const notSel = ["!=", ["get","city"], city];
         // Dim all non-selected cities, spotlight the selected one
-        mapRef.current.setPaintProperty("fan-core",            "circle-opacity", ["case", notSel, 0.20, 1.0]);
-        mapRef.current.setPaintProperty("fan-glow-atmosphere", "circle-opacity", ["case", notSel, 0.01, 0.07]);
-        mapRef.current.setPaintProperty("fan-glow-outer",      "circle-opacity", ["case", notSel, 0.01, 0.12]);
-        mapRef.current.setPaintProperty("fan-glow-mid",        "circle-opacity", ["case", notSel, 0.03, 0.24]);
-        mapRef.current.setPaintProperty("fan-glow-inner",      "circle-opacity", ["case", notSel, 0.04, 0.55]);
+        mapRef.current.setPaintProperty("fan-core",            "circle-opacity", ["case", notSel, 0.18, 1.0]);
+        mapRef.current.setPaintProperty("fan-glow-atmosphere", "circle-opacity", ["case", notSel, 0.01, 0.05]);
+        mapRef.current.setPaintProperty("fan-glow-outer",      "circle-opacity", ["case", notSel, 0.01, 0.09]);
+        mapRef.current.setPaintProperty("fan-glow-mid",        "circle-opacity", ["case", notSel, 0.02, 0.18]);
+        mapRef.current.setPaintProperty("fan-glow-inner",      "circle-opacity", ["case", notSel, 0.03, 0.40]);
         mapRef.current.setPaintProperty("fan-labels",          "text-opacity",   ["case", notSel, 0.10, 1.0]);
       } else {
         // Restore all layers to default values matching buildLayers()
         mapRef.current.setPaintProperty("fan-core",            "circle-opacity", 1.0);
-        mapRef.current.setPaintProperty("fan-glow-atmosphere", "circle-opacity", 0.04);
-        mapRef.current.setPaintProperty("fan-glow-outer",      "circle-opacity", 0.09);
-        mapRef.current.setPaintProperty("fan-glow-mid",        "circle-opacity", 0.20);
-        mapRef.current.setPaintProperty("fan-glow-inner",      "circle-opacity", 0.44);
+        mapRef.current.setPaintProperty("fan-glow-atmosphere", "circle-opacity", 0.03);
+        mapRef.current.setPaintProperty("fan-glow-outer",      "circle-opacity", 0.07);
+        mapRef.current.setPaintProperty("fan-glow-mid",        "circle-opacity", 0.16);
+        mapRef.current.setPaintProperty("fan-glow-inner",      "circle-opacity", 0.36);
         mapRef.current.setPaintProperty("fan-labels",          "text-opacity",   0.95);
       }
     } catch (_) {}
@@ -472,6 +479,16 @@ const MapboxMap = forwardRef(function MapboxMap({
   return (
     <div style={{ width:"100%", height:"100%", position:"relative", borderRadius:"inherit" }}>
       <div ref={containerRef} style={{ width:"100%", height:"100%", borderRadius:"inherit" }} />
+
+      {/* Globe depth vignette — darkens edges, adds spherical depth without adding more glow */}
+      <div style={{
+        position:      "absolute",
+        inset:         0,
+        borderRadius:  "inherit",
+        pointerEvents: "none",
+        background:    "radial-gradient(ellipse 74% 74% at 50% 50%, transparent 50%, rgba(3,2,12,0.72) 100%)",
+        zIndex:        1,
+      }} />
 
       {/* Gesture hint — auto-fades after 3s */}
       {hintVisible && (

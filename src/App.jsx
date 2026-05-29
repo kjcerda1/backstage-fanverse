@@ -7897,7 +7897,7 @@ function FanverseMap({ onBack }) {
         {view==="world" ? (
           <div style={{ position:"relative" }}>
             {/* Real Mapbox GL map */}
-            <div style={{ margin:"0 18px 18px", borderRadius:28, overflow:"hidden", height:340, position:"relative", border:"1px solid rgba(255,255,255,0.09)", boxShadow:`0 24px 72px rgba(0,0,0,0.55),inset 0 1px 0 rgba(255,255,255,0.08)${selectedCity?`,0 0 60px ${selectedCity.color}0c`:""}` }}>
+            <div style={{ margin:"0 18px 18px", borderRadius:28, overflow:"hidden", height:390, position:"relative", border:"1px solid rgba(255,255,255,0.09)", boxShadow:`0 24px 72px rgba(0,0,0,0.55),inset 0 1px 0 rgba(255,255,255,0.08)${selectedCity?`,0 0 60px ${selectedCity.color}0c`:""}` }}>
               <MapboxMap ref={worldMapRef} densityData={CITY_DENSITY_GEOJSON} showHeatmap={false} onCityClick={p=>setSelectedCity(p)} selectedCityFeature={selectedCityFeature} />
               {/* Activity type legend */}
               <div style={{ position:"absolute",bottom:10,left:10,display:"flex",gap:6,alignItems:"center",pointerEvents:"none",zIndex:1,background:"rgba(6,6,15,0.72)",backdropFilter:"blur(12px)",borderRadius:99,padding:"5px 10px",border:"1px solid rgba(255,255,255,0.10)" }}>
