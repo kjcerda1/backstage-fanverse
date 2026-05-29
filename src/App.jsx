@@ -1303,11 +1303,17 @@ const MOCK_NOTIF_EXAMPLES = [
 ];
 
 const MOCK_MEETUPS = [
-  { id:"mu1", title:"Pre-Show Meetup — BTS Dallas", type:"meetup", place:"Klyde Warren Park", time:"4:00 PM", date:"Apr 30", group:"BTS", city:"Dallas, TX", rsvps:23, color:C.pink, concertId:"bts-dallas" },
-  { id:"mu2", title:"K-pop After Party 🎉", type:"afterparty", place:"Lizard Lounge", time:"11:00 PM", date:"Apr 30", group:"BTS", city:"Dallas, TX", rsvps:87, color:C.accent, vibe:"club", ageLimit:"21+", entry:"free", music:"K-pop only", concertId:"bts-dallas" },
-  { id:"mu3", title:"SKZ Freebies Exchange 🎁", type:"freebie", place:"Merch Line Gate 5", time:"2:00 PM", date:"May 14", group:"Stray Kids", city:"Chicago, IL", rsvps:15, color:C.mint, concertId:"skz-chicago" },
-  { id:"mu4", title:"ARMY Cup Sleeve Pickup 🧋", type:"cupsleeve", place:"Starbucks Reserve", time:"12:00 PM", date:"Apr 29", group:"BTS", city:"Dallas, TX", rsvps:46, color:C.gold, concertId:"bts-dallas" },
-  { id:"mu5", title:"PC Trading Meetup 🃏", type:"trade", place:"Barnes & Noble Café", time:"1:00 PM", date:"Apr 30", group:"BTS", city:"Dallas, TX", rsvps:31, color:C.silver, concertId:"bts-dallas" },
+  // ── BTS ARIRANG Las Vegas — confirmed show meetups ─────────────────────────
+  { id:"mu-lv1", title:"ARMY Vegas Pre-Show Meetup", type:"meetup", place:"T-Mobile Arena Plaza", time:"3:00 PM", date:"May 23", group:"BTS", city:"Las Vegas, NV", rsvps:142, color:C.pink, concertId:"bts-lv-2026", organizer:"@armyvegas_host", capacity:200, ageLimit:"All ages", safety:"Buddy system recommended · Well-lit public area", description:"Official ARMY meetup before Night 1. Freebies, banners, photo ops. Find us by the BTS banners near the main plaza entrance." },
+  { id:"mu-lv2", title:"ARMY Cup Sleeve Event ☕", type:"cupsleeve", place:"Starbucks Reserve, Park MGM", time:"1:00 PM", date:"May 23", group:"BTS", city:"Las Vegas, NV", rsvps:89, color:C.gold, concertId:"bts-lv-2026", organizer:"@cupsleeve_army", capacity:100, ageLimit:"All ages", safety:"Indoor venue", description:"Custom BTS ARIRANG cup sleeves while supplies last. DM organizer for design preview." },
+  { id:"mu-lv3", title:"PC Trading Table 🃏", type:"trade", place:"Allegiant Stadium — Fan Zone", time:"4:00 PM", date:"May 23", group:"BTS", city:"Las Vegas, NV", rsvps:67, color:C.silver, concertId:"bts-lv-2026", organizer:"@btstradevegas", capacity:50, ageLimit:"All ages", safety:"Outdoor · open area", description:"Bring your dupes! Lenticular, POB, and rare inclusions welcome. No cash trades — card for card only." },
+  { id:"mu-lv4", title:"BTS ARIRANG After Party 🎉", type:"afterparty", place:"Zouk Nightclub, Resorts World", time:"12:00 AM", date:"May 24", group:"BTS", city:"Las Vegas, NV", rsvps:312, color:C.accent, vibe:"club", ageLimit:"21+", entry:"$20 cover", music:"K-pop only", concertId:"bts-lv-2026", organizer:"@zoukvegas_kpop", capacity:500, safety:"Licensed venue · ID required", description:"Official ARMY after party at Zouk. K-pop DJ set all night. RSVP for priority entry." },
+  // ── BTS Dallas (sample data) ────────────────────────────────────────────────
+  { id:"mu1", title:"Pre-Show Meetup — BTS Dallas", type:"meetup", place:"Klyde Warren Park", time:"4:00 PM", date:"Apr 30", group:"BTS", city:"Dallas, TX", rsvps:23, color:C.pink, concertId:"bts-dallas", organizer:"@armydallas", capacity:80, ageLimit:"All ages", safety:"Public park · open area" },
+  { id:"mu2", title:"K-pop After Party 🎉", type:"afterparty", place:"Lizard Lounge", time:"11:00 PM", date:"Apr 30", group:"BTS", city:"Dallas, TX", rsvps:87, color:C.accent, vibe:"club", ageLimit:"21+", entry:"free", music:"K-pop only", concertId:"bts-dallas", organizer:"@kpopdallas", capacity:150, safety:"Licensed venue · ID required" },
+  { id:"mu3", title:"SKZ Freebies Exchange 🎁", type:"freebie", place:"Merch Line Gate 5", time:"2:00 PM", date:"May 14", group:"Stray Kids", city:"Chicago, IL", rsvps:15, color:C.mint, concertId:"skz-chicago", organizer:"@staychicago", capacity:30, ageLimit:"All ages", safety:"Outdoor venue area" },
+  { id:"mu4", title:"ARMY Cup Sleeve Pickup 🧋", type:"cupsleeve", place:"Starbucks Reserve", time:"12:00 PM", date:"Apr 29", group:"BTS", city:"Dallas, TX", rsvps:46, color:C.gold, concertId:"bts-dallas", organizer:"@cupsleevearmy", capacity:60, ageLimit:"All ages", safety:"Indoor venue" },
+  { id:"mu5", title:"PC Trading Meetup 🃏", type:"trade", place:"Barnes & Noble Café", time:"1:00 PM", date:"Apr 30", group:"BTS", city:"Dallas, TX", rsvps:31, color:C.silver, concertId:"bts-dallas", organizer:"@pctradetx", capacity:40, ageLimit:"All ages", safety:"Indoor venue" },
 ];
 
 const MOCK_CARDS = [
@@ -3759,10 +3765,13 @@ function Onboarding({ onDone }) {
 // ─── CONCERTS ─────────────────────────────────────────────────────────────────
 function ConcertsPage({ go, isVip, onUpgrade, user }) {
   const [view, setView] = useState(()=>{ const v=ls.get("backstage_concerts_view","shows"); ls.del("backstage_concerts_view"); return v; });
-  const [going, setGoing] = useState({});
+  const [going, setGoing] = useState(()=>ls.get("backstage_going",{}));
   const [selected, setSelected] = useState(null);
-  const [rsvped, setRsvped] = useState({});
+  const [rsvped, setRsvped] = useState(()=>ls.get("backstage_rsvped",{}));
   const [apiConcerts, setApiConcerts] = useState([]);
+
+  const setGoingPersisted   = (fn) => setGoing(prev=>{ const next=typeof fn==="function"?fn(prev):fn; ls.set("backstage_going",next); return next; });
+  const setRsvpedPersisted  = (fn) => setRsvped(prev=>{ const next=typeof fn==="function"?fn(prev):fn; ls.set("backstage_rsvped",next); return next; });
 
   useEffect(()=>{
     if (!API_URL) return;
@@ -3793,7 +3802,7 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
     }).catch(()=>{});
   },[user?.id]);
 
-  if (selected) return <ShowDetail concert={selected} onBack={()=>setSelected(null)} going={going} setGoing={setGoing} go={go} isVip={isVip} onUpgrade={onUpgrade} />;
+  if (selected) return <ShowDetail concert={selected} onBack={()=>setSelected(null)} going={going} setGoing={setGoingPersisted} go={go} isVip={isVip} onUpgrade={onUpgrade} rsvped={rsvped} setRsvped={setRsvpedPersisted} />;
 
   const views = [["shows","Shows"],["meetups","Meetups"],["parties","After Parties"],["fans","Find Fans"]];
 
@@ -3931,23 +3940,46 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
         )}
         {view==="meetups" && (
           <div style={{ paddingTop:4 }}>
+            {/* My RSVPs — only shown when user has confirmed RSVPs */}
+            {Object.keys(rsvped).filter(id=>rsvped[id]).length > 0 && (
+              <div style={{ marginBottom:18 }}>
+                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:13, marginBottom:10, color:C.accent }}>✓ My RSVPs</p>
+                {MOCK_MEETUPS.filter(m=>rsvped[m.id]).map(m=>(
+                  <div key={m.id} style={{ background:`${m.color}10`, border:`1.5px solid ${m.color}55`, borderRadius:14, padding:12, marginBottom:8, display:"flex", gap:10, alignItems:"center" }}>
+                    <span style={{ fontSize:20 }}>{m.type==="cupsleeve"?"🧋":m.type==="freebie"?"🎁":m.type==="trade"?"🃏":m.type==="afterparty"?"🎉":"📍"}</span>
+                    <div style={{ flex:1 }}>
+                      <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12.5 }}>{m.title}</p>
+                      <p style={{ fontSize:10, color:C.textMid }}>{m.date} · {m.time} · {m.place}</p>
+                    </div>
+                    <button onClick={()=>setRsvpedPersisted(r=>({...r,[m.id]:false}))} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:8, padding:"4px 10px", color:C.textMid, fontSize:10, cursor:"pointer" }}>Cancel</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Host CTA */}
             <Card style={{ background:`${C.accent}0a`, border:`1px solid ${C.accent}22`, marginBottom:14 }}>
               <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13, marginBottom:4 }}>Host a meetup</p>
               <p style={{ fontSize:11.5, color:C.textMid, marginBottom:12 }}>Create a pre-show meetup, cup sleeve event, trading session, or after party.</p>
               <Btn small>+ Create Meetup</Btn>
             </Card>
+
+            {/* Upcoming fan events */}
+            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:13, marginBottom:10, color:C.text }}>Upcoming Fan Events</p>
             {MOCK_MEETUPS.filter(m=>m.type!=="afterparty").map(m=>(
-              <div key={m.id} style={{ background:C.surface, border:`1.5px solid ${C.border}`, borderRadius:18, padding:14, marginBottom:10 }}>
+              <div key={m.id} style={{ background:C.surface, border:`1.5px solid ${rsvped[m.id]?m.color:C.border}`, borderRadius:18, padding:14, marginBottom:10 }}>
                 <div style={{ display:"flex", gap:10, alignItems:"center" }}>
                   <span style={{ fontSize:24 }}>{m.type==="cupsleeve"?"🧋":m.type==="freebie"?"🎁":m.type==="trade"?"🃏":"📍"}</span>
                   <div style={{ flex:1 }}>
                     <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13.5 }}>{m.title}</p>
                     <p style={{ fontSize:10.5, color:C.textMid }}>{m.date} · {m.time} · {m.place}</p>
+                    {m.city&&<p style={{ fontSize:10, color:C.textDim, marginTop:2 }}>📍 {m.city}</p>}
                   </div>
-                  <Pill color={m.color} small style={{ cursor:"pointer" }} onClick={()=>setRsvped(r=>({...r,[m.id]:!r[m.id]}))}>
+                  <Pill color={m.color} small style={{ cursor:"pointer" }} onClick={()=>setRsvpedPersisted(r=>({...r,[m.id]:!r[m.id]}))}>
                     {rsvped[m.id]?"✓ Going":"RSVP"}
                   </Pill>
                 </div>
+                {m.organizer&&<p style={{ fontSize:10, color:C.textDim, marginTop:6, paddingLeft:34 }}>👤 {m.organizer} · {m.rsvps} going</p>}
               </div>
             ))}
           </div>
@@ -3973,7 +4005,7 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
                   {m.entry&&<Pill color={C.mint} small>Entry: {m.entry}</Pill>}
                   {m.music&&<Pill color={m.color} small>{m.music}</Pill>}
                 </div>
-                <Btn color={m.color} small onClick={()=>setRsvped(r=>({...r,[m.id]:!r[m.id]}))}>
+                <Btn color={m.color} small onClick={()=>setRsvpedPersisted(r=>({...r,[m.id]:!r[m.id]}))}>
                   {rsvped[m.id]?"✓ You're Going!":"RSVP →"}
                 </Btn>
               </div>
@@ -4058,11 +4090,12 @@ function AiItinerary({ concert }) {
   );
 }
 
-function ShowDetail({ concert, onBack, going, setGoing, go, isVip, onUpgrade }) {
+function ShowDetail({ concert, onBack, going, setGoing, go, isVip, onUpgrade, rsvped, setRsvped }) {
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMsg, setChatMsg] = useState("");
   const [messages, setMessages] = useState(["Anyone doing the merch line early? 👀","outfit reveal at 6pm meet me at gate 3 ✨","Freebies station at Gate 5 after 3pm 🎁"]);
   const [itineraryOpen, setItineraryOpen] = useState(false);
+  const [selectedMeetup, setSelectedMeetup] = useState(null);
   const isArirangEvent = concert?.id === "bts-lv-2026" || concert?.id === "bts-lv-1" || /ARIRANG/i.test(concert?.name || "");
   const capsuleBannerKey = `backstage_arirang_capsule_banner_dismissed_${concert?.id || "event"}`;
   const [showCapsuleBanner, setShowCapsuleBanner] = useState(() => isArirangEvent && !ls.get(capsuleBannerKey, false));
@@ -4088,8 +4121,8 @@ function ShowDetail({ concert, onBack, going, setGoing, go, isVip, onUpgrade }) 
       </div>
       <Screen>
         <div style={{ background:`linear-gradient(140deg,${concert.color}22,${concert.color}08)`, border:`1.5px solid ${concert.color}40`, borderRadius:20, padding:18, marginBottom:16 }}>
-          <p style={{ fontSize:12, color:C.textMid }}>📅 {concert.date}</p>
-          <p style={{ fontSize:12, color:C.textMid, marginBottom:14 }}>📍 {concert.venue}, {concert.city}</p>
+          <p style={{ fontSize:12, color:C.text }}>📅 {concert.date}</p>
+          <p style={{ fontSize:12, color:C.text, marginBottom:14 }}>📍 {concert.venue}, {concert.city}</p>
           {concert.attendees != null ? (
             <div style={{ display:"flex", gap:20, marginBottom:14 }}>
               {[["👥",concert.attendees,"going"],["🤝",concert.buddies,"buddy"],["✈️",concert.traveling,"traveling"]].map(([icon,count,label])=>(
@@ -4168,18 +4201,54 @@ function ShowDetail({ concert, onBack, going, setGoing, go, isVip, onUpgrade }) 
 
         <SectionHeader title="Meetups & Events" />
         <div style={{ marginBottom:18 }}>
-          {myMeetups.map(m=>(
-            <div key={m.id} style={{ background:m.type==="afterparty"?`${m.color}12`:C.surface, border:`1.5px solid ${m.type==="afterparty"?m.color:C.border}`, borderRadius:14, padding:12, marginBottom:10 }}>
-              <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-                <span style={{ fontSize:20 }}>{m.type==="afterparty"?"🎉":m.type==="cupsleeve"?"🧋":m.type==="trade"?"🃏":"📍"}</span>
-                <div style={{ flex:1 }}>
-                  <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12.5 }}>{m.title}</p>
-                  <p style={{ fontSize:10, color:C.textMid }}>{m.time} · {m.place}</p>
-                </div>
-                <Pill color={m.color} small>RSVP</Pill>
-              </div>
+          {myMeetups.length === 0 && (
+            <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:14, padding:16, textAlign:"center" }}>
+              <p style={{ fontSize:12, color:C.textMid }}>No meetups listed yet for this show.</p>
+              <p style={{ fontSize:11, color:C.textDim, marginTop:4 }}>Check Backstage closer to the date.</p>
             </div>
-          ))}
+          )}
+          {myMeetups.map(m=>{
+            const icon = m.type==="afterparty"?"🎉":m.type==="cupsleeve"?"🧋":m.type==="trade"?"🃏":m.type==="freebie"?"🎁":"📍";
+            const isExpanded = selectedMeetup===m.id;
+            const userRsvped = rsvped?.[m.id];
+            return (
+              <div key={m.id} onClick={()=>setSelectedMeetup(isExpanded?null:m.id)} className="tap" style={{ background:m.type==="afterparty"?`${m.color}12`:C.surface, border:`1.5px solid ${userRsvped?m.color:m.type==="afterparty"?m.color:C.border}`, borderRadius:16, padding:14, marginBottom:10, cursor:"pointer" }}>
+                <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+                  <span style={{ fontSize:22 }}>{icon}</span>
+                  <div style={{ flex:1 }}>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13 }}>{m.title}</p>
+                    <p style={{ fontSize:10.5, color:C.textMid }}>{m.time} · {m.place}</p>
+                    {m.rsvps>0&&<p style={{ fontSize:10, color:m.color, marginTop:2 }}>{m.rsvps} going</p>}
+                  </div>
+                  <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:6 }}>
+                    {m.ageLimit&&<span style={{ fontSize:9, padding:"2px 6px", borderRadius:99, background:`${C.gold}18`, color:C.gold, fontFamily:"'Epilogue',sans-serif", fontWeight:700 }}>{m.ageLimit}</span>}
+                    <span style={{ fontSize:9, color:C.textDim }}>tap for details</span>
+                  </div>
+                </div>
+                {isExpanded&&(
+                  <div style={{ marginTop:12, borderTop:`1px solid ${C.border}`, paddingTop:12, animation:"up .2s ease" }} onClick={e=>e.stopPropagation()}>
+                    {m.description&&<p style={{ fontSize:11.5, color:C.textMid, lineHeight:1.6, marginBottom:10 }}>{m.description}</p>}
+                    <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:12 }}>
+                      {m.organizer&&<span style={{ fontSize:10, padding:"3px 8px", borderRadius:99, background:C.surfaceHi, color:C.textMid }}>👤 {m.organizer}</span>}
+                      {m.capacity&&<span style={{ fontSize:10, padding:"3px 8px", borderRadius:99, background:C.surfaceHi, color:C.textMid }}>👥 Capacity: {m.capacity}</span>}
+                      {m.entry&&<span style={{ fontSize:10, padding:"3px 8px", borderRadius:99, background:C.surfaceHi, color:C.textMid }}>🎟 {m.entry}</span>}
+                    </div>
+                    {m.safety&&(
+                      <div style={{ background:`${C.mint}0e`, border:`1px solid ${C.mint}30`, borderRadius:10, padding:"8px 11px", marginBottom:12 }}>
+                        <p style={{ fontSize:10.5, color:C.mint }}>🛡 {m.safety}</p>
+                      </div>
+                    )}
+                    <Btn color={m.color} small onClick={()=>{
+                      const next = {...(rsvped||{}), [m.id]:!(rsvped?.[m.id])};
+                      setRsvped&&setRsvped(next);
+                    }}>
+                      {userRsvped?"✓ You're Going! (tap to cancel)":"RSVP →"}
+                    </Btn>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
         {chatOpen && (
           <div style={{ background:C.surfaceHi, border:`1.5px solid ${concert.color}44`, borderRadius:18, padding:16, marginBottom:18, animation:"up .25s ease" }}>
@@ -9323,8 +9392,13 @@ function TripPlanner({ isVip, onUpgrade }) {
   const [placeSuggestions] = useState([{name:"Pecan Lodge BBQ",address:"2702 Main St, Dallas"},{name:"Klyde Warren Park",address:"2012 Woodall Rodgers Fwy"},{name:"Deep Ellum",address:"Deep Ellum, Dallas, TX"}]);
   // AI Itinerary state
   const [aiView, setAiView] = useState(false);
-  const [aiCity, setAiCity] = useState("Dallas");
-  const [aiConcertTime, setAiConcertTime] = useState("7:00 PM");
+  const [aiCity, setAiCity] = useState("Las Vegas");
+  const [aiConcertTime, setAiConcertTime] = useState("8:00 PM");
+  const [aiArrival, setAiArrival] = useState("morning");
+  const [aiTransport, setAiTransport] = useState("rideshare");
+  const [aiBudget, setAiBudget] = useState("moderate");
+  const [aiVibe, setAiVibe] = useState("group");
+  const [aiFood, setAiFood] = useState("korean");
   const [aiGenerating, setAiGenerating] = useState(false);
   const [aiResult, setAiResult] = useState(null);
 
@@ -9345,7 +9419,7 @@ function TripPlanner({ isVip, onUpgrade }) {
     try {
       // Route through backend proxy when available; fall through to mock in prototype mode
       if(API_URL) {
-        const data = await api.post('/api/ai/itinerary', { city: aiCity, time: aiConcertTime });
+        const data = await api.post('/api/ai/itinerary', { city: aiCity, time: aiConcertTime, arrival: aiArrival, transport: aiTransport, budget: aiBudget, vibe: aiVibe, food: aiFood });
         if(data.day) { setAiResult(data.day); setAiGenerating(false); return; }
       }
       throw new Error('mock'); // always use mock when no backend
@@ -9392,15 +9466,33 @@ function TripPlanner({ isVip, onUpgrade }) {
       </div>
 
       <div style={{ background:`linear-gradient(140deg,${C.gold}12,${C.accent}08)`, border:`1.5px solid ${C.gold}44`, borderRadius:18, padding:16, marginBottom:18 }}>
-        <p style={{ fontSize:12, color:C.textMid, lineHeight:1.6 }}>Tell me your city and concert time. I'll build a full fan day — breakfast, lunch, cafes, fan spots, and everything in between.</p>
+        <p style={{ fontSize:12, color:C.textMid, lineHeight:1.6 }}>Tell me your vibe and I'll build a full fan day — breakfast, lunch, fan spots, and everything in between.</p>
       </div>
 
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16 }}>
-        <Input label="City" value={aiCity} onChange={e=>setAiCity(e.target.value)} placeholder="Dallas" />
-        <Input label="Concert Time" value={aiConcertTime} onChange={e=>setAiConcertTime(e.target.value)} placeholder="7:00 PM" />
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
+        <Input label="City" value={aiCity} onChange={e=>setAiCity(e.target.value)} placeholder="Las Vegas" />
+        <Input label="Concert Time" value={aiConcertTime} onChange={e=>setAiConcertTime(e.target.value)} placeholder="8:00 PM" />
       </div>
 
-      <Btn onClick={generateAIItinerary} disabled={aiGenerating} color={C.gold} style={{ marginBottom:18 }}>
+      {/* Preference chips */}
+      {[
+        { label:"Arrival", value:aiArrival, set:setAiArrival, opts:[{v:"early-morning",l:"Early Morning"},{v:"morning",l:"Morning"},{v:"afternoon",l:"Afternoon"},{v:"day-of",l:"Day-of Only"}] },
+        { label:"Transport", value:aiTransport, set:setAiTransport, opts:[{v:"rideshare",l:"Rideshare"},{v:"driving",l:"Driving"},{v:"walking",l:"Walking"},{v:"transit",l:"Transit"}] },
+        { label:"Budget", value:aiBudget, set:setAiBudget, opts:[{v:"budget",l:"Budget"},{v:"moderate",l:"Moderate"},{v:"splurge",l:"Splurge"}] },
+        { label:"Vibe", value:aiVibe, set:setAiVibe, opts:[{v:"solo",l:"Solo Fan"},{v:"group",l:"With My Crew"},{v:"couple",l:"Date Night"},{v:"family",l:"Family"}] },
+        { label:"Food", value:aiFood, set:setAiFood, opts:[{v:"korean",l:"Korean"},{v:"local",l:"Local Eats"},{v:"vegan",l:"Vegan"},{v:"quick",l:"Quick Bites"}] },
+      ].map(({ label, value, set, opts }) => (
+        <div key={label} style={{ marginBottom:12 }}>
+          <p style={{ fontSize:11, color:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, marginBottom:6, textTransform:"uppercase", letterSpacing:.5 }}>{label}</p>
+          <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+            {opts.map(o=>(
+              <button key={o.v} onClick={()=>set(o.v)} style={{ padding:"6px 12px", borderRadius:20, fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, border:`1.5px solid ${value===o.v?C.gold:`${C.gold}30`}`, background:value===o.v?`${C.gold}20`:"transparent", color:value===o.v?C.gold:C.textMid, cursor:"pointer", transition:"all .2s" }}>{o.l}</button>
+            ))}
+          </div>
+        </div>
+      ))}
+
+      <Btn onClick={generateAIItinerary} disabled={aiGenerating} color={C.gold} style={{ marginTop:6, marginBottom:18 }}>
         {aiGenerating ? (
           <span style={{ display:"flex",alignItems:"center",gap:8 }}>
             <span style={{ display:"inline-block",animation:"rotate 1s linear infinite" }}>✦</span>
@@ -11344,11 +11436,32 @@ function MusicConnect({ nowPlaying, setNowPlaying, npDraft, setNpDraft }) {
   const [connecting, setConnecting] = useState(null);
   const [mockSongIdx, setMockSongIdx] = useState(0);
 
-  // Mock "streaming" — rotates songs every 30s when connected
-  // TODO: Replace with Spotify Web API polling — GET /v1/me/player/currently-playing
-  // TODO: Replace with Apple Music API — MusicKit JS getCurrentSong()
+  // On mount: pick up Spotify OAuth return (localStorage set by AppInner URL-param effect)
+  // and fetch real Now Playing from backend
+  useEffect(()=>{
+    const storedConnected = ls.get("backstage_music_connected", null);
+    if (storedConnected && !connected) {
+      setConnected(storedConnected);
+    }
+    if ((storedConnected === 'spotify' || connected === 'spotify') && API_URL) {
+      api.get('/api/music/now-playing').then(d=>{
+        if(d?.song) setNowPlaying({ song:d.song, artist:d.artist, album:d.album, albumArt:d.albumArt, source:'spotify', editing:false });
+      }).catch(()=>{});
+    }
+  },[]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Poll real Now Playing every 30s when Spotify is connected; mock rotation otherwise
   useEffect(()=>{
     if(!connected) return;
+    if(connected==='spotify' && API_URL) {
+      const t = setInterval(()=>{
+        api.get('/api/music/now-playing').then(d=>{
+          if(d?.song) setNowPlaying({ song:d.song, artist:d.artist, album:d.album, albumArt:d.albumArt, source:'spotify', editing:false });
+        }).catch(()=>{});
+      }, 30000);
+      return ()=>clearInterval(t);
+    }
+    // Mock rotation for Apple or when no backend
     const t = setInterval(()=>{
       setMockSongIdx(i=>{
         const next = (i+1) % MOCK_SPOTIFY_SONGS.length;
@@ -11362,9 +11475,14 @@ function MusicConnect({ nowPlaying, setNowPlaying, npDraft, setNpDraft }) {
 
   const handleConnect = async (service) => {
     setConnecting(service);
-    await new Promise(r=>setTimeout(r,1800)); // Simulate OAuth redirect
-    // TODO: Real OAuth — redirect to /api/auth/spotify or /api/auth/apple
-    // Callback would set access token in localStorage/backend session
+    if (service === 'spotify' && API_URL) {
+      try {
+        const data = await api.post('/api/music/connect/spotify', {});
+        if (data?.auth_url) { window.location.href = data.auth_url; return; }
+      } catch { /* fall through to mock */ }
+    }
+    // Mock flow (no backend or Apple Music)
+    await new Promise(r=>setTimeout(r,1200));
     const s = MOCK_SPOTIFY_SONGS[0];
     setNowPlaying({ song:s.song, artist:s.artist, album:s.album, source:service, editing:false });
     setConnected(service);
@@ -13451,6 +13569,12 @@ function AppInner() {
     }
   },[user?.id, appState]);
 
+  // Boot: load photocard collection from backend (replaces MOCK_CARDS when user has real data)
+  useEffect(()=>{
+    if(!user?.id || appState!=="main" || !API_URL) return;
+    api.get('/api/collection?type=cards').then(d=>{ if(d?.items?.length) setCards(d.items); }).catch(()=>{});
+  },[user?.id, appState]);
+
   const handleUpgrade = async (selectedPlan = "annual") => {
     // Guard: no backend configured — prevent silent VIP grant without payment
     const showCheckoutUnavailable = () => {
@@ -13527,13 +13651,26 @@ function AppInner() {
     if(appState==="main"&&!notif&&!ls.get("backstage_notif_prompt_dismissed",false)){ const t=setTimeout(()=>setShowNotifPrompt(true),4000); return ()=>clearTimeout(t); }
   },[appState]);
 
-  // Handle push notification deep-links: ?notif=target on launch, or NOTIF_CLICK from SW
+  // Handle push notification deep-links and OAuth callbacks
   useEffect(()=>{
     const params = new URLSearchParams(window.location.search);
     const notifDest = params.get('notif');
     if (notifDest && appState === 'main') {
       window.history.replaceState({}, '', window.location.pathname);
       go(notifDest);
+    }
+    // Spotify OAuth return: ?music=spotify_connected
+    const musicParam = params.get('music');
+    if (musicParam === 'spotify_connected' && appState === 'main') {
+      window.history.replaceState({}, '', window.location.pathname);
+      ls.set('backstage_music_connected', 'spotify');
+      setNotif({ title:"Spotify Connected 🎵", body:"Your Now Playing will sync automatically.", icon:"🎵", color:C.mint });
+    }
+    // PWA shortcut: ?tab=collect|concerts|community
+    const tabParam = params.get('tab');
+    if (tabParam && appState === 'main') {
+      window.history.replaceState({}, '', window.location.pathname);
+      go(tabParam);
     }
     const onSwMessage = (event) => {
       if (event.data?.type === 'NOTIF_CLICK' && appState === 'main') {

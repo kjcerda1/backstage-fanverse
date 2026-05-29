@@ -82,6 +82,8 @@ const HAS_FIREBASE       = !!(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || proce
 const HAS_SPOTIFY        = !!process.env.SPOTIFY_CLIENT_ID && !!process.env.SPOTIFY_CLIENT_SECRET;
 const HAS_MAPBOX         = !!process.env.MAPBOX_ACCESS_TOKEN;
 const HAS_TICKETMASTER   = !!process.env.TICKETMASTER_API_KEY;
+// Render sets RENDER_EXTERNAL_URL automatically; fallback to explicit BACKEND_URL env var
+const BACKEND_URL        = process.env.BACKEND_URL || process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || 3001}`;
 
 // Firebase Admin SDK — initialized once on startup if credentials are present
 if (HAS_FIREBASE && !admin.apps.length) {
@@ -736,7 +738,7 @@ app.post('/api/music/connect/spotify', requireAuth, (req, res) => {
     response_type: 'code',
     client_id:     process.env.SPOTIFY_CLIENT_ID,
     scope:         scopes,
-    redirect_uri:  `${process.env.FRONTEND_URL}/api/music/spotify/callback`,
+    redirect_uri:  `${BACKEND_URL}/api/music/spotify/callback`,
     state:         req.userId,
   });
 
@@ -760,7 +762,7 @@ app.get('/api/music/spotify/callback', async (req, res) => {
       body: new URLSearchParams({
         grant_type:   'authorization_code',
         code,
-        redirect_uri: `${process.env.FRONTEND_URL}/api/music/spotify/callback`,
+        redirect_uri: `${BACKEND_URL}/api/music/spotify/callback`,
       }),
     });
     const tokens = await tokenRes.json();
@@ -1776,6 +1778,106 @@ app.use((err, req, res, next) => {
     error: 'Internal server error',
     details: process.env.NODE_ENV === 'development' ? err.message : undefined,
   });
+});
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// AI: ITINERARY — /api/ai/itinerary
+// Called from TripPlanner AI View with rich preference fields.
+// ═════════════════════════════════════════════════════════════════════════════
+app.post('/api/ai/itinerary', aiLimiter, requireAuth, async (req, res) => {
+  const { city, time, arrival, transport, budget, vibe, food } = req.body;
+
+  const vibeLabel   = { solo:'solo fan', group:'with crew', couple:'date night', family:'family' }[vibe] || vibe || 'with crew';
+  const arrivalNote = { 'early-morning':'arriving early morning', morning:'arriving morning', afternoon:'arriving afternoon', 'day-of':'arriving day-of' }[arrival] || arrival || 'morning';
+  const foodPref    = { korean:'Korean food', local:'local eats', vegan:'vegan options', quick:'quick bites' }[food] || food || 'Korean food';
+
+  const MOCK_ITINERARY = [
+    { time:'8:30 AM',  emoji:'☀️', activity:'Morning fuel',              place:'Café near venue',          category:'Food',       tip:'Hydrate — it\'s a long day' },
+    { time:'11:00 AM', emoji:'🍜', activity:'Pre-show lunch',            place:`${foodPref} spot nearby`,  category:'Food',       tip:'Go early — lines fill up fast on show days' },
+    { time:'1:30 PM',  emoji:'🛍️', activity:'Merch & lightstick run',    place:'Venue merch area',          category:'Concert Day',tip:'Arrive 2+ hrs early for merch' },
+    { time:'3:00 PM',  emoji:'🎁', activity:'Freebie exchange meetup',   place:'Fan meetup point',          category:'Concert Day',tip:'Check Fanverse for the exact spot' },
+    { time:'5:00 PM',  emoji:'🚪', activity:'Queue at venue gates',      place:'Main entrance',             category:'Concert Day',tip:'Have your ticket QR saved offline' },
+    { time: time || '8:00 PM', emoji:'🌟', activity:'✦ SHOWTIME 💜',    place:'Main venue floor',          category:'Concert Day',tip:'Lightstick charged? Chants ready?' },
+    { time:'11:30 PM', emoji:'✨', activity:'After-show dessert run',    place:'Late-night café nearby',    category:'Food',       tip:'You deserve it 💜' },
+  ];
+
+  if (!HAS_AI) return res.json({ day: MOCK_ITINERARY, mock: true });
+
+  try {
+    const response = await anthropic.messages.create({
+      model:      'claude-sonnet-4-20250514',
+      max_tokens: 1400,
+      system: `You are a K-pop concert day planner expert. You know fan culture deeply — freebie exchanges, merch lines, KBBQ, fan meetups, and the emotional rhythm of a concert day.
+Return ONLY valid JSON. No markdown, no code fences.
+Output: { "day": [{ "time": string, "emoji": string, "activity": string, "place": string, "category": string, "tip": string }] }`,
+      messages: [{
+        role: 'user',
+        content: `Build a full concert day itinerary for a K-pop fan.
+City: ${city || 'Las Vegas'}
+Concert time: ${time || '8:00 PM'}
+Arrival: ${arrivalNote}
+Transport: ${transport || 'rideshare'}
+Budget: ${budget || 'moderate'}
+Vibe: ${vibeLabel}
+Food preference: ${foodPref}
+
+Return 6-8 time-ordered stops: morning fuel, pre-show food, merch, fan meetup, gates, showtime, after-show. Make the tips fan-authentic and specific.`,
+      }],
+    });
+
+    const text = response.content[0].text.replace(/```json|```/g, '').trim();
+    const data = JSON.parse(text);
+    res.json(data);
+  } catch (err) {
+    console.error('[AI Itinerary] Error:', err.message);
+    res.json({ day: MOCK_ITINERARY, mock: true });
+  }
+});
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// COLLECTION — /api/collection
+// Stores user photocards, wishlist, binders as JSONB blobs in collections table.
+// type = 'cards' | 'wishlist' | 'binders' | 'trackers'
+// ═════════════════════════════════════════════════════════════════════════════
+app.get('/api/collection', requireAuth, async (req, res) => {
+  const { type = 'cards' } = req.query;
+
+  if (!supabase) return res.json({ items: [], mock: true });
+
+  try {
+    const { data } = await supabase
+      .from('collections')
+      .select('items')
+      .eq('user_id', req.userId)
+      .eq('type', type)
+      .maybeSingle();
+
+    res.json({ items: data?.items || [], type });
+  } catch (err) {
+    console.error('[Collection GET] Error:', err.message);
+    res.json({ items: [], mock: true });
+  }
+});
+
+app.put('/api/collection', requireAuth, async (req, res) => {
+  const { type = 'cards', items = [] } = req.body;
+
+  if (!supabase) return res.json({ ok: true, mock: true });
+
+  try {
+    await supabase
+      .from('collections')
+      .upsert(
+        { user_id: req.userId, type, items, updated_at: new Date().toISOString() },
+        { onConflict: 'user_id,type' }
+      );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[Collection PUT] Error:', err.message);
+    res.status(500).json({ error: 'Failed to save collection' });
+  }
 });
 
 
