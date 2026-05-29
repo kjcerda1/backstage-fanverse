@@ -3675,9 +3675,9 @@ function Onboarding({ onDone }) {
           {/* Icon with glow ring */}
           <div style={{ position:"relative",display:"inline-block",marginBottom:26 }}>
             <div style={{ position:"absolute",inset:-14,borderRadius:"50%",background:`radial-gradient(circle,${slide.accent}20,transparent 70%)`,pointerEvents:"none" }} />
-            <div style={{ width:92,height:92,borderRadius:28,background:`linear-gradient(145deg,${slide.accent}22,${slide.accent}0c)`,border:`1.5px solid ${slide.accent}50`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:42,boxShadow:`0 0 48px ${slide.accent}30,0 0 0 1px ${slide.accent}18`,transition:"all .5s",position:"relative",overflow:"hidden" }}>
+            <div style={{ width:92,height:92,borderRadius:28,background:slide.logo?"transparent":`linear-gradient(145deg,${slide.accent}22,${slide.accent}0c)`,border:`1.5px solid ${slide.accent}50`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:42,boxShadow:`0 0 48px ${slide.accent}30,0 0 0 1px ${slide.accent}18`,transition:"all .5s",position:"relative",overflow:"hidden" }}>
               {slide.logo
-                ? <img src="/fanverse-logo.png" alt="Backstage" style={{ width:62,height:62,objectFit:"contain" }} />
+                ? <img src="/fanverse-logo.png" alt="Backstage" style={{ width:"100%",height:"100%",objectFit:"cover",display:"block" }} />
                 : slide.emoji}
             </div>
           </div>
