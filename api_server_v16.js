@@ -743,8 +743,9 @@ app.post('/api/webhooks/stripe', async (req, res) => {
       const { userId, plan } = session.metadata;
       if (userId && supabase) {
         await supabase.from('users').update({
-          is_vip: true,
-          vip_since: new Date().toISOString(),
+          is_vip:            true,
+          vip_since:         new Date().toISOString(),
+          vip_source:        'stripe',
           stripe_customer_id: session.customer,
         }).eq('id', userId);
         console.log(`[Stripe] VIP activated: user=${userId} plan=${plan}`);
@@ -754,7 +755,7 @@ app.post('/api/webhooks/stripe', async (req, res) => {
     case 'customer.subscription.deleted': {
       const sub = event.data.object;
       if (supabase) {
-        await supabase.from('users').update({ is_vip: false })
+        await supabase.from('users').update({ is_vip: false, vip_source: null })
           .eq('stripe_customer_id', sub.customer);
         console.log(`[Stripe] VIP revoked: customer=${sub.customer}`);
       }
@@ -1542,6 +1543,54 @@ app.patch('/api/users/me', requireAuth, async (req, res) => {
     // Never crash the frontend — return a safe partial response so
     // localStorage fallback can still proceed with the onboarding profile.
     res.json({ id: req.userId, fandoms: fandomsClean, favorite_groups:fandomsClean, bias, city, username:usernameValue, handle:usernameValue, display_name:displayNameValue, backstage_name:displayNameValue, onboarding_complete:true, profile_complete:true, patched: true });
+  }
+});
+
+// ─── DELETE /api/users/me ─────────────────────────────────────────────────────
+// Permanently deletes all user data. Required for App Store compliance.
+// Deletes from all tables in dependency order, then removes the auth user.
+// Mock mode returns success without touching the database.
+app.delete('/api/users/me', requireAuth, async (req, res) => {
+  const userId = req.userId;
+  if (MOCK_MODE) {
+    console.log(`[Delete Account] MOCK — would delete user ${userId}`);
+    return res.json({ deleted: true, mock: true });
+  }
+  if (!supabase) return res.status(503).json({ error: 'Database not available' });
+  try {
+    // 1. Remove tokens, reactions, and participation records
+    await supabase.from('fcm_tokens').delete().eq('user_id', userId);
+    await supabase.from('post_likes').delete().eq('user_id', userId);
+    await supabase.from('event_rsvps').delete().eq('user_id', userId);
+    await supabase.from('meetup_rsvps').delete().eq('user_id', userId);
+    await supabase.from('event_attendance').delete().eq('user_id', userId);
+    // Friends table — remove both directions (user_id and friend_id)
+    await supabase.from('friends').delete().eq('user_id', userId);
+    await supabase.from('friends').delete().eq('friend_id', userId);
+    // 2. Remove user-created content
+    await supabase.from('concert_memories').delete().eq('user_id', userId);
+    await supabase.from('scrapbooks').delete().eq('user_id', userId);
+    await supabase.from('collections').delete().eq('user_id', userId);
+    await supabase.from('posts').delete().eq('user_id', userId);
+    // 3. Trades — delete offers and reviews; trades themselves may be retained
+    //    for platform integrity (anonymized — no user ID reference after user row gone)
+    await supabase.from('trade_offers').delete().eq('user_id', userId);
+    await supabase.from('trade_reviews').delete().eq('reviewer_id', userId);
+    await supabase.from('trade_reviews').delete().eq('reviewee_id', userId);
+    // 4. Delete the main user record
+    await supabase.from('users').delete().eq('id', userId);
+    // 5. Delete the Supabase auth user (requires service role key)
+    //    Non-fatal if it fails — the user row is already gone so login is impossible.
+    try {
+      await supabase.auth.admin.deleteUser(userId);
+    } catch (authErr) {
+      console.warn(`[Delete Account] Auth user deletion non-fatal: ${authErr.message}`);
+    }
+    console.log(`[Delete Account] Completed for user ${userId}`);
+    res.json({ deleted: true });
+  } catch (err) {
+    console.error('[Delete Account] Error:', err.message);
+    res.status(500).json({ error: 'Could not delete account. Please contact support@backstagefanverse.com' });
   }
 });
 

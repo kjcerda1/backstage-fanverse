@@ -37,6 +37,12 @@ const api = {
       return r.ok ? r.json() : { error: `${r.status}` };
     } catch { return { error:'Network error' }; }
   },
+  async del(path) {
+    try {
+      const r = await fetch(`${API_URL}${path}`, { method:'DELETE', headers:this._headers() });
+      return r.ok ? r.json() : { error: `${r.status}` };
+    } catch { return { error:'Network error' }; }
+  },
 };
 
 // ─── AUTH CONTEXT ─────────────────────────────────────────────────────────────
@@ -11131,6 +11137,23 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour }) {
   const [profileStyle, setProfileStyle] = useState(ls.get("backstage_profile_style", DEFAULT_PROFILE_STYLE));
   const [privacySettings, setPrivacySettings] = useState(ls.get("backstage_privacy_settings", DEFAULT_PRIVACY));
   const [notifSettings, setNotifSettings] = useState(ls.get("backstage_notification_settings", DEFAULT_NOTIF_SETTINGS));
+  // Account deletion
+  const [showDeleteModal, setShowDeleteModal]   = useState(false);
+  const [deleteConfirm,   setDeleteConfirm]     = useState("");
+  const [deleteLoading,   setDeleteLoading]     = useState(false);
+  const [deleteError,     setDeleteError]       = useState("");
+  const handleDeleteAccount = async () => {
+    if (deleteConfirm !== "DELETE") return;
+    setDeleteLoading(true);
+    setDeleteError("");
+    const result = await api.del('/api/users/me');
+    if (result?.deleted || result?.mock) {
+      go("signout");
+    } else {
+      setDeleteLoading(false);
+      setDeleteError(result?.error ? `Error: ${result.error}. Email support@backstagefanverse.com.` : "Could not delete account. Please email support@backstagefanverse.com.");
+    }
+  };
   // Status Banner state
   const [editingStatus, setEditingStatus] = useState(false);
   const [statusDraft, setStatusDraft] = useState(profileStyle.bannerText||"");
@@ -11529,9 +11552,60 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour }) {
           <a href="mailto:feedback@backstageapp.co?subject=Backstage Feedback&body=Version: 1.6.0%0A%0AWhat I found:%0A%0A" style={{ display:"block",marginTop:14,textAlign:"center",fontSize:11.5,color:C.textDim,textDecoration:"none" }}>
             🐛 Send Feedback / Report a Bug
           </a>
-          <p style={{ textAlign:"center",fontSize:9.5,color:C.textDim,marginTop:6 }}>Backstage v1.6.0 · Prototype</p>
+
+          {/* Legal links */}
+          <div style={{ display:"flex",justifyContent:"center",gap:14,marginTop:12,flexWrap:"wrap" }}>
+            {[["Privacy Policy","/privacy"],["Terms","/terms"],["Support","/support"]].map(([label,href])=>(
+              <a key={href} href={href} style={{ fontSize:10.5,color:C.textDim,textDecoration:"underline" }}>{label}</a>
+            ))}
+          </div>
+
+          {/* Danger zone */}
+          <div style={{ marginTop:22,paddingTop:18,borderTop:`1px solid ${C.rose}28` }}>
+            <button onClick={()=>setShowDeleteModal(true)} className="tap" style={{ width:"100%",padding:"11px",borderRadius:14,background:"transparent",border:`1.5px solid ${C.rose}44`,color:C.rose,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",opacity:0.75 }}>
+              🗑 Delete Account
+            </button>
+          </div>
+
+          <p style={{ textAlign:"center",fontSize:9.5,color:C.textDim,marginTop:10 }}>Backstage v1.6.0 · Prototype</p>
         </div>
       </Screen>
+
+      {/* ── Delete Account confirmation modal ─────────────────────────────── */}
+      {showDeleteModal && (
+        <div onClick={()=>{ if(!deleteLoading){ setShowDeleteModal(false); setDeleteConfirm(""); setDeleteError(""); } }} style={{ position:"fixed",inset:0,zIndex:900,background:"rgba(0,0,0,0.72)",backdropFilter:"blur(6px)",display:"flex",alignItems:"flex-end",justifyContent:"center" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ width:"100%",maxWidth:540,background:"linear-gradient(160deg,#160822,#0e0620)",borderRadius:"24px 24px 0 0",padding:"28px 24px 48px",border:"1.5px solid rgba(255,80,100,0.28)",borderBottom:"none",animation:"slideUp .26s ease",boxShadow:"0 -20px 60px rgba(0,0,0,0.65)" }}>
+            <div style={{ width:36,height:4,borderRadius:2,background:"rgba(255,255,255,0.18)",margin:"0 auto 22px" }} />
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18,color:C.rose,marginBottom:6 }}>Delete Account</p>
+            <p style={{ fontSize:13,color:"rgba(255,255,255,0.72)",lineHeight:1.55,marginBottom:20 }}>
+              This permanently deletes your profile, collections, posts, messages, and all activity. <strong style={{ color:"white" }}>This cannot be undone.</strong>
+            </p>
+            <div style={{ background:"rgba(255,80,100,0.08)",border:"1px solid rgba(255,80,100,0.22)",borderRadius:14,padding:"12px 14px",marginBottom:18 }}>
+              <p style={{ fontSize:11,color:"rgba(255,255,255,0.55)",marginBottom:8 }}>Type <strong style={{ color:C.rose, fontFamily:"'Epilogue',sans-serif" }}>DELETE</strong> to confirm:</p>
+              <input
+                value={deleteConfirm}
+                onChange={e=>setDeleteConfirm(e.target.value.toUpperCase())}
+                placeholder="DELETE"
+                autoCapitalize="characters"
+                style={{ width:"100%",background:"rgba(255,255,255,0.05)",border:`1.5px solid ${deleteConfirm==="DELETE"?C.rose:"rgba(255,255,255,0.12)"}`,borderRadius:10,padding:"10px 12px",color:"white",fontSize:14,fontFamily:"'Epilogue',sans-serif",fontWeight:700,letterSpacing:"0.05em",boxSizing:"border-box",outline:"none" }}
+              />
+            </div>
+            {deleteError && <p style={{ fontSize:11,color:C.rose,marginBottom:12,lineHeight:1.5 }}>{deleteError}</p>}
+            <div style={{ display:"flex",gap:10 }}>
+              <button onClick={()=>{ setShowDeleteModal(false); setDeleteConfirm(""); setDeleteError(""); }} disabled={deleteLoading} style={{ flex:1,padding:"13px",borderRadius:14,background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.12)",color:"rgba(255,255,255,0.72)",fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer" }}>
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteAccount}
+                disabled={deleteConfirm!=="DELETE" || deleteLoading}
+                style={{ flex:1,padding:"13px",borderRadius:14,background:deleteConfirm==="DELETE"?`${C.rose}22`:"rgba(255,255,255,0.03)",border:`1.5px solid ${deleteConfirm==="DELETE"?C.rose:"rgba(255,255,255,0.08)"}`,color:deleteConfirm==="DELETE"?C.rose:"rgba(255,255,255,0.22)",fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,cursor:deleteConfirm==="DELETE"?"pointer":"default",transition:"all .18s" }}
+              >
+                {deleteLoading ? "Deleting…" : "Delete My Account"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -13609,8 +13683,187 @@ function CapsuleLandingPage({ onJoin, onExplore }) {
   );
 }
 
+// ─── LEGAL PAGES ─────────────────────────────────────────────────────────────
+// Accessible at /privacy, /terms, /support without login.
+// Vercel rewrites all paths to index.html; pathname check handles routing.
+const LEGAL_STYLE = {
+  page:  { minHeight:"100vh", background:"#faf9ff", color:"#1e0b3a", fontFamily:"'Instrument Sans',sans-serif", padding:"40px 24px 80px", maxWidth:680, margin:"0 auto" },
+  h1:    { fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:26, marginBottom:6, color:"#1e0b3a" },
+  meta:  { fontSize:12, color:"#6e52cc", marginBottom:32 },
+  h2:    { fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:16, marginTop:28, marginBottom:8, color:"#1e0b3a" },
+  p:     { fontSize:14, lineHeight:1.7, color:"#2d1a52", marginBottom:10 },
+  ul:    { paddingLeft:20, marginBottom:10 },
+  li:    { fontSize:14, lineHeight:1.7, color:"#2d1a52", marginBottom:4 },
+  a:     { color:"#6e52cc", textDecoration:"underline" },
+  nav:   { marginBottom:32, display:"flex", gap:16, flexWrap:"wrap" },
+  back:  { display:"inline-block", marginBottom:24, fontSize:13, color:"#6e52cc", textDecoration:"none", fontWeight:600 },
+  hr:    { border:"none", borderTop:"1px solid #e0d8ff", margin:"24px 0" },
+};
+function LegalNav() {
+  return (
+    <div style={LEGAL_STYLE.nav}>
+      {[["Privacy Policy","/privacy"],["Terms of Service","/terms"],["Support","/support"]].map(([label,href])=>(
+        <a key={href} href={href} style={{ ...LEGAL_STYLE.a, fontWeight:600, fontSize:13 }}>{label}</a>
+      ))}
+    </div>
+  );
+}
+function PrivacyPage() {
+  return (
+    <div style={LEGAL_STYLE.page}>
+      <a href="/" style={LEGAL_STYLE.back}>← Back to Backstage</a>
+      <h1 style={LEGAL_STYLE.h1}>Privacy Policy</h1>
+      <p style={LEGAL_STYLE.meta}>Backstage by Fanverse · Last updated: May 2026</p>
+      <LegalNav />
+      <p style={LEGAL_STYLE.p}>We built Backstage for K-pop fans. Here is exactly how we handle your data.</p>
+
+      <h2 style={LEGAL_STYLE.h2}>1. What we collect</h2>
+      <ul style={LEGAL_STYLE.ul}>
+        <li style={LEGAL_STYLE.li}><strong>Account:</strong> email address, username, display name, favorite groups, bias</li>
+        <li style={LEGAL_STYLE.li}><strong>Fan activity:</strong> concert RSVPs, photocard collections, posts, messages, trade activity, scrapbooks</li>
+        <li style={LEGAL_STYLE.li}><strong>Device:</strong> push notification token (only if you enable notifications)</li>
+        <li style={LEGAL_STYLE.li}><strong>Location:</strong> approximate city only, if you enable Nearby Mode — never exact GPS coordinates</li>
+        <li style={LEGAL_STYLE.li}><strong>Music:</strong> song and artist data, only if you choose to connect Spotify</li>
+        <li style={LEGAL_STYLE.li}><strong>Payments:</strong> Stripe handles all payment processing. We store only your VIP status and subscription source — never your full card details.</li>
+      </ul>
+
+      <h2 style={LEGAL_STYLE.h2}>2. How we use it</h2>
+      <ul style={LEGAL_STYLE.ul}>
+        <li style={LEGAL_STYLE.li}>To create and maintain your fan profile and account</li>
+        <li style={LEGAL_STYLE.li}>To show fan activity near you (city-level only)</li>
+        <li style={LEGAL_STYLE.li}>To send concert reminders and trade notifications (if you enable them)</li>
+        <li style={LEGAL_STYLE.li}>To unlock VIP features if you subscribe</li>
+        <li style={LEGAL_STYLE.li}>To improve the app based on anonymous usage patterns</li>
+      </ul>
+      <p style={LEGAL_STYLE.p}><strong>We do not sell your data. We do not run third-party advertising.</strong></p>
+
+      <h2 style={LEGAL_STYLE.h2}>3. Third-party services</h2>
+      <ul style={LEGAL_STYLE.ul}>
+        <li style={LEGAL_STYLE.li}><strong>Supabase</strong> (supabase.com) — database and authentication</li>
+        <li style={LEGAL_STYLE.li}><strong>Stripe</strong> (stripe.com) — payment processing for VIP subscriptions</li>
+        <li style={LEGAL_STYLE.li}><strong>Mapbox</strong> (mapbox.com) — map rendering on the Fanverse Map</li>
+        <li style={LEGAL_STYLE.li}><strong>Firebase / Google</strong> (firebase.google.com) — push notifications, if enabled</li>
+        <li style={LEGAL_STYLE.li}><strong>Spotify</strong> (spotify.com) — optional music integration, only if you connect it</li>
+        <li style={LEGAL_STYLE.li}><strong>Render</strong> (render.com) — backend server hosting</li>
+        <li style={LEGAL_STYLE.li}><strong>Vercel</strong> (vercel.com) — frontend hosting</li>
+      </ul>
+      <p style={LEGAL_STYLE.p}>Each service operates under its own privacy policy. We choose services that meet appropriate data protection standards.</p>
+
+      <h2 style={LEGAL_STYLE.h2}>4. Data retention</h2>
+      <p style={LEGAL_STYLE.p}>We retain your data while your account is active. When you delete your account, we remove your profile, posts, collections, messages, and activity from our systems. Anonymized transaction records may be retained as required for financial and legal compliance.</p>
+
+      <h2 style={LEGAL_STYLE.h2}>5. Your rights</h2>
+      <p style={LEGAL_STYLE.p}>You can delete your account and all associated data at any time from <strong>Profile → Settings → Delete Account</strong> inside the app. Deletion is permanent and processed immediately.</p>
+      <p style={LEGAL_STYLE.p}>For data export or other privacy requests (including GDPR/CCPA rights), email <a href="mailto:privacy@backstagefanverse.com" style={LEGAL_STYLE.a}>privacy@backstagefanverse.com</a>. We will respond within 30 days.</p>
+
+      <h2 style={LEGAL_STYLE.h2}>6. Children</h2>
+      <p style={LEGAL_STYLE.p}>Backstage is intended for users 13 years and older. We do not knowingly collect data from children under 13. If you believe a user under 13 has created an account, contact us at <a href="mailto:support@backstagefanverse.com" style={LEGAL_STYLE.a}>support@backstagefanverse.com</a> and we will remove the account promptly.</p>
+
+      <h2 style={LEGAL_STYLE.h2}>7. Changes to this policy</h2>
+      <p style={LEGAL_STYLE.p}>We will notify you of significant changes via the app. Continued use after changes constitutes acceptance.</p>
+
+      <div style={LEGAL_STYLE.hr} />
+      <p style={LEGAL_STYLE.p}>Questions? Email <a href="mailto:support@backstagefanverse.com" style={LEGAL_STYLE.a}>support@backstagefanverse.com</a></p>
+    </div>
+  );
+}
+function TermsPage() {
+  return (
+    <div style={LEGAL_STYLE.page}>
+      <a href="/" style={LEGAL_STYLE.back}>← Back to Backstage</a>
+      <h1 style={LEGAL_STYLE.h1}>Terms of Service</h1>
+      <p style={LEGAL_STYLE.meta}>Backstage by Fanverse · Last updated: May 2026</p>
+      <LegalNav />
+      <p style={LEGAL_STYLE.p}>By using Backstage you agree to these terms. If you do not agree, please do not use the app.</p>
+
+      <h2 style={LEGAL_STYLE.h2}>1. Age and eligibility</h2>
+      <p style={LEGAL_STYLE.p}>You must be at least 13 years old to use Backstage. By creating an account you confirm you meet this requirement.</p>
+
+      <h2 style={LEGAL_STYLE.h2}>2. Your account</h2>
+      <p style={LEGAL_STYLE.p}>You are responsible for your account and all activity that takes place under it. Keep your login credentials secure. Do not share your account with others.</p>
+
+      <h2 style={LEGAL_STYLE.h2}>3. Community rules</h2>
+      <p style={LEGAL_STYLE.p}>Backstage is a fan community. Please treat other fans with respect. The following are not allowed:</p>
+      <ul style={LEGAL_STYLE.ul}>
+        <li style={LEGAL_STYLE.li}>Harassment, threats, or bullying of other users</li>
+        <li style={LEGAL_STYLE.li}>Impersonating artists, management, staff, or other users</li>
+        <li style={LEGAL_STYLE.li}>Posting misleading, harmful, violent, or illegal content</li>
+        <li style={LEGAL_STYLE.li}>Spam, phishing, or abuse of platform features</li>
+        <li style={LEGAL_STYLE.li}>Sharing another person's private information without consent (doxxing)</li>
+        <li style={LEGAL_STYLE.li}>Content that sexualizes minors in any form</li>
+      </ul>
+      <p style={LEGAL_STYLE.p}>We may suspend or permanently remove accounts that violate these rules, at our discretion.</p>
+
+      <h2 style={LEGAL_STYLE.h2}>4. VIP subscriptions</h2>
+      <p style={LEGAL_STYLE.p}>VIP access is available via monthly, annual, and Founder Pass plans. Subscriptions renew automatically until you cancel. You can manage or cancel at any time through your subscription confirmation email or by contacting <a href="mailto:support@backstagefanverse.com" style={LEGAL_STYLE.a}>support@backstagefanverse.com</a>.</p>
+      <p style={LEGAL_STYLE.p}>Web purchases are processed by Stripe. Cancellation takes effect at the end of your current billing period. We do not offer refunds for partial billing periods, except where required by applicable law.</p>
+
+      <h2 style={LEGAL_STYLE.h2}>5. No official affiliation</h2>
+      <p style={LEGAL_STYLE.p}>Backstage is an independent fan community platform. We are not affiliated with, endorsed by, or officially connected to any K-pop artist, entertainment company, music label, venue, Ticketmaster, Weverse, or any other platform or organization. Artist names, group names, logos, and likenesses belong to their respective owners. All fan content is created and shared by community members.</p>
+
+      <h2 style={LEGAL_STYLE.h2}>6. Your content</h2>
+      <p style={LEGAL_STYLE.p}>You own the content you create and post. By posting, you grant Backstage a non-exclusive, royalty-free license to display your content within the app to other users. You are responsible for ensuring your content does not infringe third-party intellectual property rights.</p>
+      <p style={LEGAL_STYLE.p}>We may remove content that violates these terms or applicable law. To submit a copyright/DMCA notice, email <a href="mailto:support@backstagefanverse.com" style={LEGAL_STYLE.a}>support@backstagefanverse.com</a>.</p>
+
+      <h2 style={LEGAL_STYLE.h2}>7. Concert and event information</h2>
+      <p style={LEGAL_STYLE.p}>Concert dates, venues, and event details in Backstage may include sample or preview data. Confirmed events are labeled. Always verify event information through official artist and venue channels before making travel or purchase decisions.</p>
+
+      <h2 style={LEGAL_STYLE.h2}>8. Limitation of liability</h2>
+      <p style={LEGAL_STYLE.p}>Backstage is provided as-is. To the fullest extent permitted by law, we are not liable for indirect, incidental, or consequential damages arising from your use of the app, including lost data, missed events, or interactions with other community members.</p>
+
+      <h2 style={LEGAL_STYLE.h2}>9. Changes to these terms</h2>
+      <p style={LEGAL_STYLE.p}>We may update these terms. We will notify you of significant changes via the app. Continued use after changes constitutes acceptance.</p>
+
+      <div style={LEGAL_STYLE.hr} />
+      <p style={LEGAL_STYLE.p}>Questions? Email <a href="mailto:support@backstagefanverse.com" style={LEGAL_STYLE.a}>support@backstagefanverse.com</a></p>
+    </div>
+  );
+}
+function SupportPage() {
+  return (
+    <div style={LEGAL_STYLE.page}>
+      <a href="/" style={LEGAL_STYLE.back}>← Back to Backstage</a>
+      <h1 style={LEGAL_STYLE.h1}>Support</h1>
+      <p style={LEGAL_STYLE.meta}>Backstage by Fanverse · We're here to help.</p>
+      <LegalNav />
+
+      <div style={{ background:"#f0eeff", borderRadius:16, padding:"20px 24px", marginBottom:28 }}>
+        <p style={{ ...LEGAL_STYLE.p, marginBottom:4 }}><strong>Email us:</strong> <a href="mailto:support@backstagefanverse.com" style={LEGAL_STYLE.a}>support@backstagefanverse.com</a></p>
+        <p style={{ ...LEGAL_STYLE.p, marginBottom:0, color:"#6e52cc" }}>We respond within 48 hours on weekdays.</p>
+      </div>
+
+      <h2 style={LEGAL_STYLE.h2}>Account help</h2>
+      <p style={LEGAL_STYLE.p}><strong>Forgot your login?</strong> Use the "I already have an account" option on the app launch screen.</p>
+      <p style={LEGAL_STYLE.p}><strong>Account locked or compromised?</strong> Email us immediately at <a href="mailto:support@backstagefanverse.com" style={LEGAL_STYLE.a}>support@backstagefanverse.com</a> and we'll secure your account.</p>
+
+      <h2 style={LEGAL_STYLE.h2}>VIP and billing</h2>
+      <p style={LEGAL_STYLE.p}>For subscription questions, email <a href="mailto:support@backstagefanverse.com" style={LEGAL_STYLE.a}>support@backstagefanverse.com</a> with the email address on your account. Include "Billing" in the subject line.</p>
+      <p style={LEGAL_STYLE.p}>Web subscriptions can be cancelled at any time. Cancellation takes effect at the end of your billing period. No partial refunds, except where required by law.</p>
+
+      <h2 style={LEGAL_STYLE.h2}>Delete your account</h2>
+      <p style={LEGAL_STYLE.p}><strong>In-app:</strong> Go to <strong>Profile → Settings → scroll to the bottom → Delete Account</strong>. This permanently deletes your profile, collections, posts, and all associated data.</p>
+      <p style={LEGAL_STYLE.p}><strong>By email:</strong> Send a message to <a href="mailto:support@backstagefanverse.com" style={LEGAL_STYLE.a}>support@backstagefanverse.com</a> with the subject <em>"Account Deletion Request"</em> and the email address on your account. We will process your request within 30 days.</p>
+
+      <h2 style={LEGAL_STYLE.h2}>Report a user or content</h2>
+      <p style={LEGAL_STYLE.p}>Use the report feature inside the app, or email <a href="mailto:support@backstagefanverse.com" style={LEGAL_STYLE.a}>support@backstagefanverse.com</a> with details. We take community safety seriously and investigate all reports.</p>
+
+      <h2 style={LEGAL_STYLE.h2}>Privacy requests</h2>
+      <p style={LEGAL_STYLE.p}>For GDPR, CCPA, or other data rights requests (access, portability, correction), email <a href="mailto:privacy@backstagefanverse.com" style={LEGAL_STYLE.a}>privacy@backstagefanverse.com</a>. We will respond within 30 days.</p>
+
+      <div style={LEGAL_STYLE.hr} />
+      <p style={{ ...LEGAL_STYLE.p, fontSize:13, color:"#9370cc" }}>
+        <a href="/privacy" style={LEGAL_STYLE.a}>Privacy Policy</a> · <a href="/terms" style={LEGAL_STYLE.a}>Terms of Service</a>
+      </p>
+    </div>
+  );
+}
+
 // ─── ROOT APP ─────────────────────────────────────────────────────────────────
 export default function App() {
+  const p = window.location.pathname;
+  if (p === '/privacy') return <PrivacyPage />;
+  if (p === '/terms')   return <TermsPage />;
+  if (p === '/support') return <SupportPage />;
   return <AuthProvider><AppInner /></AuthProvider>;
 }
 
