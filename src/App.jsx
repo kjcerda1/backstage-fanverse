@@ -269,7 +269,7 @@ const C = {
   holo:     "#e8d5ff",   // holographic white-lavender (new)
   // ── Text ───────────────────────────────────────────────────────────────────
   text:     "#ede8ff",   // slightly warmer white
-  textMid:  "#8876b8",   // plum-toned mid
+  textMid:  "#a090cc",   // plum-toned mid — brightened for readability
   textDim:  "#2e1e52",   // deep dim
   white:    "#ffffff",
   // ── Era-inspired accents ───────────────────────────────────────────────────
@@ -7840,7 +7840,7 @@ function FanverseMap({ onBack }) {
     // Tapping the same city again resets the view
     if (selectedCity?.city === feature.properties.city) {
       setSelectedCity(null);
-      worldMapRef.current?.flyTo(20, 18, 1.5);
+      worldMapRef.current?.flyTo(60, 28, 1.3);
       return;
     }
     setSelectedCity(feature.properties);
@@ -7851,7 +7851,13 @@ function FanverseMap({ onBack }) {
   function resetView() {
     setSelectedCity(null);
     clearTimeout(chipTimerRef.current);
-    worldMapRef.current?.flyTo(20, 18, 1.5);
+    worldMapRef.current?.flyTo(60, 28, 1.3);
+  }
+
+  function zoomToSelected() {
+    if (!selectedCityFeature) return;
+    const [lng, lat] = selectedCityFeature.geometry.coordinates;
+    worldMapRef.current?.flyTo(lng, lat, 5.5);
   }
 
   const LOCAL_FANS = [
@@ -7891,13 +7897,16 @@ function FanverseMap({ onBack }) {
         {view==="world" ? (
           <div style={{ position:"relative" }}>
             {/* Real Mapbox GL map */}
-            <div style={{ margin:"0 18px 18px", borderRadius:28, overflow:"hidden", height:310, position:"relative", border:"1px solid rgba(255,255,255,0.09)", boxShadow:`0 24px 72px rgba(0,0,0,0.55),inset 0 1px 0 rgba(255,255,255,0.08)${selectedCity?`,0 0 60px ${selectedCity.color}0c`:""}` }}>
+            <div style={{ margin:"0 18px 18px", borderRadius:28, overflow:"hidden", height:340, position:"relative", border:"1px solid rgba(255,255,255,0.09)", boxShadow:`0 24px 72px rgba(0,0,0,0.55),inset 0 1px 0 rgba(255,255,255,0.08)${selectedCity?`,0 0 60px ${selectedCity.color}0c`:""}` }}>
               <MapboxMap ref={worldMapRef} densityData={CITY_DENSITY_GEOJSON} showHeatmap={false} onCityClick={p=>setSelectedCity(p)} selectedCityFeature={selectedCityFeature} />
-              {/* Density legend — floating minimal pill */}
-              <div style={{ position:"absolute",bottom:10,left:12,display:"flex",gap:8,alignItems:"center",pointerEvents:"none",zIndex:1,background:"rgba(6,6,15,0.55)",backdropFilter:"blur(10px)",borderRadius:99,padding:"4px 10px",border:"1px solid rgba(255,255,255,0.06)" }}>
-                <p style={{ fontSize:7.5,color:"rgba(255,255,255,0.4)",textTransform:"uppercase",letterSpacing:"0.1em" }}>LOW</p>
-                <div style={{ width:40,height:2,background:"linear-gradient(90deg,#00e6ff,#b8a2ff,#f0a8cc)",borderRadius:99,opacity:0.7 }} />
-                <p style={{ fontSize:7.5,color:"rgba(255,255,255,0.4)",textTransform:"uppercase",letterSpacing:"0.1em" }}>HIGH</p>
+              {/* Activity type legend */}
+              <div style={{ position:"absolute",bottom:10,left:10,display:"flex",gap:6,alignItems:"center",pointerEvents:"none",zIndex:1,background:"rgba(6,6,15,0.72)",backdropFilter:"blur(12px)",borderRadius:99,padding:"5px 10px",border:"1px solid rgba(255,255,255,0.10)" }}>
+                {[["#ffc8ec","Trending"],["#a5d8ff","Concert"],["#f0cc88","Event"],["#c4b5fd","Hub"]].map(([color,label])=>(
+                  <div key={label} style={{ display:"flex",alignItems:"center",gap:3 }}>
+                    <div style={{ width:5,height:5,borderRadius:"50%",background:color,flexShrink:0 }} />
+                    <p style={{ fontSize:7.5,color:"rgba(255,255,255,0.62)",letterSpacing:"0.04em",whiteSpace:"nowrap" }}>{label}</p>
+                  </div>
+                ))}
               </div>
               {/* Selected city info pill — top of map */}
               {selectedCity && (
@@ -7908,12 +7917,15 @@ function FanverseMap({ onBack }) {
                   </div>
                   <div style={{ flex:1,minWidth:0 }}>
                     <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,color:"white",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>📍 {selectedCity.city}</p>
-                    <p style={{ fontSize:9.5,color:"rgba(255,255,255,0.5)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",marginTop:1 }}>{selectedCity.level} · {selectedCity.event}</p>
+                    <p style={{ fontSize:9.5,color:"rgba(255,255,255,0.68)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",marginTop:1 }}>{selectedCity.level} · {selectedCity.event}</p>
                   </div>
-                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,background:`linear-gradient(135deg,${selectedCity.color},${selectedCity.color}bb)`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",flexShrink:0 }}>
-                    {selectedCity.fans >= 1000 ? `${(selectedCity.fans/1000).toFixed(selectedCity.fans>=10000?0:1)}K` : selectedCity.fans}
-                  </p>
-                  <button onClick={resetView} style={{ background:"none",border:"none",color:"rgba(255,255,255,0.35)",fontSize:18,cursor:"pointer",lineHeight:1,padding:"0 2px",flexShrink:0 }}>×</button>
+                  <div style={{ display:"flex",flexDirection:"column",alignItems:"flex-end",gap:3,flexShrink:0 }}>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,background:`linear-gradient(135deg,${selectedCity.color},${selectedCity.color}bb)`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent" }}>
+                      {selectedCity.fans >= 1000 ? `${(selectedCity.fans/1000).toFixed(selectedCity.fans>=10000?0:1)}K fans` : `${selectedCity.fans} fans`}
+                    </p>
+                    <button onClick={zoomToSelected} style={{ background:`${selectedCity.color}22`,border:`1px solid ${selectedCity.color}55`,borderRadius:99,padding:"2px 8px",color:selectedCity.color,fontSize:8.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",letterSpacing:"0.02em",whiteSpace:"nowrap" }}>Zoom in →</button>
+                  </div>
+                  <button onClick={resetView} style={{ background:"none",border:"none",color:"rgba(255,255,255,0.50)",fontSize:18,cursor:"pointer",lineHeight:1,padding:"0 2px",flexShrink:0 }}>×</button>
                 </div>
               )}
             </div>
@@ -7925,7 +7937,7 @@ function FanverseMap({ onBack }) {
                   <div style={{ width:6,height:6,borderRadius:"50%",background:selectedCity.color,animation:"pulse 1.4s ease infinite" }} />
                   <p style={{ fontSize:11,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>Viewing {selectedCity.city}</p>
                 </div>
-                <p style={{ fontSize:9.5,color:"rgba(255,255,255,0.28)",fontFamily:"'Instrument Sans',sans-serif" }}>Tap to reset</p>
+                <p style={{ fontSize:9.5,color:"rgba(255,255,255,0.52)",fontFamily:"'Instrument Sans',sans-serif" }}>Tap to reset</p>
               </div>
             )}
 
@@ -7952,7 +7964,7 @@ function FanverseMap({ onBack }) {
                   </div>
                   <div style={{ flex:1,minWidth:0 }}>
                     <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:isSelected?15:14, color:"#f2f0ff", letterSpacing:"-0.01em", transition:"font-size .2s" }}>{p.city}</p>
-                    <p style={{ fontSize:10.5, color:"rgba(255,255,255,0.42)", marginTop:2, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{p.level} · {p.event}</p>
+                    <p style={{ fontSize:10.5, color:"rgba(255,255,255,0.60)", marginTop:2, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{p.level} · {p.event}</p>
                   </div>
                   <div style={{ display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4,flexShrink:0 }}>
                     <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:15, background:`linear-gradient(135deg,${p.color},${p.color}bb)`, WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent" }}>

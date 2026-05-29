@@ -80,35 +80,35 @@ function applyCosmicStyle(map) {
   const layers = map.getStyle().layers;
 
   const paintOverrides = [
-    // Slightly brighter land/water so globe reads clearly without looking generic
-    ["background",               "background-color",  "#08061a"],
-    ["water",                    "fill-color",        "#050a18"],   // distinct blue-dark from land
-    ["land",                     "background-color",  "#16122e"],   // richer purple-dark
-    ["landuse",                  "fill-color",        "#141030"],
-    ["landuse-shadow",           "fill-color",        "#141030"],
-    ["national-park",            "fill-color",        "#11102a"],
-    // More visible country boundaries
-    ["admin-0-boundary",         "line-color",        "rgba(184,162,255,0.40)"],
-    ["admin-0-boundary",         "line-opacity",      0.72],
-    ["admin-0-boundary",         "line-width",        0.7],
-    ["admin-0-boundary-disputed","line-color",        "rgba(184,162,255,0.22)"],
-    ["admin-0-boundary-disputed","line-opacity",      0.40],
-    ["admin-1-boundary",         "line-color",        "rgba(184,162,255,0.11)"],
-    ["admin-1-boundary",         "line-opacity",      0.42],
-    ["admin-state-province",     "line-color",        "rgba(184,162,255,0.11)"],
-    ["admin-state-province",     "line-opacity",      0.42],
-    // More readable country labels
-    ["country-label",            "text-color",        "rgba(184,162,255,0.58)"],
-    ["country-label",            "text-halo-color",   "#08061a"],
-    ["country-label",            "text-opacity",      0.62],
-    ["state-label",              "text-color",        "rgba(184,162,255,0.22)"],
-    ["state-label",              "text-opacity",      0.26],
-    ["settlement-major-label",   "text-color",        "rgba(184,162,255,0.30)"],
-    ["settlement-major-label",   "text-halo-color",   "#08061a"],
-    ["settlement-major-label",   "text-opacity",      0.36],
-    ["settlement-minor-label",   "text-color",        "rgba(184,162,255,0.16)"],
-    ["settlement-minor-label",   "text-halo-color",   "#08061a"],
-    ["settlement-minor-label",   "text-opacity",      0.20],
+    // Clear land/water separation — land brighter purple, water near-black blue
+    ["background",               "background-color",  "#0a0820"],
+    ["water",                    "fill-color",        "#030810"],   // dark blue-black — clearly distinct from land
+    ["land",                     "background-color",  "#1e1948"],   // rich purple — stands out against water
+    ["landuse",                  "fill-color",        "#1a1540"],
+    ["landuse-shadow",           "fill-color",        "#1a1540"],
+    ["national-park",            "fill-color",        "#171438"],
+    // Crisp country boundaries
+    ["admin-0-boundary",         "line-color",        "rgba(184,162,255,0.55)"],
+    ["admin-0-boundary",         "line-opacity",      0.82],
+    ["admin-0-boundary",         "line-width",        0.9],
+    ["admin-0-boundary-disputed","line-color",        "rgba(184,162,255,0.28)"],
+    ["admin-0-boundary-disputed","line-opacity",      0.50],
+    ["admin-1-boundary",         "line-color",        "rgba(184,162,255,0.14)"],
+    ["admin-1-boundary",         "line-opacity",      0.48],
+    ["admin-state-province",     "line-color",        "rgba(184,162,255,0.14)"],
+    ["admin-state-province",     "line-opacity",      0.48],
+    // Clearly readable country labels
+    ["country-label",            "text-color",        "rgba(210,195,255,0.75)"],
+    ["country-label",            "text-halo-color",   "#080618"],
+    ["country-label",            "text-opacity",      0.78],
+    ["state-label",              "text-color",        "rgba(184,162,255,0.28)"],
+    ["state-label",              "text-opacity",      0.30],
+    ["settlement-major-label",   "text-color",        "rgba(184,162,255,0.38)"],
+    ["settlement-major-label",   "text-halo-color",   "#080618"],
+    ["settlement-major-label",   "text-opacity",      0.42],
+    ["settlement-minor-label",   "text-color",        "rgba(184,162,255,0.20)"],
+    ["settlement-minor-label",   "text-halo-color",   "#080618"],
+    ["settlement-minor-label",   "text-opacity",      0.22],
   ];
 
   paintOverrides.forEach(([id, prop, value]) => {
@@ -239,7 +239,7 @@ const MapboxMap = forwardRef(function MapboxMap({
       map = new mapboxgl.Map({
         container: containerRef.current,
         style:     "mapbox://styles/mapbox/dark-v11",
-        center:    [20, 18],
+        center:    [55, 28],          // shows Seoul, Tokyo, Manila on right; Europe center; Americas left
         zoom:      1.3,             // slightly more zoomed out — globe visible
         minZoom:   0.8,             // allow full globe pull-back
         maxZoom:   10,              // allow city-level detail

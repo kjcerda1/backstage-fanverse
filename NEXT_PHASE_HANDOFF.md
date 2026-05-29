@@ -202,6 +202,31 @@ Concert-day venue-zone gathering hub activated inside Concert Capsule. Fans chec
 ### Ult Ladder (Fan Game)
 "Who would you rather?" ladder-style elimination game. Two options, pick one winner, keep challenging until one final #1 "ult" remains. Works with K-pop idols, K-drama actors, songs, snacks, stage outfits, and more. Shareable results to Fanverse Feed. Group voting mode for My Circle DMs.
 
+### VIP Advanced Venue Heatmap ← DO NOT BUILD YET
+Concert-day crowd intelligence layer. Helps fans understand venue activity before and during a show using fan-reported data + Backstage estimates. NOT official venue data unless partnerships exist.
+
+**Honest positioning:**
+- "See fan-reported merch waits, GA line updates, and section activity on concert day."
+- "Unlock advanced concert-day heatmaps with fan-reported wait times, GA activity, and venue zone updates."
+- All estimates labeled: "Powered by fan reports + Backstage estimates. Not official venue data."
+
+**Level 1 — Buildable soon (crowdsourced fan reports):**
+Fans tap quick updates: Merch line short/long, GA filling fast, Security moving, Freebies near Gate B, Section packed, Bathrooms empty, Food line long.
+Each report: timestamp, venue zone/gate/section, confidence (recency + count), optional note/photo.
+
+**Level 2 — Smart estimates:**
+Combine fan reports with: doors open time, show time, RSVP/check-in volume, historical concert-day behavior, opt-in approximate location, known venue zones.
+Outputs: "Merch likely busiest now", "GA entry entering peak window", "Fans recommend entering in next 30min" — all labeled as estimates.
+
+**Level 3 — Future (requires partnerships):**
+Venue crowd systems, ticket scan data, Wi-Fi/Bluetooth analytics, merch POS/wait data, promoter APIs. Do NOT imply this exists without real partnerships.
+
+**UI modules:** Venue Pulse map, Zone cards, Merch wait tracker, GA line tracker, Gate/security tracker, Section activity tracker, Fan report button, Confidence labels (Fresh / Active / Limited / Estimate).
+
+**Product placement:** Concert Day Mode, VIP features, Concert Detail page, Fanverse Map venue zoom layer.
+
+**Monetization:** Free = basic venue tips. VIP = advanced heatmap, faster updates, zone comparisons, saved alerts.
+
 ---
 
 *Generated at session close. All hashes and states reflect the actual live codebase.*
