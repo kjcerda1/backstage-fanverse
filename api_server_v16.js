@@ -620,6 +620,18 @@ app.post('/api/subscriptions/checkout', optionalAuth, async (req, res) => {
     annual:   process.env.STRIPE_PRICE_ANNUAL   || priceId,
     founder:  process.env.STRIPE_PRICE_FOUNDER  || priceId,
   };
+
+  // Guard: price ID must resolve before calling Stripe
+  const resolvedPrice = PRICE_MAP[plan] || priceId;
+  if (!resolvedPrice) {
+    const missing = `STRIPE_PRICE_${(plan||'').toUpperCase()}`;
+    console.error(`[Subscriptions Checkout] Missing price ID for plan="${plan}". Set ${missing} in env.`);
+    return res.status(500).json({
+      error: 'checkout_config',
+      detail: `No price ID configured for plan "${plan}". Add ${missing} to Render env vars.`,
+    });
+  }
+
   const metadata = {
     userId: String(req.userId || userId || ''),
     email: String(req.userEmail || email || ''),
@@ -642,7 +654,7 @@ app.post('/api/subscriptions/checkout', optionalAuth, async (req, res) => {
     }
     const sessionConfig = {
       mode:       plan === 'founder' ? 'payment' : 'subscription',
-      line_items: [{ price: PRICE_MAP[plan] || priceId, quantity: 1 }],
+      line_items: [{ price: resolvedPrice, quantity: 1 }],
       success_url: successUrl || `${process.env.FRONTEND_URL}?payment=success&plan=${plan}`,
       cancel_url:  cancelUrl  || `${process.env.FRONTEND_URL}?payment=cancelled`,
       metadata,
@@ -652,8 +664,13 @@ app.post('/api/subscriptions/checkout', optionalAuth, async (req, res) => {
     const session = await stripe.checkout.sessions.create(sessionConfig);
     res.json({ url: session.url });
   } catch (err) {
-    console.error('[Subscriptions Checkout] Error:', err.message);
-    res.status(500).json({ error: 'Could not create checkout session' });
+    // Stripe SDK errors are safe to surface — they contain no secrets,
+    // only Stripe error codes and descriptions.
+    console.error('[Subscriptions Checkout] Stripe error:', err.message);
+    res.status(500).json({
+      error: 'stripe_error',
+      detail: err.message,
+    });
   }
 });
 
