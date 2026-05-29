@@ -202,16 +202,17 @@ async function optionalAuth(req, res, next) {
 // ── HEALTH ────────────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
   res.json({
-    status:       'ok',
-    version:      '1.16.0',
-    app:          'Backstage × Fanverse',
-    mock_mode:    MOCK_MODE,
-    has_ai:       HAS_AI,
-    has_stripe:   HAS_STRIPE,
-    has_firebase: HAS_FIREBASE,
-    has_spotify:  HAS_SPOTIFY,
-    has_mapbox:   HAS_MAPBOX,
-    timestamp:    new Date().toISOString(),
+    status:              'ok',
+    version:             '1.16.0',
+    app:                 'Backstage × Fanverse',
+    mock_mode:           MOCK_MODE,
+    has_ai:              HAS_AI,
+    has_stripe:          HAS_STRIPE,
+    has_stripe_webhook:  !!process.env.STRIPE_WEBHOOK_SECRET,
+    has_firebase:        HAS_FIREBASE,
+    has_spotify:         HAS_SPOTIFY,
+    has_mapbox:          HAS_MAPBOX,
+    timestamp:           new Date().toISOString(),
   });
 });
 
@@ -753,12 +754,33 @@ app.post('/api/webhooks/stripe', async (req, res) => {
       break;
     }
     case 'customer.subscription.deleted': {
+      // Subscription cancelled — revoke VIP
       const sub = event.data.object;
       if (supabase) {
         await supabase.from('users').update({ is_vip: false, vip_source: null })
           .eq('stripe_customer_id', sub.customer);
         console.log(`[Stripe] VIP revoked: customer=${sub.customer}`);
       }
+      break;
+    }
+    case 'invoice.paid': {
+      // Subscription renewal — keep VIP active and refresh vip_since
+      const inv = event.data.object;
+      if (inv.customer && supabase) {
+        await supabase.from('users').update({
+          is_vip:     true,
+          vip_since:  new Date().toISOString(),
+          vip_source: 'stripe',
+        }).eq('stripe_customer_id', inv.customer);
+        console.log(`[Stripe] VIP renewed via invoice: customer=${inv.customer}`);
+      }
+      break;
+    }
+    case 'invoice.payment_failed': {
+      // Renewal payment failed — log only, do not revoke yet
+      // Stripe will retry and fire customer.subscription.deleted if all retries fail
+      const inv = event.data.object;
+      console.warn(`[Stripe] Invoice payment failed: customer=${inv.customer} attempt=${inv.attempt_count}`);
       break;
     }
     default:
