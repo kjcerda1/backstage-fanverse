@@ -68,18 +68,40 @@ import rateLimit   from 'express-rate-limit';
 import Stripe      from 'stripe';
 import Anthropic   from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
+import admin        from 'firebase-admin';
 import 'dotenv/config';
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
 
 // ── ENV FLAGS ─────────────────────────────────────────────────────────────────
-const MOCK_MODE    = process.env.MOCK_MODE === 'true' || !process.env.SUPABASE_URL;
-const HAS_STRIPE   = !!process.env.STRIPE_SECRET_KEY;
-const HAS_AI       = !!process.env.ANTHROPIC_API_KEY;
-const HAS_FIREBASE = !!process.env.FIREBASE_PROJECT_ID;
-const HAS_SPOTIFY  = !!process.env.SPOTIFY_CLIENT_ID && !!process.env.SPOTIFY_CLIENT_SECRET;
-const HAS_MAPBOX   = !!process.env.MAPBOX_ACCESS_TOKEN;
+const MOCK_MODE          = process.env.MOCK_MODE === 'true' || !process.env.SUPABASE_URL;
+const HAS_STRIPE         = !!process.env.STRIPE_SECRET_KEY;
+const HAS_AI             = !!process.env.ANTHROPIC_API_KEY;
+const HAS_FIREBASE       = !!(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || process.env.FIREBASE_PROJECT_ID);
+const HAS_SPOTIFY        = !!process.env.SPOTIFY_CLIENT_ID && !!process.env.SPOTIFY_CLIENT_SECRET;
+const HAS_MAPBOX         = !!process.env.MAPBOX_ACCESS_TOKEN;
+const HAS_TICKETMASTER   = !!process.env.TICKETMASTER_API_KEY;
+
+// Firebase Admin SDK — initialized once on startup if credentials are present
+if (HAS_FIREBASE && !admin.apps.length) {
+  try {
+    let credential;
+    if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+      credential = admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON));
+    } else {
+      credential = admin.credential.cert({
+        projectId:   process.env.FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        privateKey:  process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+      });
+    }
+    admin.initializeApp({ credential });
+    console.log('[Firebase Admin] Initialized ✓');
+  } catch (err) {
+    console.warn('[Firebase Admin] Init failed — push notifications disabled:', err.message);
+  }
+}
 
 console.log(`[Backstage API v1.16.0] Starting in ${MOCK_MODE ? 'MOCK' : 'PRODUCTION'} mode`);
 console.log(`[Backstage API] AI: ${HAS_AI ? '✓' : '✗'} | Stripe: ${HAS_STRIPE ? '✓' : '✗'} | Spotify: ${HAS_SPOTIFY ? '✓' : '✗'} | Mapbox: ${HAS_MAPBOX ? '✓' : '✗'}`);
@@ -911,8 +933,19 @@ const MOCK_EVENTS = [
   { id: 'e4', title: 'aespa MY WORLD TOUR', date: '2025-07-12', city: 'Chicago', venue: 'United Center', group: 'aespa', fandom: 'MY', going: 2780, image: null },
 ];
 
+// Confirmed events always surfaced regardless of Ticketmaster or Supabase state
+const CONFIRMED_EVENTS = [
+  {
+    id: 'bts-lv-2026', title: "BTS WORLD TOUR 'ARIRANG'", group: 'BTS',
+    city: 'Las Vegas, NV', venue: 'Allegiant Stadium', date: '2026-05-23',
+    verificationStatus: 'confirmed', sourceType: 'official',
+    url: 'https://www.ticketmaster.com',
+  },
+];
+
 app.get('/api/events', optionalAuth, async (req, res) => {
-  const { city, group, fandom } = req.query;
+  const { city, group, fandom, groups } = req.query;
+  const requestedGroups = groups ? groups.split(',').map(g => g.trim()).filter(Boolean) : [];
 
   if (MOCK_MODE) {
     let events = MOCK_EVENTS;
@@ -922,18 +955,71 @@ app.get('/api/events', optionalAuth, async (req, res) => {
     return res.json({ events, mock: true });
   }
 
-  try {
-    // TODO: Ticketmaster API
-    // const TM_KEY = process.env.TICKETMASTER_API_KEY;
-    // const tmRes = await fetch(`https://app.ticketmaster.com/discovery/v2/events.json?keyword=${group}&classificationName=K-Pop&apikey=${TM_KEY}`);
-    // const tmData = await tmRes.json();
-    const { data, error } = await supabase.from('events').select('*').order('date', { ascending: true }).limit(50);
-    if (error) throw error;
-    res.json({ events: data });
-  } catch (err) {
-    console.error('[Events] Error:', err.message);
-    res.json({ events: MOCK_EVENTS, mock: true });
+  const collected = [];
+
+  // 1 — Ticketmaster Discovery API (when key is present)
+  if (HAS_TICKETMASTER) {
+    const TM_KEY   = process.env.TICKETMASTER_API_KEY;
+    const keywords = requestedGroups.length ? requestedGroups : (group ? [group] : ['K-Pop']);
+    try {
+      const tmResults = await Promise.all(
+        keywords.map(kw =>
+          fetch(
+            `https://app.ticketmaster.com/discovery/v2/events.json` +
+            `?classificationName=K-Pop&keyword=${encodeURIComponent(kw)}` +
+            `&apikey=${TM_KEY}&locale=en-us&size=20&sort=date,asc`
+          ).then(r => r.ok ? r.json() : null).catch(() => null)
+        )
+      );
+      for (const tmData of tmResults) {
+        const items = tmData?._embedded?.events || [];
+        for (const e of items) {
+          const venue  = e._embedded?.venues?.[0];
+          const date   = e.dates?.start?.localDate;
+          collected.push({
+            id:                 e.id,
+            title:              e.name,
+            group:              e.classifications?.[0]?.genre?.name || 'K-Pop',
+            city:               venue ? `${venue.city?.name}, ${venue.state?.stateCode}` : '',
+            venue:              venue?.name || '',
+            date,
+            verificationStatus: 'confirmed',
+            sourceType:         'ticketmaster',
+            url:                e.url,
+          });
+        }
+      }
+    } catch (err) {
+      console.error('[Events TM] Error:', err.message);
+    }
   }
+
+  // 2 — Supabase events table (manually curated or cached from TM nightly sync)
+  try {
+    let q = supabase.from('events').select('*').order('date', { ascending: true }).limit(50);
+    if (city)  q = q.ilike('city', `%${city}%`);
+    if (group) q = q.ilike('group', `%${group}%`);
+    const { data, error } = await q;
+    if (!error && data?.length) {
+      const existingIds = new Set(collected.map(e => e.id));
+      for (const row of data) {
+        if (!existingIds.has(row.id)) collected.push(row);
+      }
+    }
+  } catch (err) {
+    console.error('[Events Supabase] Error:', err.message);
+  }
+
+  // 3 — Always merge confirmed events at the top; deduplicate by id
+  const allIds = new Set(collected.map(e => e.id));
+  const pinned = CONFIRMED_EVENTS.filter(e => !allIds.has(e.id));
+  const merged = [...pinned, ...collected];
+
+  if (!merged.length) {
+    return res.json({ events: MOCK_EVENTS, mock: true });
+  }
+
+  res.json({ events: merged });
 });
 
 app.post('/api/events/attendance', requireAuth, async (req, res) => {
@@ -1613,11 +1699,45 @@ app.post('/api/save-token', requireAuth, async (req, res) => {
 app.post('/api/send-notification', requireAuth, async (req, res) => {
   const { userId, title, body, data } = req.body;
   if (MOCK_MODE) return res.json({ success: true, mock: true });
-  // TODO: Wire Firebase Admin SDK
-  // import admin from 'firebase-admin';
-  // const { data: tokens } = await supabase.from('fcm_tokens').select('token').eq('user_id', userId);
-  // for (const { token } of tokens) { await admin.messaging().send({ token, notification: { title, body }, data }); }
-  res.json({ success: true, note: 'Wire FIREBASE_SERVICE_ACCOUNT_JSON to enable push' });
+
+  if (!HAS_FIREBASE || !admin.apps.length) {
+    return res.json({ success: true, delivered: 0, note: 'Add FIREBASE_SERVICE_ACCOUNT_JSON to enable real push' });
+  }
+
+  try {
+    const { data: rows, error } = await supabase
+      .from('fcm_tokens')
+      .select('token')
+      .eq('user_id', userId);
+
+    if (error) throw error;
+    if (!rows?.length) return res.json({ success: true, delivered: 0 });
+
+    const results = await Promise.allSettled(
+      rows.map(({ token }) =>
+        admin.messaging().send({
+          token,
+          notification: { title, body },
+          data: {
+            targetModal: data?.targetModal || '',
+            targetTab:   data?.targetTab   || '',
+            targetId:    data?.targetId    || '',
+          },
+          webpush: {
+            fcmOptions: { link: process.env.FRONTEND_URL || '/' },
+          },
+        })
+      )
+    );
+
+    const delivered = results.filter(r => r.status === 'fulfilled').length;
+    const failed    = results.filter(r => r.status === 'rejected').length;
+    if (failed) console.warn(`[send-notification] ${failed} token(s) failed delivery`);
+    res.json({ success: true, delivered, failed });
+  } catch (err) {
+    console.error('[send-notification] Error:', err.message);
+    res.status(500).json({ error: 'Failed to send notification' });
+  }
 });
 
 

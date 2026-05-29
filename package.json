@@ -19,6 +19,8 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "express-rate-limit": "^8.5.2",
+    "firebase": "^12.14.0",
+    "firebase-admin": "^13.10.0",
     "helmet": "^8.1.0",
     "mapbox-gl": "^3.23.1",
     "react": "^18.3.1",

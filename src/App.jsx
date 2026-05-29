@@ -212,7 +212,6 @@ function AuthProvider({ children }) {
         } else {
           setUser(null);
           ls.del('backstage_session');
-          ls.del('backstage_mock_user');
         }
       });
       return () => subscription.unsubscribe();
@@ -222,7 +221,6 @@ function AuthProvider({ children }) {
   const signOut = async () => {
     setUser(null);
     ls.del('backstage_session');
-    ls.del('backstage_mock_user');
     ls.del('backstage_is_vip');
     if (_supabase) await _supabase.auth.signOut();
   };
@@ -1612,9 +1610,42 @@ async function requestNotificationPermission(userId) {
   if (!("Notification" in window) || !("serviceWorker" in navigator)) return null;
   const permission = await Notification.requestPermission();
   if (permission !== "granted") return null;
-  // TODO Phase 3 FCM: replace with Firebase getToken({ vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY })
+
+  const FB_API_KEY    = import.meta.env.VITE_FIREBASE_API_KEY;
+  const FB_PROJECT_ID = import.meta.env.VITE_FIREBASE_PROJECT_ID;
+  const FB_VAPID      = import.meta.env.VITE_FIREBASE_VAPID_KEY;
+
+  if (FB_API_KEY && FB_PROJECT_ID && FB_VAPID) {
+    try {
+      const { initializeApp, getApps } = await import('firebase/app');
+      const { getMessaging, getToken }  = await import('firebase/messaging');
+      const config = {
+        apiKey:            FB_API_KEY,
+        authDomain:        import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+        projectId:         FB_PROJECT_ID,
+        messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+        appId:             import.meta.env.VITE_FIREBASE_APP_ID,
+      };
+      const firebaseApp = getApps().length ? getApps()[0] : initializeApp(config);
+      const messaging   = getMessaging(firebaseApp);
+      const reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+      // Send config to SW so it can handle background messages
+      const sw = reg.active || reg.waiting || reg.installing;
+      if (sw) sw.postMessage({ type: 'FIREBASE_CONFIG', config });
+      await navigator.serviceWorker.ready;
+      const token = await getToken(messaging, { vapidKey: FB_VAPID, serviceWorkerRegistration: reg });
+      if (token) {
+        await api.post('/api/save-token', { token, userId, platform: 'web' });
+        return token;
+      }
+    } catch (err) {
+      console.warn('[FCM] getToken failed:', err?.message);
+    }
+  }
+
+  // Fallback: mock token (in-app notifications still work, no real device push)
   const mockToken = `mock-fcm-${userId}-${Date.now()}`;
-  await fetch("/api/save-token", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ token:mockToken, userId }) }).catch(()=>{});
+  await api.post('/api/save-token', { token: mockToken, userId }).catch(()=>{});
   return mockToken;
 }
 
@@ -3384,8 +3415,10 @@ function Onboarding({ onDone }) {
       const { data: d, error } = await _supabase.auth.signInWithPassword({ email, password: pass });
       if (error) { setErr(error.message); setLoading(false); return; }
       const profile = await api.get('/api/users/me');
-      const u = normalizeProfile({ id:d.user.id, email:d.user.email, username:profile?.username||email.split('@')[0], fandoms:profile?.fandoms||[], favorite_groups:profile?.favorite_groups, handle:profile?.handle, backstage_name:profile?.backstage_name, display_name:profile?.display_name, bias:profile?.bias||'', is_vip:profile?.is_vip||false });
+      const fallback = { id:d.user.id, email:d.user.email, username:email.split('@')[0], fandoms:[], bias:'', is_vip:false };
+      const u = mergeStoredProfile(ls.get(`backstage_profile_${d.user.id}`), profile?.id ? normalizeProfile({...fallback,...profile}) : null, fallback);
       ls.set('backstage_session', { user: u });
+      if (u.id) ls.set(`backstage_profile_${u.id}`, u);
       if (!canEnterApp(u)) {
         ls.set('backstage_pending_uid', d.user.id);
         setData(prev=>({ ...prev, name:u.handle || email.split('@')[0], groups:u.fandoms || [], bias:u.bias || "" }));
@@ -3467,6 +3500,7 @@ function Onboarding({ onDone }) {
 
     setLoading(false);
     setSavedProfile(profile);
+    if (ls.get('backstage_tour_shown')) { onDone(profile); return; }
     setTourStep(0);
     setMode("tour");
     console.log('[Onboarding] setMode("tour") called');
@@ -3640,6 +3674,7 @@ function Onboarding({ onDone }) {
             <button
               onClick={()=>{
                 if(isLast){
+                  ls.set('backstage_tour_shown', true);
                   console.log('[Onboarding] tour done, calling onDone:', savedProfile?.username);
                   onDone(savedProfile);
                 } else {
@@ -3652,7 +3687,7 @@ function Onboarding({ onDone }) {
               {isLast ? "Enter Backstage ✦" : "Next →"}
             </button>
             {!isLast && (
-              <button onClick={()=>{ console.log('[Onboarding] tour skipped'); onDone(savedProfile); }} style={{ background:"none",border:"none",color:C.textDim,fontSize:12,cursor:"pointer",padding:"8px",fontFamily:"'Instrument Sans',sans-serif" }}>
+              <button onClick={()=>{ ls.set('backstage_tour_shown', true); console.log('[Onboarding] tour skipped'); onDone(savedProfile); }} style={{ background:"none",border:"none",color:C.textDim,fontSize:12,cursor:"pointer",padding:"8px",fontFamily:"'Instrument Sans',sans-serif" }}>
                 Skip intro
               </button>
             )}
@@ -3722,11 +3757,41 @@ function Onboarding({ onDone }) {
 
 
 // ─── CONCERTS ─────────────────────────────────────────────────────────────────
-function ConcertsPage({ go, isVip, onUpgrade }) {
+function ConcertsPage({ go, isVip, onUpgrade, user }) {
   const [view, setView] = useState(()=>{ const v=ls.get("backstage_concerts_view","shows"); ls.del("backstage_concerts_view"); return v; });
   const [going, setGoing] = useState({});
   const [selected, setSelected] = useState(null);
   const [rsvped, setRsvped] = useState({});
+  const [apiConcerts, setApiConcerts] = useState([]);
+
+  useEffect(()=>{
+    if (!API_URL) return;
+    const groups = user?.fandoms || user?.favorite_groups || [];
+    const query  = groups.length ? `?groups=${encodeURIComponent(groups.join(','))}` : '';
+    api.get(`/api/events${query}`).then(d=>{
+      if (d?.events?.length) {
+        // Normalize TM/API events to MOCK_CONCERTS shape, skip IDs already in MOCK_CONCERTS
+        const existingIds = new Set(MOCK_CONCERTS.map(c=>c.id));
+        const fresh = d.events
+          .filter(e => !existingIds.has(e.id))
+          .map(e=>({
+            id:                 e.id,
+            name:               e.title || e.name,
+            city:               e.city,
+            date:               e.date,
+            venue:              e.venue,
+            group:              e.group,
+            color:              C.accent,
+            attendees:          e.going || null,
+            verificationStatus: e.verificationStatus || 'api',
+            sourceType:         'ticketmaster',
+            sourceName:         'Ticketmaster',
+            sourceUrl:          e.url || null,
+          }));
+        setApiConcerts(fresh);
+      }
+    }).catch(()=>{});
+  },[user?.id]);
 
   if (selected) return <ShowDetail concert={selected} onBack={()=>setSelected(null)} going={going} setGoing={setGoing} go={go} isVip={isVip} onUpgrade={onUpgrade} />;
 
@@ -3753,12 +3818,7 @@ function ConcertsPage({ go, isVip, onUpgrade }) {
       <Screen style={{ padding:"0 20px 100px" }}>
         {view==="shows" && (
           <div style={{ display:"flex", flexDirection:"column", gap:14, paddingTop:4 }}>
-            {/* PHASE 1: Renders MOCK_CONCERTS directly (hardcoded in frontend).
-                PHASE 2: Will call GET /api/events?groups={user.fandoms.join(',')}
-                         and merge with manually-confirmed cards (e.g. bts-lv-2026).
-                PHASE 3: Backend populates events table from Ticketmaster Discovery API.
-                Preview fallback (MOCK_CONCERTS) stays available when API is unavailable. */}
-            {MOCK_CONCERTS.map((c,idx)=>{
+            {[...MOCK_CONCERTS, ...apiConcerts].map((c,idx)=>{
               const isConfirmed = c.verificationStatus === "confirmed" || c.verificationStatus === "official";
               const isPreview   = c.verificationStatus === "preview";
               const daysLeft    = computeDaysLeft(c.dates ? c.dates[0]+', 2026' : c.date);
@@ -13436,7 +13496,6 @@ function AppInner() {
   // ── SIGN OUT ───────────────────────────────────────────────────────────────
   const handleSignOut = async () => {
     ls.del('backstage_session');
-    ls.del('backstage_mock_user');
     ls.del('backstage_is_vip');
     if(_supabase) await _supabase.auth.signOut();
     setUser(null);
@@ -13466,6 +13525,24 @@ function AppInner() {
 
   useEffect(()=>{
     if(appState==="main"&&!notif&&!ls.get("backstage_notif_prompt_dismissed",false)){ const t=setTimeout(()=>setShowNotifPrompt(true),4000); return ()=>clearTimeout(t); }
+  },[appState]);
+
+  // Handle push notification deep-links: ?notif=target on launch, or NOTIF_CLICK from SW
+  useEffect(()=>{
+    const params = new URLSearchParams(window.location.search);
+    const notifDest = params.get('notif');
+    if (notifDest && appState === 'main') {
+      window.history.replaceState({}, '', window.location.pathname);
+      go(notifDest);
+    }
+    const onSwMessage = (event) => {
+      if (event.data?.type === 'NOTIF_CLICK' && appState === 'main') {
+        const dest = event.data.targetModal || event.data.targetTab;
+        if (dest) go(dest);
+      }
+    };
+    navigator.serviceWorker?.addEventListener('message', onSwMessage);
+    return () => navigator.serviceWorker?.removeEventListener('message', onSwMessage);
   },[appState]);
 
   useEffect(()=>{
@@ -13660,7 +13737,7 @@ function AppInner() {
           {appState==="main"&&!modal&&(
             <>
               {tab==="home"&&<HomeFeed user={user} go={go} weather={weatherData} isVip={isVip} onUpgrade={openUpgrade} onSmartNotifs={()=>setShowSmartNotifs(true)} />}
-              {tab==="concerts"&&<ConcertsPage go={go} isVip={isVip} onUpgrade={openUpgrade} />}
+              {tab==="concerts"&&<ConcertsPage go={go} isVip={isVip} onUpgrade={openUpgrade} user={user} />}
               {tab==="community"&&<FanverseTab go={go} user={user} isVip={isVip} onUpgrade={openUpgrade} />}
               {tab==="collect"&&<LibraryTab cards={cards} setCards={setCards} isVip={isVip} onUpgrade={openUpgrade} go={go} user={user} weather={weatherData} />}
               {tab==="fanverse"&&<ExploreTab user={user} weather={weatherData} isVip={isVip} onUpgrade={openUpgrade} go={go} />}
