@@ -84,9 +84,11 @@ function injectMapboxCSS() {
     const style = document.createElement("style");
     style.id = "mapbox-attrib-style";
     style.textContent = [
-      ".mapboxgl-ctrl-attrib{font-size:9px!important;opacity:0.78}",
-      ".mapboxgl-ctrl-attrib a{color:rgba(200,185,255,0.88)!important;text-decoration:none}",
-      ".mapboxgl-ctrl-logo{opacity:0.80}",
+      // Dark-glass attribution — reduces visual brightness against dark map while
+      // remaining legible and compliant with Mapbox ToS (opacity ≥ 0.72, text readable).
+      ".mapboxgl-ctrl-attrib{font-size:8px!important;opacity:0.72;background:rgba(6,4,18,0.78)!important;border-radius:8px!important}",
+      ".mapboxgl-ctrl-attrib a{color:rgba(200,185,255,0.80)!important;text-decoration:none}",
+      ".mapboxgl-ctrl-logo{opacity:0.68}",
     ].join("");
     document.head.appendChild(style);
   }
@@ -187,7 +189,7 @@ function buildLayers(showHeatmap) {
       paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,10,12000,28], "circle-color":["get","color"], "circle-opacity":0.36, "circle-blur":0.12 }},
     // Bright crisp core dot — slightly larger to compensate for tighter halos
     { id:"fan-core", type:"circle", source:"fan-density",
-      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,7,12000,24], "circle-color":["get","color"], "circle-opacity":1.0, "circle-stroke-width":1.8, "circle-stroke-color":"rgba(255,255,255,0.65)" }},
+      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,7,12000,24], "circle-color":["get","color"], "circle-opacity":1.0, "circle-stroke-width":1.8, "circle-stroke-color":"rgba(235,218,255,0.72)" }},
 
     // ── Trending pulse ring (RAF-animated, goes below labels) ─────────────────
     { id:"fan-pulse", type:"circle", source:"fan-density",
@@ -583,6 +585,7 @@ const MapboxMap = forwardRef(function MapboxMap({
         borderRadius:  "inherit",
         pointerEvents: "none",
         background:    "linear-gradient(138deg, rgba(255,255,255,0.038) 0%, rgba(255,255,255,0.016) 38%, transparent 62%)",
+        animation:     "shimmer 9s ease-in-out infinite",
         zIndex:        3,
       }} />
 
@@ -595,7 +598,32 @@ const MapboxMap = forwardRef(function MapboxMap({
         right:         "6%",
         height:        "1px",
         pointerEvents: "none",
-        background:    "linear-gradient(90deg, transparent, rgba(255,255,255,0.22), rgba(200,185,255,0.34), rgba(255,220,238,0.28), rgba(255,255,255,0.22), transparent)",
+        background:    "linear-gradient(90deg, transparent, rgba(255,255,255,0.18), rgba(200,185,255,0.36), rgba(255,220,238,0.26), rgba(142,239,212,0.16), rgba(255,255,255,0.10), transparent)",
+        zIndex:        3,
+      }} />
+
+      {/* Left pearl edge — glass catching light on the left rim */}
+      <div style={{
+        position:      "absolute",
+        top:           "6%",
+        left:          0,
+        width:         "1.5px",
+        height:        "32%",
+        pointerEvents: "none",
+        background:    "linear-gradient(180deg, transparent, rgba(200,185,255,0.30), rgba(255,220,238,0.18), transparent)",
+        zIndex:        3,
+      }} />
+
+      {/* Bottom depth shadow — glass underside, adds dimensional depth */}
+      <div style={{
+        position:      "absolute",
+        bottom:        0,
+        left:          0,
+        right:         0,
+        height:        "11%",
+        borderRadius:  "inherit",
+        pointerEvents: "none",
+        background:    "linear-gradient(0deg, rgba(3,2,12,0.40) 0%, transparent 100%)",
         zIndex:        3,
       }} />
 

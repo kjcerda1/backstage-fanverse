@@ -7901,29 +7901,33 @@ function FanverseMap({ onBack }) {
               border:"none",
               boxShadow:[
                 "0 36px 100px rgba(0,0,0,0.72)",             // outer depth
-                "0 0 0 1.5px rgba(184,162,255,0.38)",          // lavender glass ring
-                "0 0 0 2.5px rgba(240,168,204,0.14)",          // pink second ring
-                "0 0 0 4.5px rgba(0,0,0,0.32)",               // dark separation gap
-                "inset 0 1.5px 0 rgba(255,255,255,0.22)",     // top inner pearl highlight
-                "inset 1px 0 0 rgba(255,255,255,0.06)",       // left inner edge light
+                "0 0 0 1.5px rgba(184,162,255,0.44)",          // lavender glass ring
+                "0 0 0 2.5px rgba(240,168,204,0.16)",          // pink second ring
+                "0 0 0 3.5px rgba(142,239,212,0.08)",          // teal third ring
+                "0 0 0 5px rgba(0,0,0,0.30)",                  // dark separation gap
+                "inset 0 1.5px 0 rgba(255,255,255,0.28)",     // top inner pearl — crisp glass edge
+                "inset 1px 0 0 rgba(255,255,255,0.09)",       // left inner edge light
+                "inset -0.5px 0 0 rgba(142,239,212,0.07)",    // right teal edge reflection
                 "inset 0 -1px 0 rgba(0,0,0,0.55)",            // bottom inner depth
-                "0 0 60px rgba(184,162,255,0.09)",             // ambient lavender bloom
+                "0 0 80px rgba(184,162,255,0.11)",             // ambient lavender bloom
                 selectedCity ? `0 0 100px ${selectedCity.color}1e` : null,
               ].filter(Boolean).join(", ")
             }}>
               <MapboxMap ref={worldMapRef} densityData={CITY_DENSITY_GEOJSON} showHeatmap={false} onCityClick={p=>setSelectedCity(p)} selectedCityFeature={selectedCityFeature} />
+              {/* Top-left glass corner catch — premium liquid glass highlight */}
+              <div style={{ position:"absolute",top:0,left:0,width:"44%",height:"28%",pointerEvents:"none",zIndex:1,background:"linear-gradient(138deg,rgba(200,185,255,0.08) 0%,rgba(200,185,255,0.03) 32%,transparent 58%)" }} />
               {/* Activity type legend */}
-              <div style={{ position:"absolute",bottom:10,left:10,display:"flex",gap:6,alignItems:"center",pointerEvents:"none",zIndex:1, background:"rgba(6,4,18,0.88)", backdropFilter:"blur(22px)", WebkitBackdropFilter:"blur(22px)", borderRadius:99,padding:"5px 11px", border:"none", boxShadow:"0 0 0 1px rgba(184,162,255,0.32), 0 0 0 2px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.14), 0 4px 14px rgba(0,0,0,0.40)" }}>
+              <div style={{ position:"absolute",bottom:10,left:10,display:"flex",gap:6,alignItems:"center",pointerEvents:"none",zIndex:1, background:"rgba(6,4,18,0.88)", backdropFilter:"blur(22px)", WebkitBackdropFilter:"blur(22px)", borderRadius:99,padding:"5px 11px", border:"1px solid rgba(200,185,255,0.24)", boxShadow:"inset 0 1px 0 rgba(255,255,255,0.16), 0 0 0 1px rgba(0,0,0,0.30), 0 4px 14px rgba(0,0,0,0.40)", animation:"iridescent 10s ease-in-out infinite" }}>
                 {[["#ffc8ec","Trending"],["#a5d8ff","Concert"],["#f0cc88","Event"],["#c4b5fd","Hub"]].map(([color,label])=>(
                   <div key={label} style={{ display:"flex",alignItems:"center",gap:3 }}>
-                    <div style={{ width:5,height:5,borderRadius:"50%",background:color,flexShrink:0,boxShadow:`0 0 5px ${color}` }} />
-                    <p style={{ fontSize:7.5,color:"rgba(255,255,255,0.72)",letterSpacing:"0.04em",whiteSpace:"nowrap" }}>{label}</p>
+                    <div style={{ width:6,height:6,borderRadius:"50%",background:color,flexShrink:0,boxShadow:`0 0 6px ${color}, 0 0 2px rgba(255,255,255,0.35)` }} />
+                    <p style={{ fontSize:7.5,color:"rgba(255,255,255,0.76)",letterSpacing:"0.04em",whiteSpace:"nowrap" }}>{label}</p>
                   </div>
                 ))}
               </div>
               {/* Selected city info pill — top of map */}
               {selectedCity && (
-                <div style={{ position:"absolute",top:10,left:12,right:12, background:"rgba(6,4,20,0.90)", backdropFilter:"blur(28px)", WebkitBackdropFilter:"blur(28px)", borderRadius:18, padding:"10px 14px", border:`1.5px solid ${selectedCity.color}3e`, zIndex:2, display:"flex", alignItems:"center", gap:10, boxShadow:[`0 10px 36px ${selectedCity.color}24`, `0 0 0 0.5px ${selectedCity.color}2a`, "inset 0 1.5px 0 rgba(255,255,255,0.16)", "inset 0 -1px 0 rgba(0,0,0,0.38)", "0 2px 12px rgba(0,0,0,0.50)"].join(", ") }}>
+                <div style={{ position:"absolute",top:10,left:12,right:12, background:"rgba(6,4,20,0.90)", backdropFilter:"blur(28px)", WebkitBackdropFilter:"blur(28px)", borderRadius:18, padding:"10px 14px", border:`1.5px solid ${selectedCity.color}55`, zIndex:2, display:"flex", alignItems:"center", gap:10, boxShadow:[`0 10px 36px ${selectedCity.color}28`, `0 0 0 0.5px ${selectedCity.color}2a`, "inset 0 1.5px 0 rgba(255,255,255,0.20)", "inset 0 -1px 0 rgba(0,0,0,0.38)", "0 2px 12px rgba(0,0,0,0.50)"].join(", ") }}>
                   <div style={{ position:"relative",flexShrink:0,width:10,height:10 }}>
                     <div style={{ position:"absolute",inset:-3,borderRadius:"50%",background:selectedCity.color,opacity:0.25,animation:"pulse 1.4s ease infinite" }} />
                     <div style={{ width:10,height:10,borderRadius:"50%",background:selectedCity.color }} />
