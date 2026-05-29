@@ -64,6 +64,22 @@ function normalizeProfile(user) {
   };
 }
 
+// ─── VIP HELPER ──────────────────────────────────────────────────────────────
+// Single source of truth for VIP access. Handles two sources:
+//   1. Paid VIP — set by Stripe webhook (user.is_vip === true)
+//   2. Comped VIP — admin-granted (user.vip_source === "comped")
+//      vip_expires_at: null = permanent, ISO string = time-limited
+// Both sources unlock identical VIP features. Stripe is not bypassed for paid.
+function isVipActive(user) {
+  if (!user) return false;
+  if (user.is_vip === true) return true;
+  if (user.vip_source === "comped") {
+    if (!user.vip_expires_at) return true;
+    return new Date(user.vip_expires_at) > new Date();
+  }
+  return false;
+}
+
 function isProfileComplete(user) {
   const profile = normalizeProfile(user);
   return Boolean(
@@ -7877,7 +7893,7 @@ function FanverseMap({ onBack }) {
           <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer",lineHeight:1 }}>←</button>
           <div>
             <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:20, letterSpacing:"-0.02em", lineHeight:1.1 }}>Fanverse Map 🌍</h2>
-            <p style={{ fontSize:9.5, color:C.textMid, letterSpacing:"0.01em", marginTop:1 }}>See where the fandom is glowing right now.</p>
+            <p style={{ fontSize:9.5, color:C.textMid, letterSpacing:"0.01em", marginTop:1 }}>{view==="heatmap"?"See where fan density is highest.":view==="local"?"See activity near your approximate city.":"Explore global fan activity."}</p>
           </div>
         </div>
         <button
@@ -8122,7 +8138,7 @@ function FanverseMap({ onBack }) {
             <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4 }}>
               <div>
                 <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17,letterSpacing:"-0.01em" }}>Map Controls</p>
-                <p style={{ fontSize:11,color:C.textMid,marginTop:4,lineHeight:1.45 }}>Choose what fan activity you see on the globe.</p>
+                <p style={{ fontSize:11,color:C.textMid,marginTop:4,lineHeight:1.45 }}>Choose which fan activity appears on the globe.</p>
               </div>
               <button onClick={()=>setShowControls(false)} style={{ background:"none",border:"none",color:"rgba(255,255,255,0.42)",fontSize:22,cursor:"pointer",lineHeight:1,padding:"2px 4px",flexShrink:0 }}>×</button>
             </div>
@@ -8158,7 +8174,7 @@ function FanverseMap({ onBack }) {
 
             {/* Coming soon */}
             <div style={{ marginTop:18,display:"flex",alignItems:"center",gap:8 }}>
-              <p style={{ fontSize:10.5,color:"rgba(255,255,255,0.26)",fontFamily:"'Instrument Sans',sans-serif",lineHeight:1.45,flex:1 }}>Group filters, radius controls, and VIP heatmap are coming soon.</p>
+              <p style={{ fontSize:10.5,color:"rgba(255,255,255,0.42)",fontFamily:"'Instrument Sans',sans-serif",lineHeight:1.45,flex:1 }}>Group filters, radius controls, and VIP heatmap are coming soon.</p>
               <span style={{ fontSize:9,color:C.accent,border:`1px solid ${C.accent}44`,borderRadius:99,padding:"2px 8px",fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap",flexShrink:0 }}>Soon</span>
             </div>
           </div>
@@ -13631,7 +13647,7 @@ function AppInner() {
 
   // ── VIP — backed by Supabase users.is_vip ───────────────────────────────────
   // POST /api/subscriptions/checkout | GET /api/subscriptions/status
-  const [isVip, setIsVip] = useState(()=>ls.get("backstage_session")?.user?.is_vip||ls.get("backstage_is_vip",false));
+  const [isVip, setIsVip] = useState(()=>{ const u=ls.get("backstage_session")?.user; return isVipActive(u)||ls.get("backstage_is_vip",false); });
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [showVipCelebration, setShowVipCelebration] = useState(false);
   const [showVipTour, setShowVipTour] = useState(false);
@@ -13657,7 +13673,7 @@ function AppInner() {
   // Boot: sync VIP status from backend on session restore
   useEffect(()=>{
     if(user?.id && appState==="main"){
-      api.get('/api/subscriptions/status').then(d=>{ if(d?.is_vip!==undefined){ setIsVip(d.is_vip); ls.set("backstage_is_vip",d.is_vip); } }).catch(()=>{});
+      api.get('/api/subscriptions/status').then(d=>{ if(d?.is_vip!==undefined){ const active=isVipActive({is_vip:d.is_vip,vip_source:d.vip_source,vip_expires_at:d.vip_expires_at}); setIsVip(active); ls.set("backstage_is_vip",active); if(d.vip_source) setUser(u=>u?{...u,vip_source:d.vip_source,vip_expires_at:d.vip_expires_at}:u); } }).catch(()=>{});
     }
   },[user?.id, appState]);
 

@@ -515,6 +515,33 @@ app.post('/api/ai/assistant', aiLimiter, requireAuth, async (req, res) => {
 // ═════════════════════════════════════════════════════════════════════════════
 
 // GET VIP status for current user
+// Response includes vip_source and vip_expires_at when present so the
+// frontend isVipActive() helper can handle both paid and comped VIP.
+//
+// ── COMP VIP PLAN ────────────────────────────────────────────────────────────
+// To support admin-granted free VIP (founders, testers, family, influencers)
+// without going through Stripe, add these columns to the Supabase users table:
+//
+//   vip_source      text    -- 'stripe' | 'comped' | null
+//   vip_expires_at  timestamptz -- null = permanent; ISO date = time-limited
+//
+// Migration (run in Supabase SQL editor):
+//   ALTER TABLE users ADD COLUMN IF NOT EXISTS vip_source text;
+//   ALTER TABLE users ADD COLUMN IF NOT EXISTS vip_expires_at timestamptz;
+//
+// Admin grant (run directly in Supabase or via a future /admin/comp-vip route
+// protected by service-role key — NEVER expose this as a public endpoint):
+//   UPDATE users SET vip_source='comped', vip_expires_at=null    -- permanent
+//   UPDATE users SET vip_source='comped', vip_expires_at='2026-12-31' -- 1 year
+//   WHERE id = '<user-id>';
+//
+// Use cases: Founder/Internal → null (permanent); Beta Tester → +6 months;
+// Friend & Family → +1 year; Influencer/Promo → campaign end date.
+//
+// Stripe promo codes vs Comp VIP:
+//   Promo codes = public discounts, still require payment info, generate revenue.
+//   Comp VIP    = no checkout, no payment info, better for internal/trusted users.
+// ─────────────────────────────────────────────────────────────────────────────
 app.get('/api/subscriptions/status', optionalAuth, async (req, res) => {
   // No auth token (called before session loads) — return safe free-tier default
   if (!req.userId) return res.json({ is_vip: false, plan: null, status: 'free' });
@@ -522,11 +549,22 @@ app.get('/api/subscriptions/status', optionalAuth, async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('users')
-      .select('is_vip, vip_since, stripe_customer_id')
+      .select('is_vip, vip_since, vip_source, vip_expires_at, stripe_customer_id')
       .eq('id', req.userId)
       .single();
     if (error) throw error;
-    res.json({ is_vip: data?.is_vip || false, plan: data?.is_vip ? 'vip' : null, status: data?.is_vip ? 'active' : 'free', vip_since: data?.vip_since });
+    // Determine effective VIP: paid Stripe OR active comp grant
+    const compActive = data?.vip_source === 'comped' &&
+      (!data?.vip_expires_at || new Date(data.vip_expires_at) > new Date());
+    const effectiveVip = data?.is_vip === true || compActive;
+    res.json({
+      is_vip:         effectiveVip,
+      plan:           effectiveVip ? 'vip' : null,
+      status:         effectiveVip ? 'active' : 'free',
+      vip_since:      data?.vip_since,
+      vip_source:     data?.vip_source || null,
+      vip_expires_at: data?.vip_expires_at || null,
+    });
   } catch (err) {
     console.error('[Subscription Status] Error:', err.message);
     res.json({ is_vip: false, plan: null, status: 'free' });
