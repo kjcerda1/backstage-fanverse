@@ -7817,6 +7817,8 @@ function FanverseMap({ onBack }) {
   const [view, setView] = useState("world");
   const [proximityOn, setProximityOn] = useState(()=>ls.get("backstage_proximity_sharing", false));
   const [selectedCity, setSelectedCity] = useState(null);
+  const [showControls, setShowControls] = useState(false);
+  const [activeFilters, setActiveFilters] = useState(["trending","concerts","events","hubs"]);
   const worldMapRef   = useRef(null);
   const heatmapMapRef = useRef(null);
   const chipTimerRef  = useRef(null);
@@ -7868,7 +7870,7 @@ function FanverseMap({ onBack }) {
   ];
 
   return (
-    <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden", background:`radial-gradient(ellipse at top,rgba(155,93,229,0.18),transparent 40%),radial-gradient(ellipse at bottom right,rgba(247,37,133,0.09),transparent 38%),linear-gradient(to bottom,#070711 0%,#0a0a16 45%,#111126 100%)` }}>
+    <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden", position:"relative", background:`radial-gradient(ellipse at top,rgba(155,93,229,0.18),transparent 40%),radial-gradient(ellipse at bottom right,rgba(247,37,133,0.09),transparent 38%),linear-gradient(to bottom,#070711 0%,#0a0a16 45%,#111126 100%)` }}>
       {/* Header — glassmorphism */}
       <div style={{ padding:"16px 20px 14px", display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0, backdropFilter:"blur(24px)", background:"rgba(10,10,22,0.48)", borderBottom:"1px solid rgba(255,255,255,0.055)" }}>
         <div style={{ display:"flex", gap:10, alignItems:"center" }}>
@@ -7878,8 +7880,11 @@ function FanverseMap({ onBack }) {
             <p style={{ fontSize:9.5, color:C.textMid, letterSpacing:"0.01em", marginTop:1 }}>See where the fandom is glowing right now.</p>
           </div>
         </div>
-        <button style={{ width:36,height:36,borderRadius:"50%",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.08)",backdropFilter:"blur(12px)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer" }}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><line x1="4" y1="6" x2="20" y2="6" stroke={C.textMid} strokeWidth="1.8" strokeLinecap="round"/><line x1="4" y1="12" x2="14" y2="12" stroke={C.textMid} strokeWidth="1.8" strokeLinecap="round"/><line x1="4" y1="18" x2="10" y2="18" stroke={C.textMid} strokeWidth="1.8" strokeLinecap="round"/></svg>
+        <button
+          onClick={() => setShowControls(v => !v)}
+          aria-label="Map controls"
+          style={{ width:36,height:36,borderRadius:"50%",background:showControls?"rgba(184,162,255,0.18)":"rgba(255,255,255,0.05)",border:`1px solid ${showControls?"rgba(184,162,255,0.52)":"rgba(255,255,255,0.08)"}`,backdropFilter:"blur(12px)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",transition:"background .18s, border-color .18s" }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><line x1="4" y1="6" x2="20" y2="6" stroke={showControls?C.lavender:C.textMid} strokeWidth="1.8" strokeLinecap="round"/><line x1="4" y1="12" x2="14" y2="12" stroke={showControls?C.lavender:C.textMid} strokeWidth="1.8" strokeLinecap="round"/><line x1="4" y1="18" x2="10" y2="18" stroke={showControls?C.lavender:C.textMid} strokeWidth="1.8" strokeLinecap="round"/></svg>
         </button>
       </div>
 
@@ -8101,6 +8106,64 @@ function FanverseMap({ onBack }) {
           </div>
         )}
       </div>
+
+      {/* ── Map Controls drawer ──────────────────────────────────────────── */}
+      {showControls && (
+        <div style={{ position:"absolute",inset:0,zIndex:30,display:"flex",flexDirection:"column",justifyContent:"flex-end" }}>
+          {/* Scrim — tap to close */}
+          <div onClick={()=>setShowControls(false)} style={{ position:"absolute",inset:0,background:"rgba(0,0,0,0.44)",backdropFilter:"blur(5px)",WebkitBackdropFilter:"blur(5px)" }} />
+          {/* Sheet */}
+          <div style={{ position:"relative",background:"linear-gradient(160deg,#0e0b22,#0a0818)",borderRadius:"24px 24px 0 0",padding:"24px 22px 48px",border:"1.5px solid rgba(184,162,255,0.22)",borderBottom:"none",animation:"slideUp .26s ease",boxShadow:"0 -20px 60px rgba(0,0,0,0.62), inset 0 1px 0 rgba(255,255,255,0.10)" }}>
+            {/* Pearl rim line */}
+            <div style={{ position:"absolute",top:0,left:"10%",right:"10%",height:"1px",background:"linear-gradient(90deg,transparent,rgba(200,185,255,0.44),rgba(255,220,238,0.26),transparent)",pointerEvents:"none" }} />
+            {/* Drag handle */}
+            <div style={{ width:36,height:4,borderRadius:2,background:"rgba(255,255,255,0.18)",margin:"0 auto 22px" }} />
+
+            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4 }}>
+              <div>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17,letterSpacing:"-0.01em" }}>Map Controls</p>
+                <p style={{ fontSize:11,color:C.textMid,marginTop:4,lineHeight:1.45 }}>Choose what fan activity you see on the globe.</p>
+              </div>
+              <button onClick={()=>setShowControls(false)} style={{ background:"none",border:"none",color:"rgba(255,255,255,0.42)",fontSize:22,cursor:"pointer",lineHeight:1,padding:"2px 4px",flexShrink:0 }}>×</button>
+            </div>
+
+            {/* Activity type filter chips */}
+            <div style={{ marginTop:20 }}>
+              <p style={{ fontSize:9.5,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12 }}>Activity Type</p>
+              <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
+                {[
+                  { id:"trending",  label:"🔥 Trending",  color:"#ffc8ec" },
+                  { id:"concerts",  label:"🎤 Concerts",  color:"#a5d8ff" },
+                  { id:"events",    label:"✦ Events",     color:"#f0cc88" },
+                  { id:"hubs",      label:"💜 Hubs",      color:"#c4b5fd" },
+                ].map(({ id, label, color }) => {
+                  const on = activeFilters.includes(id);
+                  return (
+                    <button key={id} onClick={()=>setActiveFilters(f => on ? f.filter(x=>x!==id) : [...f,id])} style={{ padding:"8px 14px",borderRadius:99,background:on?`${color}22`:"rgba(255,255,255,0.04)",border:`1px solid ${on?color+"66":"rgba(255,255,255,0.10)"}`,color:on?color:"rgba(255,255,255,0.42)",fontSize:12,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",transition:"all .16s",boxShadow:on?`0 0 12px ${color}22`:"none" }}>{label}</button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Nearby privacy note */}
+            <div style={{ marginTop:20,background:"rgba(255,255,255,0.03)",borderRadius:16,padding:"12px 14px",border:"1px solid rgba(255,255,255,0.07)" }}>
+              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                <div>
+                  <p style={{ fontSize:12.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,marginBottom:2 }}>Nearby Mode</p>
+                  <p style={{ fontSize:10,color:C.textMid,lineHeight:1.4 }}>Uses your approximate city only — never exact GPS.</p>
+                </div>
+                <div style={{ width:7,height:7,borderRadius:"50%",background:C.mint,boxShadow:`0 0 7px ${C.mint}`,flexShrink:0 }} />
+              </div>
+            </div>
+
+            {/* Coming soon */}
+            <div style={{ marginTop:18,display:"flex",alignItems:"center",gap:8 }}>
+              <p style={{ fontSize:10.5,color:"rgba(255,255,255,0.26)",fontFamily:"'Instrument Sans',sans-serif",lineHeight:1.45,flex:1 }}>Group filters, radius controls, and VIP heatmap are coming soon.</p>
+              <span style={{ fontSize:9,color:C.accent,border:`1px solid ${C.accent}44`,borderRadius:99,padding:"2px 8px",fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap",flexShrink:0 }}>Soon</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
