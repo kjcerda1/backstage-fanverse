@@ -13923,12 +13923,28 @@ function AppInner() {
     }
   },[auth.user]);
 
-  // Boot: sync VIP status from backend on session restore
+  // Boot: sync VIP status from backend on session restore.
+  // Depends on auth.user?.id (not user?.id) so it fires only after the
+  // AuthProvider has set api._token — preventing an unauthenticated call that
+  // would return is_vip: false and silently downgrade a paid user.
   useEffect(()=>{
-    if(user?.id && appState==="main"){
-      api.get('/api/subscriptions/status').then(d=>{ if(d?.is_vip!==undefined){ const active=isVipActive({is_vip:d.is_vip,vip_source:d.vip_source,vip_expires_at:d.vip_expires_at}); setIsVip(active); ls.set("backstage_is_vip",active); if(d.vip_source) setUser(u=>u?{...u,vip_source:d.vip_source,vip_expires_at:d.vip_expires_at}:u); } }).catch(()=>{});
+    if(auth.user?.id && appState==="main"){
+      api.get('/api/subscriptions/status').then(d=>{
+        if(d?.is_vip===undefined) return;
+        const active = isVipActive({is_vip:d.is_vip, vip_source:d.vip_source, vip_expires_at:d.vip_expires_at});
+        setIsVip(active);
+        ls.set("backstage_is_vip", active);
+        // Write is_vip back into the user object so next boot initializes correctly
+        setUser(u=>{
+          if(!u) return u;
+          return {...u, is_vip:active, vip_source:d.vip_source||u.vip_source, vip_expires_at:d.vip_expires_at||u.vip_expires_at};
+        });
+        // Persist to session so is_vip survives reload without a backend round-trip
+        const sess = ls.get('backstage_session');
+        if(sess?.user) ls.set('backstage_session', {...sess, user:{...sess.user, is_vip:active, vip_source:d.vip_source||sess.user.vip_source}});
+      }).catch(()=>{});
     }
-  },[user?.id, appState]);
+  },[auth.user?.id, appState]);
 
   // Boot: load photocard collection from backend (replaces MOCK_CARDS when user has real data)
   useEffect(()=>{
@@ -14028,6 +14044,8 @@ function AppInner() {
           setIsVip(true);
           ls.set('backstage_is_vip', true);
           setUser(u => u ? { ...u, is_vip: true, vip_source: d.vip_source || 'stripe' } : u);
+          const sess = ls.get('backstage_session');
+          if (sess?.user) ls.set('backstage_session', {...sess, user:{...sess.user, is_vip:true, vip_source:d.vip_source||'stripe'}});
           setShowVipCelebration(true);
         } else {
           setNotif({ title:"Payment received ✦", body:"VIP access is activating — refresh in a moment if it doesn't appear yet.", icon:"✦", color:C.gold });
