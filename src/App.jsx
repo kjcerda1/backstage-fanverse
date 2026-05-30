@@ -1586,9 +1586,9 @@ const DEFAULT_NOTIF_SETTINGS = {
 
 // PRIVACY SETTINGS
 const DEFAULT_PRIVACY = {
-  discoveryMode: "concert_only", showCity: true, hideDistance: false,
-  showOnline: false, showConcerts: true, tradeDiscovery: true,
-  buddyDiscovery: true, qrQuickAdd: true, temporaryUntil: null,
+  discoveryMode: "off", showCity: false, hideDistance: true,
+  showOnline: false, showConcerts: false, tradeDiscovery: false,
+  buddyDiscovery: false, qrQuickAdd: false, temporaryUntil: null,
 };
 
 // PROFILE STYLE
@@ -8412,26 +8412,221 @@ function QRPage({ onBack, user, onNotif }) {
 }
 
 // ─── 18. SAFETY CENTER ───────────────────────────────────────────────────────
+// ─── MODERATION HELPERS ───────────────────────────────────────────────────────
+// localStorage-backed with API fallback. All functions are fire-and-forget safe.
+function useModeration() {
+  const submitReport = async ({ type, targetId, targetHandle, reason, detail }) => {
+    const entry = { type, targetId, targetHandle, reason, detail, at: Date.now() };
+    const existing = ls.get("backstage_reports", []);
+    ls.set("backstage_reports", [...existing, entry]);
+    if (API_URL) {
+      try {
+        await fetch(`${API_URL}/api/moderation/report`, {
+          method:"POST",
+          headers: api._headers(),
+          body: JSON.stringify(entry),
+        });
+      } catch {}
+    }
+  };
+
+  const blockUser = async ({ userId, handle }) => {
+    const blocked = ls.get("backstage_blocked_users", []);
+    if (!blocked.find(b => b.userId === userId)) {
+      ls.set("backstage_blocked_users", [...blocked, { userId, handle, at: Date.now() }]);
+    }
+    if (API_URL) {
+      try {
+        await fetch(`${API_URL}/api/moderation/block`, {
+          method:"POST",
+          headers: api._headers(),
+          body: JSON.stringify({ blockedUserId: userId }),
+        });
+      } catch {}
+    }
+  };
+
+  const unblockUser = (userId) => {
+    const blocked = ls.get("backstage_blocked_users", []);
+    ls.set("backstage_blocked_users", blocked.filter(b => b.userId !== userId));
+    if (API_URL) {
+      fetch(`${API_URL}/api/moderation/block/${userId}`, { method:"DELETE", headers: api._headers() }).catch(()=>{});
+    }
+  };
+
+  const getBlockedUsers = () => ls.get("backstage_blocked_users", []);
+
+  return { submitReport, blockUser, unblockUser, getBlockedUsers };
+}
+
+// ─── REPORT SHEET ─────────────────────────────────────────────────────────────
+// Reusable bottom sheet for reporting a user, post, or trade.
+// Usage: <ReportSheet type="user"|"post"|"trade" targetId={id} targetHandle={handle} onClose={fn} onNotif={fn} />
+function ReportSheet({ type, targetId, targetHandle, onClose, onNotif }) {
+  const { submitReport, blockUser } = useModeration();
+  const [reason, setReason] = useState("");
+  const [detail, setDetail] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  const [blocking, setBlocking] = useState(false);
+  const [blocked, setBlocked] = useState(false);
+
+  const REASONS = {
+    user:  ["Harassment or bullying", "Impersonation", "Spam or scam", "Inappropriate content", "Underage concern", "Other"],
+    post:  ["Harmful or violent content", "Spam or misleading", "Hate speech", "Harassment", "Copyright issue", "Other"],
+    trade: ["Fraudulent listing", "Wrong item shipped", "No response after trade", "Scam attempt", "Other"],
+  };
+
+  const handleSubmit = async () => {
+    await submitReport({ type, targetId, targetHandle, reason, detail });
+    setSubmitted(true);
+    onNotif && onNotif({ title:"Report submitted ✓", body:"Thank you. Our team will review this.", icon:"🛡️", color:C.mint });
+  };
+
+  const handleBlock = async () => {
+    setBlocking(true);
+    await blockUser({ userId: targetId, handle: targetHandle });
+    setBlocked(true);
+    setBlocking(false);
+    onNotif && onNotif({ title:`@${targetHandle || "User"} blocked`, body:"You won't see their content anymore.", icon:"🚫", color:C.rose });
+  };
+
+  const typeLabel = type === "user" ? `@${targetHandle || "this user"}` : type === "post" ? "this post" : "this trade";
+
+  return (
+    <div onClick={onClose} style={{ position:"fixed",inset:0,zIndex:600,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+      <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:"22px 20px 32px",width:"100%",animation:"slideUp .28s ease",border:`1.5px solid ${C.borderHi}`,maxHeight:"80vh",overflowY:"auto" }}>
+        <div style={{ width:36,height:4,borderRadius:99,background:C.border,margin:"0 auto 20px" }} />
+        {submitted ? (
+          <div style={{ textAlign:"center",padding:"16px 0" }}>
+            <p style={{ fontSize:36,marginBottom:12 }}>🛡️</p>
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18,marginBottom:8,color:C.mint }}>Report submitted</p>
+            <p style={{ fontSize:13,color:C.textMid,marginBottom:20,lineHeight:1.6 }}>Thank you for helping keep Backstage safe. Our team will review this report.</p>
+            {type === "user" && !blocked && (
+              <Btn color={C.rose} onClick={handleBlock} disabled={blocking} style={{ marginBottom:12 }}>
+                {blocking ? "Blocking..." : `Block @${targetHandle || "user"} too`}
+              </Btn>
+            )}
+            <Btn ghost color={C.textMid} onClick={onClose}>Done</Btn>
+          </div>
+        ) : (
+          <>
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17,marginBottom:4 }}>Report {typeLabel}</p>
+            <p style={{ fontSize:12,color:C.textMid,marginBottom:18,lineHeight:1.6 }}>All reports are confidential. We take every report seriously.</p>
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12.5,marginBottom:10,color:C.textMid }}>REASON</p>
+            <div style={{ display:"flex",flexDirection:"column",gap:7,marginBottom:16 }}>
+              {REASONS[type].map(r=>(
+                <div key={r} onClick={()=>setReason(r)} style={{ background:reason===r?`${C.rose}14`:C.surface,border:`1.5px solid ${reason===r?C.rose:C.border}`,borderRadius:12,padding:"10px 13px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                  <p style={{ fontSize:13,color:reason===r?C.text:C.textMid }}>{r}</p>
+                  {reason===r&&<div style={{ width:8,height:8,borderRadius:"50%",background:C.rose,flexShrink:0 }} />}
+                </div>
+              ))}
+            </div>
+            <Textarea value={detail} onChange={e=>setDetail(e.target.value)} placeholder="Additional details (optional)..." style={{ height:72,marginBottom:16 }} />
+            <Btn color={C.rose} onClick={handleSubmit} disabled={!reason}>Submit Report</Btn>
+            {type === "user" && (
+              <>
+                <div style={{ height:10 }} />
+                <Btn ghost color={C.rose} onClick={handleBlock} disabled={blocking || blocked}>
+                  {blocked ? "✓ Blocked" : blocking ? "Blocking..." : `Block @${targetHandle || "user"}`}
+                </Btn>
+              </>
+            )}
+            <div style={{ height:10 }} />
+            <Btn ghost color={C.textMid} onClick={onClose}>Cancel</Btn>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function SafetyCenter({ onBack }) {
-  const [reportText, setReportText] = useState("");
-  const [reported, setReported] = useState(false);
+  const { getBlockedUsers, unblockUser } = useModeration();
+  const [section, setSection] = useState("main"); // main | report | blocked
+  const [reportType, setReportType] = useState("user");
+  const [reportHandle, setReportHandle] = useState("");
+  const [reportId, setReportId] = useState("");
+  const [showReportSheet, setShowReportSheet] = useState(false);
+  const [notif, setNotif] = useState(null);
   const [checkIn, setCheckIn] = useState({contact:"",plan:"",checkedIn:false});
+  const blockedUsers = getBlockedUsers();
+
+  if (section === "blocked") return (
+    <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden" }}>
+      <div style={{ padding:"16px 20px",display:"flex",gap:10,alignItems:"center",flexShrink:0 }}>
+        <button onClick={()=>setSection("main")} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
+        <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19 }}>Blocked Users 🚫</h2>
+      </div>
+      <Screen style={{ padding:"0 20px 80px" }}>
+        {blockedUsers.length === 0 ? (
+          <Empty emoji="🛡️" title="No blocked users" sub="Block someone from their profile or a report." />
+        ) : blockedUsers.map(b=>(
+          <div key={b.userId} style={{ background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:"12px 14px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+            <div>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13 }}>@{b.handle || b.userId}</p>
+              <p style={{ fontSize:10.5,color:C.textMid }}>Blocked {new Date(b.at).toLocaleDateString()}</p>
+            </div>
+            <button onClick={()=>unblockUser(b.userId)} style={{ background:"none",border:`1.5px solid ${C.border}`,borderRadius:9,padding:"5px 11px",color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:11,cursor:"pointer" }}>Unblock</button>
+          </div>
+        ))}
+      </Screen>
+    </div>
+  );
+
   return (
     <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
+      {notif && <NotifBanner notif={notif} onDismiss={()=>setNotif(null)} />}
+      {showReportSheet && (
+        <ReportSheet
+          type={reportType}
+          targetId={reportId}
+          targetHandle={reportHandle}
+          onClose={()=>setShowReportSheet(false)}
+          onNotif={n=>{setShowReportSheet(false);setNotif(n);}}
+        />
+      )}
       <div style={{ padding:"16px 20px",display:"flex",gap:10,alignItems:"center",flexShrink:0 }}>
         <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
         <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19 }}>Safety Center 🛡️</h2>
       </div>
       <Screen style={{ padding:"0 20px 100px" }}>
         <div style={{ background:`${C.mint}08`,border:`1px solid ${C.mint}22`,borderRadius:14,padding:12,marginBottom:18 }}>
-          <p style={{ fontSize:12,color:C.textMid,lineHeight:1.7 }}>🛡️ Your safety is priority one. All reports are anonymous.</p>
+          <p style={{ fontSize:12,color:C.textMid,lineHeight:1.7 }}>🛡️ Your safety is priority one. All reports are confidential.</p>
         </div>
+
+        <SectionHeader title="Report &amp; Block" />
+        <div style={{ display:"flex",flexDirection:"column",gap:8,marginBottom:18 }}>
+          {[
+            { label:"Report a User", icon:"🚨", type:"user", sub:"Harassment, impersonation, or harmful behavior" },
+            { label:"Report a Post", icon:"📢", type:"post", sub:"Spam, misleading, or inappropriate content" },
+            { label:"Report a Trade", icon:"🃏", type:"trade", sub:"Fraud, scam, or item dispute" },
+          ].map(item=>(
+            <div key={item.type} className="tap" onClick={()=>{ setReportType(item.type); setReportHandle(""); setReportId(""); setShowReportSheet(true); }} style={{ background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:14,padding:"12px 14px",cursor:"pointer",display:"flex",gap:12,alignItems:"center" }}>
+              <span style={{ fontSize:22,flexShrink:0 }}>{item.icon}</span>
+              <div style={{ flex:1 }}>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13 }}>{item.label}</p>
+                <p style={{ fontSize:10.5,color:C.textMid }}>{item.sub}</p>
+              </div>
+              <span style={{ color:C.textMid,fontSize:16 }}>›</span>
+            </div>
+          ))}
+          <div className="tap" onClick={()=>setSection("blocked")} style={{ background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:14,padding:"12px 14px",cursor:"pointer",display:"flex",gap:12,alignItems:"center" }}>
+            <span style={{ fontSize:22,flexShrink:0 }}>🚫</span>
+            <div style={{ flex:1 }}>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13 }}>Blocked Users</p>
+              <p style={{ fontSize:10.5,color:C.textMid }}>{blockedUsers.length} blocked · Tap to manage</p>
+            </div>
+            <span style={{ color:C.textMid,fontSize:16 }}>›</span>
+          </div>
+        </div>
+
         <SectionHeader title="Trusted Buddy Check-In" />
         <Card style={{ marginBottom:16 }}>
           <Input label="Trusted Contact" value={checkIn.contact} onChange={e=>setCheckIn({...checkIn,contact:e.target.value})} placeholder="Name or @handle..." style={{ marginBottom:10 }} />
           <Textarea label="Your Meetup Plan" value={checkIn.plan} onChange={e=>setCheckIn({...checkIn,plan:e.target.value})} placeholder="Location, time, how long you'll be there..." style={{ height:70,marginBottom:12 }} />
           <Btn small onClick={()=>setCheckIn({...checkIn,checkedIn:true})} color={C.mint} disabled={!checkIn.contact.trim()}>{checkIn.checkedIn?"✓ Plan Shared":"Share Meetup Plan"}</Btn>
         </Card>
+
         <SectionHeader title="Safety Tips" />
         <div style={{ display:"flex",flexDirection:"column",gap:7,marginBottom:18 }}>
           {[["📍","Always meet in public, well-lit areas"],["👥","Tell someone your plans"],["📱","Keep your phone charged"],["💬","Trust your gut — it's ok to leave"],["🆘","Emergency: 911 (US)"]].map(([icon,tip])=>(
@@ -8441,15 +8636,6 @@ function SafetyCenter({ onBack }) {
             </div>
           ))}
         </div>
-        <SectionHeader title="Report a User" />
-        <Card>
-          {reported ? <p style={{ color:C.mint,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textAlign:"center",padding:"8px 0" }}>✓ Report submitted. Thank you.</p> : (
-            <div>
-              <Textarea value={reportText} onChange={e=>setReportText(e.target.value)} placeholder="Describe what happened..." style={{ height:80,marginBottom:12 }} />
-              <Btn small color={C.rose} onClick={()=>setReported(true)} disabled={!reportText.trim()}>Submit Report</Btn>
-            </div>
-          )}
-        </Card>
       </Screen>
     </div>
   );
@@ -11558,7 +11744,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour }) {
 
           {/* Legal links */}
           <div style={{ display:"flex",justifyContent:"center",gap:14,marginTop:12,flexWrap:"wrap" }}>
-            {[["Privacy Policy","/privacy"],["Terms","/terms"],["Support","/support"]].map(([label,href])=>(
+            {[["Privacy Policy","/privacy"],["Terms","/terms"],["Support","/support"],["Delete Account","/delete-account"]].map(([label,href])=>(
               <a key={href} href={href} style={{ fontSize:10.5,color:C.textDim,textDecoration:"underline" }}>{label}</a>
             ))}
           </div>
@@ -13705,9 +13891,72 @@ const LEGAL_STYLE = {
 function LegalNav() {
   return (
     <div style={LEGAL_STYLE.nav}>
-      {[["Privacy Policy","/privacy"],["Terms of Service","/terms"],["Support","/support"]].map(([label,href])=>(
+      {[["Privacy Policy","/privacy"],["Terms of Service","/terms"],["Support","/support"],["Delete Account","/delete-account"]].map(([label,href])=>(
         <a key={href} href={href} style={{ ...LEGAL_STYLE.a, fontWeight:600, fontSize:13 }}>{label}</a>
       ))}
+    </div>
+  );
+}
+function DeleteAccountPage() {
+  return (
+    <div style={LEGAL_STYLE.page}>
+      <a href="/" style={LEGAL_STYLE.back}>← Back to Backstage</a>
+      <h1 style={LEGAL_STYLE.h1}>Delete Your Account</h1>
+      <p style={LEGAL_STYLE.meta}>Backstage by Fanverse · Account Data &amp; Deletion</p>
+      <LegalNav />
+
+      <div style={{ background:"#fff0f0", border:"1.5px solid #ffcccc", borderRadius:16, padding:"18px 22px", marginBottom:28 }}>
+        <p style={{ ...LEGAL_STYLE.p, fontWeight:700, color:"#cc0000", marginBottom:4 }}>⚠️ Deletion is permanent and cannot be undone.</p>
+        <p style={{ ...LEGAL_STYLE.p, marginBottom:0 }}>All profile data, collections, posts, messages, trade history, and concert memories will be permanently removed from our systems.</p>
+      </div>
+
+      <h2 style={LEGAL_STYLE.h2}>Option 1 — Delete inside the app (fastest)</h2>
+      <ol style={{ ...LEGAL_STYLE.ul, listStyleType:"decimal" }}>
+        <li style={LEGAL_STYLE.li}>Open Backstage and sign in</li>
+        <li style={LEGAL_STYLE.li}>Go to <strong>Profile</strong> (bottom nav, rightmost tab)</li>
+        <li style={LEGAL_STYLE.li}>Tap <strong>Settings</strong></li>
+        <li style={LEGAL_STYLE.li}>Scroll to the bottom and tap <strong>Delete Account</strong></li>
+        <li style={LEGAL_STYLE.li}>Confirm by typing <em>DELETE</em> and tapping the confirmation button</li>
+      </ol>
+      <p style={LEGAL_STYLE.p}>Deletion is processed immediately. You will be signed out automatically.</p>
+
+      <h2 style={LEGAL_STYLE.h2}>Option 2 — Request by email</h2>
+      <p style={LEGAL_STYLE.p}>Send an email to <a href="mailto:support@backstagefanverse.com" style={LEGAL_STYLE.a}>support@backstagefanverse.com</a> with:</p>
+      <ul style={LEGAL_STYLE.ul}>
+        <li style={LEGAL_STYLE.li}>Subject: <strong>Account Deletion Request</strong></li>
+        <li style={LEGAL_STYLE.li}>The email address registered to your account</li>
+        <li style={LEGAL_STYLE.li}>Your Backstage username / stan name (if you remember it)</li>
+      </ul>
+      <p style={LEGAL_STYLE.p}>We will process your request within 30 days and send a confirmation email when deletion is complete.</p>
+
+      <h2 style={LEGAL_STYLE.h2}>What gets deleted</h2>
+      <ul style={LEGAL_STYLE.ul}>
+        <li style={LEGAL_STYLE.li}>Your account and login credentials</li>
+        <li style={LEGAL_STYLE.li}>Profile information (name, photo, fandoms, bias)</li>
+        <li style={LEGAL_STYLE.li}>Posts, comments, and Backstage Passes</li>
+        <li style={LEGAL_STYLE.li}>Photocard collections and scrapbooks</li>
+        <li style={LEGAL_STYLE.li}>Trade history and reviews you wrote</li>
+        <li style={LEGAL_STYLE.li}>Concert memories and afterglow entries</li>
+        <li style={LEGAL_STYLE.li}>Friends list, DMs, and meetup RSVPs</li>
+        <li style={LEGAL_STYLE.li}>Push notification tokens</li>
+      </ul>
+
+      <h2 style={LEGAL_STYLE.h2}>What may be retained</h2>
+      <ul style={LEGAL_STYLE.ul}>
+        <li style={LEGAL_STYLE.li}>Anonymized payment transaction records (required for financial and legal compliance)</li>
+        <li style={LEGAL_STYLE.li}>Moderation records (e.g., if your account was actioned for safety violations — retained for safety of others)</li>
+      </ul>
+
+      <h2 style={LEGAL_STYLE.h2}>Cancelling VIP before deletion</h2>
+      <p style={LEGAL_STYLE.p}>If you have an active VIP subscription, cancelling your account also ends your subscription. No partial-period refund is issued, except where required by applicable law. To request a refund exception, email us before deleting your account.</p>
+
+      <h2 style={LEGAL_STYLE.h2}>Your data rights (GDPR / CCPA)</h2>
+      <p style={LEGAL_STYLE.p}>You also have the right to request a copy of your data before deletion. Email <a href="mailto:privacy@backstagefanverse.com" style={LEGAL_STYLE.a}>privacy@backstagefanverse.com</a> with the subject <em>"Data Export Request"</em>. We will respond within 30 days.</p>
+
+      <div style={LEGAL_STYLE.hr} />
+      <p style={{ ...LEGAL_STYLE.p, fontSize:13, color:"#9370cc" }}>
+        <a href="/privacy" style={LEGAL_STYLE.a}>Privacy Policy</a> · <a href="/terms" style={LEGAL_STYLE.a}>Terms of Service</a> · <a href="/support" style={LEGAL_STYLE.a}>Support</a>
+      </p>
     </div>
   );
 }
@@ -13864,9 +14113,10 @@ function SupportPage() {
 // ─── ROOT APP ─────────────────────────────────────────────────────────────────
 export default function App() {
   const p = window.location.pathname;
-  if (p === '/privacy') return <PrivacyPage />;
-  if (p === '/terms')   return <TermsPage />;
-  if (p === '/support') return <SupportPage />;
+  if (p === '/privacy')        return <PrivacyPage />;
+  if (p === '/terms')          return <TermsPage />;
+  if (p === '/support')        return <SupportPage />;
+  if (p === '/delete-account') return <DeleteAccountPage />;
   return <AuthProvider><AppInner /></AuthProvider>;
 }
 

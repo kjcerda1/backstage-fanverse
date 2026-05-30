@@ -1688,6 +1688,84 @@ app.delete('/api/users/me', requireAuth, async (req, res) => {
   }
 });
 
+// ─── MODERATION ROUTES ────────────────────────────────────────────────────────
+// POST /api/moderation/report — report a user, post, or trade
+// POST /api/moderation/block  — block another user
+// DELETE /api/moderation/block/:targetId — unblock
+// GET  /api/moderation/blocks — list blocked users
+
+app.post('/api/moderation/report', requireAuth, async (req, res) => {
+  const { type, targetId, targetHandle, reason, detail } = req.body || {};
+  if (!type || !reason) return res.status(400).json({ error: 'type and reason are required' });
+  const entry = {
+    reporter_id: req.userId,
+    type: String(type).slice(0, 20),
+    target_id: targetId ? String(targetId).slice(0, 64) : null,
+    target_handle: targetHandle ? String(targetHandle).slice(0, 80) : null,
+    reason: String(reason).slice(0, 120),
+    detail: detail ? String(detail).slice(0, 500) : null,
+    created_at: new Date().toISOString(),
+    status: 'pending',
+  };
+  if (MOCK_MODE) {
+    console.log('[Moderation] MOCK report:', entry);
+    return res.json({ reported: true, mock: true });
+  }
+  try {
+    const { error } = await supabase.from('moderation_reports').insert(entry);
+    if (error) throw error;
+    res.json({ reported: true });
+  } catch (err) {
+    console.error('[Moderation] Report error:', err.message);
+    res.json({ reported: true, queued: true }); // non-fatal — report queued client-side
+  }
+});
+
+app.post('/api/moderation/block', requireAuth, async (req, res) => {
+  const { blockedUserId } = req.body || {};
+  if (!blockedUserId) return res.status(400).json({ error: 'blockedUserId required' });
+  if (blockedUserId === req.userId) return res.status(400).json({ error: 'Cannot block yourself' });
+  if (MOCK_MODE) return res.json({ blocked: true, mock: true });
+  try {
+    await supabase.from('user_blocks').upsert(
+      { user_id: req.userId, blocked_user_id: String(blockedUserId).slice(0, 64), created_at: new Date().toISOString() },
+      { onConflict: 'user_id,blocked_user_id', ignoreDuplicates: true }
+    );
+    res.json({ blocked: true });
+  } catch (err) {
+    console.error('[Moderation] Block error:', err.message);
+    res.json({ blocked: true, queued: true });
+  }
+});
+
+app.delete('/api/moderation/block/:targetId', requireAuth, async (req, res) => {
+  if (MOCK_MODE) return res.json({ unblocked: true, mock: true });
+  try {
+    await supabase.from('user_blocks').delete()
+      .eq('user_id', req.userId)
+      .eq('blocked_user_id', req.params.targetId);
+    res.json({ unblocked: true });
+  } catch (err) {
+    console.error('[Moderation] Unblock error:', err.message);
+    res.status(500).json({ error: 'Could not unblock' });
+  }
+});
+
+app.get('/api/moderation/blocks', requireAuth, async (req, res) => {
+  if (MOCK_MODE) return res.json({ blocks: [] });
+  try {
+    const { data, error } = await supabase.from('user_blocks')
+      .select('blocked_user_id, created_at')
+      .eq('user_id', req.userId)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    res.json({ blocks: data || [] });
+  } catch (err) {
+    console.error('[Moderation] Get blocks error:', err.message);
+    res.json({ blocks: [] });
+  }
+});
+
 app.get('/api/users/search', requireAuth, async (req, res) => {
   const q = String(req.query.q || '').trim().replace(/^@/, '');
   if (q.length < 2) return res.json({ users: [] });
