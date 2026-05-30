@@ -3410,7 +3410,10 @@ function AskBackstageButton({ go }) {
 function Onboarding({ onDone }) {
   const pendingProfile = normalizeProfile(ls.get("backstage_session")?.user);
   const needsProfileRecovery = Boolean(pendingProfile && !canEnterApp(pendingProfile));
-  const [mode, setMode]     = useState(()=>needsProfileRecovery || ls.get("backstage_pending_uid") ? "profile" : "landing");    // landing | login | signup | profile | tour
+  // Only skip to profile step if user is actually authenticated (session exists).
+  // Stale backstage_pending_uid from a previous session must not bypass the welcome screen.
+  const hasSession = Boolean(ls.get("backstage_session")?.user?.id);
+  const [mode, setMode]     = useState(()=>hasSession && (needsProfileRecovery || ls.get("backstage_pending_uid")) ? "profile" : "landing");    // landing | login | signup | profile | tour
   const [step, setStep]     = useState(1);
   const [email, setEmail]   = useState(pendingProfile?.email || "");
   const [pass, setPass]     = useState("");
@@ -13883,7 +13886,8 @@ function AppInner() {
   const [appState, setAppState] = useState(()=>{
     const u = normalizeProfile(ls.get("backstage_session")?.user);
     if(u && canEnterApp(u)) return "main";
-    return "onboarding";
+    if(u?.id) return "onboarding"; // authenticated but profile incomplete
+    return "auth"; // no session — show welcome/login screen
   });
   const [tab, setTab] = useState("home");
   // Auto-open capsule modal if signed-in user lands on /capsule
@@ -13912,7 +13916,11 @@ function AppInner() {
 
   useEffect(()=>{
     const nextUser = normalizeProfile(auth.user || ls.get("backstage_session")?.user);
-    if (!nextUser) return;
+    if (!nextUser) {
+      // No authenticated user — once auth finishes loading, go to welcome screen.
+      if (!auth.loading) setAppState("auth");
+      return;
+    }
     setUser(nextUser);
     // Sync isVip directly from the profile returned by /api/users/me (SELECT * includes is_vip).
     // This fires as soon as auth resolves — no second network call to /api/subscriptions/status needed.
@@ -13928,7 +13936,7 @@ function AppInner() {
       setAppState("onboarding");
       setModal(null);
     }
-  },[auth.user]);
+  },[auth.user, auth.loading]);
 
   // Boot: sync VIP status from backend on session restore.
   // Depends on auth.user?.id (not user?.id) so it fires only after the
@@ -14008,10 +14016,11 @@ function AppInner() {
   const handleSignOut = async () => {
     ls.del('backstage_session');
     ls.del('backstage_is_vip');
+    ls.del('backstage_pending_uid');
     if(_supabase) await _supabase.auth.signOut();
     setUser(null);
     setIsVip(false);
-    setAppState("onboarding");
+    setAppState("auth");
     setTab("home");
   };
 
@@ -14044,6 +14053,11 @@ function AppInner() {
 
     // Stripe checkout success return — refresh VIP status from backend
     const checkoutParam = params.get('checkout');
+    if (checkoutParam === 'success' && appState !== 'main') {
+      // Returned from Stripe but no active session — prompt user to sign in
+      window.history.replaceState({}, '', window.location.pathname);
+      setNotif({ title:"Payment received ✦", body:"Sign in to finish activating your VIP access.", icon:"✦", color:C.gold });
+    }
     if (checkoutParam === 'success' && appState === 'main') {
       window.history.replaceState({}, '', window.location.pathname);
       api.get('/api/subscriptions/status').then(d => {
@@ -14263,7 +14277,7 @@ function AppInner() {
 
         {/* ── MAIN SCREENS ── */}
         <div style={{ flex:1, overflow:"hidden", position:"relative" }}>
-          {appState==="onboarding"&&<Onboarding onDone={data=>{
+          {(appState==="auth"||appState==="onboarding")&&<Onboarding onDone={data=>{
             if (!data) { console.error('[App] onDone called with null — skipping'); return; }
             const profile = normalizeProfile(data);
             setUser(profile);
