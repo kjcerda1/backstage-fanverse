@@ -367,6 +367,11 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 @keyframes softFloat{0%,100%{transform:translateY(0) rotate(-0.5deg)}50%{transform:translateY(-9px) rotate(0.5deg)}}
 @keyframes iridescent{0%{filter:hue-rotate(0deg) brightness(1)}50%{filter:hue-rotate(15deg) brightness(1.06)}100%{filter:hue-rotate(0deg) brightness(1)}}
 @keyframes memoryFade{from{opacity:0;transform:translateY(10px) scale(0.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+/* ── Mobile-safe app shell height ───────────────────────────────────────── */
+/* 100dvh = dynamic viewport height (excludes browser chrome on mobile)    */
+/* Falls back to 100vh on browsers that don't support dvh yet               */
+#root{height:100%;overflow:hidden}
+.app-shell{height:100vh;height:100dvh}
 .tap{transition:transform .12s,opacity .12s}
 .tap:active{transform:scale(.94);opacity:.8}
 /* ── Collectible card hover lift ─────────────────────────────────────────── */
@@ -675,7 +680,7 @@ const Card = ({ children, style:s, onClick, glow, color, accent }) => (
 );
 
 const Screen = ({ children, pad=true, style:s, onScroll, ...rest }) => (
-  <div onScroll={onScroll} style={{ flex:1, overflowY:"auto", overflowX:"hidden", padding:pad?"0 20px 100px":0, position:"relative", ...s }} {...rest}>
+  <div onScroll={onScroll} style={{ flex:1, overflowY:"auto", overflowX:"hidden", padding:pad?"0 20px calc(120px + env(safe-area-inset-bottom))":0, position:"relative", ...s }} {...rest}>
     {/* Subtle ambient glow layer on every scroll pane */}
     <div style={{ position:"sticky",top:0,left:0,right:0,height:0,overflow:"visible",pointerEvents:"none",zIndex:0 }}>
       <div style={{ position:"absolute",top:-30,right:-20,width:200,height:200,borderRadius:"50%",background:`radial-gradient(circle,${C.accent}05,transparent 70%)`,pointerEvents:"none" }} />
@@ -1830,7 +1835,7 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade }) {
         <div style={{ height:1,background:`linear-gradient(90deg,transparent,${C.borderHi},transparent)`,marginTop:12 }} />
       </div>
 
-      <Screen style={{ padding:"0 0 100px" }}>
+      <Screen style={{ padding:"0 0 calc(120px + env(safe-area-inset-bottom))" }}>
 
         {/* ══ FIND FANS TAB ══ */}
         {tab==="find" && (
@@ -2105,7 +2110,7 @@ function ContentGenerator({ onBack, user, go, onNotif }) {
           <p style={{ fontSize:11,color:C.textMid }}>Make shareable fan content</p>
         </div>
       </div>
-      <Screen style={{ padding:"0 20px 100px" }}>
+      <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
         <div style={{ paddingTop:8 }}>
           {[
             { id:"concertday", emoji:"🎤", title:"My Concert Day", sub:"Auto-generate your concert timeline as a beautiful story card", color:C.pink, badge:"Trending" },
@@ -2157,7 +2162,7 @@ function ConcertDayCard({ onBack, user, generate, generating, done, onNotif, go 
         <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
         <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19 }}>My Concert Day 🎤</h2>
       </div>
-      <Screen style={{ padding:"0 20px 100px" }}>
+      <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
         {/* Preview card */}
         <div style={{ background:`linear-gradient(160deg,${concert.color}28,${C.accent}10,${C.pink}08)`,border:`1.5px solid ${concert.color}50`,borderRadius:24,padding:20,marginBottom:18,animation:"shareGlow 4s ease infinite" }}>
           <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}>
@@ -2244,7 +2249,7 @@ function IdentityCard({ onBack, user }) {
         <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
         <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19 }}>Fan Identity Card 🌟</h2>
       </div>
-      <Screen style={{ padding:"0 20px 100px" }}>
+      <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
         {/* Card */}
         <div style={{ background:`linear-gradient(160deg,${C.accentDim},${C.accent}88,${C.pinkDim})`,borderRadius:24,padding:22,marginBottom:18,position:"relative",overflow:"hidden",animation:"shareGlow 4s ease infinite" }}>
           {/* glow orb */}
@@ -2303,7 +2308,7 @@ function MapSnapshot({ onBack }) {
         <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
         <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19 }}>Fan Map Snapshot 🗺️</h2>
       </div>
-      <Screen style={{ padding:"0 20px 100px" }}>
+      <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
         {/* Map snapshot preview */}
         <div style={{ background:`linear-gradient(160deg,${C.bg},${C.surfaceMid})`,border:`1.5px solid ${ACTIVE_ZONE.color}44`,borderRadius:22,padding:20,marginBottom:18,position:"relative",overflow:"hidden",minHeight:240,animation:"shareGlow 4s ease infinite" }}>
           <p style={{ fontSize:9,color:ACTIVE_ZONE.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.14em",marginBottom:12 }}>BACKSTAGE · FANVERSE MAP</p>
@@ -3849,7 +3854,7 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
         </div>
       </div>
 
-      <Screen style={{ padding:"0 20px 100px" }}>
+      <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
         {view==="shows" && (
           <div style={{ display:"flex", flexDirection:"column", gap:14, paddingTop:4 }}>
             {[...MOCK_CONCERTS, ...apiConcerts].map((c,idx)=>{
@@ -4479,7 +4484,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
       </div>
 
       {/* CONTENT — all cards/stats scroll here */}
-      <Screen style={{ padding:"0 20px 100px", position:"relative", zIndex:1 }}>
+      <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))", position:"relative", zIndex:1 }}>
 
         {/* Collection Overview card */}
         <div style={{ background:`linear-gradient(140deg,${C.surfaceMid},${C.surfaceHi})`, border:`1.5px solid ${C.borderHi}`, borderRadius:18, padding:"14px 16px", marginBottom:12, position:"relative", overflow:"hidden" }}>
@@ -4665,7 +4670,7 @@ function BinderCreate({ onBack }) {
           </div>
         ))}
       </div>
-      <Screen style={{ padding:"8px 18px 100px" }}>
+      <Screen style={{ padding:"8px 18px calc(120px + env(safe-area-inset-bottom))" }}>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:9 }}>
           {slots.map(slot => (
             <button key={slot.id} onClick={()=>cycleStatus(slot.id)} className="tap" style={{
@@ -4708,7 +4713,7 @@ function BinderCreate({ onBack }) {
         <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
         <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:19 }}>Start a Binder</h2>
       </div>
-      <Screen style={{ padding:"0 18px 100px" }}>
+      <Screen style={{ padding:"0 18px calc(120px + env(safe-area-inset-bottom))" }}>
         <p style={{ fontSize:12.5, color:C.textMid, marginBottom:16, lineHeight:1.65 }}>Choose an album template to auto-generate card slots. Then mark what you own, want, or have to trade.</p>
         <Input value={groupSearch} onChange={e=>setGroupSearch(e.target.value)} placeholder="Search group or album..." style={{ marginBottom:16 }} />
         <div style={{ display:"flex", flexDirection:"column", gap:11 }}>
@@ -4824,7 +4829,7 @@ function TradeHub({ onBack, onNotif }) {
           <div style={{ ...VS.activePill(meta.color),fontSize:9 }}>{meta.icon} {meta.label}</div>
         </div>
 
-        <Screen style={{ padding:"0 18px 100px" }}>
+        <Screen style={{ padding:"0 18px calc(120px + env(safe-area-inset-bottom))" }}>
           {/* Progress stepper */}
           <div style={{ display:"flex",gap:3,alignItems:"center",marginBottom:20,marginTop:14,overflowX:"auto",scrollbarWidth:"none" }}>
             {["Match","Offer","Wait","Accept","Ship","Confirm","Done"].map((label,i)=>(
@@ -4946,7 +4951,7 @@ function TradeHub({ onBack, onNotif }) {
         {ls.get("backstage_is_vip")&&<div style={{ ...VS.activePill(C.gold),fontSize:9 }}>✦ Verified Trader</div>}
       </div>
 
-      <Screen style={{ padding:"0 18px 100px" }}>
+      <Screen style={{ padding:"0 18px calc(120px + env(safe-area-inset-bottom))" }}>
         {/* Active trades list */}
         {trades.filter(t=>t.stage!=="done").map(trade=>{
           const meta = TRADE_STAGE_META[trade.stage]||TRADE_STAGE_META.match;
@@ -5039,7 +5044,7 @@ function CollectTab({ cards, setCards, isVip, onUpgrade }) {
           ))}
         </div>
       </div>
-      <Screen style={{ padding:"0 20px 100px" }}>
+      <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
         {view==="shelf" && (
           <div>
             {/* Memory photo grid - matching mockup */}
@@ -5634,7 +5639,7 @@ function BudgetTracker({ onBack }) {
         <button onClick={()=>setAdding(v=>!v)} style={{ background:C.accent,border:"none",borderRadius:11,padding:"7px 14px",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer" }}>+ Add</button>
       </div>
 
-      <Screen style={{ padding:"0 20px 100px" }}>
+      <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
         {/* Total hero */}
         <div style={{ ...VS.glowCard(C.pink),padding:"20px 18px",marginBottom:18,textAlign:"center" }}>
           <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.pink}55,transparent)` }} />
@@ -5814,7 +5819,7 @@ function FanverseTab({ go, user, isVip, onUpgrade }) {
   const ORBIT_RADII = [0, 68, 108, 148]; // px radii per orbit level
 
   const FanverseMapView = () => (
-    <div style={{ overflowY:"auto", flex:1, paddingBottom:100 }}>
+    <div style={{ overflowY:"auto", flex:1, paddingBottom:"calc(120px + env(safe-area-inset-bottom))" }}>
       {/* Orbit map */}
       <div style={{ margin:"14px 18px 0", borderRadius:28, overflow:"hidden", position:"relative", background:`linear-gradient(160deg,#0c0520,#16083a,#0a0418)`, border:`1.5px solid ${C.accent}30`, boxShadow:`0 12px 48px ${C.plum}60, 0 4px 16px rgba(0,0,0,0.7)` }}>
         <div style={{ position:"absolute",inset:0,background:`radial-gradient(ellipse at 50% 50%,${C.accent}12,transparent 70%),radial-gradient(ellipse at 80% 20%,${C.berry}14,transparent 50%),radial-gradient(ellipse at 20% 80%,${C.teal}08,transparent 45%)`,pointerEvents:"none" }} />
@@ -6144,7 +6149,7 @@ function CommunityTab({ go, user }) {
           ))}
         </div>
       </div>
-      <Screen style={{ padding:"0 20px 100px" }}>
+      <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
         {view==="feed" && <LiveFeedTab user={user} go={go} />}
         {view==="hubs" && (
           <div>
@@ -6430,7 +6435,7 @@ function ExploreTab({ user, weather, isVip, onUpgrade, go, onBack }) {
             <button onClick={()=>setEraModal(null)} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
             <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18 }}>🎭 Eras Explorer</h2>
           </div>
-          <div style={{ flex:1,overflowY:"auto",padding:"0 20px 100px" }}>
+          <div style={{ flex:1,overflowY:"auto",padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
             <p style={{ fontSize:11.5,color:C.textMid,marginBottom:18,lineHeight:1.7 }}>Explore every comeback era. Tap an era to discover outfits, photocards, and fan culture from that era.</p>
             {[
               { group:"aespa",      eras:["Black Mamba","Forever & Always","Savage","My World","Drama","Whiplash"],          color:C.mint },
@@ -6485,7 +6490,7 @@ function ExploreTab({ user, weather, isVip, onUpgrade, go, onBack }) {
         </div>
       </div>
 
-      <Screen style={{ padding:"0 20px 100px" }}>
+      <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
         {view==="grid" && (
           <div style={{ paddingTop:14 }}>
             {/* Atmospheric sparkle bg */}
@@ -7718,7 +7723,7 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
         </div>
       </div>
 
-      <Screen style={{ padding:"0 20px 100px" }} onScroll={onScrollNotify ? e=>onScrollNotify(e.target.scrollTop) : undefined}>
+      <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }} onScroll={onScrollNotify ? e=>onScrollNotify(e.target.scrollTop) : undefined}>
         {/* Compose */}
         {composing && (
           <div style={{ background:C.surface, border:`1.5px solid ${C.borderHi}`, borderRadius:18, padding:16, marginBottom:14, animation:"up .2s ease" }}>
@@ -7923,7 +7928,7 @@ function FanverseMap({ onBack }) {
       </div>
 
       {/* Map / Content */}
-      <div style={{ flex:1, overflowY:"auto", padding:"0 0 100px" }}>
+      <div style={{ flex:1, overflowY:"auto", padding:"0 0 calc(120px + env(safe-area-inset-bottom))" }}>
         {view==="world" ? (
           <div style={{ position:"relative" }}>
             {/* Real Mapbox GL map */}
@@ -8232,7 +8237,7 @@ function FriendsPage({ onBack, onNotif }) {
         ))}
       </div>
 
-      <Screen style={{ padding:"0 20px 100px" }}>
+      <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
         {/* Concert context */}
         <div style={{ marginTop:16, marginBottom:14 }}>
           <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:15 }}>Fans going to ATEEZ in Dallas</p>
@@ -8291,7 +8296,7 @@ function ChatHub({ onBack }) {
         <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
         <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:19 }}>Chats 💬</h2>
       </div>
-      <Screen style={{ padding:"0 20px 100px" }}>
+      <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
         {MOCK_CHAT_ROOMS.map(room=>(
           <div key={room.id} onClick={()=>setActive(room.id)} className="tap" style={{ background:C.surface, border:`1.5px solid ${C.border}`, borderRadius:18, padding:14, marginBottom:10, cursor:"pointer", display:"flex", gap:12, alignItems:"center" }}>
             <div style={{ width:46,height:46,borderRadius:13,background:`${room.color}18`,border:`1.5px solid ${room.color}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0 }}>{TYPE_ICON[room.type]||"💬"}</div>
@@ -8368,7 +8373,7 @@ function QRPage({ onBack, user, onNotif }) {
           <span key={id} onClick={()=>setMode(id)} className="tap" style={{ padding:"6px 14px",borderRadius:99,fontSize:11,fontFamily:"'Epilogue',sans-serif",fontWeight:600,cursor:"pointer",background:mode===id?C.accent:C.surfaceHi,color:mode===id?C.bg:C.textMid,border:`1px solid ${mode===id?C.accent:C.border}` }}>{label}</span>
         ))}
       </div>
-      <Screen style={{ padding:"0 20px 100px" }}>
+      <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
         {mode==="show" && (
           <div>
             <div style={{ display:"flex",flexDirection:"column",gap:8,marginBottom:18 }}>
@@ -8589,7 +8594,7 @@ function SafetyCenter({ onBack }) {
         <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
         <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19 }}>Safety Center 🛡️</h2>
       </div>
-      <Screen style={{ padding:"0 20px 100px" }}>
+      <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
         <div style={{ background:`${C.mint}08`,border:`1px solid ${C.mint}22`,borderRadius:14,padding:12,marginBottom:18 }}>
           <p style={{ fontSize:12,color:C.textMid,lineHeight:1.7 }}>🛡️ Your safety is priority one. All reports are confidential.</p>
         </div>
@@ -8656,7 +8661,7 @@ function EventDiscovery({ onBack, go }) {
         <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
         <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19 }}>Find Concerts 🎤</h2>
       </div>
-      <Screen style={{ padding:"0 20px 100px" }}>
+      <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
         <div style={{ display:"flex",gap:8,marginBottom:10 }}>
           <input value={query} onChange={e=>setQuery(e.target.value)} onKeyDown={e=>e.key==="Enter"&&search()} placeholder="Group or tour..." style={{ flex:1,padding:"10px 13px",borderRadius:11,background:C.surfaceHi,border:`1.5px solid ${C.border}`,color:C.text,fontSize:12.5 }} />
           <input value={city} onChange={e=>setCity(e.target.value)} placeholder="City" style={{ width:90,padding:"10px 12px",borderRadius:11,background:C.surfaceHi,border:`1.5px solid ${C.border}`,color:C.text,fontSize:12.5 }} />
@@ -8906,7 +8911,7 @@ function ConcertDayMode({ concert: concertProp, onBack, go, isVip=false, onUpgra
         ))}
       </div>
 
-      <Screen style={{ padding:"0 18px 100px" }}>
+      <Screen style={{ padding:"0 18px calc(120px + env(safe-area-inset-bottom))" }}>
         {/* ── TIMELINE ── */}
         {section==="timeline" && (
           <div style={{ paddingTop:14 }}>
@@ -9146,7 +9151,7 @@ function ValueTracker({ onBack, isVip, onUpgrade }) {
         <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
         <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19 }}>Market & Value 📈</h2>
       </div>
-      <Screen style={{ padding:"0 20px 100px" }}>
+      <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
         <VipGate isVip={isVip} onUpgrade={onUpgrade} feature="market value tracking">
           <div>
             {COMPS.map(comp=>(
@@ -9185,7 +9190,7 @@ function FanProjects({ onBack }) {
         <div style={{ display:"flex",gap:10,alignItems:"center" }}><button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button><h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19 }}>Fan Projects 🎁</h2></div>
         <button onClick={()=>setAdding(true)} style={{ background:C.accent,border:"none",borderRadius:11,padding:"7px 14px",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>+ New</button>
       </div>
-      <Screen style={{ padding:"0 20px 100px" }}>
+      <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
         {projects.map(p=>(
           <div key={p.id} style={{ background:`linear-gradient(140deg,${p.color}12,${p.color}04)`,border:`1.5px solid ${p.color}44`,borderRadius:18,padding:14,marginBottom:12 }}>
             <div style={{ display:"flex",justifyContent:"space-between",marginBottom:10 }}>
@@ -9214,7 +9219,7 @@ function CreatorMode({ onBack }) {
   return (
     <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden" }}>
       <div style={{ padding:"16px 20px",display:"flex",gap:10,alignItems:"center",flexShrink:0 }}><button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button><h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19 }}>Creator Mode 🎥</h2></div>
-      <Screen style={{ padding:"0 20px 100px" }}>
+      <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
         <SectionHeader title="Fancam Checklist" />
         <div style={{ display:"flex",flexDirection:"column",gap:7,marginBottom:20 }}>
           {checklist.map(item=><div key={item.id} onClick={()=>setChecklist(l=>l.map(i=>i.id===item.id?{...i,done:!i.done}:i))} className="tap" style={{ background:C.surface,border:`1.5px solid ${item.done?C.mint:C.border}`,borderRadius:12,padding:"10px 13px",cursor:"pointer",display:"flex",gap:10,alignItems:"center" }}><div style={{ width:20,height:20,borderRadius:6,border:`1.5px solid ${item.done?C.mint:C.border}`,background:item.done?`${C.mint}22`:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>{item.done&&<span style={{ fontSize:10,color:C.mint }}>✓</span>}</div><p style={{ fontSize:12.5,color:item.done?C.textMid:C.text,textDecoration:item.done?"line-through":"none" }}>{item.label}</p></div>)}
@@ -9245,7 +9250,7 @@ function BackupExport({ onBack, isVip, onUpgrade }) {
   return (
     <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden" }}>
       <div style={{ padding:"16px 20px",display:"flex",gap:10,alignItems:"center",flexShrink:0 }}><button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button><h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19 }}>Backup & Export 💾</h2></div>
-      <Screen style={{ padding:"0 20px 100px" }}>
+      <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
         <div style={{ background:`${C.accent}08`,border:`1px solid ${C.accent}22`,borderRadius:13,padding:12,marginBottom:20 }}><p style={{ fontSize:11.5,color:C.textMid,lineHeight:1.65 }}>Your data lives on your device. Export regularly to keep a safe backup.</p></div>
         {[{label:"📦 Export All Data",sub:"Full JSON backup",action:exportAll,color:C.accent,vip:false},{label:"📊 Export Inventory CSV",sub:"Spreadsheet-ready",action:exportCSV,color:C.mint,vip:true}].map(item=>(
           <div key={item.label} style={{ background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:14,marginBottom:10 }}>
@@ -9269,7 +9274,7 @@ function FanIdentity({ onBack }) {
   return (
     <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden" }}>
       <div style={{ padding:"16px 20px",display:"flex",gap:10,alignItems:"center",flexShrink:0 }}><button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button><h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19 }}>Fan Identity ✦</h2></div>
-      <Screen style={{ padding:"0 20px 100px" }}>
+      <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
         <div style={{ background:`linear-gradient(140deg,${C.accent}22,${C.pink}12)`,border:`2px solid ${C.accent}44`,borderRadius:22,padding:22,marginBottom:20,textAlign:"center",animation:"glow 5s ease infinite" }}>
           <div style={{ fontSize:52,marginBottom:10,animation:"float 3s ease infinite",display:"inline-block" }}>{arch.emoji}</div>
           <p style={{ fontSize:11,color:C.accentDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6 }}>You are a</p>
@@ -9474,7 +9479,7 @@ function EventTimeline({ concert, onBack }) {
         <div style={{ display:"flex",gap:10,alignItems:"center" }}><button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button><div><h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19 }}>Day Timeline ⏱️</h2>{concert&&<p style={{ fontSize:11,color:C.textMid }}>{concert.name}</p>}</div></div>
         <button onClick={()=>setAdding(true)} style={{ background:C.accent,border:"none",borderRadius:11,padding:"7px 14px",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>+ Add</button>
       </div>
-      <Screen style={{ padding:"0 20px 100px" }}>
+      <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
         {items.map((item,i)=>(
           <div key={item.id} style={{ display:"flex",gap:12,marginBottom:0 }}>
             <div style={{ display:"flex",flexDirection:"column",alignItems:"center",width:50,flexShrink:0 }}>
@@ -9528,7 +9533,7 @@ function TicketWallet({ onBack }) {
         <div style={{ display:"flex",gap:10,alignItems:"center" }}><button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button><h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19 }}>Ticket Wallet 🎟️</h2></div>
         <button onClick={()=>setAdding(true)} style={{ background:C.accent,border:"none",borderRadius:11,padding:"7px 14px",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>+ Add</button>
       </div>
-      <Screen style={{ padding:"0 20px 100px" }}>
+      <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
         <div style={{ background:`${C.mint}08`,border:`1px solid ${C.mint}22`,borderRadius:12,padding:"9px 13px",marginBottom:16 }}><p style={{ fontSize:11.5,color:C.textMid }}>🛡️ Tickets stored locally. Works offline at the gate.</p></div>
         {tickets.map(t=>(
           <div key={t.id} onClick={()=>setShowTicket(t.id)} className="tap" style={{ background:`linear-gradient(140deg,${t.color}18,${t.color}08)`,border:`2px solid ${t.color}44`,borderRadius:20,padding:18,marginBottom:14,cursor:"pointer" }}>
@@ -9551,7 +9556,7 @@ function MicroMoments({ onBack }) {
   return (
     <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden" }}>
       <div style={{ padding:"16px 20px",display:"flex",gap:10,alignItems:"center",flexShrink:0 }}><button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button><h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19 }}>Nearby ✨</h2></div>
-      <Screen style={{ padding:"0 20px 100px" }}>
+      <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
         <div style={{ background:`${C.accent}08`,border:`1px solid ${C.accent}22`,borderRadius:13,padding:"10px 13px",marginBottom:18 }}><p style={{ fontSize:11.5,color:C.textMid }}>🛡️ Approximate location only. No exact GPS stored. Always opt-in.</p></div>
         <div style={{ background:`${C.mint}18`,border:`1.5px solid ${C.mint}44`,borderRadius:16,padding:14,marginBottom:18,textAlign:"center" }}><p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5,color:C.mint }}>Dallas, TX area · 4 moments active</p></div>
         {MOMENTS.map(m=>(
@@ -9574,7 +9579,7 @@ function TrustProfile({ onBack, onNotif }) {
   return (
     <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden" }}>
       <div style={{ padding:"16px 20px",display:"flex",gap:10,alignItems:"center",flexShrink:0 }}><button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button><h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19 }}>Trust Profile ⭐</h2></div>
-      <Screen style={{ padding:"0 20px 100px" }}>
+      <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
         <div style={{ background:`linear-gradient(140deg,${C.gold}18,${C.gold}06)`,border:`2px solid ${C.gold}44`,borderRadius:22,padding:22,marginBottom:20,textAlign:"center" }}>
           <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:48,color:C.gold,lineHeight:1 }}>4.8</p>
           <div style={{ display:"flex",justifyContent:"center",gap:4,marginBottom:8 }}>{"★★★★★".split("").map((s,i)=><span key={i} style={{ fontSize:20,color:i<4?C.gold:C.textDim }}>{s}</span>)}</div>
@@ -9657,7 +9662,7 @@ function MiniGames({ onBack }) {
   return (
     <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden" }}>
       <div style={{ padding:"16px 20px",display:"flex",gap:10,alignItems:"center",flexShrink:0 }}><button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button><h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19 }}>Fan Games 🎮</h2></div>
-      <Screen style={{ padding:"0 20px 100px" }}>
+      <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
         {GAMES.map(g=>(
           <div key={g.id} onClick={()=>setGame(g.id)} className="tap" style={{ background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:18,padding:16,marginBottom:12,cursor:"pointer",display:"flex",gap:14,alignItems:"center" }}>
             <div style={{ width:52,height:52,borderRadius:15,background:`${C.accent}18`,border:`1.5px solid ${C.accent}33`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,flexShrink:0 }}>{g.icon}</div>
@@ -10449,7 +10454,7 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack })
         <div style={{ ...VS.activePill(C.accent),fontSize:9 }}>👁 Viewer Mode</div>
       </div>
 
-      <Screen style={{ padding:"0 20px 100px",position:"relative",zIndex:1 }}>
+      <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))",position:"relative",zIndex:1 }}>
         {/* Cinematic banner — matches active skin */}
         <div style={{ background:skinGrad,borderRadius:26,padding:"20px 18px 18px",marginTop:16,marginBottom:18,position:"relative",minHeight:110,overflow:"hidden",boxShadow:`0 12px 40px rgba(0,0,0,0.5), 0 4px 16px ${C.berry}10` }}>
           <div style={{ position:"absolute",inset:0,backgroundImage:`radial-gradient(circle,rgba(255,255,255,0.35) 1px,transparent 1px)`,backgroundSize:"28px 28px",opacity:0.05,pointerEvents:"none" }} />
@@ -10981,7 +10986,7 @@ function DirectMessages({ onBack, user, initialFan }) {
         <div style={{ height:1,background:`linear-gradient(90deg,transparent,${C.borderHi},transparent)`,marginBottom:0 }} />
       </div>
 
-      <Screen style={{ padding:"0 0 100px" }}>
+      <Screen style={{ padding:"0 0 calc(120px + env(safe-area-inset-bottom))" }}>
         <div style={{ padding:"0 18px" }}>
           {convos.map(convo=>(
             <div key={convo.id} onClick={()=>openConvo(convo)} className="tap" style={{ display:"flex",gap:12,alignItems:"center",padding:"13px 0",borderBottom:`1px solid ${C.border}`,cursor:"pointer" }}>
@@ -12098,7 +12103,7 @@ function ConcertCapsule({ concert, onBack, user, isVip=false, onUpgrade, isSigne
           ))}
         </div>
       </div>
-      <Screen style={{ padding:"0 20px 100px",position:"relative",zIndex:1 }}>
+      <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))",position:"relative",zIndex:1 }}>
         {/* Add moment CTA — auth-aware + free-limit-aware */}
         {atFreeLimit ? (
           <div style={{ marginBottom:14,background:`linear-gradient(135deg,${C.surfaceHi},${C.surface})`,border:`1.5px solid ${C.gold}33`,borderRadius:16,padding:"14px 16px" }}>
@@ -12328,7 +12333,7 @@ function BackstagePasses({ onBack, user }) {
       </div>
 
       {/* ── PASS FEED ── */}
-      <Screen style={{ padding:"0 16px 100px" }}>
+      <Screen style={{ padding:"0 16px calc(120px + env(safe-area-inset-bottom))" }}>
         {filtered.length===0?(
           <div style={{ textAlign:"center",padding:"50px 20px" }}>
             <div style={{ fontSize:48,marginBottom:12,animation:"float 3s ease-in-out infinite" }}>
@@ -13318,7 +13323,7 @@ function ScrapbookTab({ isVip, onUpgrade }) {
           <button onClick={()=>{setChooseTemplate(false);setAdding(true);}} style={{ background:C.accent,border:"none",borderRadius:11,padding:"7px 14px",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer" }}>+ New</button>
         </div>
       </div>
-      <Screen style={{ padding:"0 20px 100px" }}>
+      <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
         {/* Collab join banner */}
         <div style={{ background:`${C.mint}08`,border:`1px solid ${C.mint}22`,borderRadius:14,padding:"9px 13px",marginBottom:13,display:"flex",gap:10,alignItems:"center" }}>
           <span style={{ fontSize:15 }}>🤝</span>
@@ -13583,7 +13588,7 @@ function ScrapbookDetail({ book, onBack, isVip, onUpgrade }) {
         ))}
       </div>
 
-      <Screen style={{ padding:"0 20px 100px" }}>
+      <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
         {/* VIP gate for >5 memories shown as upgrade nudge */}
         {!isVip && memories.length >= FREE_LIMIT && (
           <div onClick={onUpgrade} className="tap" style={{ background:`${C.gold}12`, border:`1.5px solid ${C.gold}44`, borderRadius:14, padding:13, marginBottom:14, cursor:"pointer", textAlign:"center" }}>
@@ -14406,7 +14411,7 @@ function AppInner() {
     return (
       <>
         <style>{CSS}</style>
-        <div className="cosmic-bg" style={{ maxWidth:390,margin:"0 auto",height:"100vh",background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 40%,#0c0820 100%)`,display:"flex",flexDirection:"column",position:"relative",overflow:"hidden" }}>
+        <div className="cosmic-bg app-shell" style={{ maxWidth:390,margin:"0 auto",background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 40%,#0c0820 100%)`,display:"flex",flexDirection:"column",position:"relative",overflow:"hidden" }}>
           <ConcertCapsule
             concert={MOCK_CONCERTS[0]}
             onBack={()=>setShowCapsulePreview(false)}
@@ -14523,7 +14528,7 @@ function AppInner() {
         {modal==="capsule"&&<ModalWrapper><ConcertCapsule concert={MOCK_CONCERTS[0]} onBack={()=>setModal(null)} user={user} isVip={isVip} onUpgrade={openUpgrade} /></ModalWrapper>}
         {modal==="passes"&&<ModalWrapper><BackstagePasses onBack={()=>setModal(null)} user={user} /></ModalWrapper>}
 
-        {modal==="collectmodal"&&<ModalWrapper><div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden" }}><div style={{ padding:"16px 20px",display:"flex",gap:10,alignItems:"center",flexShrink:0 }}><button onClick={()=>setModal(null)} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button><h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19 }}>My Collection 🃏</h2></div><Screen style={{ padding:"0 20px 100px" }}><CollectTab cards={cards} setCards={setCards} isVip={isVip} onUpgrade={openUpgrade} /></Screen></div></ModalWrapper>}
+        {modal==="collectmodal"&&<ModalWrapper><div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden" }}><div style={{ padding:"16px 20px",display:"flex",gap:10,alignItems:"center",flexShrink:0 }}><button onClick={()=>setModal(null)} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button><h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19 }}>My Collection 🃏</h2></div><Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}><CollectTab cards={cards} setCards={setCards} isVip={isVip} onUpgrade={openUpgrade} /></Screen></div></ModalWrapper>}
 
         {/* ── MAIN SCREENS ── */}
         <div style={{ flex:1, overflow:"hidden", position:"relative" }}>
@@ -14561,7 +14566,7 @@ function AppInner() {
 
         {/* BOTTOM NAV */}
         {appState==="main"&&!modal&&(
-          <div style={{ display:"flex", background:"rgba(10,10,22,0.98)", borderTop:`1px solid ${C.borderHi}`, flexShrink:0, paddingBottom:"env(safe-area-inset-bottom,0)", backdropFilter:"blur(24px)", boxShadow:"0 -1px 0 rgba(184,162,255,0.06)" }}>
+          <div style={{ display:"flex", background:"rgba(10,10,22,0.98)", borderTop:`1px solid ${C.borderHi}`, flexShrink:0, paddingBottom:"max(10px, env(safe-area-inset-bottom))", backdropFilter:"blur(24px)", boxShadow:"0 -1px 0 rgba(184,162,255,0.06)", zIndex:100 }}>
             {NAV.map(n=>{
               const active = tab===n.id;
               const NAV_ICONS = {
