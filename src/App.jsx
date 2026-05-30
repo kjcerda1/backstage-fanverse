@@ -13937,6 +13937,8 @@ function AppInner() {
   },[user?.id, appState]);
 
   const handleUpgrade = async (selectedPlan = "annual") => {
+    // Guard: already VIP — nothing to upgrade
+    if (isVip) return;
     // Guard: no backend configured — prevent silent VIP grant without payment
     const showCheckoutUnavailable = () => {
       setShowUpgradeModal(false);
@@ -14013,9 +14015,28 @@ function AppInner() {
     if(appState==="main"&&!notif&&!ls.get("backstage_notif_prompt_dismissed",false)){ const t=setTimeout(()=>setShowNotifPrompt(true),4000); return ()=>clearTimeout(t); }
   },[appState]);
 
-  // Handle push notification deep-links and OAuth callbacks
+  // Handle push notification deep-links, OAuth callbacks, and Stripe checkout returns
   useEffect(()=>{
     const params = new URLSearchParams(window.location.search);
+
+    // Stripe checkout success return — refresh VIP status from backend
+    const checkoutParam = params.get('checkout');
+    if (checkoutParam === 'success' && appState === 'main') {
+      window.history.replaceState({}, '', window.location.pathname);
+      api.get('/api/subscriptions/status').then(d => {
+        if (d?.is_vip) {
+          setIsVip(true);
+          ls.set('backstage_is_vip', true);
+          setUser(u => u ? { ...u, is_vip: true, vip_source: d.vip_source || 'stripe' } : u);
+          setShowVipCelebration(true);
+        } else {
+          setNotif({ title:"Payment received ✦", body:"VIP access is activating — refresh in a moment if it doesn't appear yet.", icon:"✦", color:C.gold });
+        }
+      }).catch(()=>{
+        setNotif({ title:"Payment received ✦", body:"VIP access is being activated.", icon:"✦", color:C.gold });
+      });
+    }
+
     const notifDest = params.get('notif');
     if (notifDest && appState === 'main') {
       window.history.replaceState({}, '', window.location.pathname);

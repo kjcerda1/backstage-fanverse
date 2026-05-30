@@ -633,6 +633,17 @@ app.post('/api/subscriptions/checkout', optionalAuth, async (req, res) => {
     });
   }
 
+  // Guard: already-VIP users should not open another checkout session
+  if (req.userId && supabase) {
+    try {
+      const { data: existing } = await supabase
+        .from('users').select('is_vip').eq('id', req.userId).single();
+      if (existing?.is_vip) {
+        return res.status(409).json({ error: 'already_vip', message: 'You already have an active VIP subscription.' });
+      }
+    } catch { /* non-fatal — proceed to checkout if check fails */ }
+  }
+
   const metadata = {
     userId: String(req.userId || userId || ''),
     email: String(req.userEmail || email || ''),
@@ -741,38 +752,99 @@ app.post('/api/webhooks/stripe', async (req, res) => {
   switch (event.type) {
     case 'checkout.session.completed': {
       const session = event.data.object;
-      const { userId, plan } = session.metadata;
-      if (userId && supabase) {
-        await supabase.from('users').update({
-          is_vip:            true,
-          vip_since:         new Date().toISOString(),
-          vip_source:        'stripe',
-          stripe_customer_id: session.customer,
-        }).eq('id', userId);
-        console.log(`[Stripe] VIP activated: user=${userId} plan=${plan}`);
+      const { userId, plan } = session.metadata || {};
+      const eventId = event.id;
+      console.log(`[Stripe Webhook] checkout.session.completed: event=${eventId} userId=${userId||'(none)'} email=${session.customer_email||'(none)'} customer=${session.customer||'(none)'} plan=${plan||'(none)'}`);
+
+      if (!supabase) {
+        console.error(`[Stripe Webhook] Supabase not initialized — cannot activate VIP. event=${eventId}`);
+        break;
+      }
+
+      const vipPayload = {
+        is_vip:             true,
+        vip_since:          new Date().toISOString(),
+        vip_source:         'stripe',
+        stripe_customer_id: session.customer || null,
+      };
+
+      let activated = false;
+
+      // Primary path: update by userId from checkout metadata
+      if (userId) {
+        try {
+          const { data, error } = await supabase
+            .from('users').update(vipPayload).eq('id', userId).select('id');
+          if (error) {
+            console.error(`[Stripe Webhook] VIP update by userId failed: event=${eventId} userId=${userId} error=${error.message}`);
+          } else if (data?.length) {
+            console.log(`[Stripe] VIP activated: userId=${userId} plan=${plan} event=${eventId}`);
+            activated = true;
+          } else {
+            console.warn(`[Stripe Webhook] VIP update by userId: 0 rows affected. event=${eventId} userId=${userId}`);
+          }
+        } catch (err) {
+          console.error(`[Stripe Webhook] VIP update exception: event=${eventId} userId=${userId} error=${err.message}`);
+        }
+      }
+
+      // Email fallback: if userId was missing or matched 0 rows
+      if (!activated && session.customer_email) {
+        try {
+          const { data, error } = await supabase
+            .from('users').update(vipPayload).eq('email', session.customer_email).select('id');
+          if (error) {
+            console.error(`[Stripe Webhook] VIP email-fallback failed: event=${eventId} email=${session.customer_email} error=${error.message}`);
+          } else if (data?.length) {
+            console.log(`[Stripe] VIP activated via email fallback: email=${session.customer_email} plan=${plan} event=${eventId}`);
+            activated = true;
+          } else {
+            console.warn(`[Stripe Webhook] VIP email-fallback: 0 rows matched. event=${eventId} email=${session.customer_email}`);
+          }
+        } catch (err) {
+          console.error(`[Stripe Webhook] VIP email-fallback exception: event=${eventId} error=${err.message}`);
+        }
+      }
+
+      if (!activated) {
+        console.error(`[Stripe Webhook] VIP NOT activated — could not identify user. event=${eventId} userId=${userId||'(none)'} email=${session.customer_email||'(none)'}`);
       }
       break;
     }
     case 'customer.subscription.deleted': {
       // Subscription cancelled — revoke VIP
       const sub = event.data.object;
-      if (supabase) {
-        await supabase.from('users').update({ is_vip: false, vip_source: null })
-          .eq('stripe_customer_id', sub.customer);
-        console.log(`[Stripe] VIP revoked: customer=${sub.customer}`);
+      if (supabase && sub.customer) {
+        try {
+          const { data, error } = await supabase
+            .from('users').update({ is_vip: false, vip_source: null })
+            .eq('stripe_customer_id', sub.customer).select('id');
+          if (error) console.error(`[Stripe Webhook] VIP revoke failed: customer=${sub.customer} error=${error.message}`);
+          else if (data?.length) console.log(`[Stripe] VIP revoked: customer=${sub.customer}`);
+          else console.warn(`[Stripe Webhook] VIP revoke: 0 rows matched. customer=${sub.customer}`);
+        } catch (err) {
+          console.error(`[Stripe Webhook] VIP revoke exception: customer=${sub.customer} error=${err.message}`);
+        }
       }
       break;
     }
     case 'invoice.paid': {
       // Subscription renewal — keep VIP active and refresh vip_since
       const inv = event.data.object;
-      if (inv.customer && supabase) {
-        await supabase.from('users').update({
-          is_vip:     true,
-          vip_since:  new Date().toISOString(),
-          vip_source: 'stripe',
-        }).eq('stripe_customer_id', inv.customer);
-        console.log(`[Stripe] VIP renewed via invoice: customer=${inv.customer}`);
+      if (supabase && inv.customer) {
+        try {
+          const { data, error } = await supabase
+            .from('users').update({
+              is_vip:     true,
+              vip_since:  new Date().toISOString(),
+              vip_source: 'stripe',
+            }).eq('stripe_customer_id', inv.customer).select('id');
+          if (error) console.error(`[Stripe Webhook] VIP renewal failed: customer=${inv.customer} error=${error.message}`);
+          else if (data?.length) console.log(`[Stripe] VIP renewed via invoice: customer=${inv.customer}`);
+          else console.warn(`[Stripe Webhook] VIP renewal: 0 rows matched. customer=${inv.customer}`);
+        } catch (err) {
+          console.error(`[Stripe Webhook] VIP renewal exception: customer=${inv.customer} error=${err.message}`);
+        }
       }
       break;
     }
