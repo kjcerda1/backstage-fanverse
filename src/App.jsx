@@ -13914,6 +13914,13 @@ function AppInner() {
     const nextUser = normalizeProfile(auth.user || ls.get("backstage_session")?.user);
     if (!nextUser) return;
     setUser(nextUser);
+    // Sync isVip directly from the profile returned by /api/users/me (SELECT * includes is_vip).
+    // This fires as soon as auth resolves — no second network call to /api/subscriptions/status needed.
+    const vipFromProfile = isVipActive(nextUser);
+    setIsVip(vipFromProfile);
+    ls.set('backstage_is_vip', vipFromProfile);
+    const sess = ls.get('backstage_session');
+    if (sess?.user) ls.set('backstage_session', {...sess, user:{...sess.user, is_vip:vipFromProfile}});
     if (canEnterApp(nextUser)) {
       setAppState("main");
     } else {
