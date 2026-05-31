@@ -572,6 +572,80 @@ app.get('/api/subscriptions/status', optionalAuth, async (req, res) => {
   }
 });
 
+// ─── VIP RECONCILIATION ───────────────────────────────────────────────────────
+// Catches the "paid before signup" edge case: webhook fires, 0 rows in DB,
+// user creates account later. On next login this endpoint searches Stripe for
+// a completed Founder Pass / subscription for their email and activates VIP.
+//
+// Called by the frontend after every boot if is_vip === false.
+// Throttled on the client (once per hour per user) so Stripe API calls are minimal.
+app.post('/api/subscriptions/reconcile', requireAuth, async (req, res) => {
+  if (!HAS_STRIPE || !supabase) return res.json({ reconciled: false });
+
+  const userEmail = req.userEmail;
+  const userId    = req.userId;
+  if (!userEmail) return res.json({ reconciled: false, reason: 'no_email' });
+
+  try {
+    // 1. Check if already VIP — nothing to do
+    const { data: existing } = await supabase
+      .from('users').select('is_vip, vip_source').eq('id', userId).single();
+    if (existing?.is_vip) {
+      return res.json({ reconciled: false, already_vip: true, vip_source: existing.vip_source });
+    }
+
+    // 2. Search Stripe checkout sessions completed for this email
+    let sessions = [];
+    try {
+      const result = await stripe.checkout.sessions.list({
+        customer_email: userEmail,
+        limit: 10,
+      });
+      sessions = result.data || [];
+    } catch (stripeErr) {
+      console.error('[Reconcile] Stripe list error:', stripeErr.message);
+      return res.json({ reconciled: false, reason: 'stripe_error' });
+    }
+
+    // Find a successfully paid session for any VIP plan
+    const paid = sessions.find(s =>
+      s.payment_status === 'paid' &&
+      (s.metadata?.plan === 'founder' ||
+       s.metadata?.plan === 'monthly' ||
+       s.metadata?.plan === 'annual'  ||
+       s.metadata?.product === 'founder_pass')
+    );
+
+    if (!paid) {
+      console.log(`[Reconcile] No completed payment found for ${userEmail}`);
+      return res.json({ reconciled: false, reason: 'no_payment_found' });
+    }
+
+    const isFounder = paid.metadata?.plan === 'founder' || paid.metadata?.product === 'founder_pass';
+    const vipPayload = {
+      is_vip:             true,
+      vip_since:          new Date(paid.created * 1000).toISOString(),
+      vip_source:         isFounder ? 'founder' : 'stripe',
+      stripe_customer_id: paid.customer || null,
+    };
+
+    const { data: updated, error: updateErr } = await supabase
+      .from('users').update(vipPayload).eq('id', userId).select('id');
+
+    if (updateErr || !updated?.length) {
+      console.error(`[Reconcile] DB update failed for ${userId}:`, updateErr?.message);
+      return res.status(500).json({ reconciled: false, reason: 'db_error' });
+    }
+
+    console.log(`[Reconcile] ✓ VIP activated for ${userId} (${userEmail}) via Stripe reconciliation. plan=${paid.metadata?.plan} session=${paid.id}`);
+    res.json({ reconciled: true, vip_source: vipPayload.vip_source, vip_since: vipPayload.vip_since });
+
+  } catch (err) {
+    console.error('[Reconcile] Unexpected error:', err.message);
+    res.json({ reconciled: false, reason: 'error' });
+  }
+});
+
 // Mock-activate VIP (dev/demo mode)
 app.post('/api/subscriptions/mock-activate', requireAuth, async (req, res) => {
   if (!MOCK_MODE && !process.env.ALLOW_MOCK_ACTIVATE) {
@@ -809,7 +883,15 @@ app.post('/api/webhooks/stripe', async (req, res) => {
       }
 
       if (!activated) {
-        console.error(`[Stripe Webhook] VIP NOT activated — could not identify user. event=${eventId} userId=${userId||'(none)'} email=${session.customer_email||'(none)'}`);
+        // This happens when the user paid before creating a Backstage account,
+        // or used a different email at Stripe vs signup. The reconcile endpoint
+        // (/api/subscriptions/reconcile) handles this automatically on next login.
+        console.error(
+          `[Stripe Webhook] ⚠ VIP NOT activated — user not in DB yet.` +
+          ` event=${eventId} userId=${userId||'(none)'} email=${session.customer_email||'(none)'}` +
+          ` plan=${plan||'(none)'} customer=${session.customer||'(none)'}` +
+          ` ACTION: user must log in; /api/subscriptions/reconcile will auto-activate on next boot.`
+        );
       }
       break;
     }
