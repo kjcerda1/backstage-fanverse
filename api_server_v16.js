@@ -718,12 +718,33 @@ app.post('/api/subscriptions/checkout', optionalAuth, async (req, res) => {
     } catch { /* non-fatal — proceed to checkout if check fails */ }
   }
 
+  // Resolve the best available userId and email from JWT > request body > empty
+  const resolvedUserId = req.userId    || userId || '';
+  const resolvedEmail  = req.userEmail || email  || '';
+
   const metadata = {
-    userId: String(req.userId || userId || ''),
-    email: String(req.userEmail || email || ''),
+    userId: String(resolvedUserId),
+    email:  String(resolvedEmail),
     plan,
     ...(plan === 'founder' ? { product: 'founder_pass', founder_cap: String(FOUNDER_PASS_CAP) } : {}),
   };
+
+  // ── Upsert public.users BEFORE creating the Stripe session ────────────────
+  // This ensures the webhook can always find the user by userId even if the
+  // user is mid-onboarding (auth account exists but profile row was never
+  // written by the onboarding trigger). Without this, the webhook fires after
+  // payment, looks up the userId, finds 0 rows, and VIP is never activated.
+  if (resolvedUserId && resolvedEmail && supabase) {
+    try {
+      await supabase.from('users').upsert(
+        { id: resolvedUserId, email: resolvedEmail },
+        { onConflict: 'id', ignoreDuplicates: true }
+      );
+    } catch (upsertErr) {
+      // Non-fatal — log and continue. The reconcile endpoint covers the fallback.
+      console.warn('[Checkout] Pre-session user upsert failed (non-fatal):', upsertErr.message);
+    }
+  }
 
   try {
     if (plan === 'founder') {
@@ -744,6 +765,10 @@ app.post('/api/subscriptions/checkout', optionalAuth, async (req, res) => {
       success_url: successUrl || `${process.env.FRONTEND_URL}?payment=success&plan=${plan}`,
       cancel_url:  cancelUrl  || `${process.env.FRONTEND_URL}?payment=cancelled`,
       metadata,
+      // Pass customer_email explicitly so session.customer_email is always set
+      // in the webhook — even if the user pays via Apple Pay / saved card
+      // without re-entering their email at the Stripe form.
+      ...(resolvedEmail ? { customer_email: resolvedEmail } : {}),
     };
     if (plan === 'founder') sessionConfig.payment_intent_data = { metadata };
     else sessionConfig.subscription_data = { metadata };
