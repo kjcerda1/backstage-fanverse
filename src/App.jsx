@@ -104,7 +104,23 @@ function mergeStoredProfile(localProfile, remoteProfile, fallbackProfile = null)
   const local = normalizeProfile(localProfile);
   const remote = normalizeProfile(remoteProfile);
   const fallback = normalizeProfile(fallbackProfile);
-  if (canEnterApp(local) && !canEnterApp(remote)) return local;
+  if (canEnterApp(local) && !canEnterApp(remote)) {
+    // Local profile has richer onboarding data (fandoms, handle) — prefer it.
+    // BUT: VIP/payment fields are backend-authoritative. Always take them from
+    // the remote (public.users SELECT *) so stale localStorage never hides
+    // a paid VIP status. Only patch when remote is available.
+    if (remote) {
+      return normalizeProfile({
+        ...local,
+        is_vip:            remote.is_vip,
+        vip_source:        remote.vip_source,
+        vip_expires_at:    remote.vip_expires_at,
+        vip_since:         remote.vip_since,
+        stripe_customer_id: remote.stripe_customer_id,
+      });
+    }
+    return local;
+  }
   const merged = normalizeProfile({ ...(fallback || {}), ...(local || {}), ...(remote || {}) });
   if (canEnterApp(local) && !canEnterApp(merged)) return local;
   return merged;
@@ -14547,13 +14563,19 @@ function AppInner() {
       return;
     }
     setUser(nextUser);
-    // Sync isVip directly from the profile returned by /api/users/me (SELECT * includes is_vip).
-    // This fires as soon as auth resolves — no second network call to /api/subscriptions/status needed.
+    // Sync VIP from the merged profile (/api/users/me SELECT * includes is_vip).
+    // IMPORTANT: only SET VIP to true here — never set it to false.
+    // Reason: auth.user fires twice (cached session, then API result), and the
+    // merged profile can transiently have is_vip:false if the local cache is stale.
+    // Revocation (setIsVip false) is handled exclusively by the VIP sync effect
+    // (/api/subscriptions/status), which is the backend-authoritative source.
     const vipFromProfile = isVipActive(nextUser);
-    setIsVip(vipFromProfile);
-    ls.set('backstage_is_vip', vipFromProfile);
+    if (vipFromProfile) {
+      setIsVip(true);
+      ls.set('backstage_is_vip', true);
+    }
     const sess = ls.get('backstage_session');
-    if (sess?.user) ls.set('backstage_session', {...sess, user:{...sess.user, is_vip:vipFromProfile}});
+    if (sess?.user) ls.set('backstage_session', {...sess, user:{...sess.user, is_vip: sess.user.is_vip || vipFromProfile}});
     if (canEnterApp(nextUser)) {
       setAppState("main");
     } else {
