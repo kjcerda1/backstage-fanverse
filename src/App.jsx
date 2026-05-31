@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, lazy, Suspense, createContext, useContext } from "react";
 import ReactDOM from "react-dom/client";
 import MapboxMap, { CITY_DENSITY_GEOJSON } from "./MapboxMap.jsx";
+import { createClient } from "@supabase/supabase-js";
 
 // ─── PRODUCTION IMPORTS ───────────────────────────────────────────────────────
 // Supabase client — see lib/supabase.js
@@ -84,6 +85,10 @@ function isVipActive(user) {
     return new Date(user.vip_expires_at) > new Date();
   }
   return false;
+}
+
+function hasVipEntitlement(user) {
+  return isVipActive(user) || user?.vip_source === "founder" || user?.vip_source === "stripe";
 }
 
 function isProfileComplete(user) {
@@ -191,9 +196,7 @@ const MOCK_AUTH = !SUPABASE_URL || !SUPABASE_ANON || Boolean(SUPABASE_CONFIG_ERR
 
 let _supabase = null;
 if (!MOCK_AUTH) {
-  // Dynamic Supabase client init (CDN-safe)
-  const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm').catch(() => ({ createClient: null }));
-  if (createClient) _supabase = createClient(SUPABASE_URL, SUPABASE_ANON, {
+  _supabase = createClient(SUPABASE_URL, SUPABASE_ANON, {
     // Use a separate key so Supabase auth tokens never overwrite the app's user profile in localStorage
     auth: { persistSession:true, storageKey:'backstage_supabase_auth', autoRefreshToken:true },
   });
@@ -202,6 +205,7 @@ if (!MOCK_AUTH) {
 // ─── AUTH PROVIDER ────────────────────────────────────────────────────────────
 function AuthProvider({ children }) {
   const [user, setUser]           = useState(null);
+  const [session, setSession]     = useState(null);
   const [loading, setLoading]     = useState(true);
   const [tokenReady, setTokenReady] = useState(false);
 
@@ -220,6 +224,7 @@ function AuthProvider({ children }) {
     // Real Supabase session
     if (_supabase) {
       _supabase.auth.getSession().then(({ data }) => {
+        setSession(data.session || null);
         if (data.session) {
           const u = data.session.user;
           const fallback = { id:u.id, email:u.email, username:u.email.split('@')[0], fandoms:[], bias:'', is_vip:false };
@@ -242,6 +247,7 @@ function AuthProvider({ children }) {
       });
 
       const { data: { subscription } } = _supabase.auth.onAuthStateChange(async (event, session) => {
+        setSession(session || null);
         if (session) {
           api._setToken(session.access_token);
           setTokenReady(true);
@@ -264,6 +270,7 @@ function AuthProvider({ children }) {
 
   const signOut = async () => {
     setUser(null);
+    setSession(null);
     setTokenReady(false);
     ls.del('backstage_session');
     ls.del('backstage_is_vip');
@@ -271,7 +278,7 @@ function AuthProvider({ children }) {
   };
 
   return (
-    <AuthCtx.Provider value={{ user, loading, tokenReady, signOut }}>
+    <AuthCtx.Provider value={{ user, session, loading, tokenReady, signOut }}>
       {children}
     </AuthCtx.Provider>
   );
@@ -11565,14 +11572,18 @@ function MyCircleSection({ go, user }) {
 }
 
 // ─── ACCOUNT SETTINGS ─────────────────────────────────────────────────────────
-function AccountSettings({ user, isVip, go, onUpgrade, onBack, privacySettings, setPrivacySettings, onShowDeleteModal }) {
-  const { session } = useAuth();
+function AccountSettings({ user, isVip, go, onUpgrade, onBack, privacySettings, setPrivacySettings, onShowDeleteModal, onAccountRefresh }) {
+  const auth = useAuth();
+  const [accountProfile, setAccountProfile] = useState(user);
   const [subStatus, setSubStatus]   = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshMsg, setRefreshMsg] = useState("");
 
-  const authEmail    = session?.user?.email || user?.email || "—";
-  const profileEmail = user?.email || "—";
+  useEffect(()=>{ setAccountProfile(user); }, [user]);
+
+  const cachedProfile = ls.get('backstage_session')?.user;
+  const authEmail    = auth.session?.user?.email || auth.user?.email || accountProfile?.email || cachedProfile?.email || "—";
+  const profileEmail = accountProfile?.email || cachedProfile?.email || "—";
   const emailsDiffer = authEmail && profileEmail && authEmail !== "—" && profileEmail !== "—" && authEmail !== profileEmail;
 
   const handleRefresh = async () => {
@@ -11583,26 +11594,31 @@ function AccountSettings({ user, isVip, go, onUpgrade, onBack, privacySettings, 
       api.get('/api/subscriptions/status'),
     ]);
     if (meRes?.id) {
+      const nextProfile = { ...(accountProfile || {}), ...meRes };
+      setAccountProfile(nextProfile);
       const sess = ls.get('backstage_session');
-      if (sess?.user) ls.set('backstage_session', { ...sess, user: { ...sess.user, ...meRes } });
+      ls.set('backstage_session', { ...(sess || {}), user: { ...(sess?.user || {}), ...nextProfile } });
+      ls.set(`backstage_profile_${meRes.id}`, { ...ls.get(`backstage_profile_${meRes.id}`, {}), ...nextProfile });
     }
     if (subRes && !subRes.error) setSubStatus(subRes);
+    onAccountRefresh?.({ profile: meRes?.id ? meRes : null, subscription: subRes && !subRes.error ? subRes : null });
     setRefreshing(false);
     setRefreshMsg("Account refreshed ✓");
     setTimeout(() => setRefreshMsg(""), 3000);
   };
 
-  const effectiveVipSrc = subStatus?.vip_source || user?.vip_source;
-  const effectiveIsVip  = subStatus?.is_vip != null ? isVipActive(subStatus) : isVip;
+  const effectiveVipSrc = subStatus?.vip_source || accountProfile?.vip_source;
+  const effectiveIsVip  = subStatus?.is_vip != null ? hasVipEntitlement(subStatus) : isVip || hasVipEntitlement(accountProfile);
   const isFounder       = effectiveVipSrc === 'founder';
 
   const fmtDate = (d, opts) => {
     if (!d) return null;
     try { return new Date(d).toLocaleDateString("en-US", opts); } catch { return null; }
   };
-  const memberSince     = fmtDate(user?.created_at, { month:"long", year:"numeric" }) || "—";
-  const vipSince        = fmtDate(subStatus?.vip_since || user?.vip_since, { month:"short", day:"numeric", year:"numeric" });
-  const stripeConnected = !!(user?.stripe_customer_id || subStatus?.stripe_customer_id);
+  const memberSince     = fmtDate(accountProfile?.created_at, { month:"long", year:"numeric" }) || "—";
+  const vipSince        = fmtDate(subStatus?.vip_since || accountProfile?.vip_since, { month:"short", day:"numeric", year:"numeric" });
+  const stripeCustomerId = accountProfile?.stripe_customer_id || subStatus?.stripe_customer_id;
+  const stripeLabel     = stripeCustomerId ? "Connected" : isFounder ? "Founder Pass" : effectiveIsVip ? "No Stripe account" : "Not connected";
 
   const InfoRow = ({ label, value, accentColor, mono, sub, subColor, last }) => (
     <div>
@@ -11638,9 +11654,9 @@ function AccountSettings({ user, isVip, go, onUpgrade, onBack, privacySettings, 
         <Card style={{ marginBottom:16 }}>
           <InfoRow label="Logged in as" value={authEmail} mono accentColor={C.accent} />
           {emailsDiffer&&<InfoRow label="Profile email" value={profileEmail} sub="⚠ Differs from auth email" subColor={C.rose} />}
-          <InfoRow label="Username" value={`@${user?.username||user?.handle||"—"}`} />
-          <InfoRow label="Display name" value={user?.display_name||user?.backstage_name||"—"} />
-          <InfoRow label="Phone" value={(user?.phone||user?.phone_normalized)?"Added":"Not added"} />
+          <InfoRow label="Username" value={`@${accountProfile?.username||accountProfile?.handle||"—"}`} />
+          <InfoRow label="Display name" value={accountProfile?.display_name||accountProfile?.backstage_name||"—"} />
+          <InfoRow label="Phone" value={(accountProfile?.phone||accountProfile?.phone_normalized)?"Added":"Not added"} />
           <InfoRow label="Member since" value={memberSince} last />
         </Card>
 
@@ -11661,10 +11677,10 @@ function AccountSettings({ user, isVip, go, onUpgrade, onBack, privacySettings, 
           </div>
         )}
         <Card style={{ marginBottom:16 }}>
-          <InfoRow label="Plan" value={isFounder?"Founder Pass":effectiveIsVip?"Backstage VIP":"Free"} />
+          <InfoRow label="Plan" value={isFounder?"Founder":effectiveIsVip?"Backstage VIP":"Free"} />
           {effectiveVipSrc&&<InfoRow label="VIP source" value={effectiveVipSrc} />}
           {vipSince&&<InfoRow label="VIP since" value={vipSince} />}
-          <InfoRow label="Stripe" value={stripeConnected?"Connected":"Not connected"} last />
+          <InfoRow label="Stripe" value={stripeLabel} last />
         </Card>
 
         {/* PRIVACY */}
