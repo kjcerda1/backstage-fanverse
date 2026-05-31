@@ -201,8 +201,9 @@ if (!MOCK_AUTH) {
 
 // ─── AUTH PROVIDER ────────────────────────────────────────────────────────────
 function AuthProvider({ children }) {
-  const [user, setUser]       = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser]           = useState(null);
+  const [loading, setLoading]     = useState(true);
+  const [tokenReady, setTokenReady] = useState(false);
 
   useEffect(() => {
     // Boot: check cached session first
@@ -211,6 +212,7 @@ function AuthProvider({ children }) {
 
     if (MOCK_AUTH) {
       // Mock mode: stay logged in if localStorage session exists
+      setTokenReady(true);
       setLoading(false);
       return;
     }
@@ -222,6 +224,7 @@ function AuthProvider({ children }) {
           const u = data.session.user;
           const fallback = { id:u.id, email:u.email, username:u.email.split('@')[0], fandoms:[], bias:'', is_vip:false };
           api._setToken(data.session.access_token);
+          setTokenReady(true);
           api.get('/api/users/me').then(remote=>{
             const profile = mergeStoredProfile(ls.get(`backstage_profile_${u.id}`), remote?.id ? remote : null, fallback);
             setUser(profile);
@@ -241,6 +244,7 @@ function AuthProvider({ children }) {
       const { data: { subscription } } = _supabase.auth.onAuthStateChange(async (event, session) => {
         if (session) {
           api._setToken(session.access_token);
+          setTokenReady(true);
           const fallback = { id:session.user.id, email:session.user.email, username:session.user.email.split('@')[0], fandoms:[], bias:'', is_vip:false };
           const profile = await api.get('/api/users/me').catch(() => null);
           const u = mergeStoredProfile(ls.get(`backstage_profile_${session.user.id}`), profile?.id ? profile : null, fallback);
@@ -248,6 +252,8 @@ function AuthProvider({ children }) {
           ls.set('backstage_session', { user: u });
           if (u.id) ls.set(`backstage_profile_${u.id}`, u);
         } else {
+          api._setToken(null);
+          setTokenReady(false);
           setUser(null);
           ls.del('backstage_session');
         }
@@ -258,13 +264,14 @@ function AuthProvider({ children }) {
 
   const signOut = async () => {
     setUser(null);
+    setTokenReady(false);
     ls.del('backstage_session');
     ls.del('backstage_is_vip');
     if (_supabase) await _supabase.auth.signOut();
   };
 
   return (
-    <AuthCtx.Provider value={{ user, loading, signOut }}>
+    <AuthCtx.Provider value={{ user, loading, tokenReady, signOut }}>
       {children}
     </AuthCtx.Provider>
   );
@@ -14631,11 +14638,12 @@ function AppInner() {
   },[appState, modal, tab]);
 
   // Boot: sync VIP status from backend on session restore.
-  // Depends on auth.user?.id (not user?.id) so it fires only after the
-  // AuthProvider has set api._token — preventing an unauthenticated call that
-  // would return is_vip: false and silently downgrade a paid user.
+  // Depends on auth.tokenReady so it only fires after api._token is actually set.
+  // auth.user?.id alone is not sufficient — it becomes truthy from the cached
+  // session before getSession() resolves, causing an unauthenticated call that
+  // returns is_vip:false and wipes VIP state.
   useEffect(()=>{
-    if(!auth.user?.id || appState!=="main") return;
+    if(!auth.user?.id || !auth.tokenReady || appState!=="main") return;
 
     const applyVip = (source, sinceOverride) => {
       setIsVip(true);
@@ -14675,7 +14683,7 @@ function AppInner() {
         }
       }
     }).catch(()=>{});
-  },[auth.user?.id, appState]);
+  },[auth.user?.id, auth.tokenReady, appState]);
 
   // Boot: load photocard collection from backend (replaces MOCK_CARDS when user has real data)
   useEffect(()=>{
