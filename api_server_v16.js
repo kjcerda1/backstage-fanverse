@@ -1766,47 +1766,63 @@ app.get('/api/moderation/blocks', requireAuth, async (req, res) => {
   }
 });
 
+// ─── PUBLIC CARD HELPER ──────────────────────────────────────────────────────
+// Returns only safe public fields — never exposes email or phone.
+function toPublicCard(u) {
+  const groups = Array.isArray(u.fandoms) ? u.fandoms : [];
+  const handle = u.username || '';
+  const displayName = u.display_name || handle || 'Backstage fan';
+  return {
+    id: u.id,
+    handle,
+    username: handle,
+    display_name: displayName,
+    backstage_name: displayName,
+    favorite_groups: groups,
+    fandoms: groups,
+    avatar: String(displayName || handle || 'B').trim().slice(0, 1).toUpperCase(),
+    city: u.city || '',
+    bio: u.bio || '',
+    proof_score: u.proof_score || null,
+    is_vip: u.is_vip || false,
+  };
+}
+
 app.get('/api/users/search', requireAuth, async (req, res) => {
-  const q = String(req.query.q || '').trim().replace(/^@/, '');
+  const raw = String(req.query.q || '').trim();
+  // Normalize: strip leading @, lowercase, collapse whitespace
+  const q = raw.replace(/^@/, '').toLowerCase().replace(/\s+/g, ' ');
   if (q.length < 2) return res.json({ users: [] });
 
-  const publicUser = (u) => {
-    const groups = Array.isArray(u.fandoms) ? u.fandoms : [];
-    const handle = u.username || '';
-    const displayName = u.display_name || handle || 'Backstage fan';
-    return {
-      id: u.id,
-      handle,
-      username: handle,
-      display_name: displayName,
-      backstage_name: displayName,
-      favorite_groups: groups,
-      fandoms: groups,
-      avatar: String(displayName || handle || 'B').trim().slice(0, 1).toUpperCase(),
-      city: u.city || '',
-    };
-  };
+  // Detect phone input: strip all non-digits and check length
+  const phoneDigits = q.replace(/[\s\-().+]/g, '');
+  const looksLikePhone = /^\d{7,15}$/.test(phoneDigits);
 
   if (MOCK_MODE) {
     const mockUsers = [
-      { id:'mock_merci', username:'mercilicious21', display_name:'Merci', fandoms:['BTS'], city:'San Antonio' },
-      { id:'mock_army', username:'army.bestie', display_name:'ARMY Bestie', fandoms:['BTS'], city:'Dallas' },
+      { id:'mock_merci',  username:'mercilicious21', display_name:'Merci',       fandoms:['BTS'],        city:'San Antonio', bio:'ARMY since 2020' },
+      { id:'mock_army',   username:'army.bestie',   display_name:'ARMY Bestie', fandoms:['BTS'],        city:'Dallas',      bio:'7 is my bias' },
+      { id:'mock_stay2',  username:'stay.mia',      display_name:'Mia',         fandoms:['Stray Kids'], city:'Houston',     bio:'Felix wrecker' },
     ];
-    const needle = q.toLowerCase();
+    const needle = q;
     return res.json({ users: mockUsers.filter(u =>
-      u.username.toLowerCase().includes(needle) ||
-      u.display_name.toLowerCase().includes(needle)
-    ).map(publicUser) });
+      u.username.includes(needle) || u.display_name.toLowerCase().includes(needle)
+    ).map(toPublicCard) });
   }
 
   try {
     const safe = q.replace(/[%_,]/g, '');
     const contains = `%${safe}%`;
     const prefix = `${safe}%`;
+
+    // Build OR clause — search username, display_name, email prefix, and phone if applicable
+    let orClause = `username.ilike.${contains},display_name.ilike.${contains},email.ilike.${prefix}`;
+    if (looksLikePhone) orClause += `,phone_normalized.eq.${phoneDigits}`;
+
     const { data, error } = await supabase
       .from('users')
-      .select('id, username, display_name, email, fandoms, avatar_url, city')
-      .or(`username.ilike.${contains},display_name.ilike.${contains},email.ilike.${prefix}`)
+      .select('id, username, display_name, fandoms, avatar_url, city, bio, proof_score, is_vip')
+      .or(orClause)
       .limit(10);
 
     if (error) {
@@ -1814,7 +1830,7 @@ app.get('/api/users/search', requireAuth, async (req, res) => {
       return res.status(500).json({ error: 'Search unavailable' });
     }
 
-    res.json({ users: (data || []).filter(u => u.id !== req.userId).map(publicUser) });
+    res.json({ users: (data || []).filter(u => u.id !== req.userId).map(toPublicCard) });
   } catch (err) {
     console.error('[GET /api/users/search] Exception:', err.message);
     res.status(500).json({ error: 'Search unavailable' });
@@ -1870,6 +1886,195 @@ app.get('/api/profile/:id', optionalAuth, async (req, res) => {
   const { data, error } = await supabase.from('users').select(fields).eq('id', req.params.id).single();
   if (error) return res.status(404).json({ error: 'User not found' });
   res.json(data);
+});
+
+// ─── PUBLIC PROFILE BY USERNAME ──────────────────────────────────────────────
+// Used by /u/:username shareable profile links. Returns safe public fields only.
+app.get('/api/profile/by-username/:username', optionalAuth, async (req, res) => {
+  const username = req.params.username.replace(/^@/, '').toLowerCase();
+  if (MOCK_MODE) {
+    return res.json({
+      id: 'mock_user', username, display_name: username,
+      bio: 'ARMY since 2018 · Concert addict',
+      city: 'San Antonio', fandoms: ['BTS'],
+      bias: 'Yoongi', avatar_url: null, proof_score: 4.5, is_vip: false, mock: true,
+    });
+  }
+  const { data, error } = await supabase
+    .from('users')
+    .select('id, username, display_name, bio, fandoms, bias, avatar_url, proof_score, is_vip, city, profile_style')
+    .ilike('username', username)
+    .single();
+  if (error || !data) return res.status(404).json({ error: 'User not found' });
+  res.json(data);
+});
+
+// ─── FRIEND SUGGESTIONS ───────────────────────────────────────────────────────
+// Returns up to 10 users who share fandoms, city, or joined recently.
+// Never returns users already in the requester's circle.
+app.get('/api/friends/suggested', requireAuth, async (req, res) => {
+  if (MOCK_MODE) {
+    return res.json({ users: [
+      { id:'mock_merci',  username:'mercilicious21', display_name:'Merci',       fandoms:['BTS'],        city:'San Antonio', bio:'ARMY since 2020' },
+      { id:'mock_stay2',  username:'stay.mia',      display_name:'Mia',         fandoms:['Stray Kids'], city:'Houston',     bio:'Felix wrecker' },
+      { id:'mock_twice1', username:'oncejisoo',     display_name:'Ji',          fandoms:['TWICE'],      city:'Austin',      bio:'Nayeon bias' },
+    ].map(toPublicCard) });
+  }
+  try {
+    // Fetch caller's fandoms + city
+    const { data: me } = await supabase
+      .from('users').select('fandoms, city').eq('id', req.userId).single();
+    const myFandoms = me?.fandoms || [];
+    const myCity   = (me?.city || '').toLowerCase();
+
+    // Fetch IDs already in circle so we can exclude them
+    const { data: circleRows } = await supabase
+      .from('friends').select('friend_id').eq('user_id', req.userId);
+    const circleIds = (circleRows || []).map(r => r.friend_id);
+
+    // Query candidates — shared fandoms first, fall back to recent signups
+    let { data: candidates } = await supabase
+      .from('users')
+      .select('id, username, display_name, fandoms, city, bio, proof_score, is_vip')
+      .neq('id', req.userId)
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    if (!candidates) candidates = [];
+
+    // Score each candidate (higher = more relevant)
+    const scored = candidates
+      .filter(u => !circleIds.includes(u.id))
+      .map(u => {
+        let score = 0;
+        const uFandoms = Array.isArray(u.fandoms) ? u.fandoms : [];
+        const sharedFandoms = uFandoms.filter(f => myFandoms.includes(f));
+        score += sharedFandoms.length * 3;
+        if (myCity && (u.city || '').toLowerCase().includes(myCity.split(',')[0].trim())) score += 2;
+        return { u, score };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 10)
+      .map(({ u }) => toPublicCard(u));
+
+    res.json({ users: scored });
+  } catch (err) {
+    console.error('[GET /api/friends/suggested] Error:', err.message);
+    res.json({ users: [] });
+  }
+});
+
+// ─── MY CIRCLE (FRIENDS) ─────────────────────────────────────────────────────
+app.get('/api/friends', requireAuth, async (req, res) => {
+  if (MOCK_MODE) return res.json({ friends: [] });
+  try {
+    const { data, error } = await supabase
+      .from('friends')
+      .select('friend_id, users!friends_friend_id_fkey(id, username, display_name, fandoms, city, bio, avatar_url)')
+      .eq('user_id', req.userId);
+    if (error) return res.status(500).json({ error: error.message });
+    const friends = (data || [])
+      .filter(row => row.users)
+      .map(row => toPublicCard(row.users));
+    res.json({ friends });
+  } catch (err) {
+    console.error('[GET /api/friends] Error:', err.message);
+    res.json({ friends: [] });
+  }
+});
+
+// ─── FRIEND REQUESTS ──────────────────────────────────────────────────────────
+// Send a friend request
+app.post('/api/friends/request', requireAuth, async (req, res) => {
+  const { targetUserId } = req.body;
+  if (!targetUserId) return res.status(400).json({ error: 'targetUserId required' });
+  if (targetUserId === req.userId) return res.status(400).json({ error: 'Cannot add yourself' });
+  if (MOCK_MODE) return res.json({ success: true, mock: true });
+  try {
+    const { error } = await supabase.from('friend_requests').upsert({
+      sender_id: req.userId,
+      receiver_id: targetUserId,
+      status: 'pending',
+    }, { onConflict: 'sender_id,receiver_id', ignoreDuplicates: false });
+    if (error) {
+      console.error('[POST /api/friends/request] DB error:', error.message);
+      return res.status(500).json({ error: error.message });
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[POST /api/friends/request] Exception:', err.message);
+    res.status(500).json({ error: 'Could not send request' });
+  }
+});
+
+// Get incoming friend requests
+app.get('/api/friends/requests', requireAuth, async (req, res) => {
+  if (MOCK_MODE) return res.json({ requests: [] });
+  try {
+    const { data, error } = await supabase
+      .from('friend_requests')
+      .select('id, sender_id, status, created_at')
+      .eq('receiver_id', req.userId)
+      .eq('status', 'pending');
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ requests: data || [] });
+  } catch (err) {
+    res.json({ requests: [] });
+  }
+});
+
+// Accept or decline a friend request
+app.patch('/api/friends/request/:requestId', requireAuth, async (req, res) => {
+  const { action } = req.body; // 'accept' | 'decline' | 'cancel'
+  if (!['accept', 'decline', 'cancel'].includes(action)) {
+    return res.status(400).json({ error: "action must be 'accept', 'decline', or 'cancel'" });
+  }
+  if (MOCK_MODE) return res.json({ success: true, mock: true });
+  try {
+    const { data: reqRow, error: fetchErr } = await supabase
+      .from('friend_requests')
+      .select('*')
+      .eq('id', req.params.requestId)
+      .single();
+    if (fetchErr || !reqRow) return res.status(404).json({ error: 'Request not found' });
+
+    // Only the receiver can accept/decline; only the sender can cancel
+    if (action === 'cancel'  && reqRow.sender_id   !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+    if (action !== 'cancel'  && reqRow.receiver_id !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+
+    if (action === 'accept') {
+      // Write both directions into friends table
+      await supabase.from('friends').upsert({ user_id: req.userId, friend_id: reqRow.sender_id });
+      await supabase.from('friends').upsert({ user_id: reqRow.sender_id, friend_id: req.userId });
+    }
+
+    await supabase
+      .from('friend_requests')
+      .update({ status: action === 'accept' ? 'accepted' : action === 'cancel' ? 'cancelled' : 'declined' })
+      .eq('id', req.params.requestId);
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[PATCH /api/friends/request] Error:', err.message);
+    res.status(500).json({ error: 'Could not update request' });
+  }
+});
+
+// Remove someone from My Circle (bidirectional)
+app.delete('/api/friends/:friendId', requireAuth, async (req, res) => {
+  if (MOCK_MODE) return res.json({ success: true, mock: true });
+  try {
+    await supabase.from('friends').delete().eq('user_id', req.userId).eq('friend_id', req.params.friendId);
+    await supabase.from('friends').delete().eq('user_id', req.params.friendId).eq('friend_id', req.userId);
+    // Also clean up any open requests between the two
+    await supabase.from('friend_requests')
+      .delete()
+      .or(`and(sender_id.eq.${req.userId},receiver_id.eq.${req.params.friendId}),and(sender_id.eq.${req.params.friendId},receiver_id.eq.${req.userId})`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[DELETE /api/friends] Error:', err.message);
+    res.status(500).json({ error: 'Could not remove friend' });
+  }
 });
 
 app.get('/api/users/badges', requireAuth, async (req, res) => {

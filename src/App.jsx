@@ -1689,7 +1689,7 @@ async function requestNotificationPermission(userId) {
 // ─── INVITE FRIENDS / REFERRAL HUB ────────────────────────────────────────────
 // POST /api/referrals/invite | GET /api/referrals/:userId | POST /api/referrals/claim
 // POST /api/circle/request | GET /api/circle/:userId | POST /api/circle/accept
-function InvitePage({ onBack, user, onNotif, isVip, onUpgrade }) {
+function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go }) {
   const [invites, setInvites] = useState(ls.get("backstage_invites", MOCK_INVITES));
   const [tab, setTab] = useState("find");
   const [copied, setCopied] = useState(false);
@@ -1701,11 +1701,54 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade }) {
   const [userStatuses, setUserStatuses] = useState(()=>ls.get("backstage_circle_statuses",{}));
   const [circle, setCircle] = useState(()=>ls.get("backstage_circle",[]));
   const [pendingReqs, setPendingReqs] = useState(()=>ls.get("backstage_friend_requests",[]));
+  // API search state
+  const [searching, setSearching] = useState(false);
+  const [apiResults, setApiResults] = useState([]);
+  const [suggestedFans, setSuggestedFans] = useState([]);
 
-  const myCode = `BACKSTAGE-${(user?.name||"FAN").toUpperCase().slice(0,6)}-2026`;
-  const myLink = `https://backstageapp.co/join?ref=${myCode}`;
+  const myCode = `BACKSTAGE-${(user?.username||user?.name||"FAN").toUpperCase().slice(0,6)}-2026`;
+  const myHandle = user?.username || user?.handle || user?.name || "me";
+  const myLink = `${window.location.origin}/u/${myHandle}`;
   const converted = invites.filter(i=>i.joined).length;
   const nextMilestone = REFERRAL_MILESTONES.find(m=>m.count>converted)||REFERRAL_MILESTONES[REFERRAL_MILESTONES.length-1];
+
+  // Normalize an API user card to the local card shape expected by the UI
+  const normalizeUserCard = (u) => ({
+    id: u.id,
+    username: u.handle || u.username || '',
+    displayName: u.display_name || u.backstage_name || u.handle || 'Backstage fan',
+    avatar: (u.display_name || u.handle || u.username || 'B').slice(0,1).toUpperCase(),
+    color: C.accent,
+    fandoms: u.fandoms || u.favorite_groups || [],
+    city: u.city || 'Backstage',
+    concertContext: u.concert_context || '',
+    bio: u.bio || `${u.display_name || u.handle || 'Fan'} is on Backstage`,
+    emailPrefix: '',
+    status: 'none',
+  });
+
+  // Debounced API search — fires when query hits 2+ chars
+  useEffect(() => {
+    const raw = searchQ.trim();
+    const q = raw.replace(/^@/, '').toLowerCase();
+    if (q.length < 2) { setApiResults([]); setSearching(false); return; }
+    setSearching(true);
+    const t = setTimeout(async () => {
+      try {
+        const d = await api.get(`/api/users/search?q=${encodeURIComponent(raw)}`);
+        setApiResults(d?.users || []);
+      } catch { setApiResults([]); }
+      finally { setSearching(false); }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [searchQ]);
+
+  // Load suggested fans once on mount
+  useEffect(() => {
+    api.get('/api/friends/suggested').then(d => {
+      if (d?.users?.length > 0) setSuggestedFans(d.users.map(normalizeUserCard));
+    }).catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const copyLink = () => {
     navigator.clipboard?.writeText(myLink).catch(()=>{});
@@ -1725,14 +1768,19 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade }) {
   const sendRequest = (fu) => {
     const next = {...userStatuses, [fu.id]:"sent"};
     setUserStatuses(next); ls.set("backstage_circle_statuses", next);
-    // Add to pending requests
-    const req = { id:`req-${Date.now()}`, userId:fu.id, username:fu.username, displayName:fu.displayName, avatar:fu.avatar, color:fu.color, fandoms:fu.fandoms, concertContext:fu.concertContext, sentAt:Date.now() };
-    const reqs = [req, ...pendingReqs];
+    const reqEntry = { id:`req-${Date.now()}`, userId:fu.id, username:fu.username, displayName:fu.displayName, avatar:fu.avatar, color:fu.color||C.accent, fandoms:fu.fandoms, concertContext:fu.concertContext, sentAt:Date.now() };
+    const reqs = [reqEntry, ...pendingReqs];
     setPendingReqs(reqs); ls.set("backstage_friend_requests", reqs);
-    // In a real app, a server-side notification would be sent to @fu.username.
-    // In demo mode, a pending "awaiting response" entry is written to the sent requests list above.
-    // We do NOT write a friend_req to the sender's own inbox — that's the receiver's notification.
+    // Best-effort backend sync — localStorage is the source of truth
+    api.post('/api/friends/request', { targetUserId: fu.id }).catch(()=>{});
     onNotif({title:`Circle invite sent to @${fu.username} ✦`,body:"They'll see your invite in their notifications.",icon:"💜",color:C.lavender});
+  };
+
+  const cancelRequest = (fu) => {
+    const next = {...userStatuses, [fu.id]:"none"};
+    setUserStatuses(next); ls.set("backstage_circle_statuses", next);
+    const reqs = pendingReqs.filter(r=>r.userId!==fu.id);
+    setPendingReqs(reqs); ls.set("backstage_friend_requests", reqs);
   };
 
   const acceptRequest = (fu) => {
@@ -1758,7 +1806,8 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade }) {
   const getStatus = (fu) => userStatuses[fu.id] || fu.status || "none";
 
   // ── Search ────────────────────────────────────────────────────────────────
-  const q = searchQ.toLowerCase().trim();
+  // Normalize the query: strip @, lowercase, collapse whitespace
+  const q = searchQ.trim().replace(/^@/, '').toLowerCase();
   const localProfiles = (() => {
     try {
       return Object.keys(localStorage)
@@ -1766,7 +1815,7 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade }) {
         .map(k=>normalizeProfile(ls.get(k)))
         .filter(p=>p?.id && p.id!==user?.id && canEnterApp(p))
         .map(p=>({
-          id:p.id, username:p.handle, displayName:p.display_name || p.backstage_name || p.handle,
+          id:p.id, username:p.handle||p.username||'', displayName:p.display_name || p.backstage_name || p.handle,
           avatar:(p.display_name || p.handle || "F").slice(0,1).toUpperCase(), color:C.accent,
           fandoms:p.favorite_groups || [], city:p.city || "Backstage", concertContext:"Signed-up fan",
           bio:`${p.display_name || p.handle} is on Backstage`, emailPrefix:p.email?.split("@")[0] || "",
@@ -1777,16 +1826,30 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade }) {
     ...localProfiles,
     ...MOCK_FANVERSE_USERS.filter(u=>!localProfiles.find(p=>p.username===u.username || p.id===u.id)),
   ];
-  const searchResults = q.length >= 1
-    ? searchableUsers.filter(u =>
-        u.username.includes(q) ||
-        u.displayName.toLowerCase().includes(q) ||
-        (u.emailPrefix || "").toLowerCase().includes(q) ||
-        u.fandoms.some(f=>f.toLowerCase().includes(q)) ||
-        u.city.toLowerCase().includes(q) ||
-        u.concertContext.toLowerCase().includes(q)
-      )
-    : searchableUsers.slice(0,4); // show suggestions when empty
+
+  // Build the displayed results list:
+  // q >= 2 chars → API results merged with any local-only profiles not in API set
+  // q == 1 char  → local prefix match (instant, no API)
+  // q == 0       → suggested fans (API) OR local slice as fallback
+  const searchResults = (() => {
+    if (q.length >= 2) {
+      const apiCards = apiResults.map(normalizeUserCard);
+      const apiIds = new Set(apiCards.map(c=>c.id));
+      const localOnly = localProfiles.filter(lp =>
+        !apiIds.has(lp.id) &&
+        (lp.username.includes(q) || lp.displayName.toLowerCase().includes(q) ||
+         (lp.emailPrefix||'').includes(q))
+      );
+      return [...apiCards, ...localOnly];
+    }
+    if (q.length === 1) {
+      return searchableUsers.filter(u =>
+        u.username.startsWith(q) || u.displayName.toLowerCase().startsWith(q)
+      ).slice(0,6);
+    }
+    // No query — show suggested fans if loaded, else local slice
+    return suggestedFans.length > 0 ? suggestedFans.slice(0,6) : searchableUsers.slice(0,5);
+  })();
 
   const circleMembers = [...circle, ...MOCK_FRIENDS.filter(f=>f.status==="accepted" && !circle.find(c=>c.id===f.id))];
 
@@ -1874,41 +1937,78 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade }) {
                 {searchQ&&<button onClick={()=>setSearchQ("")} style={{ position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:C.textMid,fontSize:16,cursor:"pointer",padding:4 }}>✕</button>}
               </div>
 
-              {/* ── Autocomplete results ── always show when focused or has query, even if empty */}
-              {(searchResults.length>0 || q.length>=1) && (
+              {/* ── Search results / suggestions ── */}
+              {(searchResults.length > 0 || q.length >= 1 || searching) && (
                 <div style={{ background:`linear-gradient(160deg,${C.surfaceMid},${C.surface})`,border:`1.5px solid ${C.borderHi}`,borderRadius:18,overflow:"hidden",marginBottom:16,animation:"searchSlideIn .18s ease",boxShadow:`0 8px 28px rgba(0,0,0,0.4)` }}>
-                  {searchResults.map((fu,i)=>{
+
+                  {/* Section label — only when showing suggestions (no query) */}
+                  {!q && searchResults.length > 0 && (
+                    <div style={{ padding:"10px 14px 6px",borderBottom:`1px solid ${C.border}` }}>
+                      <p style={{ fontSize:9.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.09em" }}>✦ Suggested for you</p>
+                    </div>
+                  )}
+
+                  {/* Loading indicator */}
+                  {searching && (
+                    <div style={{ padding:"16px 14px",display:"flex",alignItems:"center",gap:10 }}>
+                      <div style={{ width:16,height:16,borderRadius:"50%",border:`2px solid ${C.accent}`,borderTopColor:"transparent",animation:"rotate .7s linear infinite",flexShrink:0 }} />
+                      <p style={{ fontSize:11.5,color:C.textMid }}>Searching Backstage…</p>
+                    </div>
+                  )}
+
+                  {/* Result rows */}
+                  {!searching && searchResults.map((fu,i)=>{
                     const st = getStatus(fu);
                     return (
                       <div key={fu.id} style={{ padding:"11px 14px",borderBottom:i<searchResults.length-1?`1px solid ${C.border}`:"none",position:"relative",background:st==="accepted"?`${C.mint}05`:"transparent" }}>
                         <div style={{ display:"flex",gap:10,alignItems:"flex-start" }}>
-                          {/* Avatar */}
                           <div style={{ position:"relative",flexShrink:0,marginTop:2 }}>
-                            <div style={{ width:42,height:42,borderRadius:"50%",background:`linear-gradient(135deg,${fu.color},${fu.color}77)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,color:C.bg,border:`2px solid ${fu.color}66`,boxShadow:`0 0 12px ${fu.color}33` }}>{fu.avatar}</div>
+                            <div style={{ width:42,height:42,borderRadius:"50%",background:`linear-gradient(135deg,${fu.color||C.accent},${(fu.color||C.accent)}77)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,color:C.bg,border:`2px solid ${(fu.color||C.accent)}66`,boxShadow:`0 0 12px ${(fu.color||C.accent)}33` }}>{fu.avatar}</div>
                             {st==="accepted"&&<div style={{ position:"absolute",bottom:-1,right:-1,width:14,height:14,borderRadius:"50%",background:C.mint,border:`2px solid ${C.surface}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:7 }}>✦</div>}
                           </div>
-                          {/* Info — constrained to prevent wrap blowout */}
                           <div style={{ flex:1,minWidth:0,overflow:"hidden" }}>
                             <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12.5,color:C.text,marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{highlight(`@${fu.username}`)}</p>
-                            <p style={{ fontSize:10,color:C.textMid,marginBottom:5,lineHeight:1.35,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{fu.bio}</p>
+                            <p style={{ fontSize:10,color:C.textMid,marginBottom:5,lineHeight:1.35,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{fu.bio||fu.displayName}</p>
                             <div style={{ display:"flex",gap:4,flexWrap:"nowrap",overflow:"hidden" }}>
-                              {fu.fandoms.slice(0,1).map(f=><span key={f} style={{ padding:"2px 8px",borderRadius:99,background:`${fu.color}18`,border:`1px solid ${fu.color}33`,fontSize:9,color:fu.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap",flexShrink:0 }}>{f}</span>)}
-                              <span style={{ padding:"2px 8px",borderRadius:99,background:C.surfaceHi,border:`1px solid ${C.border}`,fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,whiteSpace:"nowrap",flexShrink:0 }}>📍 {fu.city.split(",")[0]}</span>
+                              {(fu.fandoms||[]).slice(0,1).map(f=><span key={f} style={{ padding:"2px 8px",borderRadius:99,background:`${(fu.color||C.accent)}18`,border:`1px solid ${(fu.color||C.accent)}33`,fontSize:9,color:fu.color||C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap",flexShrink:0 }}>{f}</span>)}
+                              {fu.city&&<span style={{ padding:"2px 8px",borderRadius:99,background:C.surfaceHi,border:`1px solid ${C.border}`,fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,whiteSpace:"nowrap",flexShrink:0 }}>📍 {fu.city.split(",")[0]}</span>}
                               {fu.concertContext&&<span style={{ fontSize:9,color:C.textDim,fontStyle:"italic",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",flexShrink:1 }}>🎤 {fu.concertContext.split(" ").slice(0,3).join(" ")}</span>}
                             </div>
                           </div>
-                          {/* CTA */}
                           <div style={{ flexShrink:0,marginTop:2 }}><StatusBtn fu={fu} /></div>
                         </div>
                       </div>
                     );
                   })}
-                  {q && searchResults.length===0 && (
-                    <div style={{ padding:"20px 16px",textAlign:"center" }}>
-                      <div style={{ fontSize:24,marginBottom:8 }}>🔭</div>
-                      <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,marginBottom:4 }}>No fan found yet</p>
-                      <p style={{ fontSize:11.5,color:C.textMid,lineHeight:1.6,marginBottom:12 }}>We're still syncing new Backstage profiles. Try searching by handle, or invite your friend with your Backstage link.</p>
-                      <button onMouseDown={e=>e.preventDefault()} onClick={copyLink} className="tap" style={{ padding:"8px 14px",borderRadius:99,background:`${C.accent}18`,border:`1px solid ${C.accent}44`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>{copied?"Link Copied":"Copy Link"}</button>
+
+                  {/* No-results fallback — never a dead end */}
+                  {!searching && q.length >= 2 && searchResults.length === 0 && (
+                    <div style={{ padding:"22px 18px" }}>
+                      <div style={{ textAlign:"center",marginBottom:16 }}>
+                        <div style={{ fontSize:28,marginBottom:8 }}>🔭</div>
+                        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,marginBottom:5 }}>No profile found for @{q}</p>
+                        <p style={{ fontSize:11.5,color:C.textMid,lineHeight:1.6 }}>They might not be on Backstage yet.<br/>Send them your invite link or show your QR.</p>
+                      </div>
+                      <div style={{ display:"flex",gap:7,flexWrap:"wrap",justifyContent:"center" }}>
+                        <button onMouseDown={e=>e.preventDefault()} onClick={simulateInvite} className="tap"
+                          style={{ padding:"8px 14px",borderRadius:99,background:C.accent,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>
+                          📨 Send Invite
+                        </button>
+                        <button onMouseDown={e=>e.preventDefault()} onClick={copyLink} className="tap"
+                          style={{ padding:"8px 14px",borderRadius:99,background:`${C.accent}18`,border:`1px solid ${C.accent}44`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>
+                          {copied?"✓ Copied":"🔗 Copy Link"}
+                        </button>
+                        {go && (
+                          <button onMouseDown={e=>e.preventDefault()} onClick={()=>go('qr')} className="tap"
+                            style={{ padding:"8px 14px",borderRadius:99,background:`${C.lavender}18`,border:`1px solid ${C.lavender}44`,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>
+                            ◈ My QR
+                          </button>
+                        )}
+                        <button onMouseDown={e=>e.preventDefault()} onClick={()=>setSearchQ("")} className="tap"
+                          style={{ padding:"8px 14px",borderRadius:99,background:C.surfaceHi,border:`1px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:11,cursor:"pointer" }}>
+                          ✕ Clear
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -8353,15 +8453,40 @@ function QRPage({ onBack, user, onNotif }) {
   const [mode, setMode] = useState("show");
   const [scanned, setScanned] = useState(false);
   const [activeAction, setActiveAction] = useState("friend");
+  const [qrCopied, setQrCopied] = useState(false);
+
+  const handle = user?.username || user?.handle || user?.name || user?.stanName || "me";
+  const profileUrl = `${window.location.origin}/u/${handle}`;
+  const inviteUrl  = `${window.location.origin}/u/${handle}?ref=qr`;
+  const fandoms    = user?.favorite_groups || user?.fandoms || [];
+
   const QR_ACTIONS = [
-    {id:"friend",label:"Add Friend",icon:"🤝",desc:"Let someone add you as a moot",color:C.accent},
-    {id:"trade",label:"Confirm Trade",icon:"🃏",desc:"Verify a trade in person",color:C.mint},
-    {id:"meetup",label:"Join Meetup",icon:"📍",desc:"Check in to a meetup",color:C.gold},
-    {id:"profile",label:"Share Profile",icon:"◉",desc:"Share your Backstage profile",color:C.pink},
-    {id:"memory",label:"Add Memory",icon:"📸",desc:"Add this moment to scrapbook",color:C.silver},
-    {id:"checkin",label:"Concert Check-in",icon:"🎤",desc:"Log concert attendance",color:C.rose},
+    {id:"friend",label:"Add Friend",   icon:"🤝",desc:"Let someone add you as a moot",         color:C.accent,  url:inviteUrl},
+    {id:"profile",label:"My Profile",  icon:"◉", desc:"Share your Backstage profile",           color:C.pink,    url:profileUrl},
+    {id:"trade",label:"Confirm Trade", icon:"🃏",desc:"Verify a trade in person",               color:C.mint,    url:profileUrl},
+    {id:"meetup",label:"Join Meetup",  icon:"📍",desc:"Check in to a meetup",                   color:C.gold,    url:profileUrl},
+    {id:"memory",label:"Add Memory",   icon:"📸",desc:"Add this moment to scrapbook",           color:C.silver,  url:profileUrl},
+    {id:"checkin",label:"Check-in",    icon:"🎤",desc:"Log concert attendance",                 color:C.rose,    url:profileUrl},
   ];
-  const mockScan = () => { setScanned(true); onNotif({title:"QR scanned! 🎉",body:"Friend added.",icon:"🎉",color:C.mint}); setTimeout(()=>setScanned(false),3000); };
+  const activeQR = QR_ACTIONS.find(a=>a.id===activeAction) || QR_ACTIONS[0];
+
+  const copyQRLink = () => {
+    navigator.clipboard?.writeText(activeQR.url).catch(()=>{});
+    setQrCopied(true); setTimeout(()=>setQrCopied(false),2000);
+    onNotif({title:"Link copied! 🔗",body:`Share it anywhere.`,icon:"🔗",color:C.mint});
+  };
+  const shareQRLink = async () => {
+    try {
+      await navigator.share({ title:`@${handle} on Backstage`, url: activeQR.url });
+    } catch { copyQRLink(); }
+  };
+
+  const mockScan = () => {
+    setScanned(true);
+    onNotif({title:"QR scanned! 🎉",body:"Sending circle request…",icon:"🎉",color:C.mint});
+    setTimeout(()=>setScanned(false),3000);
+  };
+
   return (
     <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
       <div style={{ padding:"16px 20px",display:"flex",gap:10,alignItems:"center",flexShrink:0 }}>
@@ -8376,26 +8501,57 @@ function QRPage({ onBack, user, onNotif }) {
       <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
         {mode==="show" && (
           <div>
-            <div style={{ display:"flex",flexDirection:"column",gap:8,marginBottom:18 }}>
-              {QR_ACTIONS.map(a=>(
-                <div key={a.id} onClick={()=>setActiveAction(a.id)} className="tap" style={{ background:activeAction===a.id?`${a.color}12`:C.surface,border:`1.5px solid ${activeAction===a.id?a.color:C.border}`,borderRadius:14,padding:"11px 14px",cursor:"pointer",display:"flex",gap:10,alignItems:"center" }}>
-                  <span style={{ fontSize:20 }}>{a.icon}</span>
-                  <div style={{ flex:1 }}><p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13 }}>{a.label}</p><p style={{ fontSize:10.5,color:C.textMid }}>{a.desc}</p></div>
-                  {activeAction===a.id&&<div style={{ width:10,height:10,borderRadius:"50%",background:a.color }} />}
+            {/* QR card — photocard style */}
+            <div style={{ background:`linear-gradient(160deg,${C.plum}80,${C.cosmic})`,border:`1.5px solid ${C.accent}44`,borderRadius:24,padding:"22px 20px",marginBottom:14,textAlign:"center",position:"relative",overflow:"hidden" }}>
+              {/* Ambient glow */}
+              <div style={{ position:"absolute",top:-40,left:"50%",transform:"translateX(-50%)",width:180,height:180,borderRadius:"50%",background:`radial-gradient(circle,${C.accent}18,transparent 70%)`,pointerEvents:"none" }} />
+              {/* Avatar */}
+              <div style={{ width:60,height:60,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.berry})`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:24,color:C.bg,margin:"0 auto 10px",border:`3px solid ${C.accent}88`,boxShadow:`0 0 24px ${C.accent}44`,position:"relative",zIndex:1 }}>
+                {String(user?.display_name||handle||'B').slice(0,1).toUpperCase()}
+              </div>
+              {/* Username + VIP */}
+              <div style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginBottom:6,position:"relative",zIndex:1 }}>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,color:C.text }}>@{handle}</p>
+                {user?.is_vip&&<span style={{ padding:"2px 7px",borderRadius:99,background:`${C.gold}22`,border:`1px solid ${C.gold}55`,fontSize:8.5,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>VIP ✦</span>}
+              </div>
+              {/* Fandom badges */}
+              {fandoms.length > 0 && (
+                <div style={{ display:"flex",gap:4,justifyContent:"center",flexWrap:"wrap",marginBottom:14,position:"relative",zIndex:1 }}>
+                  {fandoms.slice(0,4).map(f=>(
+                    <span key={f} style={{ padding:"2px 9px",borderRadius:99,background:`${C.accent}22`,border:`1px solid ${C.accent}44`,fontSize:9,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{f}</span>
+                  ))}
                 </div>
-              ))}
-            </div>
-            <div style={{ background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:20,padding:24,textAlign:"center" }}>
-              <div style={{ width:160,height:160,margin:"0 auto 16px",background:C.surfaceHi,borderRadius:16,display:"flex",alignItems:"center",justifyContent:"center",border:`2px solid ${C.accent}33`,position:"relative" }}>
-                <div style={{ position:"absolute",inset:12,display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4,opacity:0.6 }}>
+              )}
+              {/* QR code grid */}
+              <div style={{ width:150,height:150,margin:"0 auto 12px",background:C.bg,borderRadius:16,display:"flex",alignItems:"center",justifyContent:"center",border:`2px solid ${C.accent}55`,position:"relative",zIndex:1 }}>
+                <div style={{ position:"absolute",inset:10,display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3,opacity:0.75 }}>
                   {Array.from({length:49}).map((_,i)=><div key={i} style={{ background:[0,1,2,7,8,14,16,21,22,23,28,35,36,42,43,44,45,46,48].includes(i)?C.accent:"transparent",borderRadius:2 }} />)}
                 </div>
-                <div style={{ position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center" }}>
-                  <div style={{ width:36,height:36,borderRadius:10,background:C.bg,border:`1.5px solid ${C.accent}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16 }}>{QR_ACTIONS.find(a=>a.id===activeAction)?.icon||"◈"}</div>
-                </div>
+                <div style={{ width:36,height:36,borderRadius:10,background:C.bg,border:`1.5px solid ${C.accent}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,zIndex:2,position:"relative" }}>{activeQR.icon}</div>
               </div>
-              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14,marginBottom:6 }}>@{user?.username||user?.name||user?.stanName||"stan"}</p>
-              <Pill color={C.accent} small>{QR_ACTIONS.find(a=>a.id===activeAction)?.label}</Pill>
+              <p style={{ fontSize:10.5,color:C.textMid,marginBottom:0,position:"relative",zIndex:1 }}>Scan to add me on Backstage</p>
+            </div>
+
+            {/* Copy / Share strip */}
+            <div style={{ display:"flex",gap:8,marginBottom:14 }}>
+              <button onClick={copyQRLink} className="tap" style={{ flex:1,padding:"11px",borderRadius:13,background:qrCopied?`${C.mint}22`:C.surface,border:`1.5px solid ${qrCopied?C.mint:C.border}`,color:qrCopied?C.mint:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer",transition:"all .2s" }}>
+                {qrCopied?"✓ Copied":"🔗 Copy Link"}
+              </button>
+              <button onClick={shareQRLink} className="tap" style={{ flex:1,padding:"11px",borderRadius:13,background:C.accent,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}>
+                ↑ Share
+              </button>
+            </div>
+
+            {/* Action selector */}
+            <div style={{ display:"flex",flexDirection:"column",gap:7 }}>
+              <p style={{ fontSize:9.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.09em",marginBottom:2 }}>QR type</p>
+              {QR_ACTIONS.map(a=>(
+                <div key={a.id} onClick={()=>setActiveAction(a.id)} className="tap" style={{ background:activeAction===a.id?`${a.color}12`:C.surface,border:`1.5px solid ${activeAction===a.id?a.color:C.border}`,borderRadius:13,padding:"10px 14px",cursor:"pointer",display:"flex",gap:10,alignItems:"center" }}>
+                  <span style={{ fontSize:18 }}>{a.icon}</span>
+                  <div style={{ flex:1 }}><p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12.5 }}>{a.label}</p><p style={{ fontSize:10,color:C.textMid }}>{a.desc}</p></div>
+                  {activeAction===a.id&&<div style={{ width:9,height:9,borderRadius:"50%",background:a.color }} />}
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -8407,7 +8563,10 @@ function QRPage({ onBack, user, onNotif }) {
                 <p style={{ fontSize:12,color:C.textMid }}>Camera access needed</p>
               </div>
               <p style={{ fontSize:12,color:C.textMid,marginBottom:16 }}>Scan any Backstage QR code to connect instantly.</p>
-              {scanned ? <div style={{ background:`${C.mint}18`,border:`1.5px solid ${C.mint}44`,borderRadius:13,padding:12,animation:"pop .3s ease" }}><p style={{ color:C.mint,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>✓ QR Scanned!</p></div> : <Btn onClick={mockScan} color={C.accent}>Simulate Scan ✦</Btn>}
+              {scanned
+                ? <div style={{ background:`${C.mint}18`,border:`1.5px solid ${C.mint}44`,borderRadius:13,padding:12,animation:"pop .3s ease" }}><p style={{ color:C.mint,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>✓ QR Scanned!</p></div>
+                : <Btn onClick={mockScan} color={C.accent}>Simulate Scan ✦</Btn>
+              }
             </div>
           </div>
         )}
@@ -14115,6 +14274,151 @@ function SupportPage() {
   );
 }
 
+// ─── PUBLIC PROFILE PAGE (/u/:username or /@:username) ───────────────────────
+// Shown when someone follows a shareable profile link.
+// Logged-in → shows profile + Add to Circle.
+// Logged-out → prompts sign-up, then returns to this URL.
+function ProfilePublicPage({ username }) {
+  const [profile, setProfile] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+  const [added, setAdded] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  // Check if we have a session (simple — just try reading localStorage)
+  const session = ls.get('backstage_session');
+  const isLoggedIn = !!(session?.user?.id);
+  const myId = session?.user?.id;
+
+  useEffect(() => {
+    const handle = username.replace(/^@/, '').toLowerCase();
+    // Try API first, fall back gracefully
+    fetch(`${API_URL || ''}/api/profile/by-username/${encodeURIComponent(handle)}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d?.error) { setNotFound(true); }
+        else { setProfile(d); }
+      })
+      .catch(() => setNotFound(true))
+      .finally(() => setLoading(false));
+  }, [username]);
+
+  const handleAdd = () => {
+    if (!isLoggedIn) {
+      // Save the return URL and send to auth
+      ls.set('backstage_return_to', window.location.href);
+      window.location.href = '/';
+      return;
+    }
+    if (profile?.id) {
+      // Fire-and-forget request; also persist to localStorage
+      api.post('/api/friends/request', { targetUserId: profile.id }).catch(()=>{});
+      const statuses = ls.get('backstage_circle_statuses', {});
+      ls.set('backstage_circle_statuses', { ...statuses, [profile.id]: 'sent' });
+    }
+    setAdded(true);
+  };
+
+  const profileUrl = `${window.location.origin}/u/${username}`;
+  const copyLink = () => {
+    navigator.clipboard?.writeText(profileUrl).catch(()=>{});
+    setCopied(true); setTimeout(()=>setCopied(false),2000);
+  };
+
+  const bg = { minHeight:'100vh', background:C.bg, color:C.text, fontFamily:"'Instrument Sans',sans-serif", display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'32px 24px' };
+
+  if (loading) return (
+    <div style={bg}>
+      <div style={{ width:32,height:32,borderRadius:'50%',border:`3px solid ${C.accent}`,borderTopColor:'transparent',animation:'rotate .7s linear infinite' }} />
+    </div>
+  );
+
+  if (notFound) return (
+    <div style={bg}>
+      <div style={{ textAlign:'center', maxWidth:360 }}>
+        <div style={{ fontSize:48,marginBottom:16 }}>🔭</div>
+        <h1 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:22,marginBottom:8 }}>Profile not found</h1>
+        <p style={{ fontSize:14,color:C.textMid,marginBottom:24,lineHeight:1.6 }}>@{username} doesn't have a Backstage profile yet — or the link may have changed.</p>
+        <a href="/" style={{ display:'inline-block',padding:'12px 24px',borderRadius:99,background:C.accent,color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14,textDecoration:'none' }}>Open Backstage →</a>
+      </div>
+    </div>
+  );
+
+  const fandoms = profile?.fandoms || [];
+  const displayName = profile?.display_name || profile?.username || username;
+  const isSelf = myId && profile?.id === myId;
+
+  return (
+    <div style={{ minHeight:'100vh', background:C.bg, color:C.text, fontFamily:"'Instrument Sans',sans-serif" }}>
+      {/* Header */}
+      <div style={{ background:`linear-gradient(160deg,${C.plum}80,${C.cosmic})`,padding:'32px 24px 24px',textAlign:'center',position:'relative',overflow:'hidden' }}>
+        <div style={{ position:'absolute',top:-40,left:'50%',transform:'translateX(-50%)',width:200,height:200,borderRadius:'50%',background:`radial-gradient(circle,${C.accent}15,transparent 70%)`,pointerEvents:'none' }} />
+        {/* Avatar */}
+        <div style={{ width:72,height:72,borderRadius:'50%',background:`linear-gradient(135deg,${C.accent},${C.berry})`,display:'flex',alignItems:'center',justifyContent:'center',fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:28,color:C.bg,margin:'0 auto 12px',border:`3px solid ${C.accent}88`,boxShadow:`0 0 28px ${C.accent}40`,position:'relative',zIndex:1 }}>
+          {String(displayName).slice(0,1).toUpperCase()}
+        </div>
+        {/* Name + VIP */}
+        <div style={{ display:'flex',alignItems:'center',justifyContent:'center',gap:7,marginBottom:4,position:'relative',zIndex:1 }}>
+          <h1 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:20,margin:0 }}>{displayName}</h1>
+          {profile?.is_vip&&<span style={{ padding:'2px 8px',borderRadius:99,background:`${C.gold}22`,border:`1px solid ${C.gold}55`,fontSize:9,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>VIP ✦</span>}
+        </div>
+        <p style={{ fontSize:12,color:C.textMid,marginBottom:10,position:'relative',zIndex:1 }}>@{profile?.username || username}</p>
+        {/* Fandom badges */}
+        {fandoms.length > 0 && (
+          <div style={{ display:'flex',gap:5,justifyContent:'center',flexWrap:'wrap',position:'relative',zIndex:1 }}>
+            {fandoms.slice(0,5).map(f=>(
+              <span key={f} style={{ padding:'3px 10px',borderRadius:99,background:`${C.accent}22`,border:`1px solid ${C.accent}44`,fontSize:10,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{f}</span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Body */}
+      <div style={{ padding:'20px 24px',maxWidth:420,margin:'0 auto' }}>
+        {profile?.bio && (
+          <p style={{ fontSize:13,color:C.textMid,lineHeight:1.7,marginBottom:16,textAlign:'center' }}>{profile.bio}</p>
+        )}
+        {profile?.city && (
+          <p style={{ fontSize:12,color:C.textDim,textAlign:'center',marginBottom:20 }}>📍 {profile.city}</p>
+        )}
+
+        {/* CTA */}
+        {!isSelf && (
+          <div style={{ display:'flex',flexDirection:'column',gap:10,marginBottom:20 }}>
+            {!isLoggedIn ? (
+              <>
+                <button onClick={handleAdd} style={{ padding:'14px',borderRadius:14,background:`linear-gradient(135deg,${C.accent},${C.berry})`,border:'none',color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:15,cursor:'pointer',boxShadow:`0 0 20px ${C.accent}40` }}>
+                  Join Backstage to add @{profile?.username||username} ✦
+                </button>
+                <p style={{ fontSize:11,color:C.textDim,textAlign:'center' }}>Free to join · No credit card</p>
+              </>
+            ) : added ? (
+              <div style={{ padding:'14px',borderRadius:14,background:`${C.mint}18`,border:`1.5px solid ${C.mint}44`,textAlign:'center' }}>
+                <p style={{ color:C.mint,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14 }}>✦ Circle request sent!</p>
+                <p style={{ fontSize:11,color:C.textMid,marginTop:4 }}>You'll be connected when they accept.</p>
+              </div>
+            ) : (
+              <button onClick={handleAdd} style={{ padding:'14px',borderRadius:14,background:`linear-gradient(135deg,${C.accent},${C.berry})`,border:'none',color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:15,cursor:'pointer',boxShadow:`0 0 20px ${C.accent}40` }}>
+                Add @{profile?.username||username} to My Circle ✦
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Copy / open app links */}
+        <div style={{ display:'flex',gap:8 }}>
+          <button onClick={copyLink} style={{ flex:1,padding:'11px',borderRadius:12,background:copied?`${C.mint}22`:C.surface,border:`1.5px solid ${copied?C.mint:C.border}`,color:copied?C.mint:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:'pointer',transition:'all .2s' }}>
+            {copied?'✓ Copied':'🔗 Copy Link'}
+          </button>
+          <a href="/" style={{ flex:1,padding:'11px',borderRadius:12,background:C.surfaceHi,border:`1.5px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:'pointer',textAlign:'center',textDecoration:'none' }}>
+            Open App →
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── ROOT APP ─────────────────────────────────────────────────────────────────
 export default function App() {
   const p = window.location.pathname;
@@ -14122,6 +14426,9 @@ export default function App() {
   if (p === '/terms')          return <TermsPage />;
   if (p === '/support')        return <SupportPage />;
   if (p === '/delete-account') return <DeleteAccountPage />;
+  // Shareable profile links: /u/:username or /@:username
+  const uMatch = p.match(/^\/(?:u\/|@)(.+)$/);
+  if (uMatch) return <ProfilePublicPage username={uMatch[1]} />;
   return <AuthProvider><AppInner /></AuthProvider>;
 }
 
@@ -14192,6 +14499,17 @@ function AppInner() {
       setModal(null);
     }
   },[auth.user, auth.loading]);
+
+  // After login: if the user came from a /u/:username profile link, redirect them back.
+  useEffect(()=>{
+    if(appState==="main"){
+      const returnTo = ls.get('backstage_return_to');
+      if(returnTo){
+        ls.del('backstage_return_to');
+        window.location.href = returnTo;
+      }
+    }
+  },[appState]);
 
   // Boot: sync VIP status from backend on session restore.
   // Depends on auth.user?.id (not user?.id) so it fires only after the
@@ -14523,7 +14841,7 @@ function AppInner() {
             else if (dest.tab) { setTimeout(()=>setTab(dest.tab), 60); }
           }}
         /></ModalWrapper>}
-        {modal==="invite"&&<ModalWrapper><InvitePage onBack={()=>setModal(null)} user={user} onNotif={showNotif} isVip={isVip} onUpgrade={openUpgrade} /></ModalWrapper>}
+        {modal==="invite"&&<ModalWrapper><InvitePage onBack={()=>setModal(null)} user={user} onNotif={showNotif} isVip={isVip} onUpgrade={openUpgrade} go={go} /></ModalWrapper>}
         {modal==="contentgen"&&<ModalWrapper><ContentGenerator onBack={()=>setModal(null)} user={user} go={go} onNotif={showNotif} /></ModalWrapper>}
         {modal==="capsule"&&<ModalWrapper><ConcertCapsule concert={MOCK_CONCERTS[0]} onBack={()=>setModal(null)} user={user} isVip={isVip} onUpgrade={openUpgrade} /></ModalWrapper>}
         {modal==="passes"&&<ModalWrapper><BackstagePasses onBack={()=>setModal(null)} user={user} /></ModalWrapper>}
