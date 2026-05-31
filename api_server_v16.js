@@ -785,50 +785,60 @@ app.post('/api/subscriptions/checkout', optionalAuth, async (req, res) => {
   }
 });
 
-// Legacy alias — keep this so any old references still work
+// Legacy alias — kept so any old bookmarks or pre-update builds still work.
+// Contains the same two hardening fixes as the primary route:
+//   1. Upsert public.users before creating the session
+//   2. Pass customer_email explicitly to Stripe
 app.post('/api/stripe/checkout', optionalAuth, async (req, res) => {
-  req.url = '/api/subscriptions/checkout';
-  // Forward to subscriptions handler
   const { plan, priceId, successUrl, cancelUrl, email, userId } = req.body;
-  if (!HAS_STRIPE) {
-    return res.json({ mock: true, url: null, message: 'Stripe not configured.' });
-  }
-  if (plan === 'founder') {
-    try {
-      const founderCount = await countCompletedFounderPasses();
-      if (founderCount >= FOUNDER_PASS_CAP) {
-        return res.status(409).json({ error: 'Founder Pass sold out', soldOut: true });
-      }
-    } catch (countErr) {
-      console.error('[Founder Pass Count] Error:', countErr.message);
-      return res.status(503).json({ error: 'Founder Pass count unavailable', founderCountUnavailable: true });
-    }
-  }
+  if (!HAS_STRIPE) return res.json({ mock: true, url: null, message: 'Stripe not configured.' });
+
   const PRICE_MAP = {
-    monthly:  process.env.STRIPE_PRICE_MONTHLY  || priceId,
-    annual:   process.env.STRIPE_PRICE_ANNUAL   || priceId,
-    founder:  process.env.STRIPE_PRICE_FOUNDER  || priceId,
+    monthly: process.env.STRIPE_PRICE_MONTHLY || priceId,
+    annual:  process.env.STRIPE_PRICE_ANNUAL  || priceId,
+    founder: process.env.STRIPE_PRICE_FOUNDER || priceId,
   };
+  const resolvedUserId = req.userId    || userId || '';
+  const resolvedEmail  = req.userEmail || email  || '';
+  const resolvedPrice  = PRICE_MAP[plan] || priceId;
+  if (!resolvedPrice) return res.status(500).json({ error: 'No price ID for plan', plan });
+
   const metadata = {
-    userId: String(req.userId || userId || ''),
-    email: String(req.userEmail || email || ''),
+    userId: String(resolvedUserId),
+    email:  String(resolvedEmail),
     plan,
     ...(plan === 'founder' ? { product: 'founder_pass', founder_cap: String(FOUNDER_PASS_CAP) } : {}),
   };
+
+  // Upsert profile row so webhook can always find the user
+  if (resolvedUserId && resolvedEmail && supabase) {
+    try {
+      await supabase.from('users').upsert(
+        { id: resolvedUserId, email: resolvedEmail },
+        { onConflict: 'id', ignoreDuplicates: true }
+      );
+    } catch (e) { console.warn('[Legacy Checkout] User upsert non-fatal:', e.message); }
+  }
+
   try {
+    if (plan === 'founder') {
+      const count = await countCompletedFounderPasses().catch(() => 0);
+      if (count >= FOUNDER_PASS_CAP) return res.status(409).json({ error: 'Founder Pass sold out', soldOut: true });
+    }
     const sessionConfig = {
       mode:       plan === 'founder' ? 'payment' : 'subscription',
-      line_items: [{ price: PRICE_MAP[plan] || priceId, quantity: 1 }],
+      line_items: [{ price: resolvedPrice, quantity: 1 }],
       success_url: successUrl || `${process.env.FRONTEND_URL}?payment=success&plan=${plan}`,
       cancel_url:  cancelUrl  || `${process.env.FRONTEND_URL}?payment=cancelled`,
       metadata,
+      ...(resolvedEmail ? { customer_email: resolvedEmail } : {}),
     };
     if (plan === 'founder') sessionConfig.payment_intent_data = { metadata };
     else sessionConfig.subscription_data = { metadata };
     const session = await stripe.checkout.sessions.create(sessionConfig);
     res.json({ url: session.url });
   } catch (err) {
-    res.status(500).json({ error: 'Could not create checkout session' });
+    res.status(500).json({ error: 'stripe_error', detail: err.message });
   }
 });
 
