@@ -14701,6 +14701,11 @@ function AppInner() {
     if(u?.id) return "onboarding"; // authenticated but profile incomplete
     return "auth"; // no session — show welcome/login screen
   });
+  // Once the user reaches "main", never push them back to onboarding from a
+  // background profile re-fetch. onAuthStateChange fires on token refresh and
+  // the freshly-fetched profile can transiently lack fandoms if the DB row is
+  // sparse, causing canEnterApp to fail on an otherwise valid existing user.
+  const hasReachedMain = useRef(canEnterApp(normalizeProfile(ls.get("backstage_session")?.user)));
   const [tab, setTab] = useState("home");
   // Auto-open capsule modal if signed-in user lands on /capsule
   const [modal, setModal] = useState(()=>_IS_CAPSULE_PATH&&canEnterApp(normalizeProfile(ls.get("backstage_session")?.user))?"capsule":null);
@@ -14748,8 +14753,9 @@ function AppInner() {
     const sess = ls.get('backstage_session');
     if (sess?.user) ls.set('backstage_session', {...sess, user:{...sess.user, is_vip: sess.user.is_vip || vipFromProfile}});
     if (canEnterApp(nextUser)) {
+      hasReachedMain.current = true;
       setAppState("main");
-    } else {
+    } else if (!hasReachedMain.current) {
       ls.set("backstage_pending_uid", nextUser.id);
       setAppState("onboarding");
       setModal(null);
@@ -14817,36 +14823,45 @@ function AppInner() {
       if(sess?.user) ls.set('backstage_session', {...sess, user:{...sess.user, is_vip:true, vip_source:source}});
     };
 
-    api.get('/api/subscriptions/status').then(d=>{
-      if(d?.is_vip===undefined) return;
-      const active = isVipActive({is_vip:d.is_vip, vip_source:d.vip_source, vip_expires_at:d.vip_expires_at});
-      setIsVip(active);
-      ls.set("backstage_is_vip", active);
-      setUser(u=>{
-        if(!u) return u;
-        return {...u, is_vip:active, vip_source:d.vip_source||u.vip_source, vip_expires_at:d.vip_expires_at||u.vip_expires_at};
-      });
-      const sess = ls.get('backstage_session');
-      if(sess?.user) ls.set('backstage_session', {...sess, user:{...sess.user, is_vip:active, vip_source:d.vip_source||sess.user.vip_source}});
-
-      // ── Reconciliation: "paid before signup" recovery ─────────────────────
-      // If DB says not VIP, check Stripe for a completed payment for this email.
-      // Throttled to once per hour per user to avoid hammering Stripe API.
-      if(!active && auth.user?.id){
-        const throttleKey = `backstage_last_reconcile_${auth.user.id}`;
-        const lastRun = ls.get(throttleKey, 0);
-        if(Date.now() - lastRun > 3_600_000){
-          ls.set(throttleKey, Date.now());
-          api.post('/api/subscriptions/reconcile').then(r=>{
-            if(r?.reconciled){
-              applyVip(r.vip_source || 'founder');
-              setShowVipCelebration(true);
-              console.log('[VIP] Reconciled from Stripe — Founder Pass activated.');
-            }
-          }).catch(()=>{});
+    const runStatusCheck = (retryOnFailure = true) => {
+      api.get('/api/subscriptions/status').then(d=>{
+        if(d?.is_vip===undefined){
+          // Backend unavailable (Render cold start ~30s) — retry once after 40s.
+          if(retryOnFailure) setTimeout(()=>runStatusCheck(false), 40_000);
+          return;
         }
-      }
-    }).catch(()=>{});
+        const active = isVipActive({is_vip:d.is_vip, vip_source:d.vip_source, vip_expires_at:d.vip_expires_at});
+        setIsVip(active);
+        ls.set("backstage_is_vip", active);
+        setUser(u=>{
+          if(!u) return u;
+          return {...u, is_vip:active, vip_source:d.vip_source||u.vip_source, vip_expires_at:d.vip_expires_at||u.vip_expires_at};
+        });
+        const sess = ls.get('backstage_session');
+        if(sess?.user) ls.set('backstage_session', {...sess, user:{...sess.user, is_vip:active, vip_source:d.vip_source||sess.user.vip_source}});
+
+        // ── Reconciliation: "paid before signup" recovery ─────────────────────
+        // If DB says not VIP, check Stripe for a completed payment for this email.
+        // Throttled to once per hour per user to avoid hammering Stripe API.
+        if(!active && auth.user?.id){
+          const throttleKey = `backstage_last_reconcile_${auth.user.id}`;
+          const lastRun = ls.get(throttleKey, 0);
+          if(Date.now() - lastRun > 3_600_000){
+            ls.set(throttleKey, Date.now());
+            api.post('/api/subscriptions/reconcile').then(r=>{
+              if(r?.reconciled){
+                applyVip(r.vip_source || 'founder');
+                setShowVipCelebration(true);
+                console.log('[VIP] Reconciled from Stripe — Founder Pass activated.');
+              }
+            }).catch(()=>{});
+          }
+        }
+      }).catch(()=>{
+        if(retryOnFailure) setTimeout(()=>runStatusCheck(false), 40_000);
+      });
+    };
+    runStatusCheck();
   },[auth.user?.id, auth.tokenReady, appState]);
 
   // Boot: load photocard collection from backend (replaces MOCK_CARDS when user has real data)
