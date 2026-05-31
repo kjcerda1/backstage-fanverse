@@ -11564,7 +11564,160 @@ function MyCircleSection({ go, user }) {
   );
 }
 
+// ─── ACCOUNT SETTINGS ─────────────────────────────────────────────────────────
+function AccountSettings({ user, isVip, go, onUpgrade, onBack, privacySettings, setPrivacySettings, onShowDeleteModal }) {
+  const { session } = useAuth();
+  const [subStatus, setSubStatus]   = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshMsg, setRefreshMsg] = useState("");
+
+  const authEmail    = session?.user?.email || user?.email || "—";
+  const profileEmail = user?.email || "—";
+  const emailsDiffer = authEmail && profileEmail && authEmail !== "—" && profileEmail !== "—" && authEmail !== profileEmail;
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    setRefreshMsg("");
+    const [meRes, subRes] = await Promise.all([
+      api.get('/api/users/me'),
+      api.get('/api/subscriptions/status'),
+    ]);
+    if (meRes?.id) {
+      const sess = ls.get('backstage_session');
+      if (sess?.user) ls.set('backstage_session', { ...sess, user: { ...sess.user, ...meRes } });
+    }
+    if (subRes && !subRes.error) setSubStatus(subRes);
+    setRefreshing(false);
+    setRefreshMsg("Account refreshed ✓");
+    setTimeout(() => setRefreshMsg(""), 3000);
+  };
+
+  const effectiveVipSrc = subStatus?.vip_source || user?.vip_source;
+  const effectiveIsVip  = subStatus?.is_vip != null ? isVipActive(subStatus) : isVip;
+  const isFounder       = effectiveVipSrc === 'founder';
+
+  const fmtDate = (d, opts) => {
+    if (!d) return null;
+    try { return new Date(d).toLocaleDateString("en-US", opts); } catch { return null; }
+  };
+  const memberSince     = fmtDate(user?.created_at, { month:"long", year:"numeric" }) || "—";
+  const vipSince        = fmtDate(subStatus?.vip_since || user?.vip_since, { month:"short", day:"numeric", year:"numeric" });
+  const stripeConnected = !!(user?.stripe_customer_id || subStatus?.stripe_customer_id);
+
+  const InfoRow = ({ label, value, accentColor, mono, sub, subColor, last }) => (
+    <div>
+      <div style={{ display:"flex",justifyContent:"space-between",alignItems:sub?"flex-start":"center",gap:8 }}>
+        <p style={{ fontSize:11.5,color:C.textMid,flexShrink:0 }}>{label}</p>
+        <div style={{ textAlign:"right" }}>
+          <p style={{ fontSize:12.5,color:accentColor||C.text,fontFamily:mono?"'Courier New',monospace":"inherit",fontWeight:mono?600:400,wordBreak:"break-all" }}>{value}</p>
+          {sub&&<p style={{ fontSize:10,color:subColor||C.textMid,marginTop:2 }}>{sub}</p>}
+        </div>
+      </div>
+      {!last&&<div style={{ height:1,background:C.border,margin:"12px 0" }} />}
+    </div>
+  );
+
+  return (
+    <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden" }}>
+      <div style={{ padding:"16px 20px",display:"flex",gap:10,alignItems:"center",flexShrink:0 }}>
+        <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
+        <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19 }}>Account Settings</h2>
+      </div>
+      <Screen>
+        {/* Refresh */}
+        <button onClick={handleRefresh} disabled={refreshing} className="tap" style={{ width:"100%",padding:"11px",borderRadius:14,background:C.surface,border:`1.5px solid ${C.border}`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12.5,cursor:"pointer",marginBottom:8,display:"flex",alignItems:"center",justifyContent:"center",gap:8 }}>
+          {refreshing?"Refreshing…":"↻ Refresh Account Status"}
+        </button>
+        {refreshMsg
+          ? <p style={{ textAlign:"center",fontSize:11.5,color:C.mint,marginBottom:14 }}>{refreshMsg}</p>
+          : <div style={{ marginBottom:14 }} />
+        }
+
+        {/* ACCOUNT INFORMATION */}
+        <SectionHeader title="Account Information" />
+        <Card style={{ marginBottom:16 }}>
+          <InfoRow label="Logged in as" value={authEmail} mono accentColor={C.accent} />
+          {emailsDiffer&&<InfoRow label="Profile email" value={profileEmail} sub="⚠ Differs from auth email" subColor={C.rose} />}
+          <InfoRow label="Username" value={`@${user?.username||user?.handle||"—"}`} />
+          <InfoRow label="Display name" value={user?.display_name||user?.backstage_name||"—"} />
+          <InfoRow label="Phone" value={(user?.phone||user?.phone_normalized)?"Added":"Not added"} />
+          <InfoRow label="Member since" value={memberSince} last />
+        </Card>
+
+        {/* VIP / MEMBERSHIP */}
+        <SectionHeader title="VIP / Membership" />
+        {effectiveIsVip?(
+          <div style={{ background:isFounder?`linear-gradient(140deg,#221000,#150a00)`:`linear-gradient(140deg,${C.accentDim}18,${C.accent}08)`,border:`1.5px solid ${isFounder?C.gold:C.accent}55`,borderRadius:18,padding:"14px 16px",marginBottom:12,position:"relative",overflow:"hidden" }}>
+            <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${isFounder?C.gold:C.accent}88,transparent)` }} />
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,color:isFounder?C.gold:C.accent,marginBottom:3 }}>✦ {isFounder?"Founder Pass Active":"Backstage VIP Active"}</p>
+            <p style={{ fontSize:11,color:C.textMid }}>Your VIP features are active.</p>
+            {vipSince&&<p style={{ fontSize:10.5,color:C.textMid,marginTop:2 }}>Active since {vipSince}</p>}
+          </div>
+        ):(
+          <div onClick={onUpgrade} className="tap" style={{ background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:18,padding:"14px 16px",marginBottom:12,cursor:"pointer" }}>
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13 }}>Free Plan</p>
+            <p style={{ fontSize:11,color:C.textMid,marginBottom:8 }}>Upgrade for unlimited binders, VIP Heatmap, and more.</p>
+            <p style={{ fontSize:12,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>Upgrade to VIP →</p>
+          </div>
+        )}
+        <Card style={{ marginBottom:16 }}>
+          <InfoRow label="Plan" value={isFounder?"Founder Pass":effectiveIsVip?"Backstage VIP":"Free"} />
+          {effectiveVipSrc&&<InfoRow label="VIP source" value={effectiveVipSrc} />}
+          {vipSince&&<InfoRow label="VIP since" value={vipSince} />}
+          <InfoRow label="Stripe" value={stripeConnected?"Connected":"Not connected"} last />
+        </Card>
+
+        {/* PRIVACY */}
+        <SectionHeader title="Privacy" />
+        <Card style={{ marginBottom:16 }}>
+          <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+            <div style={{ flex:1,paddingRight:12 }}>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:13 }}>Discovery Mode</p>
+              <p style={{ fontSize:10.5,color:C.textMid }}>Who can find you at concerts</p>
+            </div>
+            <span style={{ fontSize:11.5,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"capitalize" }}>{privacySettings?.discoveryMode||"off"}</span>
+          </div>
+          {[
+            {key:"showCity",      label:"Show City",                 sub:"Display city on your fan card"},
+            {key:"showConcerts",  label:"Show Attending Concerts",   sub:"Share concerts you're going to"},
+            {key:"tradeDiscovery",label:"Trade Discovery",           sub:"Appear in trade match suggestions"},
+            {key:"buddyDiscovery",label:"Concert Buddy Discovery",   sub:"Appear in buddy finder"},
+          ].map(item=>(
+            <div key={item.key}>
+              <div style={{ height:1,background:C.border,margin:"12px 0" }} />
+              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                <div style={{ flex:1,paddingRight:12 }}>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:13 }}>{item.label}</p>
+                  <p style={{ fontSize:10.5,color:C.textMid }}>{item.sub}</p>
+                </div>
+                <Toggle on={!!privacySettings?.[item.key]} onChange={v=>setPrivacySettings({...privacySettings,[item.key]:v})} />
+              </div>
+            </div>
+          ))}
+        </Card>
+
+        {/* SECURITY */}
+        <SectionHeader title="Security" />
+        <div style={{ display:"flex",flexDirection:"column",gap:8,marginBottom:24 }}>
+          <button onClick={()=>go("signout")} className="tap" style={{ width:"100%",padding:"13px 16px",borderRadius:14,background:C.surface,border:`1.5px solid ${C.border}`,color:C.text,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+            <span>🚪 Log Out</span><span style={{ color:C.textDim,fontSize:16 }}>›</span>
+          </button>
+          <a href={`mailto:support@backstagefanverse.com?subject=Password Reset&body=Account email: ${authEmail}`} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"13px 16px",borderRadius:14,background:C.surface,border:`1.5px solid ${C.border}`,color:C.text,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:13,textDecoration:"none",boxSizing:"border-box" }}>
+            <span>🔑 Reset Password</span><span style={{ color:C.textDim,fontSize:16 }}>›</span>
+          </a>
+          <button onClick={onShowDeleteModal} className="tap" style={{ width:"100%",padding:"13px 16px",borderRadius:14,background:"transparent",border:`1.5px solid ${C.rose}44`,color:C.rose,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+            <span>🗑 Delete Account</span><span style={{ color:C.rose,fontSize:16,opacity:0.5 }}>›</span>
+          </button>
+        </div>
+
+        <p style={{ textAlign:"center",fontSize:9.5,color:C.textDim,marginBottom:16 }}>Backstage v1.6.0 · Private account data only</p>
+      </Screen>
+    </div>
+  );
+}
+
 function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour }) {
+  const { session } = useAuth();
   const [pfp, setPfp] = useState(null);
   const [nowPlaying, setNowPlaying] = useState({song:"Whiplash",artist:"aespa",editing:false,source:"manual"});
   const [npDraft, setNpDraft] = useState({song:"Whiplash",artist:"aespa"});
@@ -11703,6 +11856,9 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour }) {
       <Screen><KDramaTracker /></Screen>
     </div>
   );
+
+  // ── SECTION: ACCOUNT SETTINGS ──
+  if(section==="account") return <AccountSettings user={user} isVip={isVip} go={go} onUpgrade={onUpgrade} onBack={()=>setSection("main")} privacySettings={privacySettings} setPrivacySettings={setPrivacySettings} onShowDeleteModal={()=>setShowDeleteModal(true)} />;
 
   // ── MAIN PROFILE ──
   const activeSkinGrad = SKIN_GRADIENTS[SKIN_ID_TO_GRAD[profileStyle.skinId||"classic"]||"purple haze"];
@@ -11979,6 +12135,9 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour }) {
             <button onClick={()=>setSection("privacy")} className="tap" style={{ padding:"12px", borderRadius:14, background:C.surface, border:`1.5px solid ${C.border}`, color:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:600, fontSize:11.5, cursor:"pointer" }}>🛡️ Privacy & Discovery</button>
             <button onClick={()=>setSection("notifications")} className="tap" style={{ padding:"12px", borderRadius:14, background:C.surface, border:`1.5px solid ${C.border}`, color:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:600, fontSize:11.5, cursor:"pointer" }}>🔔 Notification Settings</button>
           </div>
+          <button onClick={()=>setSection("account")} className="tap" style={{ width:"100%",marginTop:8,padding:"12px 16px",borderRadius:14,background:C.surface,border:`1.5px solid ${C.border}`,color:C.text,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:11.5,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+            <span>⚙️ Account Info & Settings</span><span style={{ color:C.textDim,fontSize:14 }}>›</span>
+          </button>
 
           {/* VIP tour replay — only shown to VIP members */}
           {isVip && (
@@ -12006,7 +12165,12 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour }) {
             </button>
           </div>
 
-          <p style={{ textAlign:"center",fontSize:9.5,color:C.textDim,marginTop:10 }}>Backstage v1.6.0 · Prototype</p>
+          {session?.user?.email&&(
+            <p style={{ textAlign:"center",fontSize:10,color:C.textDim,marginTop:8,fontFamily:"'Courier New',monospace" }}>
+              Logged in as: <span style={{ color:C.textMid }}>{session.user.email}</span>
+            </p>
+          )}
+          <p style={{ textAlign:"center",fontSize:9.5,color:C.textDim,marginTop:4 }}>Backstage v1.6.0 · Prototype</p>
         </div>
       </Screen>
 
