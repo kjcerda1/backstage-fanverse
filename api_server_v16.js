@@ -761,10 +761,12 @@ app.post('/api/webhooks/stripe', async (req, res) => {
         break;
       }
 
+      // Distinguish Founder Pass (one-time payment) from monthly/annual subscriptions
+      // so the frontend can render the Founder badge and era-specific UI.
       const vipPayload = {
         is_vip:             true,
         vip_since:          new Date().toISOString(),
-        vip_source:         'stripe',
+        vip_source:         plan === 'founder' ? 'founder' : 'stripe',
         stripe_customer_id: session.customer || null,
       };
 

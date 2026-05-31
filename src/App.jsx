@@ -984,9 +984,11 @@ function UpgradeModal({ onClose, onUpgrade }) {
 }
 
 // ─── VIP CELEBRATION SCREEN ────────────────────────────────────────────────────
-function VipCelebrationScreen({ onDone }) {
+function VipCelebrationScreen({ onDone, vipSource }) {
+  const isFounder = vipSource === 'founder';
+  // Auto-advance after 9s so it doesn't block forever, but user can tap through early
   useEffect(() => {
-    const t = setTimeout(onDone, 2800);
+    const t = setTimeout(onDone, 9000);
     return () => clearTimeout(t);
   }, []);
 
@@ -1004,9 +1006,11 @@ function VipCelebrationScreen({ onDone }) {
   ];
 
   return (
-    <div style={{ position:"fixed",inset:0,zIndex:950,background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",animation:"in .3s ease",overflow:"hidden" }}>
+    <div onClick={onDone} style={{ position:"fixed",inset:0,zIndex:950,background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",animation:"in .3s ease",overflow:"hidden",cursor:"pointer" }}>
       {/* Radial gold glow */}
       <div style={{ position:"absolute",inset:0,background:"radial-gradient(ellipse at 50% 45%,rgba(240,204,136,0.22) 0%,transparent 68%)",pointerEvents:"none" }} />
+      {/* Extra founder glow layer */}
+      {isFounder && <div style={{ position:"absolute",inset:0,background:"radial-gradient(ellipse at 50% 80%,rgba(240,100,100,0.10) 0%,transparent 60%)",pointerEvents:"none" }} />}
 
       {/* Floating sparks */}
       {SPARKS.map((s,i)=>(
@@ -1015,30 +1019,39 @@ function VipCelebrationScreen({ onDone }) {
 
       {/* Center content */}
       <div style={{ position:"relative",textAlign:"center",padding:"0 32px",animation:"up .5s ease" }}>
-        <div style={{ fontSize:62,marginBottom:16,animation:"float 2.5s ease infinite",display:"inline-block" }}>✦</div>
-
-        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:32,letterSpacing:"-0.03em",background:"linear-gradient(135deg,#f0cc88 20%,#b8a2ff 60%,#f0a8cc 100%)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",marginBottom:8,lineHeight:1.1 }}>
-          You're VIP.
-        </p>
-        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:16,color:C.silver,marginBottom:6 }}>
-          Welcome to your full fan era.
-        </p>
-        <p style={{ fontSize:12.5,color:C.textMid,fontStyle:"italic",lineHeight:1.65,maxWidth:260,margin:"0 auto" }}>
-          Every feature. Every memory. Every concert — fully yours.
-        </p>
-
         {/* Gold ring pulse */}
-        <div style={{ width:110,height:110,borderRadius:"50%",border:`2px solid ${C.gold}55`,margin:"28px auto 0",animation:"vipShimmer 2s linear infinite",background:`radial-gradient(circle,${C.gold}12,transparent 70%)`,display:"flex",alignItems:"center",justifyContent:"center" }}>
-          <div style={{ width:80,height:80,borderRadius:"50%",border:`1.5px solid ${C.gold}30`,display:"flex",alignItems:"center",justifyContent:"center" }}>
-            <span style={{ fontSize:34 }}>✦</span>
-          </div>
+        <div style={{ width:96,height:96,borderRadius:"50%",border:`2px solid ${C.gold}55`,margin:"0 auto 20px",animation:"vipShimmer 2s linear infinite",background:`radial-gradient(circle,${C.gold}14,transparent 70%)`,display:"flex",alignItems:"center",justifyContent:"center" }}>
+          <div style={{ width:70,height:70,borderRadius:"50%",border:`1.5px solid ${C.gold}30`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:30 }}>✦</div>
         </div>
-      </div>
 
-      {/* Skip */}
-      <button onClick={onDone} style={{ position:"absolute",bottom:52,background:"none",border:"none",color:C.textDim,fontSize:12.5,cursor:"pointer",fontFamily:"'Instrument Sans',sans-serif" }}>
-        Skip to tour →
-      </button>
+        {isFounder ? (
+          <>
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:13,letterSpacing:"0.14em",textTransform:"uppercase",color:C.gold,marginBottom:6 }}>Founder Pass Activated</p>
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:30,letterSpacing:"-0.03em",background:"linear-gradient(135deg,#f0cc88 20%,#f0a8cc 70%,#b8a2ff 100%)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",marginBottom:8,lineHeight:1.1 }}>
+              You're a Founding<br/>Backstager. ✦
+            </p>
+            <p style={{ fontSize:13,color:C.silver,fontStyle:"italic",lineHeight:1.7,maxWidth:270,margin:"0 auto 6px" }}>
+              You're part of the founding generation — the fans who were here first.
+            </p>
+            <p style={{ fontSize:11.5,color:C.textMid,lineHeight:1.6,maxWidth:260,margin:"0 auto" }}>
+              Every feature. Every memory. Every concert — fully yours.
+            </p>
+          </>
+        ) : (
+          <>
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:13,letterSpacing:"0.14em",textTransform:"uppercase",color:C.gold,marginBottom:6 }}>Backstage VIP Activated</p>
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:32,letterSpacing:"-0.03em",background:"linear-gradient(135deg,#f0cc88 20%,#b8a2ff 60%,#f0a8cc 100%)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",marginBottom:8,lineHeight:1.1 }}>
+              You're VIP. ✦
+            </p>
+            <p style={{ fontSize:13,color:C.silver,fontStyle:"italic",lineHeight:1.7,maxWidth:270,margin:"0 auto" }}>
+              Welcome to your full fan era. Every feature is now yours.
+            </p>
+          </>
+        )}
+
+        {/* Tap prompt */}
+        <p style={{ fontSize:11,color:C.textDim,marginTop:28,letterSpacing:"0.04em" }}>Tap anywhere to continue →</p>
+      </div>
     </div>
   );
 }
@@ -3323,6 +3336,53 @@ function InstallPromptCard() {
   );
 }
 
+// ─── VIP/FOUNDER HOME CARD ────────────────────────────────────────────────────
+// Shown at the top of HomeFeed only when the user has an active VIP or Founder Pass.
+// Makes the status unmistakably visible immediately after payment.
+function HomeFounderCard({ user, go }) {
+  const isFounder = user?.vip_source === 'founder';
+  const [dismissed, setDismissed] = useState(()=>ls.get('backstage_vip_card_dismissed', false));
+  if (dismissed) return null;
+  return (
+    <div style={{ margin:"0 16px 14px",position:"relative",overflow:"hidden",borderRadius:20,background:isFounder?`linear-gradient(140deg,#1a0840,#2d1060,#1a0840)`:`linear-gradient(140deg,${C.plum}80,${C.cosmic})`,border:`1.5px solid ${isFounder?C.gold:C.accent}55`,boxShadow:isFounder?`0 0 32px rgba(240,204,136,0.12)`:`0 0 20px ${C.accent}18` }}>
+      {/* Ambient shimmer */}
+      <div style={{ position:"absolute",inset:0,background:isFounder?`radial-gradient(ellipse at 20% 50%,rgba(240,204,136,0.10) 0%,transparent 65%)`:`radial-gradient(ellipse at 80% 20%,${C.accent}0a,transparent 60%)`,pointerEvents:"none" }} />
+      {/* Sparkle dots */}
+      {[{t:"15%",l:"78%"},{t:"70%",l:"88%"},{t:"40%",l:"4%"}].map((s,i)=>(
+        <div key={i} style={{ position:"absolute",top:s.t,left:s.l,fontSize:9,color:isFounder?C.gold:C.accent,opacity:0.4,animation:`sparkleFloat ${3+i*0.6}s ease-in-out infinite`,pointerEvents:"none" }}>✦</div>
+      ))}
+      <div style={{ padding:"16px 18px 14px",position:"relative",zIndex:1 }}>
+        <div style={{ display:"flex",alignItems:"flex-start",gap:12 }}>
+          {/* Badge icon */}
+          <div style={{ width:44,height:44,borderRadius:13,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",background:isFounder?`rgba(240,204,136,0.15)`:`${C.accent}18`,border:`1.5px solid ${isFounder?C.gold:C.accent}44`,fontSize:22,boxShadow:isFounder?`0 0 16px rgba(240,204,136,0.25)`:`0 0 12px ${C.accent}22` }}>
+            {isFounder ? "🏆" : "✦"}
+          </div>
+          <div style={{ flex:1,minWidth:0 }}>
+            <div style={{ display:"flex",alignItems:"center",gap:7,marginBottom:3 }}>
+              {isFounder
+                ? <FounderBadge inline />
+                : <span style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,color:C.gold }}>Backstage VIP ✦</span>
+              }
+              <span style={{ padding:"2px 7px",borderRadius:99,background:isFounder?`rgba(240,204,136,0.15)`:`${C.gold}18`,border:`1px solid ${isFounder?C.gold:C.gold}44`,fontSize:8.5,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:700,flexShrink:0 }}>ACTIVE</span>
+            </div>
+            <p style={{ fontSize:12,color:isFounder?`rgba(240,204,136,0.85)`:C.silver,lineHeight:1.55,marginBottom:8 }}>
+              {isFounder
+                ? "You're part of the founding generation. Every feature is yours."
+                : "Full access unlocked. Every feature. Every concert — yours."}
+            </p>
+            <div style={{ display:"flex",gap:7,flexWrap:"wrap" }}>
+              <button onClick={()=>go('profile')} className="tap" style={{ padding:"6px 13px",borderRadius:99,background:isFounder?`rgba(240,204,136,0.15)`:`${C.accent}18`,border:`1px solid ${isFounder?C.gold:C.accent}44`,fontSize:10.5,color:isFounder?C.gold:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>View Profile →</button>
+              <button onClick={()=>go('invite')} className="tap" style={{ padding:"6px 13px",borderRadius:99,background:`${C.lavender}14`,border:`1px solid ${C.lavender}33`,fontSize:10.5,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>Invite Friends</button>
+            </div>
+          </div>
+          {/* Dismiss */}
+          <button onClick={(e)=>{ e.stopPropagation(); setDismissed(true); ls.set('backstage_vip_card_dismissed',true); }} style={{ background:"none",border:"none",color:C.textDim,fontSize:16,cursor:"pointer",padding:"2px 4px",flexShrink:0,lineHeight:1 }}>✕</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function HomeFeed({ user, go, weather, isVip, onUpgrade, onSmartNotifs }) {
   const [searchVal, setSearchVal] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -3388,6 +3448,9 @@ function HomeFeed({ user, go, weather, isVip, onUpgrade, onSmartNotifs }) {
         <HomeHero go={go} />
 
         <InstallPromptCard />
+
+        {/* VIP/Founder welcome card — shown at top when user has active pass */}
+        {isVip && <HomeFounderCard user={user} go={go} />}
 
         {/* 1b. CONCERT DAY BANNER — auto-shown when show is today/imminent */}
         <ConcertDayBanner go={go} />
@@ -14511,6 +14574,40 @@ function AppInner() {
     }
   },[appState]);
 
+  // ── BROWSER BACK BUTTON (PWA / web) ──────────────────────────────────────────
+  // The app uses React state for navigation — the browser has no history of
+  // in-app moves. We maintain a 2-level stack: level-0 is the back-stop,
+  // level-1 is "somewhere inside the app." Each back press pops to level-0,
+  // we intercept it, close the deepest open thing (modal → non-home tab → exit),
+  // then re-push level-1 so the next back press works the same way.
+  useEffect(()=>{
+    if(appState!=="main") return;
+    // Seed the 2-level stack when entering main state
+    window.history.replaceState({ bsLevel:0 }, '');
+    window.history.pushState({ bsLevel:1 }, '');
+  },[appState]);
+
+  useEffect(()=>{
+    if(appState!=="main") return;
+    const onPop = () => {
+      if(modal){
+        // Close the open modal and re-seal the back-stop
+        setModal(null);
+        window.history.pushState({ bsLevel:1 }, '');
+        return;
+      }
+      if(tab!=="home"){
+        // Navigate to home and re-seal
+        setTab("home");
+        window.history.pushState({ bsLevel:1 }, '');
+        return;
+      }
+      // Already at root — allow the browser to leave the site naturally
+    };
+    window.addEventListener('popstate', onPop);
+    return ()=>window.removeEventListener('popstate', onPop);
+  },[appState, modal, tab]);
+
   // Boot: sync VIP status from backend on session restore.
   // Depends on auth.user?.id (not user?.id) so it fires only after the
   // AuthProvider has set api._token — preventing an unauthenticated call that
@@ -14601,7 +14698,12 @@ function AppInner() {
     // Paused tools — show soft Coming Soon sheet instead of the full tool
     if (COMING_SOON_TOOLS.includes(dest)) { setComingSoonTool(dest); setShowComingSoon(true); return; }
     const FULL_MODALS = ["concertprep","myshows","trip","scrapbook","afterglow","friends","chats","qr","safety","events","concertday","timeline","tickets","nearby","trust","games","creator","backup","fanidentity","valuetracks","fanprojects","assistant","outfits","invite","contentgen","fanmap","explore","livefeed","budget","capsule","passes","notifications"];
-    if(FULL_MODALS.includes(dest)){ setModal(dest); return; }
+    if(FULL_MODALS.includes(dest)){
+      // Push a new history entry so the browser back button can close this modal
+      window.history.pushState({ bsLevel:1, modal:dest }, '');
+      setModal(dest);
+      return;
+    }
     if(dest==="collect"||dest==="shelf"){ setTab("collect"); setModal(null); return; }
     if(dest==="fanverse"){ setTab("community"); setModal(null); return; }
     if(dest==="tools"){ setTab("fanverse"); setModal(null); return; }
@@ -14611,7 +14713,10 @@ function AppInner() {
     if(dest==="concerts_fans"){    ls.set("backstage_concerts_view","fans");    setTab("concerts"); setModal(null); return; }
     if(dest==="signout"){ handleSignOut(); return; }
     const tabs = ["home","concerts","community","collect","fanverse","explore","profile","feed"];
-    if(tabs.includes(dest)){ setTab(dest); setModal(null); return; }
+    if(tabs.includes(dest)){
+      if(dest!=="home") window.history.pushState({ bsLevel:1, tab:dest }, '');
+      setTab(dest); setModal(null); return;
+    }
     if(["kdramas","chants","eras"].includes(dest)){ setTab("fanverse"); setModal(null); return; }
     setTab(dest);
   };
@@ -14624,29 +14729,50 @@ function AppInner() {
   useEffect(()=>{
     const params = new URLSearchParams(window.location.search);
 
-    // Stripe checkout success return — refresh VIP status from backend
+    // Stripe checkout success return
+    // ALWAYS store in localStorage first so it survives a login if the session
+    // was lost during the Stripe redirect (common on Safari / PWA mode).
     const checkoutParam = params.get('checkout');
-    if (checkoutParam === 'success' && appState !== 'main') {
-      // Returned from Stripe but no active session — prompt user to sign in
+    if (checkoutParam === 'success') {
       window.history.replaceState({}, '', window.location.pathname);
-      setNotif({ title:"Payment received ✦", body:"Sign in to finish activating your VIP access.", icon:"✦", color:C.gold });
+      ls.set('backstage_pending_vip_checkout', true);
+      if (appState !== 'main') {
+        // Session is gone — tell the user to sign back in; activation runs after login
+        setNotif({ title:"Payment received ✦", body:"Sign back in to activate your Founder Pass.", icon:"✦", color:C.gold });
+      }
     }
-    if (checkoutParam === 'success' && appState === 'main') {
-      window.history.replaceState({}, '', window.location.pathname);
-      api.get('/api/subscriptions/status').then(d => {
-        if (d?.is_vip) {
-          setIsVip(true);
-          ls.set('backstage_is_vip', true);
-          setUser(u => u ? { ...u, is_vip: true, vip_source: d.vip_source || 'stripe' } : u);
-          const sess = ls.get('backstage_session');
-          if (sess?.user) ls.set('backstage_session', {...sess, user:{...sess.user, is_vip:true, vip_source:d.vip_source||'stripe'}});
-          setShowVipCelebration(true);
-        } else {
-          setNotif({ title:"Payment received ✦", body:"VIP access is activating — refresh in a moment if it doesn't appear yet.", icon:"✦", color:C.gold });
-        }
-      }).catch(()=>{
-        setNotif({ title:"Payment received ✦", body:"VIP access is being activated.", icon:"✦", color:C.gold });
-      });
+
+    // Process a pending VIP checkout the moment we reach main state
+    // (runs on first load if session was intact, OR after the user re-authenticates)
+    if (appState === 'main' && ls.get('backstage_pending_vip_checkout')) {
+      ls.del('backstage_pending_vip_checkout');
+
+      const activateVip = (attempt = 1) => {
+        api.get('/api/subscriptions/status').then(d => {
+          if (d?.is_vip) {
+            setIsVip(true);
+            ls.set('backstage_is_vip', true);
+            setUser(u => {
+              if (!u) return u;
+              return { ...u, is_vip: true, vip_source: d.vip_source || 'stripe' };
+            });
+            const sess = ls.get('backstage_session');
+            if (sess?.user) ls.set('backstage_session', {
+              ...sess,
+              user: { ...sess.user, is_vip: true, vip_source: d.vip_source || 'stripe' },
+            });
+            setShowVipCelebration(true);
+          } else if (attempt < 4) {
+            // Webhook may not have fired yet — retry up to 3 more times
+            setTimeout(() => activateVip(attempt + 1), 4000 * attempt);
+          } else {
+            setNotif({ title:"Founder Pass received ✦", body:"Access is activating — reopen Backstage in a moment to complete.", icon:"✦", color:C.gold });
+          }
+        }).catch(() => {
+          setNotif({ title:"Payment received ✦", body:"Sign in to finish activating your Founder Pass.", icon:"✦", color:C.gold });
+        });
+      };
+      activateVip();
     }
 
     const notifDest = params.get('notif');
@@ -14760,7 +14886,7 @@ function AppInner() {
         {showUpgradeModal&&<UpgradeModal onClose={()=>setShowUpgradeModal(false)} onUpgrade={handleUpgrade} />}
 
         {/* VIP CELEBRATION → auto-advances to tour */}
-        {showVipCelebration&&<VipCelebrationScreen onDone={()=>{ setShowVipCelebration(false); setShowVipTour(true); }} />}
+        {showVipCelebration&&<VipCelebrationScreen vipSource={user?.vip_source} onDone={()=>{ setShowVipCelebration(false); setShowVipTour(true); }} />}
 
         {/* VIP TUTORIAL */}
         {showVipTour&&<VipTutorialModal
