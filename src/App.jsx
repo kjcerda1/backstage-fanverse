@@ -14823,11 +14823,13 @@ function AppInner() {
       if(sess?.user) ls.set('backstage_session', {...sess, user:{...sess.user, is_vip:true, vip_source:source}});
     };
 
-    const runStatusCheck = (retryOnFailure = true) => {
+    const retryDelays = [5_000, 15_000, 40_000];
+    const runStatusCheck = (attempt = 0) => {
       api.get('/api/subscriptions/status').then(d=>{
-        if(d?.is_vip===undefined){
-          // Backend unavailable (Render cold start ~30s) — retry once after 40s.
-          if(retryOnFailure) setTimeout(()=>runStatusCheck(false), 40_000);
+        if(d?.error || d?.is_vip===undefined){
+          // Auth refresh, Render cold starts, and transient DB errors are not
+          // proof that a paid account was revoked. Keep cached VIP and retry.
+          if(attempt < retryDelays.length) setTimeout(()=>runStatusCheck(attempt + 1), retryDelays[attempt]);
           return;
         }
         const active = isVipActive({is_vip:d.is_vip, vip_source:d.vip_source, vip_expires_at:d.vip_expires_at});
@@ -14858,7 +14860,7 @@ function AppInner() {
           }
         }
       }).catch(()=>{
-        if(retryOnFailure) setTimeout(()=>runStatusCheck(false), 40_000);
+        if(attempt < retryDelays.length) setTimeout(()=>runStatusCheck(attempt + 1), retryDelays[attempt]);
       });
     };
     runStatusCheck();

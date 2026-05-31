@@ -194,8 +194,14 @@ async function optionalAuth(req, res, next) {
   if (MOCK_MODE) { req.userId = null; return next(); }
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (!token) return next();
-  const { data: { user } } = await supabase.auth.getUser(token);
-  req.userId = user?.id || null;
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    req.userId = user?.id || null;
+    req.authError = error || null;
+  } catch (err) {
+    req.userId = null;
+    req.authError = err;
+  }
   next();
 }
 
@@ -544,8 +550,8 @@ app.post('/api/ai/assistant', aiLimiter, requireAuth, async (req, res) => {
 //   Comp VIP    = no checkout, no payment info, better for internal/trusted users.
 // ─────────────────────────────────────────────────────────────────────────────
 app.get('/api/subscriptions/status', optionalAuth, async (req, res) => {
-  // No auth token (called before session loads) — return safe free-tier default
-  if (!req.userId) return res.json({ is_vip: false, plan: null, status: 'free' });
+  // Missing or invalid auth is not proof that a paid account was revoked.
+  if (!req.userId) return res.status(401).json({ error: 'Authentication required' });
   if (MOCK_MODE)   return res.json({ is_vip: false, plan: null, status: 'free', mock: true });
   try {
     const { data, error } = await supabase
@@ -568,7 +574,7 @@ app.get('/api/subscriptions/status', optionalAuth, async (req, res) => {
     });
   } catch (err) {
     console.error('[Subscription Status] Error:', err.message);
-    res.json({ is_vip: false, plan: null, status: 'free' });
+    res.status(503).json({ error: 'Subscription status temporarily unavailable' });
   }
 });
 
