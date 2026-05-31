@@ -1929,7 +1929,7 @@ app.get('/api/friends/suggested', requireAuth, async (req, res) => {
 
     // Fetch IDs already in circle so we can exclude them
     const { data: circleRows } = await supabase
-      .from('friends').select('friend_id').eq('user_id', req.userId);
+      .from('friends').select('friend_id').eq('user_id', req.userId).eq('status', 'accepted');
     const circleIds = (circleRows || []).map(r => r.friend_id);
 
     // Query candidates — shared fandoms first, fall back to recent signups
@@ -1965,18 +1965,29 @@ app.get('/api/friends/suggested', requireAuth, async (req, res) => {
 });
 
 // ─── MY CIRCLE (FRIENDS) ─────────────────────────────────────────────────────
+// Two-step: no FK constraints on friends table, so we can't use PostgREST joins.
 app.get('/api/friends', requireAuth, async (req, res) => {
   if (MOCK_MODE) return res.json({ friends: [] });
   try {
-    const { data, error } = await supabase
+    // Step 1: get accepted friend IDs
+    const { data: rows, error: rowErr } = await supabase
       .from('friends')
-      .select('friend_id, users!friends_friend_id_fkey(id, username, display_name, fandoms, city, bio, avatar_url)')
-      .eq('user_id', req.userId);
-    if (error) return res.status(500).json({ error: error.message });
-    const friends = (data || [])
-      .filter(row => row.users)
-      .map(row => toPublicCard(row.users));
-    res.json({ friends });
+      .select('friend_id')
+      .eq('user_id', req.userId)
+      .eq('status', 'accepted');
+    if (rowErr) return res.status(500).json({ error: rowErr.message });
+
+    const ids = (rows || []).map(r => r.friend_id).filter(Boolean);
+    if (ids.length === 0) return res.json({ friends: [] });
+
+    // Step 2: fetch public profile data for those IDs
+    const { data: users, error: userErr } = await supabase
+      .from('users')
+      .select('id, username, display_name, fandoms, city, bio, avatar_url')
+      .in('id', ids);
+    if (userErr) return res.status(500).json({ error: userErr.message });
+
+    res.json({ friends: (users || []).map(toPublicCard) });
   } catch (err) {
     console.error('[GET /api/friends] Error:', err.message);
     res.json({ friends: [] });
@@ -2043,9 +2054,17 @@ app.patch('/api/friends/request/:requestId', requireAuth, async (req, res) => {
     if (action !== 'cancel'  && reqRow.receiver_id !== req.userId) return res.status(403).json({ error: 'Forbidden' });
 
     if (action === 'accept') {
-      // Write both directions into friends table
-      await supabase.from('friends').upsert({ user_id: req.userId, friend_id: reqRow.sender_id });
-      await supabase.from('friends').upsert({ user_id: reqRow.sender_id, friend_id: req.userId });
+      // Write both directions into friends table.
+      // The friends table has status='pending' as default — must explicitly set 'accepted'.
+      // onConflict targets the unique(user_id, friend_id) constraint.
+      await supabase.from('friends').upsert(
+        { user_id: req.userId,        friend_id: reqRow.sender_id, status: 'accepted' },
+        { onConflict: 'user_id,friend_id' }
+      );
+      await supabase.from('friends').upsert(
+        { user_id: reqRow.sender_id, friend_id: req.userId,        status: 'accepted' },
+        { onConflict: 'user_id,friend_id' }
+      );
     }
 
     await supabase
