@@ -55,7 +55,7 @@ function normalizeProfile(user) {
   const groups = Array.isArray(user.favorite_groups) ? user.favorite_groups : Array.isArray(user.fandoms) ? user.fandoms : [];
   const handle = user.handle || user.username || user.name || user.stanName || "";
   const backstageName = user.backstage_name || user.display_name || user.displayName || user.name || user.stanName || user.username || "";
-  const complete = Boolean((backstageName || user.display_name) && handle && groups.length > 0);
+  const complete = Boolean((backstageName || user.display_name) && handle);
   return {
     ...user,
     handle,
@@ -91,18 +91,46 @@ function hasVipEntitlement(user) {
   return isVipActive(user) || user?.vip_source === "founder" || user?.vip_source === "stripe";
 }
 
+const onboardingCompleteKey = userId => `backstage_onboarding_complete_${userId}`;
+const vipCacheKey = userId => `backstage_is_vip_${userId}`;
+
+function hasCompletedOnboarding(user) {
+  if (!user) return false;
+  if (user.onboarding_complete === true || user.profile_complete === true || user.onboarding_skipped === true) return true;
+  if (!user.id) return false;
+  if (ls.get(onboardingCompleteKey(user.id), false)) return true;
+  const cachedUserId = ls.get("backstage_session")?.user?.id;
+  return cachedUserId === user.id && ls.get("backstage_onboarding_complete", false) === true;
+}
+
+function markOnboardingComplete(user) {
+  if (user?.id) ls.set(onboardingCompleteKey(user.id), true);
+  ls.set("backstage_onboarding_complete", true);
+}
+
+function getCachedVip(user) {
+  if (!user?.id) return false;
+  if (ls.get(vipCacheKey(user.id), false) === true) return true;
+  const cachedUserId = ls.get("backstage_session")?.user?.id;
+  return cachedUserId === user.id && ls.get("backstage_is_vip", false) === true;
+}
+
+function setCachedVip(user, active) {
+  if (user?.id) ls.set(vipCacheKey(user.id), active);
+  ls.set("backstage_is_vip", active);
+}
+
 function isProfileComplete(user) {
   const profile = normalizeProfile(user);
   return Boolean(
-    (profile?.display_name || profile?.backstage_name) &&
-    profile?.handle &&
-    Array.isArray(profile?.favorite_groups) &&
-    profile.favorite_groups.length > 0
+    hasCompletedOnboarding(profile) ||
+    ((profile?.display_name || profile?.backstage_name || profile?.username) &&
+      (profile?.handle || profile?.username))
   );
 }
 
 function canEnterApp(user) {
-  return isProfileComplete(user) || user?.onboarding_skipped === true;
+  return hasCompletedOnboarding(user) || isProfileComplete(user);
 }
 
 function mergeStoredProfile(localProfile, remoteProfile, fallbackProfile = null) {
@@ -844,6 +872,12 @@ function VipGate({ isVip, onUpgrade, children, feature="this feature" }) {
 function UpgradeModal({ onClose, onUpgrade }) {
   const [plan, setPlan] = useState("annual");
 
+  useEffect(()=>{
+    const handleEscape = e => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handleEscape);
+    return ()=>window.removeEventListener("keydown", handleEscape);
+  }, [onClose]);
+
   const plans = [
     {
       id:"monthly",
@@ -894,7 +928,8 @@ function UpgradeModal({ onClose, onUpgrade }) {
 
   return (
     <div onClick={onClose} style={{ position:"fixed",inset:0,zIndex:800,background:"rgba(6,6,15,0.96)",display:"flex",alignItems:"flex-end",animation:"in .25s ease" }}>
-      <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceMid, borderRadius:"26px 26px 0 0", width:"100%", animation:"slideUp .3s ease", maxHeight:"94vh", overflowY:"auto", border:`1.5px solid ${C.borderHi}`, boxShadow:"0 -12px 60px rgba(184,162,255,0.12)" }}>
+      <button type="button" aria-label="Close VIP modal" onClick={e=>{ e.stopPropagation(); onClose(); }} style={{ position:"fixed",top:"max(16px, env(safe-area-inset-top))",right:"max(16px, env(safe-area-inset-right))",zIndex:802,width:42,height:42,borderRadius:"50%",background:"rgba(10,10,22,0.92)",border:`1.5px solid ${C.borderHi}`,color:C.text,fontSize:24,lineHeight:1,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 18px rgba(0,0,0,0.32)" }}>×</button>
+      <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceMid, borderRadius:"26px 26px 0 0", width:"100%", animation:"slideUp .3s ease", maxHeight:"92dvh", overflowY:"auto", paddingBottom:"max(18px, env(safe-area-inset-bottom))", border:`1.5px solid ${C.borderHi}`, boxShadow:"0 -12px 60px rgba(184,162,255,0.12)" }}>
 
         {/* Drag handle */}
         <div style={{ width:36,height:4,borderRadius:99,background:C.border,margin:"18px auto 0" }} />
@@ -3676,7 +3711,6 @@ function Onboarding({ onDone }) {
   // ── COMPLETE PROFILE ──
   const handleProfileDone = async () => {
     if (!data.name.trim() || (!data.groups.length && !data.skippedRequiredProfile)) return;
-    console.log('[Onboarding] handleProfileDone start', { name: data.name, bias: data.bias });
     setLoading(true);
     const uid  = ls.get('backstage_pending_uid') || pendingProfile?.id || `mock_${Date.now()}`;
     // fandoms = canonical selected-groups field. data.groups comes from the
@@ -3704,13 +3738,11 @@ function Onboarding({ onDone }) {
       try {
         const session = await _supabase.auth.getSession();
         const token = session?.data?.session?.access_token;
-        console.log('[Onboarding] patching profile, token present:', !!token);
-        const r = await fetch(`${API_URL}/api/users/me`, {
+        await fetch(`${API_URL}/api/users/me`, {
           method:'PATCH',
           headers:{ 'Content-Type':'application/json', 'Authorization':`Bearer ${token||''}` },
           body: JSON.stringify({ username:data.name, handle:data.name, backstage_name:data.name, display_name:data.name, fandoms:data.groups, favorite_groups:data.groups, bias:data.bias, bias_wrecker:data.bias_wrecker || "", city:data.city, onboarding_complete:true, profile_complete:true }),
         });
-        console.log('[Onboarding] PATCH response status:', r.status);
       } catch(e) {
         // API unavailable in this deployment — profile is saved locally, continue
         console.warn('[Onboarding] profile PATCH skipped (API unavailable):', e?.message);
@@ -3721,8 +3753,8 @@ function Onboarding({ onDone }) {
       ls.set('backstage_mock_user', profile);
       ls.set('backstage_session', { user: profile });
       if (profile.id) ls.set(`backstage_profile_${profile.id}`, profile);
+      markOnboardingComplete(profile);
       ls.del('backstage_pending_uid');
-      console.log('[Onboarding] localStorage written, transitioning to tour');
     } catch(e) {
       console.warn('[Onboarding] localStorage write failed:', e?.message);
     }
@@ -3732,7 +3764,6 @@ function Onboarding({ onDone }) {
     if (ls.get('backstage_tour_shown')) { onDone(profile); return; }
     setTourStep(0);
     setMode("tour");
-    console.log('[Onboarding] setMode("tour") called');
   };
 
   // ── LANDING ──
@@ -3904,7 +3935,6 @@ function Onboarding({ onDone }) {
               onClick={()=>{
                 if(isLast){
                   ls.set('backstage_tour_shown', true);
-                  console.log('[Onboarding] tour done, calling onDone:', savedProfile?.username);
                   onDone(savedProfile);
                 } else {
                   setTourStep(t=>t+1);
@@ -3916,7 +3946,7 @@ function Onboarding({ onDone }) {
               {isLast ? "Enter Backstage ✦" : "Next →"}
             </button>
             {!isLast && (
-              <button onClick={()=>{ ls.set('backstage_tour_shown', true); console.log('[Onboarding] tour skipped'); onDone(savedProfile); }} style={{ background:"none",border:"none",color:C.textDim,fontSize:12,cursor:"pointer",padding:"8px",fontFamily:"'Instrument Sans',sans-serif" }}>
+              <button onClick={()=>{ ls.set('backstage_tour_shown', true); onDone(savedProfile); }} style={{ background:"none",border:"none",color:C.textDim,fontSize:12,cursor:"pointer",padding:"8px",fontFamily:"'Instrument Sans',sans-serif" }}>
                 Skip intro
               </button>
             )}
@@ -11607,8 +11637,8 @@ function AccountSettings({ user, isVip, go, onUpgrade, onBack, privacySettings, 
     setTimeout(() => setRefreshMsg(""), 3000);
   };
 
-  const effectiveVipSrc = subStatus?.vip_source || accountProfile?.vip_source;
-  const effectiveIsVip  = subStatus?.is_vip != null ? hasVipEntitlement(subStatus) : isVip || hasVipEntitlement(accountProfile);
+  const effectiveVipSrc = subStatus?.vip_source || accountProfile?.vip_source || cachedProfile?.vip_source;
+  const effectiveIsVip  = isVip || hasVipEntitlement(subStatus) || hasVipEntitlement(accountProfile) || hasVipEntitlement(cachedProfile) || getCachedVip(accountProfile || cachedProfile);
   const isFounder       = effectiveVipSrc === 'founder';
 
   const fmtDate = (d, opts) => {
@@ -11766,8 +11796,9 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
   const [editingStatus, setEditingStatus] = useState(false);
   const [statusDraft, setStatusDraft] = useState(profileStyle.bannerText||"");
   const fileRef = useRef(null);
-  const profileVip = isVip || hasVipEntitlement(user);
-  const founderVip = user?.vip_source === "founder";
+  const cachedUser = ls.get("backstage_session")?.user;
+  const profileVip = isVip || hasVipEntitlement(user) || hasVipEntitlement(cachedUser) || getCachedVip(user || cachedUser);
+  const founderVip = user?.vip_source === "founder" || cachedUser?.vip_source === "founder";
 
   useEffect(()=>{ ls.set("backstage_top5", top5); }, [top5]);
   useEffect(()=>{ ls.set("backstage_profile_style", profileStyle); }, [profileStyle]);
@@ -13897,19 +13928,16 @@ function ScrapbookDetail({ book, onBack, isVip, onUpgrade }) {
   }, [book.id, user?.id]);
 
   const handleFileSelect = async (e) => {
-    console.log('UPLOAD DEBUG: active App file — src/App.jsx');
     const file = e.target.files[0];
     if(!file) return;
     e.target.value = '';
     const allowed = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
     if(!allowed.includes(file.type)) { setUploadError('Only JPG, PNG, and WebP photos are allowed.'); return; }
     if(file.size > 5 * 1024 * 1024) { setUploadError('Photo must be under 5MB.'); return; }
-    console.log('UPLOAD DEBUG: file name/type/size', file.name, file.type, file.size);
     setUploadError(null);
 
     // No Supabase configured — localStorage-only mode
     if(!_supabase) {
-      console.log('UPLOAD DEBUG: _supabase is null — localStorage fallback (no Supabase env vars)');
       const reader = new FileReader();
       reader.onload = ev => setForm(prev => ({ ...prev, imageData: ev.target.result }));
       reader.readAsDataURL(file);
@@ -13919,10 +13947,8 @@ function ScrapbookDetail({ book, onBack, isVip, onUpgrade }) {
     // Get the real Supabase auth user directly — do NOT rely on React state (user?.id)
     // because the profile ID in React state can differ or be stale.
     const { data: { user: authUser }, error: authErr } = await _supabase.auth.getUser();
-    console.log('UPLOAD DEBUG: auth user id', authUser?.id ?? null, '| auth error', authErr?.message ?? null);
 
     if(!authUser?.id) {
-      console.log('UPLOAD DEBUG: no authenticated Supabase user — localStorage fallback');
       const reader = new FileReader();
       reader.onload = ev => setForm(prev => ({ ...prev, imageData: ev.target.result }));
       reader.readAsDataURL(file);
@@ -13938,14 +13964,12 @@ function ScrapbookDetail({ book, onBack, isVip, onUpgrade }) {
       setForm(prev => ({ ...prev, imageData: imageBase64 }));
 
       try {
-        console.log('UPLOAD DEBUG: posting to /api/memories/upload-image');
         const result = await api.post('/api/memories/upload-image', {
           imageBase64,
           filename: file.name,
           mimeType: file.type,
           scrapbookId: book.id,
         });
-        console.log('UPLOAD DEBUG: upload result path', result?.path ?? null, '| error', result?.error ?? null);
 
         if(result?.error) {
           // Surface all backend/network errors — do not swallow non-2xx responses
@@ -13956,7 +13980,6 @@ function ScrapbookDetail({ book, onBack, isVip, onUpgrade }) {
         }
         // result.mock true + no error + no path = backend in explicit mock mode — keep base64 preview
       } catch(err) {
-        console.log('UPLOAD DEBUG: unexpected exception', err?.message);
         setUploadError(`Cloud upload failed: ${err?.message || 'Unknown error'}`);
       } finally {
         setUploadLoading(false);
@@ -13980,7 +14003,6 @@ function ScrapbookDetail({ book, onBack, isVip, onUpgrade }) {
       // Use the live Supabase auth user, not React state, to ensure user_id matches RLS
       _supabase.auth.getUser().then(({ data: { user: authUser } }) => {
         if(!authUser?.id) {
-          console.log('UPLOAD DEBUG: concert_memories insert skipped — no authenticated Supabase user');
           return;
         }
         // photos[] stores the raw storage path, NOT a signed URL
@@ -13991,11 +14013,7 @@ function ScrapbookDetail({ book, onBack, isVip, onUpgrade }) {
           notes, people_met: form.friends ? [form.friends] : [],
           meetups_attended: [], after_parties: [],
         };
-        console.log('UPLOAD DEBUG: concert_memories insert row', row);
-        _supabase.from('concert_memories').insert(row).then(({ data: insData, error: insErr }) => {
-          console.log('UPLOAD DEBUG: concert_memories insert data', insData);
-          console.log('UPLOAD DEBUG: concert_memories insert error', insErr);
-        });
+        _supabase.from('concert_memories').insert(row);
       });
     }
   };
@@ -14747,7 +14765,7 @@ function AppInner() {
 
   // ── VIP — backed by Supabase users.is_vip ───────────────────────────────────
   // POST /api/subscriptions/checkout | GET /api/subscriptions/status
-  const [isVip, setIsVip] = useState(()=>{ const u=ls.get("backstage_session")?.user; return hasVipEntitlement(u)||ls.get("backstage_is_vip",false); });
+  const [isVip, setIsVip] = useState(()=>{ const u=ls.get("backstage_session")?.user; return hasVipEntitlement(u)||getCachedVip(u); });
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [showVipCelebration, setShowVipCelebration] = useState(false);
   const [showVipTour, setShowVipTour] = useState(false);
@@ -14771,15 +14789,16 @@ function AppInner() {
     // merged profile can transiently have is_vip:false if the local cache is stale.
     // Revocation (setIsVip false) is handled exclusively by the VIP sync effect
     // (/api/subscriptions/status), which is the backend-authoritative source.
-    const vipFromProfile = hasVipEntitlement(nextUser);
+    const vipFromProfile = hasVipEntitlement(nextUser) || getCachedVip(nextUser);
     if (vipFromProfile) {
       setIsVip(true);
-      ls.set('backstage_is_vip', true);
+      setCachedVip(nextUser, true);
     }
     const sess = ls.get('backstage_session');
     if (sess?.user) ls.set('backstage_session', {...sess, user:{...sess.user, is_vip: sess.user.is_vip || vipFromProfile}});
     if (canEnterApp(nextUser)) {
       hasReachedMain.current = true;
+      markOnboardingComplete(nextUser);
       setAppState("main");
     } else if (!hasReachedMain.current) {
       ls.set("backstage_pending_uid", nextUser.id);
@@ -14843,7 +14862,7 @@ function AppInner() {
 
     const applyVip = (source, sinceOverride) => {
       setIsVip(true);
-      ls.set("backstage_is_vip", true);
+      setCachedVip(auth.user, true);
       setUser(u=>{ if(!u) return u; return {...u, is_vip:true, vip_source:source}; });
       const sess = ls.get('backstage_session');
       if(sess?.user) ls.set('backstage_session', {...sess, user:{...sess.user, is_vip:true, vip_source:source}});
@@ -14860,7 +14879,7 @@ function AppInner() {
         }
         const active = hasVipEntitlement({is_vip:d.is_vip, vip_source:d.vip_source, vip_expires_at:d.vip_expires_at});
         setIsVip(active);
-        ls.set("backstage_is_vip", active);
+        setCachedVip(auth.user, active);
         setUser(u=>{
           if(!u) return u;
           return {...u, is_vip:active, vip_source:d.vip_source||u.vip_source, vip_expires_at:d.vip_expires_at||u.vip_expires_at};
@@ -14880,7 +14899,6 @@ function AppInner() {
               if(r?.reconciled){
                 applyVip(r.vip_source || 'founder');
                 setShowVipCelebration(true);
-                console.log('[VIP] Reconciled from Stripe — Founder Pass activated.');
               }
             }).catch(()=>{});
           }
@@ -14901,12 +14919,12 @@ function AppInner() {
       if(nextUser.id) ls.set(`backstage_profile_${nextUser.id}`, { ...ls.get(`backstage_profile_${nextUser.id}`, {}), ...nextUser });
     }
     if(subscription?.is_vip != null){
-      const active = hasVipEntitlement(subscription);
+      const active = hasVipEntitlement(subscription) || hasVipEntitlement(nextUser);
       setIsVip(active);
-      ls.set('backstage_is_vip', active);
+      setCachedVip(nextUser || user, active);
     } else if(hasVipEntitlement(nextUser)){
       setIsVip(true);
-      ls.set('backstage_is_vip', true);
+      setCachedVip(nextUser, true);
     }
   };
 
@@ -15030,7 +15048,7 @@ function AppInner() {
         api.get('/api/subscriptions/status').then(d => {
           if (d?.is_vip) {
             setIsVip(true);
-            ls.set('backstage_is_vip', true);
+            setCachedVip(user, true);
             setUser(u => {
               if (!u) return u;
               return { ...u, is_vip: true, vip_source: d.vip_source || 'stripe' };
@@ -15153,7 +15171,7 @@ function AppInner() {
   return(
     <>
       <style>{CSS}</style>
-      <div className="cosmic-bg" style={{ maxWidth:390, margin:"0 auto", height:"100vh", background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 40%,#0c0820 100%)`, display:"flex", flexDirection:"column", position:"relative", overflow:"hidden" }}>
+      <div className="cosmic-bg app-shell" style={{ maxWidth:390, margin:"0 auto", background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 40%,#0c0820 100%)`, display:"flex", flexDirection:"column", position:"relative", overflow:"hidden" }}>
 
         {/* OFFLINE BANNER */}
         <OfflineReadyBanner />
@@ -15254,7 +15272,7 @@ function AppInner() {
         {modal==="collectmodal"&&<ModalWrapper><div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden" }}><div style={{ padding:"16px 20px",display:"flex",gap:10,alignItems:"center",flexShrink:0 }}><button onClick={()=>setModal(null)} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button><h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19 }}>My Collection 🃏</h2></div><Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}><CollectTab cards={cards} setCards={setCards} isVip={isVip} onUpgrade={openUpgrade} /></Screen></div></ModalWrapper>}
 
         {/* ── MAIN SCREENS ── */}
-        <div style={{ flex:1, overflow:"hidden", position:"relative" }}>
+        <div style={{ flex:1, overflow:"hidden", position:"relative", paddingBottom:"calc(62px + max(env(safe-area-inset-bottom), 10px))" }}>
           {(appState==="auth"||appState==="onboarding")&&<Onboarding onDone={data=>{
             if (!data) { console.error('[App] onDone called with null — skipping'); return; }
             const profile = normalizeProfile(data);
@@ -15265,8 +15283,8 @@ function AppInner() {
               setAppState("onboarding");
               return;
             }
+            markOnboardingComplete(profile);
             setAppState("main");
-            ls.set("backstage_onboarding_complete", true);
             // Restore capsule context if user came from QR/capsule link
             const capsuleCtx = ls.get("backstage_capsule_context");
             if (fromCapsule || capsuleCtx) setModal("capsule");
@@ -15289,7 +15307,7 @@ function AppInner() {
 
         {/* BOTTOM NAV */}
         {appState==="main"&&!modal&&(
-          <div style={{ display:"flex", background:"rgba(10,10,22,0.98)", borderTop:`1px solid ${C.borderHi}`, flexShrink:0, paddingBottom:"max(10px, env(safe-area-inset-bottom))", backdropFilter:"blur(24px)", boxShadow:"0 -1px 0 rgba(184,162,255,0.06)", zIndex:100 }}>
+          <div style={{ position:"absolute",left:0,right:0,bottom:0,display:"flex",minHeight:62,background:"rgba(10,10,22,0.98)",borderTop:`1px solid ${C.borderHi}`,paddingBottom:"max(env(safe-area-inset-bottom), 10px)",backdropFilter:"blur(24px)",boxShadow:"0 -1px 0 rgba(184,162,255,0.06)",zIndex:100 }}>
             {NAV.map(n=>{
               const active = tab===n.id;
               const NAV_ICONS = {
