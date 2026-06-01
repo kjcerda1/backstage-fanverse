@@ -47,7 +47,7 @@ const api = {
 };
 
 // ─── AUTH CONTEXT ─────────────────────────────────────────────────────────────
-const AuthCtx = createContext({ user: null, session: null, loading: true, signOut: ()=>{} });
+const AuthCtx = createContext({ user: null, session: null, loading: true, tokenReady: false, signOut: ()=>{} });
 const useAuth = () => useContext(AuthCtx);
 
 function normalizeProfile(user) {
@@ -11593,12 +11593,12 @@ function AccountSettings({ user, isVip, go, onUpgrade, onBack, privacySettings, 
       api.get('/api/users/me'),
       api.get('/api/subscriptions/status'),
     ]);
-    if (meRes?.id) {
-      const nextProfile = { ...(accountProfile || {}), ...meRes };
+    if (meRes?.id || (subRes && !subRes.error)) {
+      const nextProfile = { ...(accountProfile || {}), ...(meRes?.id ? meRes : {}), ...(subRes && !subRes.error ? subRes : {}) };
       setAccountProfile(nextProfile);
       const sess = ls.get('backstage_session');
       ls.set('backstage_session', { ...(sess || {}), user: { ...(sess?.user || {}), ...nextProfile } });
-      ls.set(`backstage_profile_${meRes.id}`, { ...ls.get(`backstage_profile_${meRes.id}`, {}), ...nextProfile });
+      if(nextProfile.id) ls.set(`backstage_profile_${nextProfile.id}`, { ...ls.get(`backstage_profile_${nextProfile.id}`, {}), ...nextProfile });
     }
     if (subRes && !subRes.error) setSubStatus(subRes);
     onAccountRefresh?.({ profile: meRes?.id ? meRes : null, subscription: subRes && !subRes.error ? subRes : null });
@@ -11732,7 +11732,7 @@ function AccountSettings({ user, isVip, go, onUpgrade, onBack, privacySettings, 
   );
 }
 
-function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour }) {
+function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccountRefresh }) {
   const { session } = useAuth();
   const [pfp, setPfp] = useState(null);
   const [nowPlaying, setNowPlaying] = useState({song:"Whiplash",artist:"aespa",editing:false,source:"manual"});
@@ -11766,6 +11766,8 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour }) {
   const [editingStatus, setEditingStatus] = useState(false);
   const [statusDraft, setStatusDraft] = useState(profileStyle.bannerText||"");
   const fileRef = useRef(null);
+  const profileVip = isVip || hasVipEntitlement(user);
+  const founderVip = user?.vip_source === "founder";
 
   useEffect(()=>{ ls.set("backstage_top5", top5); }, [top5]);
   useEffect(()=>{ ls.set("backstage_profile_style", profileStyle); }, [profileStyle]);
@@ -11874,7 +11876,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour }) {
   );
 
   // ── SECTION: ACCOUNT SETTINGS ──
-  if(section==="account") return <AccountSettings user={user} isVip={isVip} go={go} onUpgrade={onUpgrade} onBack={()=>setSection("main")} privacySettings={privacySettings} setPrivacySettings={setPrivacySettings} onShowDeleteModal={()=>setShowDeleteModal(true)} />;
+  if(section==="account") return <AccountSettings user={user} isVip={profileVip} go={go} onUpgrade={onUpgrade} onBack={()=>setSection("main")} privacySettings={privacySettings} setPrivacySettings={setPrivacySettings} onShowDeleteModal={()=>setShowDeleteModal(true)} onAccountRefresh={onAccountRefresh} />;
 
   // ── MAIN PROFILE ──
   const activeSkinGrad = SKIN_GRADIENTS[SKIN_ID_TO_GRAD[profileStyle.skinId||"classic"]||"purple haze"];
@@ -12022,8 +12024,16 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour }) {
           ))}
         </div>
 
+        {profileVip && (
+          <div style={{ background:`linear-gradient(140deg,#221000,#150a00)`, border:`1.5px solid ${C.gold}55`, borderRadius:20, padding:"16px 18px", marginBottom:18, position:"relative", overflow:"hidden", boxShadow:`0 8px 28px ${C.gold}14` }}>
+            <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.gold}88,transparent)` }} />
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:16,color:C.gold,marginBottom:4 }}>{founderVip?"Founder Pass Active":"Backstage VIP Active"}</p>
+            <p style={{ fontSize:11,color:"rgba(240,204,136,0.7)",lineHeight:1.55 }}>Your VIP features are active.</p>
+          </div>
+        )}
+
         {/* VIP upsell banner — non-VIP users */}
-        {!isVip && (
+        {!profileVip && (
           <div onClick={onUpgrade} className="tap" style={{ background:`linear-gradient(140deg,#221000,#150a00)`, border:`1.5px solid ${C.gold}55`, borderRadius:20, padding:"16px 18px", marginBottom:18, cursor:"pointer", position:"relative", overflow:"hidden", boxShadow:`0 8px 28px ${C.gold}14` }}>
             <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.gold}88,transparent)` }} />
             {[{t:"12%",l:"78%",s:13,d:"0s"},{t:"65%",l:"85%",s:9,d:"1s"},{t:"40%",l:"8%",s:7,d:"0.5s"}].map((sp,i)=>(
@@ -14737,7 +14747,7 @@ function AppInner() {
 
   // ── VIP — backed by Supabase users.is_vip ───────────────────────────────────
   // POST /api/subscriptions/checkout | GET /api/subscriptions/status
-  const [isVip, setIsVip] = useState(()=>{ const u=ls.get("backstage_session")?.user; return isVipActive(u)||ls.get("backstage_is_vip",false); });
+  const [isVip, setIsVip] = useState(()=>{ const u=ls.get("backstage_session")?.user; return hasVipEntitlement(u)||ls.get("backstage_is_vip",false); });
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [showVipCelebration, setShowVipCelebration] = useState(false);
   const [showVipTour, setShowVipTour] = useState(false);
@@ -14761,7 +14771,7 @@ function AppInner() {
     // merged profile can transiently have is_vip:false if the local cache is stale.
     // Revocation (setIsVip false) is handled exclusively by the VIP sync effect
     // (/api/subscriptions/status), which is the backend-authoritative source.
-    const vipFromProfile = isVipActive(nextUser);
+    const vipFromProfile = hasVipEntitlement(nextUser);
     if (vipFromProfile) {
       setIsVip(true);
       ls.set('backstage_is_vip', true);
@@ -14848,7 +14858,7 @@ function AppInner() {
           if(attempt < retryDelays.length) setTimeout(()=>runStatusCheck(attempt + 1), retryDelays[attempt]);
           return;
         }
-        const active = isVipActive({is_vip:d.is_vip, vip_source:d.vip_source, vip_expires_at:d.vip_expires_at});
+        const active = hasVipEntitlement({is_vip:d.is_vip, vip_source:d.vip_source, vip_expires_at:d.vip_expires_at});
         setIsVip(active);
         ls.set("backstage_is_vip", active);
         setUser(u=>{
@@ -14882,6 +14892,24 @@ function AppInner() {
     runStatusCheck();
   },[auth.user?.id, auth.tokenReady, appState]);
 
+  const handleAccountRefresh = ({ profile, subscription }) => {
+    const nextUser = normalizeProfile({ ...(user || {}), ...(profile || {}), ...(subscription || {}) });
+    if(nextUser){
+      setUser(nextUser);
+      const sess = ls.get('backstage_session');
+      ls.set('backstage_session', { ...(sess || {}), user:{ ...(sess?.user || {}), ...nextUser } });
+      if(nextUser.id) ls.set(`backstage_profile_${nextUser.id}`, { ...ls.get(`backstage_profile_${nextUser.id}`, {}), ...nextUser });
+    }
+    if(subscription?.is_vip != null){
+      const active = hasVipEntitlement(subscription);
+      setIsVip(active);
+      ls.set('backstage_is_vip', active);
+    } else if(hasVipEntitlement(nextUser)){
+      setIsVip(true);
+      ls.set('backstage_is_vip', true);
+    }
+  };
+
   // Boot: load photocard collection from backend (replaces MOCK_CARDS when user has real data)
   useEffect(()=>{
     if(!user?.id || appState!=="main" || !API_URL) return;
@@ -14890,7 +14918,7 @@ function AppInner() {
 
   const handleUpgrade = async (selectedPlan = "annual") => {
     // Guard: already VIP — nothing to upgrade
-    if (isVip) return;
+    if (isVip || hasVipEntitlement(user)) return;
     // Guard: no backend configured — prevent silent VIP grant without payment
     const showCheckoutUnavailable = () => {
       setShowUpgradeModal(false);
@@ -15250,7 +15278,7 @@ function AppInner() {
               {tab==="community"&&<FanverseTab go={go} user={user} isVip={isVip} onUpgrade={openUpgrade} />}
               {tab==="collect"&&<LibraryTab cards={cards} setCards={setCards} isVip={isVip} onUpgrade={openUpgrade} go={go} user={user} weather={weatherData} />}
               {tab==="fanverse"&&<ExploreTab user={user} weather={weatherData} isVip={isVip} onUpgrade={openUpgrade} go={go} />}
-              {tab==="profile"&&<ProfileTab user={user} cards={cards} go={go} isVip={isVip} onUpgrade={openUpgrade} onReplayTour={()=>setShowVipTour(true)} />}
+              {tab==="profile"&&<ProfileTab user={user} cards={cards} go={go} isVip={isVip} onUpgrade={openUpgrade} onReplayTour={()=>setShowVipTour(true)} onAccountRefresh={handleAccountRefresh} />}
               {/* Ask Backstage AI — hidden on profile (has its own Studio/Preview actions) */}
               {tab!=="profile"&&<AskBackstageButton go={go} />}
               {/* Notification Bell — floating, hidden on home (has its own bell) and profile (has section nav) */}

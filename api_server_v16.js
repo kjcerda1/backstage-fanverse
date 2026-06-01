@@ -571,6 +571,7 @@ app.get('/api/subscriptions/status', optionalAuth, async (req, res) => {
       vip_since:      data?.vip_since,
       vip_source:     data?.vip_source || null,
       vip_expires_at: data?.vip_expires_at || null,
+      stripe_customer_id: data?.stripe_customer_id || null,
     });
   } catch (err) {
     console.error('[Subscription Status] Error:', err.message);
