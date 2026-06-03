@@ -50,6 +50,16 @@ const api = {
 const AuthCtx = createContext({ user: null, session: null, loading: true, tokenReady: false, signOut: ()=>{} });
 const useAuth = () => useContext(AuthCtx);
 
+// Shared user search — returns users[] on success, null on auth/API failure, [] on no results.
+// null vs [] lets callers show "unavailable" vs "no results" without treating them the same.
+async function searchBackstageUsers(q) {
+  const safe = q.replace(/^@/, '').trim();
+  if (safe.length < 2 || !api._token) return null;
+  const d = await api.get(`/api/users/search?q=${encodeURIComponent(safe)}`);
+  if (d?.error || !Array.isArray(d?.users)) return null;
+  return d.users;
+}
+
 function normalizeProfile(user) {
   if (!user) return null;
   const groups = Array.isArray(user.favorite_groups) ? user.favorite_groups : Array.isArray(user.fandoms) ? user.fandoms : [];
@@ -1797,6 +1807,7 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go }) {
   // API search state
   const [searching, setSearching] = useState(false);
   const [apiResults, setApiResults] = useState([]);
+  const [apiError, setApiError] = useState(false);
   const [suggestedFans, setSuggestedFans] = useState([]);
 
   const fallbackCode = `BACKSTAGE-${(user?.username||user?.name||"FAN").toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,8)||"FAN"}-LOCAL`;
@@ -1824,14 +1835,13 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go }) {
   useEffect(() => {
     const raw = searchQ.trim();
     const q = raw.replace(/^@/, '').toLowerCase();
-    if (q.length < 2) { setApiResults([]); setSearching(false); return; }
+    if (q.length < 2) { setApiResults([]); setApiError(false); setSearching(false); return; }
     setSearching(true);
     const t = setTimeout(async () => {
-      try {
-        const d = await api.get(`/api/users/search?q=${encodeURIComponent(raw)}`);
-        setApiResults(d?.users || []);
-      } catch { setApiResults([]); }
-      finally { setSearching(false); }
+      const users = await searchBackstageUsers(raw);
+      if (users === null) { setApiError(true); setApiResults([]); }
+      else { setApiError(false); setApiResults(users); }
+      setSearching(false);
     }, 350);
     return () => clearTimeout(t);
   }, [searchQ]);
@@ -2122,8 +2132,15 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go }) {
                     );
                   })}
 
+                  {/* Auth/network error — don't show invite fallback for a 401 */}
+                  {!searching && apiError && q.length >= 2 && (
+                    <div style={{ padding:"22px 18px", textAlign:"center" }}>
+                      <p style={{ fontSize:12.5, color:C.textMid }}>Search unavailable — check your connection.</p>
+                    </div>
+                  )}
+
                   {/* No-results fallback — never a dead end */}
-                  {!searching && q.length >= 2 && searchResults.length === 0 && (
+                  {!searching && !apiError && q.length >= 2 && searchResults.length === 0 && (
                     <div style={{ padding:"22px 18px" }}>
                       <div style={{ textAlign:"center",marginBottom:16 }}>
                         <div style={{ fontSize:28,marginBottom:8 }}>🔭</div>
@@ -10977,6 +10994,7 @@ function DirectMessages({ onBack, user, initialFan }) {
   const [dmSearch, setDmSearch] = useState("");
   const [dmSearchResults, setDmSearchResults] = useState([]);
   const [dmSearching, setDmSearching] = useState(false);
+  const [dmSearchError, setDmSearchError] = useState(false);
   // Backstage Kit tray state
   const [kitOpen, setKitOpen]           = useState(false);
   const [charmPickerOpen, setCharmPickerOpen] = useState(false);
@@ -11029,20 +11047,18 @@ function DirectMessages({ onBack, user, initialFan }) {
     const q = dmSearch.trim().replace(/^@/, "");
     if (q.length < 2) {
       setDmSearchResults([]);
+      setDmSearchError(false);
       setDmSearching(false);
       return;
     }
     let alive = true;
     setDmSearching(true);
     const t = setTimeout(async () => {
-      try {
-        const d = await api.get(`/api/users/search?q=${encodeURIComponent(q)}`);
-        if (alive) setDmSearchResults(Array.isArray(d?.users) ? d.users : []);
-      } catch {
-        if (alive) setDmSearchResults([]);
-      } finally {
-        if (alive) setDmSearching(false);
-      }
+      const users = await searchBackstageUsers(q);
+      if (!alive) return;
+      if (users === null) { setDmSearchError(true); setDmSearchResults([]); }
+      else { setDmSearchError(false); setDmSearchResults(users); }
+      setDmSearching(false);
     }, 250);
     return () => { alive = false; clearTimeout(t); };
   }, [dmSearch]);
@@ -11441,7 +11457,9 @@ function DirectMessages({ onBack, user, initialFan }) {
                   </button>
                 ))}
                 {!dmSearching && dmSearchResults.length === 0 && (
-                  <p style={{ padding:"12px",fontSize:11,color:C.textMid }}>No Backstage profile found for that search.</p>
+                  <p style={{ padding:"12px",fontSize:11,color:C.textMid }}>
+                    {dmSearchError ? "Search unavailable — check your connection." : "No Backstage profile found for that search."}
+                  </p>
                 )}
               </div>
             )}
@@ -11639,12 +11657,14 @@ function TopBiasesSection({ isVip, onUpgrade }) {
 // ─── MY CIRCLE ────────────────────────────────────────────────────────────────
 // GET /api/friends | POST /api/friends/add | DELETE /api/friends/:id
 function MyCircleSection({ go, user }) {
+  const { tokenReady } = useAuth();
   const [friends, setFriends] = useState(ls.get("backstage_friends", MOCK_FRIENDS));
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ name:"", fandom:"", avatar:"" });
   const [results, setResults] = useState([]);
   const [selectedProfile, setSelectedProfile] = useState(null);
   const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const accepted = friends.filter(f=>f.status==="accepted");
@@ -11653,23 +11673,21 @@ function MyCircleSection({ go, user }) {
   useEffect(() => {
     if (!adding || query.length < 2) {
       setResults([]);
+      setSearchError(false);
       setSearching(false);
       return;
     }
     let cancelled = false;
     setSearching(true);
     const t = setTimeout(async () => {
-      try {
-        const res = await api.get(`/api/users/search?q=${encodeURIComponent(query)}`);
-        if (!cancelled) setResults(Array.isArray(res?.users) ? res.users : []);
-      } catch {
-        if (!cancelled) setResults([]);
-      } finally {
-        if (!cancelled) setSearching(false);
-      }
+      const users = await searchBackstageUsers(query);
+      if (cancelled) return;
+      if (users === null) { setSearchError(true); setResults([]); }
+      else { setSearchError(false); setResults(users); }
+      setSearching(false);
     }, 250);
     return () => { cancelled = true; clearTimeout(t); };
-  }, [adding, query]);
+  }, [adding, query, tokenReady]);
 
   const addFriend = async () => {
     if(!selectedProfile?.id) return;
@@ -11743,28 +11761,33 @@ function MyCircleSection({ go, user }) {
             <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 20px" }} />
             <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17,marginBottom:18 }}>Add to My Circle</p>
             <div style={{ marginBottom:12 }}>
-              <Input label="Username *" value={form.name} onChange={e=>{ setForm({...form,name:e.target.value}); setSelectedProfile(null); }} placeholder="@their_username" />
+              <Input label="Search users" value={form.name} onChange={e=>{ setForm({...form,name:e.target.value}); setSelectedProfile(null); }} placeholder="Search username, stan name, or email…" />
             </div>
             {query.length >= 2 && (
               <div style={{ marginBottom:14 }}>
-                {searching && <p style={{ fontSize:11, color:C.textMid, marginBottom:8 }}>Searching Backstage profiles...</p>}
+                {searching && <p style={{ fontSize:11, color:C.textMid, marginBottom:8 }}>Searching…</p>}
                 {!searching && results.map(r => {
                   const groups = r.favorite_groups || r.fandoms || [];
                   const active = selectedProfile?.id === r.id;
                   return (
                     <button key={r.id} onClick={()=>setSelectedProfile(r)} style={{ width:"100%", textAlign:"left", marginBottom:8, padding:"10px 12px", borderRadius:12, background:active?`${C.accent}18`:C.surface, border:`1.5px solid ${active?C.accent:C.border}`, color:C.text, cursor:"pointer" }}>
-                      <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:12.5 }}>@{r.handle || r.username || "fan"} {groups[0]?`— ${groups[0]}`:""}</p>
+                      <p style={{ fontFamily:"’Epilogue’,sans-serif", fontWeight:800, fontSize:12.5 }}>@{r.handle || r.username || "fan"} {groups[0]?`— ${groups[0]}`:""}</p>
                       <p style={{ fontSize:11, color:C.textMid, marginTop:3 }}>{r.display_name || r.backstage_name || "Backstage fan"}{groups.length?` — ${groups.join(", ")} fan`:""}</p>
                     </button>
                   );
                 })}
-                {!searching && results.length === 0 && (
+                {!searching && searchError && (
                   <div style={{ padding:"12px", borderRadius:12, background:C.surface, border:`1px solid ${C.border}` }}>
-                    <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:12.5, marginBottom:5 }}>No Backstage fans found with that handle yet.</p>
-                    <p style={{ fontSize:11, color:C.textMid, lineHeight:1.55, marginBottom:10 }}>We’re still syncing new Backstage profiles. Try searching by handle, or invite your friend with your link.</p>
+                    <p style={{ fontSize:11, color:C.textMid }}>Search unavailable — check your connection.</p>
+                  </div>
+                )}
+                {!searching && !searchError && results.length === 0 && (
+                  <div style={{ padding:"12px", borderRadius:12, background:C.surface, border:`1px solid ${C.border}` }}>
+                    <p style={{ fontFamily:"’Epilogue’,sans-serif", fontWeight:800, fontSize:12.5, marginBottom:5 }}>No Backstage profile found for that search.</p>
+                    <p style={{ fontSize:11, color:C.textMid, lineHeight:1.55, marginBottom:10 }}>They might not be on Backstage yet — invite them with your link.</p>
                     <div style={{ display:"flex", gap:8 }}>
-                      <button onClick={()=>go("invite")} style={{ flex:1, padding:"8px", borderRadius:10, background:`${C.accent}18`, border:`1px solid ${C.accent}44`, color:C.accent, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>Invite Friend</button>
-                      <button onClick={async()=>{ const link = `${window.location.origin}?ref=${encodeURIComponent(user?.handle || user?.username || "backstage")}`; await navigator.clipboard?.writeText(link); setCopied(true); }} style={{ flex:1, padding:"8px", borderRadius:10, background:"transparent", border:`1px solid ${C.border}`, color:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>{copied?"Copied":"Copy Link"}</button>
+                      <button onClick={()=>go("invite")} style={{ flex:1, padding:"8px", borderRadius:10, background:`${C.accent}18`, border:`1px solid ${C.accent}44`, color:C.accent, fontFamily:"’Epilogue’,sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>Invite Friend</button>
+                      <button onClick={async()=>{ const link = `${window.location.origin}?ref=${encodeURIComponent(user?.handle || user?.username || "backstage")}`; await navigator.clipboard?.writeText(link); setCopied(true); }} style={{ flex:1, padding:"8px", borderRadius:10, background:"transparent", border:`1px solid ${C.border}`, color:C.textMid, fontFamily:"’Epilogue’,sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>{copied?"Copied":"Copy Link"}</button>
                     </div>
                   </div>
                 )}
