@@ -2316,7 +2316,8 @@ app.post('/api/referrals/claim', requireAuth, async (req, res) => {
 app.get('/api/circle', requireAuth, async (req, res) => {
   if (MOCK_MODE) return res.json({ friends: [], circle: [], mock: true });
   try {
-    const { data: rows, error } = await supabase
+    const db = makeUserClient(req);
+    const { data: rows, error } = await db
       .from('friends')
       .select('friend_id, status')
       .eq('user_id', req.userId)
@@ -2324,7 +2325,7 @@ app.get('/api/circle', requireAuth, async (req, res) => {
     if (error) throw error;
     const ids = (rows || []).map(r => r.friend_id).filter(Boolean);
     if (!ids.length) return res.json({ friends: [], circle: [] });
-    const { data: users, error: userErr } = await supabase
+    const { data: users, error: userErr } = await db
       .from('users')
       .select('id, username, display_name, fandoms, city, bio, avatar_url, is_vip')
       .in('id', ids);
@@ -2344,7 +2345,7 @@ app.post('/api/circle/request', requireAuth, async (req, res) => {
   if (targetUserId === req.userId) return res.status(400).json({ error: 'Cannot add yourself' });
   if (MOCK_MODE) return res.json({ success: true, status: 'pending', mock: true });
   try {
-    const { error } = await supabase.from('friend_requests').upsert({
+    const { error } = await makeUserClient(req).from('friend_requests').upsert({
       sender_id: req.userId,
       receiver_id: targetUserId,
       status: 'pending',
