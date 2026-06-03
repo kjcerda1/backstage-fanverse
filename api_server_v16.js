@@ -3024,6 +3024,261 @@ app.put('/api/collection', requireAuth, async (req, res) => {
 
 
 // ═════════════════════════════════════════════════════════════════════════════
+// PHOTOCARD SYSTEM — /api/binders | /api/cards | /api/trade-listings
+// ═════════════════════════════════════════════════════════════════════════════
+
+// ── Binders ──────────────────────────────────────────────────────────────────
+app.get('/api/binders', requireAuth, async (req, res) => {
+  if (!supabase) return res.json({ binders: [], mock: true });
+  try {
+    const { data, error } = await supabase
+      .from('binders')
+      .select('*')
+      .eq('user_id', req.userId)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    res.json({ binders: data || [] });
+  } catch (err) {
+    console.error('[Binders GET]', err.message);
+    res.json({ binders: [], mock: true });
+  }
+});
+
+app.post('/api/binders', requireAuth, async (req, res) => {
+  if (!supabase) return res.json({ binder: null, mock: true });
+  const { name, group_name, cover_color, emoji } = req.body;
+  if (!name) return res.status(400).json({ error: 'name required' });
+  try {
+    const { data, error } = await supabase
+      .from('binders')
+      .insert({ user_id: req.userId, name, group_name, cover_color, emoji })
+      .select()
+      .single();
+    if (error) throw error;
+    res.json({ binder: data });
+  } catch (err) {
+    console.error('[Binders POST]', err.message);
+    res.status(500).json({ error: 'Failed to create binder' });
+  }
+});
+
+app.delete('/api/binders/:id', requireAuth, async (req, res) => {
+  if (!supabase) return res.json({ ok: true, mock: true });
+  try {
+    const { error } = await supabase
+      .from('binders')
+      .delete()
+      .eq('id', req.params.id)
+      .eq('user_id', req.userId);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[Binders DELETE]', err.message);
+    res.status(500).json({ error: 'Failed to delete binder' });
+  }
+});
+
+// ── User Cards ────────────────────────────────────────────────────────────────
+app.get('/api/cards', requireAuth, async (req, res) => {
+  if (!supabase) return res.json({ cards: [], mock: true });
+  const { binder_id, status } = req.query;
+  try {
+    let q = supabase
+      .from('user_cards')
+      .select('*')
+      .eq('user_id', req.userId)
+      .order('created_at', { ascending: false });
+    if (binder_id) q = q.eq('binder_id', binder_id);
+    if (status)    q = q.eq('status', status);
+    const { data, error } = await q;
+    if (error) throw error;
+    res.json({ cards: data || [] });
+  } catch (err) {
+    console.error('[Cards GET]', err.message);
+    res.json({ cards: [], mock: true });
+  }
+});
+
+app.post('/api/cards', requireAuth, async (req, res) => {
+  if (!supabase) return res.json({ card: null, mock: true });
+  const { binder_id, group_name, album, era, member, version, card_type, description, status, quantity, condition, image_url, notes } = req.body;
+  if (!group_name || !member) return res.status(400).json({ error: 'group_name and member required' });
+  try {
+    const { data, error } = await supabase
+      .from('user_cards')
+      .insert({ user_id: req.userId, binder_id, group_name, album, era, member, version, card_type, description, status: status || 'owned', quantity: quantity || 1, condition: condition || 'mint', image_url, notes })
+      .select()
+      .single();
+    if (error) throw error;
+    res.json({ card: data });
+  } catch (err) {
+    console.error('[Cards POST]', err.message);
+    res.status(500).json({ error: 'Failed to add card' });
+  }
+});
+
+app.patch('/api/cards/:id', requireAuth, async (req, res) => {
+  if (!supabase) return res.json({ ok: true, mock: true });
+  const allowed = ['status','condition','image_url','notes','quantity','binder_id','member','album','era','version','description'];
+  const updates = {};
+  allowed.forEach(k => { if (req.body[k] !== undefined) updates[k] = req.body[k]; });
+  updates.updated_at = new Date().toISOString();
+  try {
+    const { error } = await supabase
+      .from('user_cards')
+      .update(updates)
+      .eq('id', req.params.id)
+      .eq('user_id', req.userId);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[Cards PATCH]', err.message);
+    res.status(500).json({ error: 'Failed to update card' });
+  }
+});
+
+app.delete('/api/cards/:id', requireAuth, async (req, res) => {
+  if (!supabase) return res.json({ ok: true, mock: true });
+  try {
+    const { error } = await supabase
+      .from('user_cards')
+      .delete()
+      .eq('id', req.params.id)
+      .eq('user_id', req.userId);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[Cards DELETE]', err.message);
+    res.status(500).json({ error: 'Failed to delete card' });
+  }
+});
+
+// ── Trade Listings ────────────────────────────────────────────────────────────
+// Public feed — active listings from anyone
+app.get('/api/trade-listings', async (req, res) => {
+  if (!supabase) return res.json({ listings: [], mock: true });
+  const { group_name, trade_type, limit: lim = 50 } = req.query;
+  try {
+    let q = supabase
+      .from('trade_listings')
+      .select(`
+        *,
+        user_cards ( group_name, album, era, member, version, card_type, condition, image_url ),
+        users:user_id ( username, display_name, avatar_url )
+      `)
+      .eq('status', 'active')
+      .order('created_at', { ascending: false })
+      .limit(Math.min(Number(lim), 100));
+    if (trade_type) q = q.eq('trade_type', trade_type);
+    if (group_name) q = q.eq('user_cards.group_name', group_name);
+    const { data, error } = await q;
+    if (error) throw error;
+    res.json({ listings: data || [] });
+  } catch (err) {
+    console.error('[TradeListings GET]', err.message);
+    res.json({ listings: [], mock: true });
+  }
+});
+
+// My own listings
+app.get('/api/trade-listings/mine', requireAuth, async (req, res) => {
+  if (!supabase) return res.json({ listings: [], mock: true });
+  try {
+    const { data, error } = await supabase
+      .from('trade_listings')
+      .select('*, user_cards ( group_name, album, era, member, version, condition, image_url )')
+      .eq('user_id', req.userId)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    res.json({ listings: data || [] });
+  } catch (err) {
+    console.error('[TradeListings Mine GET]', err.message);
+    res.json({ listings: [], mock: true });
+  }
+});
+
+app.post('/api/trade-listings', requireAuth, async (req, res) => {
+  if (!supabase) return res.json({ listing: null, mock: true });
+  const { card_id, proof_image_url, wants_description, trade_type, location, notes } = req.body;
+  if (!card_id || !proof_image_url) return res.status(400).json({ error: 'card_id and proof_image_url required' });
+  try {
+    // Verify the card belongs to this user
+    const { data: card } = await supabase.from('user_cards').select('id').eq('id', card_id).eq('user_id', req.userId).maybeSingle();
+    if (!card) return res.status(403).json({ error: 'Card not found' });
+
+    // Mark card as for_trade
+    await supabase.from('user_cards').update({ status: 'for_trade', updated_at: new Date().toISOString() }).eq('id', card_id);
+
+    const { data, error } = await supabase
+      .from('trade_listings')
+      .insert({ user_id: req.userId, card_id, proof_image_url, wants_description, trade_type: trade_type || 'any', location, notes })
+      .select()
+      .single();
+    if (error) throw error;
+    res.json({ listing: data });
+  } catch (err) {
+    console.error('[TradeListings POST]', err.message);
+    res.status(500).json({ error: 'Failed to create listing' });
+  }
+});
+
+app.patch('/api/trade-listings/:id', requireAuth, async (req, res) => {
+  if (!supabase) return res.json({ ok: true, mock: true });
+  const allowed = ['status','wants_description','trade_type','location','notes'];
+  const updates = {};
+  allowed.forEach(k => { if (req.body[k] !== undefined) updates[k] = req.body[k]; });
+  updates.updated_at = new Date().toISOString();
+  try {
+    const { error } = await supabase
+      .from('trade_listings')
+      .update(updates)
+      .eq('id', req.params.id)
+      .eq('user_id', req.userId);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[TradeListings PATCH]', err.message);
+    res.status(500).json({ error: 'Failed to update listing' });
+  }
+});
+
+// ── Trade Reviews ─────────────────────────────────────────────────────────────
+app.post('/api/trade-reviews', requireAuth, async (req, res) => {
+  if (!supabase) return res.json({ ok: true, mock: true });
+  const { listing_id, ratee_id, rating, notes } = req.body;
+  if (!listing_id || !ratee_id || ![-1,1].includes(rating)) return res.status(400).json({ error: 'listing_id, ratee_id, and rating (1 or -1) required' });
+  try {
+    const { error } = await supabase
+      .from('trade_reviews')
+      .insert({ listing_id, reviewer_id: req.userId, ratee_id, rating, notes });
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[TradeReviews POST]', err.message);
+    res.status(500).json({ error: 'Failed to submit review' });
+  }
+});
+
+// ── Image Upload (presigned URL via Supabase Storage) ─────────────────────────
+app.post('/api/cards/upload-url', requireAuth, async (req, res) => {
+  if (!supabase) return res.json({ url: null, mock: true });
+  const { filename, content_type } = req.body;
+  if (!filename) return res.status(400).json({ error: 'filename required' });
+  const ext = filename.split('.').pop() || 'jpg';
+  const path = `${req.userId}/${Date.now()}.${ext}`;
+  try {
+    const { data, error } = await supabase.storage
+      .from('card-images')
+      .createSignedUploadUrl(path);
+    if (error) throw error;
+    res.json({ signed_url: data.signedUrl, path, public_url: supabase.storage.from('card-images').getPublicUrl(path).data.publicUrl });
+  } catch (err) {
+    console.error('[Upload URL]', err.message);
+    res.status(500).json({ error: 'Failed to generate upload URL' });
+  }
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
 // START
 // ═════════════════════════════════════════════════════════════════════════════
 

@@ -101,6 +101,26 @@ function useAnnouncements({ fandom, city, group_name } = {}) {
   return items.filter(n => !n.expires_at || new Date(n.expires_at).getTime() > Date.now());
 }
 
+// useBinders — fetches /api/binders for the signed-in user.
+function useBinders() {
+  const [binders, setBinders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const { tokenReady } = useAuth();
+
+  const refresh = useCallback(async () => {
+    const d = await api.get('/api/binders');
+    setBinders(d?.binders || []);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (!tokenReady) return;
+    refresh();
+  }, [tokenReady, refresh]);
+
+  return { binders, setBinders, loading, refresh };
+}
+
 // Shared user search — returns users[] on success, null on auth/API failure, [] on no results.
 // null vs [] lets callers show "unavailable" vs "no results" without treating them the same.
 async function searchBackstageUsers(q) {
@@ -3353,7 +3373,7 @@ function HomeFanversePreview({ go }) {
 function HomeNextSteps({ user, go }) {
   const hasTop5     = (user?.fandoms?.length || 0) >= 3;
   const hasScrapbook= ls.get("backstage_scrapbooks",[]).length > 0;
-  const hasBinder   = ls.get("backstage_binders",[]).length > 0;
+  const hasBinder   = ls.get("backstage_has_binder", false);
 
   const STEPS = [];
   if(!hasTop5)      STEPS.push({ emoji:"⭐",title:"Set your Top 5",sub:"Tell the Fanverse who you stan",dest:"profile",color:C.gold,cta:"Add Groups" });
@@ -4860,7 +4880,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
   const [section, setSection] = useState("photocards");
   const [groupFilter, setGroupFilter] = useState("all");
 
-  const binders   = ls.get("backstage_binders", MOCK_BINDERS);
+  const { binders } = useBinders();
   const wishlist  = MOCK_WISHLIST;
   const allCards  = cards || MOCK_CARDS;
   const dupes     = allCards.filter(c=>c.dupe);
@@ -5033,12 +5053,15 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
   );
 }
 
-function BinderCreate({ onBack }) {
+const BINDER_STATUS_TO_DB = { missing:"missing", owned:"owned", wishlist:"iso", dupe:"duplicate", tradeable:"for_trade" };
+
+function BinderCreate({ onBack, onCustom }) {
   const [step, setStep] = useState("search"); // search | template | slots
   const [groupSearch, setGroupSearch] = useState("");
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [slots, setSlots] = useState([]);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const filtered = groupSearch
     ? MOCK_COLLECTION_TEMPLATES.filter(t => t.group.toLowerCase().includes(groupSearch.toLowerCase()) || t.album.toLowerCase().includes(groupSearch.toLowerCase()))
@@ -5056,26 +5079,33 @@ function BinderCreate({ onBack }) {
     setSlots(s => s.map(slot => slot.id === id ? { ...slot, status: order[(order.indexOf(slot.status) + 1) % order.length] } : slot));
   };
 
-  const saveBinder = () => {
-    const existing = JSON.parse(localStorage.getItem("backstage_binders") || "[]");
-    const newBinder = {
-      id: `binder_${Date.now()}`,
-      group: selectedTemplate.group,
-      album: selectedTemplate.album,
-      era: selectedTemplate.era,
-      emoji: selectedTemplate.emoji,
-      color: selectedTemplate.color,
+  const saveBinder = async () => {
+    if (saving) return;
+    setSaving(true);
+    const d = await api.post('/api/binders', {
       name: `${selectedTemplate.group} — ${selectedTemplate.album}`,
-      total: slots.length,
-      owned: slots.filter(s => s.status === "owned").length,
-      dupes: slots.filter(s => s.status === "dupe").length,
-      missing: slots.filter(s => s.status === "missing").length,
-      slots,
-    };
-    localStorage.setItem("backstage_binders", JSON.stringify([...existing, newBinder]));
-    localStorage.setItem("backstage_card_slots", JSON.stringify({ ...JSON.parse(localStorage.getItem("backstage_card_slots") || "{}"), [newBinder.id]: slots }));
-    setSaved(true);
-    setTimeout(() => onBack(), 1200);
+      group_name: selectedTemplate.group,
+      cover_color: selectedTemplate.color,
+      emoji: selectedTemplate.emoji,
+    });
+    if (d?.binder?.id) {
+      const binderId = d.binder.id;
+      await Promise.all(slots.map(slot =>
+        api.post('/api/cards', {
+          binder_id: binderId,
+          group_name: selectedTemplate.group,
+          album: selectedTemplate.album,
+          era: selectedTemplate.era,
+          member: slot.name,
+          status: BINDER_STATUS_TO_DB[slot.status] || 'missing',
+        })
+      ));
+      ls.set('backstage_has_binder', true);
+      setSaved(true);
+      setTimeout(() => onBack(), 1200);
+    } else {
+      setSaving(false);
+    }
   };
 
   const STATUS_COLORS = { missing: C.textDim, owned: C.mint, wishlist: C.accent, dupe: C.gold, tradeable: C.rose };
@@ -5138,7 +5168,7 @@ function BinderCreate({ onBack }) {
           </div>
           <ProgressBar value={(slots.filter(s=>s.status==="owned").length/slots.length)*100} color={selectedTemplate.color} />
         </div>
-        <Btn onClick={saveBinder}>Save Binder ✦</Btn>
+        <Btn onClick={saveBinder} disabled={saving}>{saving?"Saving...":"Save Binder ✦"}</Btn>
       </Screen>
     </div>
   );
@@ -5178,8 +5208,346 @@ function BinderCreate({ onBack }) {
         <div style={{ background:`${C.accent}0a`, border:`1.5px dashed ${C.border}`, borderRadius:22, padding:20, textAlign:"center" }}>
           <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13, marginBottom:5 }}>Manual Add</p>
           <p style={{ fontSize:11.5, color:C.textMid, marginBottom:12 }}>Create a custom binder for any group or era not listed above.</p>
-          <Btn ghost color={C.accent} small>+ Create Custom Binder</Btn>
+          <Btn ghost color={C.accent} small onClick={onCustom}>+ Create Custom Binder</Btn>
         </div>
+      </Screen>
+    </div>
+  );
+}
+
+// ─── CUSTOM BINDER FORM ───────────────────────────────────────────────────────
+function CustomBinderForm({ onBack, onSaved }) {
+  const [form, setForm] = useState({ name:"", group_name:"", emoji:"🃏", cover_color:C.accent });
+  const [saving, setSaving] = useState(false);
+  const EMOJI_OPTIONS = ["🃏","💜","🖤","⭐","💛","🌸","🎤","💙","🌟","🎭","✨","🔥"];
+  const COLOR_OPTIONS = [C.accent, C.pink, C.mint, C.gold, C.rose, C.sky, C.silver, C.lavender];
+
+  const save = async () => {
+    if (!form.name.trim() || saving) return;
+    setSaving(true);
+    const d = await api.post('/api/binders', form);
+    if (d?.binder) { ls.set('backstage_has_binder', true); onSaved(d.binder); }
+    else setSaving(false);
+  };
+
+  return (
+    <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
+      <div style={{ padding:"14px 20px 12px", flexShrink:0, display:"flex", alignItems:"center", gap:10 }}>
+        <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
+        <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:18 }}>Custom Binder</h2>
+      </div>
+      <Screen style={{ padding:"0 20px calc(140px + env(safe-area-inset-bottom))" }}>
+        <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+          <Input label="Binder Name *" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="e.g. My SKZ Collection" />
+          <Input label="Group (optional)" value={form.group_name} onChange={e=>setForm(f=>({...f,group_name:e.target.value}))} placeholder="e.g. Stray Kids" />
+
+          <div>
+            <p style={{ fontSize:10,color:C.textMid,marginBottom:8,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em" }}>Icon</p>
+            <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+              {EMOJI_OPTIONS.map(e=>(
+                <button key={e} onClick={()=>setForm(f=>({...f,emoji:e}))} style={{ width:40,height:40,borderRadius:12,background:form.emoji===e?`${C.accent}22`:"transparent",border:`1.5px solid ${form.emoji===e?C.accent:C.border}`,fontSize:20,cursor:"pointer" }}>{e}</button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p style={{ fontSize:10,color:C.textMid,marginBottom:8,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em" }}>Color</p>
+            <div style={{ display:"flex", gap:8 }}>
+              {COLOR_OPTIONS.map(col=>(
+                <button key={col} onClick={()=>setForm(f=>({...f,cover_color:col}))} style={{ width:30,height:30,borderRadius:"50%",background:col,border:`3px solid ${form.cover_color===col?"white":"transparent"}`,cursor:"pointer",transition:"border-color .15s" }} />
+              ))}
+            </div>
+          </div>
+
+          <div style={{ background:`linear-gradient(140deg,${form.cover_color}18,${form.cover_color}06)`,border:`1.5px solid ${form.cover_color}44`,borderRadius:18,padding:16,display:"flex",gap:12,alignItems:"center" }}>
+            <div style={{ width:52,height:52,borderRadius:16,background:`${form.cover_color}22`,border:`1.5px solid ${form.cover_color}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26 }}>{form.emoji||"🃏"}</div>
+            <div>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14.5,color:C.text }}>{form.name||"Binder Name"}</p>
+              <p style={{ fontSize:11,color:C.textMid }}>{form.group_name||"Custom collection"}</p>
+            </div>
+          </div>
+
+          <Btn onClick={save} disabled={saving||!form.name.trim()}>{saving?"Creating...":"Create Binder ✦"}</Btn>
+        </div>
+      </Screen>
+    </div>
+  );
+}
+
+// ─── ADD CARD FORM ─────────────────────────────────────────────────────────────
+function AddCardForm({ binder, onBack, onSaved }) {
+  const STATUSES = ["owned","missing","iso","duplicate","for_trade"];
+  const STATUS_LABELS = {owned:"✓ Owned",missing:"— Missing",iso:"♡ ISO",duplicate:"×2 Duplicate",for_trade:"⇄ For Trade"};
+  const STATUS_COLORS = {owned:C.mint,missing:C.textDim,iso:C.accent,duplicate:C.gold,for_trade:C.rose};
+
+  const [form, setForm] = useState({ group_name:binder?.group_name||"", member:"", album:binder?.name||"", era:"", version:"", condition:"mint", status:"owned", notes:"" });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+
+  const update = k => e => setForm(f=>({...f,[k]:e.target.value}));
+
+  const save = async () => {
+    if (!form.group_name.trim()||!form.member.trim()) { setErr("Group and member name are required."); return; }
+    setSaving(true); setErr("");
+    const d = await api.post('/api/cards', { ...form, binder_id: binder?.id });
+    if (d?.card) onSaved(d.card);
+    else { setErr("Failed to save. Try again."); setSaving(false); }
+  };
+
+  return (
+    <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden" }}>
+      <div style={{ padding:"14px 20px 12px",flexShrink:0,display:"flex",alignItems:"center",gap:10 }}>
+        <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
+        <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18 }}>Add Card</h2>
+      </div>
+      <Screen style={{ padding:"0 20px calc(140px + env(safe-area-inset-bottom))" }}>
+        <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
+          <Input label="Group *" value={form.group_name} onChange={update("group_name")} placeholder="e.g. Stray Kids" />
+          <Input label="Member / Card Name *" value={form.member} onChange={update("member")} placeholder="e.g. Felix (Standard)" />
+          <Input label="Album / Era" value={form.album} onChange={update("album")} placeholder="e.g. 5-STAR" />
+          <Input label="Version / Type" value={form.version} onChange={update("version")} placeholder="e.g. Weverse POB, Lucky Draw..." />
+
+          <div>
+            <p style={{ fontSize:10,color:C.textMid,marginBottom:8,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em" }}>Status</p>
+            <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
+              {STATUSES.map(s=>(
+                <button key={s} onClick={()=>setForm(f=>({...f,status:s}))} style={{ padding:"7px 12px",borderRadius:99,fontSize:11,fontFamily:"'Epilogue',sans-serif",fontWeight:700,background:form.status===s?STATUS_COLORS[s]:"transparent",color:form.status===s?C.bg:STATUS_COLORS[s],border:`1.5px solid ${STATUS_COLORS[s]}${form.status===s?"":"55"}`,cursor:"pointer" }}>{STATUS_LABELS[s]}</button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p style={{ fontSize:10,color:C.textMid,marginBottom:8,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em" }}>Condition</p>
+            <div style={{ display:"flex",gap:6 }}>
+              {["mint","near_mint","good","played"].map(c=>(
+                <button key={c} onClick={()=>setForm(f=>({...f,condition:c}))} style={{ flex:1,padding:"7px 4px",borderRadius:10,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:700,background:form.condition===c?C.accent:"transparent",color:form.condition===c?C.bg:C.textMid,border:`1.5px solid ${form.condition===c?C.accent:C.border}`,cursor:"pointer",textAlign:"center" }}>{c.replace("_"," ")}</button>
+              ))}
+            </div>
+          </div>
+
+          <Textarea label="Notes (optional)" value={form.notes} onChange={update("notes")} placeholder="e.g. Pulled from unsealed pack, concert freebie..." style={{ height:72 }} />
+          {err&&<p style={{ fontSize:11.5,color:C.rose }}>{err}</p>}
+          <Btn onClick={save} disabled={saving}>{saving?"Saving...":"Save Card ✦"}</Btn>
+        </div>
+      </Screen>
+    </div>
+  );
+}
+
+// ─── TRADE LISTING FORM ────────────────────────────────────────────────────────
+function TradeListingForm({ card, onBack, onSaved }) {
+  const [form, setForm] = useState({ wants_description:"", trade_type:"any", location:"", notes:"" });
+  const [proofFile, setProofFile] = useState(null);
+  const [proofPreview, setProofPreview] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+  const fileRef = useRef(null);
+
+  const update = k => e => setForm(f=>({...f,[k]:e.target.value}));
+
+  const handleFile = (e) => {
+    const f = e.target.files[0]; if(!f) return;
+    setProofFile(f);
+    const r = new FileReader();
+    r.onload = ev => setProofPreview(ev.target.result);
+    r.readAsDataURL(f);
+  };
+
+  const save = async () => {
+    if (!proofFile) { setErr("A proof photo is required to list a card for trade."); return; }
+    setSaving(true); setErr("");
+    try {
+      const urlRes = await api.post('/api/cards/upload-url', { filename: proofFile.name, content_type: proofFile.type });
+      if (!urlRes?.signed_url) throw new Error("Upload URL failed");
+      const uploadResp = await fetch(urlRes.signed_url, { method:"PUT", body:proofFile, headers:{"Content-Type":proofFile.type} });
+      if (!uploadResp.ok) throw new Error("Upload failed");
+      const d = await api.post('/api/trade-listings', { card_id:card.id, proof_image_url:urlRes.public_url, ...form });
+      if (d?.listing) onSaved(d.listing);
+      else throw new Error("Listing failed");
+    } catch {
+      setErr("Something went wrong. Try again.");
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden" }}>
+      <div style={{ padding:"14px 20px 12px",flexShrink:0,display:"flex",alignItems:"center",gap:10 }}>
+        <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
+        <div>
+          <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18 }}>List for Trade</h2>
+          <p style={{ fontSize:10.5,color:C.textMid }}>{card.group_name} · {card.member}</p>
+        </div>
+      </div>
+      <Screen style={{ padding:"0 20px calc(140px + env(safe-area-inset-bottom))" }}>
+        <div style={{ background:`linear-gradient(140deg,${C.rose}18,${C.rose}06)`,border:`1.5px solid ${C.rose}33`,borderRadius:18,padding:"12px 14px",marginBottom:16,display:"flex",gap:10,alignItems:"center" }}>
+          <span style={{ fontSize:22 }}>🃏</span>
+          <div>
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5,color:C.text }}>{card.member}</p>
+            <p style={{ fontSize:11,color:C.textMid }}>{card.group_name} · {card.album||card.era||""} · {card.condition}</p>
+          </div>
+        </div>
+        <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
+          <div>
+            <p style={{ fontSize:10,color:C.textMid,marginBottom:6,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em" }}>Proof Photo <span style={{ color:C.rose }}>*</span></p>
+            <p style={{ fontSize:11,color:C.textMid,marginBottom:10,lineHeight:1.55 }}>Real photo of your card. Write your @handle + today's date in the shot — not a template image.</p>
+            {proofPreview?(
+              <div style={{ display:"inline-block",position:"relative" }}>
+                <img src={proofPreview} alt="proof" style={{ width:100,height:130,objectFit:"cover",borderRadius:14,border:`2px solid ${C.rose}66` }} />
+                <button onClick={()=>{setProofFile(null);setProofPreview(null);}} style={{ position:"absolute",top:-8,right:-8,width:22,height:22,borderRadius:"50%",background:C.rose,border:"none",color:C.bg,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800 }}>×</button>
+                <div style={{ ...VS.activePill(C.rose),fontSize:8,marginTop:6 }}>📷 Photo Added</div>
+              </div>
+            ):(
+              <button onClick={()=>fileRef.current?.click()} style={{ width:100,height:130,borderRadius:14,background:`${C.rose}10`,border:`2px dashed ${C.rose}44`,color:C.rose,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:5 }}>
+                <span style={{ fontSize:26 }}>📸</span>Add Photo
+              </button>
+            )}
+            <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{ display:"none" }} />
+          </div>
+
+          <Textarea label="What you want (optional)" value={form.wants_description} onChange={update("wants_description")} placeholder="e.g. Jimin FACE, any aespa Karina, open offers..." style={{ height:72 }} />
+
+          <div>
+            <p style={{ fontSize:10,color:C.textMid,marginBottom:8,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em" }}>Trade Type</p>
+            <div style={{ display:"flex",gap:6 }}>
+              {[["any","Any"],["mail","Mail"],["local","Local"],["concert","Concert"]].map(([v,l])=>(
+                <button key={v} onClick={()=>setForm(f=>({...f,trade_type:v}))} style={{ flex:1,padding:"8px 4px",borderRadius:10,fontSize:10.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,background:form.trade_type===v?C.accent:"transparent",color:form.trade_type===v?C.bg:C.textMid,border:`1.5px solid ${form.trade_type===v?C.accent:C.border}`,cursor:"pointer",textAlign:"center" }}>{l}</button>
+              ))}
+            </div>
+          </div>
+
+          <Input label="Location (city, optional)" value={form.location} onChange={update("location")} placeholder="e.g. Dallas, TX" />
+          <Textarea label="Notes (optional)" value={form.notes} onChange={update("notes")} placeholder="e.g. Ships Monday, PWG preferred..." style={{ height:60 }} />
+
+          <div style={{ background:`${C.gold}0a`,border:`1px solid ${C.gold}22`,borderRadius:14,padding:"10px 14px",display:"flex",gap:8,alignItems:"flex-start" }}>
+            <span style={{ fontSize:14,flexShrink:0 }}>🛡️</span>
+            <p style={{ fontSize:10.5,color:C.textMid,lineHeight:1.6 }}>Never share your full address publicly. Exchange shipping info only after both sides agree.</p>
+          </div>
+
+          {err&&<p style={{ fontSize:11.5,color:C.rose }}>{err}</p>}
+          <Btn onClick={save} disabled={saving}>{saving?"Uploading...":"Publish Listing ✦"}</Btn>
+        </div>
+      </Screen>
+    </div>
+  );
+}
+
+// ─── BINDER DETAIL ─────────────────────────────────────────────────────────────
+function BinderDetail({ binder, onBack }) {
+  const STATUS_ORDER = ["owned","missing","iso","duplicate","for_trade"];
+  const STATUS_META  = {
+    owned:     { label:"✓",  color:C.mint,    badge:"Owned"     },
+    missing:   { label:"—",  color:C.textDim, badge:"Missing"   },
+    iso:       { label:"♡",  color:C.accent,  badge:"ISO"       },
+    duplicate: { label:"×2", color:C.gold,    badge:"Dupe"      },
+    for_trade: { label:"⇄",  color:C.rose,    badge:"For Trade" },
+  };
+
+  const [cards, setCards]               = useState([]);
+  const [loading, setLoading]           = useState(true);
+  const [showAddCard, setShowAddCard]   = useState(false);
+  const [tradingCard, setTradingCard]   = useState(null);
+
+  useEffect(() => {
+    api.get(`/api/cards?binder_id=${binder.id}`)
+      .then(d => { setCards(d?.cards || []); setLoading(false); });
+  }, [binder.id]);
+
+  const cycleStatus = async (card) => {
+    const next = STATUS_ORDER[(STATUS_ORDER.indexOf(card.status)+1) % STATUS_ORDER.length];
+    setCards(cs => cs.map(c => c.id===card.id ? {...c,status:next} : c));
+    api.patch(`/api/cards/${card.id}`, { status:next });
+  };
+
+  if (showAddCard) return <AddCardForm binder={binder} onBack={()=>setShowAddCard(false)} onSaved={card=>{ setCards(cs=>[card,...cs]); setShowAddCard(false); }} />;
+  if (tradingCard) return <TradeListingForm card={tradingCard} onBack={()=>setTradingCard(null)} onSaved={()=>{ setTradingCard(null); setCards(cs=>cs.map(c=>c.id===tradingCard.id?{...c,status:'for_trade'}:c)); }} />;
+
+  const owned    = cards.filter(c=>c.status==='owned').length;
+  const dupes    = cards.filter(c=>c.status==='duplicate').length;
+  const missing  = cards.filter(c=>c.status==='missing').length;
+  const forTrade = cards.filter(c=>c.status==='for_trade').length;
+  const pct      = cards.length ? Math.round((owned/cards.length)*100) : 0;
+
+  return (
+    <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden" }}>
+      <div style={{ padding:"14px 20px 10px",flexShrink:0,display:"flex",alignItems:"center",gap:10 }}>
+        <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
+        <div style={{ flex:1,minWidth:0 }}>
+          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,lineHeight:1.2 }}>{binder.emoji||"🃏"} {binder.name}</p>
+          <p style={{ fontSize:10,color:C.textMid }}>{owned}/{cards.length} owned · {dupes} dupes · {missing} missing</p>
+        </div>
+        <button onClick={()=>setShowAddCard(true)} style={{ background:`linear-gradient(140deg,${C.accent}cc,${C.accentDim})`,border:"none",borderRadius:11,padding:"8px 13px",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,cursor:"pointer",flexShrink:0 }}>+ Add</button>
+      </div>
+
+      {/* Legend */}
+      <div style={{ padding:"0 20px 8px",display:"flex",gap:8,flexWrap:"wrap",flexShrink:0,alignItems:"center" }}>
+        {Object.entries(STATUS_META).map(([s,m])=>(
+          <div key={s} style={{ display:"flex",alignItems:"center",gap:3 }}>
+            <div style={{ width:18,height:18,borderRadius:6,background:m.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,color:s==="missing"?C.textMid:C.bg,fontWeight:800 }}>{m.label}</div>
+            <p style={{ fontSize:9,color:C.textMid }}>{m.badge}</p>
+          </div>
+        ))}
+        <p style={{ fontSize:9,color:C.textDim,marginLeft:"auto" }}>tap to cycle</p>
+      </div>
+
+      <Screen style={{ padding:"0 18px calc(120px + env(safe-area-inset-bottom))" }}>
+        {loading && <div style={{ textAlign:"center",padding:40,color:C.textMid,fontSize:13 }}>Loading...</div>}
+
+        {!loading && cards.length===0 && (
+          <div style={{ textAlign:"center",padding:"40px 20px" }}>
+            <p style={{ fontSize:36,marginBottom:12 }}>🃏</p>
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:15,marginBottom:6 }}>No cards yet</p>
+            <p style={{ fontSize:12,color:C.textMid,marginBottom:20 }}>Tap + Add to start tracking your collection.</p>
+            <Btn small onClick={()=>setShowAddCard(true)}>+ Add First Card</Btn>
+          </div>
+        )}
+
+        {!loading && cards.length>0 && (
+          <>
+            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:9,paddingTop:4 }}>
+              {cards.map(card=>{
+                const meta = STATUS_META[card.status]||STATUS_META.missing;
+                return (
+                  <div key={card.id} style={{ position:"relative" }}>
+                    <button onClick={()=>cycleStatus(card)} style={{
+                      width:"100%",padding:"12px 10px",borderRadius:18,textAlign:"left",cursor:"pointer",
+                      background:`linear-gradient(150deg,${meta.color}14,${meta.color}06)`,
+                      border:`1.5px solid ${meta.color}${card.status==="missing"?"22":"44"}`,
+                      boxShadow:`0 4px 12px ${meta.color}08`,position:"relative",overflow:"hidden",
+                    }}>
+                      <div style={{ position:"absolute",top:-10,right:-10,width:40,height:40,borderRadius:"50%",background:`radial-gradient(circle,${meta.color}18,transparent 65%)`,pointerEvents:"none" }} />
+                      <div style={{ display:"flex",alignItems:"center",gap:7,marginBottom:card.version?4:0 }}>
+                        <div style={{ width:22,height:22,borderRadius:7,background:meta.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:card.status==="missing"?C.textMid:C.bg,fontWeight:800,flexShrink:0 }}>{meta.label}</div>
+                        <p style={{ fontSize:10.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,color:card.status==="missing"?C.textMid:C.text,lineHeight:1.3 }}>{card.member}</p>
+                      </div>
+                      {card.version&&<p style={{ fontSize:9,color:C.textDim,marginLeft:29 }}>{card.version}</p>}
+                    </button>
+                    {card.status==="for_trade"&&(
+                      <button onClick={()=>setTradingCard(card)} style={{ position:"absolute",bottom:6,right:6,background:C.rose,border:"none",borderRadius:7,padding:"3px 7px",color:C.bg,fontSize:8.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>List →</button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Summary */}
+            <div style={{ marginTop:16,background:`linear-gradient(140deg,${binder.cover_color||C.accent}10,${binder.cover_color||C.accent}04)`,border:`1.5px solid ${binder.cover_color||C.accent}28`,borderRadius:22,padding:18,textAlign:"center" }}>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,marginBottom:10 }}>Collection Summary</p>
+              <div style={{ display:"flex",gap:0 }}>
+                {[{val:owned,label:"Owned",color:C.mint},{val:forTrade,label:"For Trade",color:C.rose},{val:dupes,label:"Dupes",color:C.gold},{val:missing,label:"Missing",color:C.textDim}].map((s,i)=>(
+                  <div key={s.label} style={{ flex:1,textAlign:"center",borderRight:i<3?`1px solid ${C.border}`:"none" }}>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:20,color:s.color,lineHeight:1 }}>{s.val}</p>
+                    <p style={{ fontSize:8.5,color:C.textMid,marginTop:2 }}>{s.label}</p>
+                  </div>
+                ))}
+              </div>
+              <div style={{ marginTop:12 }}>
+                <ProgressBar value={pct} color={binder.cover_color||C.accent} />
+                <p style={{ fontSize:9,color:binder.cover_color||C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,marginTop:5 }}>{pct}% complete</p>
+              </div>
+            </div>
+          </>
+        )}
       </Screen>
     </div>
   );
@@ -5209,8 +5577,17 @@ function TradeHub({ onBack, onNotif }) {
   const [rateDone, setRateDone] = useState({});
   const [photoProof, setPhotoProof] = useState({});
   const photoRef = useRef(null);
+  const [hubTab, setHubTab] = useState("mine"); // "mine" | "hub"
+  const [publicListings, setPublicListings] = useState([]);
+  const [hubLoading, setHubLoading] = useState(false);
 
   useEffect(()=>{ ls.set("backstage_active_trades", trades); }, [trades]);
+
+  useEffect(()=>{
+    if (hubTab !== "hub") return;
+    setHubLoading(true);
+    api.get('/api/trade-listings').then(d=>{ setPublicListings(d?.listings||[]); setHubLoading(false); });
+  }, [hubTab]);
 
   const advanceStage = (tradeId, nextStage) => {
     setTrades(ts=>ts.map(t=>t.id===tradeId?{...t,stage:nextStage}:t));
@@ -5377,19 +5754,68 @@ function TradeHub({ onBack, onNotif }) {
   return (
     <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
       {/* Header */}
-      <div style={{ padding:"16px 20px 14px", display:"flex", alignItems:"center", gap:10, flexShrink:0 }}>
+      <div style={{ padding:"16px 20px 10px", display:"flex", alignItems:"center", gap:10, flexShrink:0 }}>
         <button onClick={onBack||undefined} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
         <div style={{ flex:1 }}>
           <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:19 }}>Trade Hub 🃏</h2>
           <p style={{ fontSize:10.5, color:C.textMid }}>{trades.filter(t=>t.stage!=="done").length} active trades</p>
         </div>
-        {/* VIP Verified Trader Badge */}
-        {ls.get("backstage_is_vip")&&<div style={{ ...VS.activePill(C.gold),fontSize:9 }}>✦ Verified Trader</div>}
+        {ls.get("backstage_is_vip")&&<div style={{ ...VS.activePill(C.gold),fontSize:9 }}>✦ Verified</div>}
+      </div>
+
+      {/* Tab switcher */}
+      <div style={{ padding:"0 18px 12px", flexShrink:0 }}>
+        <div style={{ display:"flex",gap:0,background:C.surfaceHi,borderRadius:13,padding:3 }}>
+          {[["mine","My Trades"],["hub","Public Hub"]].map(([id,label])=>(
+            <span key={id} onClick={()=>setHubTab(id)} style={{ flex:1,textAlign:"center",padding:"8px 4px",borderRadius:10,fontSize:11.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:hubTab===id?C.accent:"transparent",color:hubTab===id?C.bg:C.textMid,transition:"all .18s" }}>{label}</span>
+          ))}
+        </div>
       </div>
 
       <Screen style={{ padding:"0 18px calc(120px + env(safe-area-inset-bottom))" }}>
-        {/* Active trades list */}
-        {trades.filter(t=>t.stage!=="done").map(trade=>{
+        {/* Public Hub */}
+        {hubTab==="hub" && (
+          hubLoading ? <div style={{ textAlign:"center",padding:40,color:C.textMid,fontSize:13 }}>Loading listings...</div> : (
+            publicListings.length===0 ? (
+              <div style={{ textAlign:"center",padding:"48px 20px" }}>
+                <p style={{ fontSize:36,marginBottom:12 }}>⇄</p>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:15,marginBottom:6 }}>No listings yet</p>
+                <p style={{ fontSize:12,color:C.textMid }}>Mark a card as "For Trade" in your binder to list it here.</p>
+              </div>
+            ) : publicListings.map(listing=>{
+              const uc = listing.user_cards || {};
+              const trader = listing.users || {};
+              return (
+                <div key={listing.id} style={{ background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:18,padding:14,marginBottom:12 }}>
+                  <div style={{ display:"flex",gap:10,alignItems:"flex-start" }}>
+                    {uc.image_url ? (
+                      <img src={uc.image_url} alt={uc.member} style={{ width:50,height:66,objectFit:"cover",borderRadius:10,border:`1.5px solid ${C.border}`,flexShrink:0 }} />
+                    ) : (
+                      <div style={{ width:50,height:66,borderRadius:10,background:`${C.accent}18`,border:`1.5px dashed ${C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0 }}>🃏</div>
+                    )}
+                    <div style={{ flex:1,minWidth:0 }}>
+                      <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13.5,color:C.text,marginBottom:2 }}>{uc.member}</p>
+                      <p style={{ fontSize:11,color:C.textMid,marginBottom:4 }}>{uc.group_name} · {uc.album||uc.era||""}</p>
+                      <div style={{ display:"flex",gap:5,flexWrap:"wrap" }}>
+                        {uc.condition&&<div style={{ ...VS.activePill(C.mint),fontSize:8 }}>{uc.condition}</div>}
+                        <div style={{ ...VS.activePill(C.accent),fontSize:8 }}>{listing.trade_type==="any"?"Any trade":listing.trade_type}</div>
+                        {listing.location&&<div style={{ ...VS.activePill(C.silver),fontSize:8 }}>📍 {listing.location}</div>}
+                      </div>
+                      {listing.wants_description&&<p style={{ fontSize:10.5,color:C.textMid,marginTop:5,lineHeight:1.5 }}>Wants: {listing.wants_description}</p>}
+                    </div>
+                  </div>
+                  <div style={{ marginTop:10,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                    <p style={{ fontSize:10,color:C.textDim }}>@{trader.username||"fan"}</p>
+                    <div style={{ ...VS.activePill(C.rose),fontSize:9 }}>📷 Proof</div>
+                  </div>
+                </div>
+              );
+            })
+          )
+        )}
+
+        {/* My Trades list */}
+        {hubTab==="mine" && trades.filter(t=>t.stage!=="done").map(trade=>{
           const meta = TRADE_STAGE_META[trade.stage]||TRADE_STAGE_META.match;
           return (
             <div key={trade.id} onClick={()=>setSelected(trade.id)} className="tap" style={{ ...VS.glowCard(trade.myCard.color),padding:14,marginBottom:12,cursor:"pointer" }}>
@@ -5413,7 +5839,7 @@ function TradeHub({ onBack, onNotif }) {
         })}
 
         {/* Completed trades */}
-        {trades.filter(t=>t.stage==="done").length>0&&(
+        {hubTab==="mine"&&trades.filter(t=>t.stage==="done").length>0&&(
           <div style={{ marginTop:8 }}>
             <p style={{ ...VS.softSectionHeader,marginBottom:10 }}>Completed</p>
             {trades.filter(t=>t.stage==="done").map(trade=>(
@@ -5429,11 +5855,11 @@ function TradeHub({ onBack, onNotif }) {
           </div>
         )}
 
-        {trades.length===0&&(
+        {hubTab==="mine"&&trades.length===0&&(
           <div style={{ textAlign:"center",padding:"48px 20px" }}>
             <p style={{ fontSize:36,marginBottom:14 }}>🃏</p>
             <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:16,marginBottom:6 }}>No active trades</p>
-            <p style={{ fontSize:12,color:C.textMid }}>Add cards to your wishlist and tradeable list to get matched.</p>
+            <p style={{ fontSize:12,color:C.textMid }}>Mark cards as "For Trade" in your binder and list them here.</p>
           </div>
         )}
       </Screen>
@@ -5450,11 +5876,11 @@ function CollectTab({ cards, setCards, isVip, onUpgrade }) {
   const [tracking, setTracking] = useState(null);
   const [trackNum, setTrackNum] = useState("");
   const [showBinderCreate, setShowBinderCreate] = useState(false);
+  const [showCustomBinder, setShowCustomBinder] = useState(false);
   const [showTradeHub, setShowTradeHub] = useState(false);
-  const [binders, setBinders] = useState(() => {
-    const saved = localStorage.getItem("backstage_binders");
-    return saved ? JSON.parse(saved) : MOCK_BINDERS;
-  });
+  const [selectedBinder, setSelectedBinder] = useState(null);
+
+  const { binders, loading: bindersLoading, refresh: refreshBinders } = useBinders();
 
   const filteredCards = cards.filter(c=>filter==="all"||(filter==="dupes"&&c.dupe)||(filter==="tradeable"&&c.tradeable));
 
@@ -5463,13 +5889,10 @@ function CollectTab({ cards, setCards, isVip, onUpgrade }) {
     setTracking({ status:"In Transit", statusDetail:"Package departed sorting facility", location:"Memphis, TN", estimatedDelivery:"Apr 29" });
   };
 
-  const refreshBinders = () => {
-    const saved = localStorage.getItem("backstage_binders");
-    if (saved) setBinders(JSON.parse(saved));
-  };
-
-  if (showBinderCreate) return <BinderCreate onBack={()=>{ setShowBinderCreate(false); refreshBinders(); }} />;
+  if (showBinderCreate) return <BinderCreate onBack={()=>{ setShowBinderCreate(false); refreshBinders(); }} onCustom={()=>{ setShowBinderCreate(false); setShowCustomBinder(true); }} />;
+  if (showCustomBinder) return <CustomBinderForm onBack={()=>setShowCustomBinder(false)} onSaved={()=>{ setShowCustomBinder(false); refreshBinders(); }} />;
   if (showTradeHub) return <TradeHub onBack={()=>setShowTradeHub(false)} />;
+  if (selectedBinder) return <BinderDetail binder={selectedBinder} onBack={()=>setSelectedBinder(null)} />;
 
   return (
     <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
@@ -5509,52 +5932,59 @@ function CollectTab({ cards, setCards, isVip, onUpgrade }) {
         )}
         {view==="binders" && (
           <div>
-            {/* Create Binder CTA */}
-            <button onClick={()=>setShowBinderCreate(true)} className="tap" style={{
-              width:"100%", marginBottom:16, padding:"16px 18px", borderRadius:24, textAlign:"left", cursor:"pointer",
-              background:`linear-gradient(145deg,${C.accent}18,${C.pink}10)`,
-              border:`1.5px solid ${C.accent}38`,
-              boxShadow:`0 4px 20px ${C.accent}12`,
-            }}>
-              <div style={{ position:"absolute",top:-14,right:-14,width:80,height:80,borderRadius:"50%",background:`radial-gradient(circle,${C.accent}18,transparent 65%)`,pointerEvents:"none" }} />
-              <div style={{ position:"relative", display:"flex", gap:12, alignItems:"center" }}>
-                <div style={{ width:44,height:44,borderRadius:14,background:`${C.accent}22`,border:`1.5px solid ${C.accent}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,boxShadow:`0 0 14px ${C.accent}18` }}>🃏</div>
-                <div>
-                  <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:14, color:C.text, marginBottom:2 }}>+ Start a New Binder</p>
-                  <p style={{ fontSize:11, color:C.textMid }}>BTS, SKZ, aespa, ATEEZ, NewJeans + more</p>
+            {/* Create Binder CTAs */}
+            <div style={{ display:"flex", gap:10, marginBottom:16 }}>
+              <button onClick={()=>setShowBinderCreate(true)} className="tap" style={{ flex:1, padding:"14px 14px", borderRadius:20, textAlign:"left", cursor:"pointer", background:`linear-gradient(145deg,${C.accent}18,${C.pink}10)`, border:`1.5px solid ${C.accent}38`, position:"relative", overflow:"hidden" }}>
+                <div style={{ position:"absolute",top:-10,right:-10,width:60,height:60,borderRadius:"50%",background:`radial-gradient(circle,${C.accent}18,transparent 65%)`,pointerEvents:"none" }} />
+                <div style={{ position:"relative", display:"flex", gap:10, alignItems:"center" }}>
+                  <div style={{ width:38,height:38,borderRadius:12,background:`${C.accent}22`,border:`1.5px solid ${C.accent}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18 }}>🃏</div>
+                  <div>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,color:C.text,marginBottom:1 }}>Use Template</p>
+                    <p style={{ fontSize:10,color:C.textMid }}>BTS, SKZ, aespa + more</p>
+                  </div>
                 </div>
-                <span style={{ color:C.accent, fontSize:18, marginLeft:"auto" }}>→</span>
-              </div>
-            </button>
+              </button>
+              <button onClick={()=>setShowCustomBinder(true)} className="tap" style={{ flex:1, padding:"14px 14px", borderRadius:20, textAlign:"left", cursor:"pointer", background:`linear-gradient(145deg,${C.pink}14,${C.rose}08)`, border:`1.5px solid ${C.pink}38`, position:"relative", overflow:"hidden" }}>
+                <div style={{ position:"relative", display:"flex", gap:10, alignItems:"center" }}>
+                  <div style={{ width:38,height:38,borderRadius:12,background:`${C.pink}22`,border:`1.5px solid ${C.pink}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18 }}>✨</div>
+                  <div>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,color:C.text,marginBottom:1 }}>Custom</p>
+                    <p style={{ fontSize:10,color:C.textMid }}>Any group / era</p>
+                  </div>
+                </div>
+              </button>
+            </div>
 
-            {binders.map(b=>(
-              <div key={b.id} style={{ marginBottom:12, ...VS.glowCard(b.color||C.accent), padding:16 }}>
-                <div style={VS.shimmerLine(b.color||C.accent)} />
-                <div style={VS.innerGlow(b.color||C.accent)} />
-                <div style={{ position:"relative" }}>
-                  <div style={{ display:"flex", gap:12, alignItems:"flex-start", marginBottom:14 }}>
-                    <div style={{ width:52,height:52,borderRadius:16,background:`${b.color||C.accent}22`,border:`1.5px solid ${b.color||C.accent}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,flexShrink:0,boxShadow:`0 0 16px ${b.color||C.accent}18` }}>{b.emoji||"🃏"}</div>
-                    <div style={{ flex:1 }}>
-                      <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:14.5, color:C.text, marginBottom:3 }}>{b.name}</p>
-                      <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-                        <div style={VS.activePill(b.color||C.accent)}>{b.group||b.name}</div>
-                      </div>
-                    </div>
-                    <div style={{ textAlign:"center" }}>
-                      <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, color:b.color||C.accent, lineHeight:1 }}>{Math.round((b.owned/b.total)*100)}<span style={{ fontSize:11 }}>%</span></p>
-                      <p style={{ fontSize:8.5, color:C.textMid }}>complete</p>
-                    </div>
-                  </div>
-                  <ProgressBar value={(b.owned/b.total)*100} color={b.color||C.accent} style={{ marginBottom:10 }} />
-                  <div style={{ display:"flex", gap:14 }}>
-                    <p style={{ fontSize:10.5, color:C.textMid }}>✓ {b.owned} owned</p>
-                    <p style={{ fontSize:10.5, color:C.textMid }}>🔁 {b.dupes} dupes</p>
-                    <p style={{ fontSize:10.5, color:C.textMid }}>❓ {b.missing} missing</p>
-                  </div>
-                  <button onClick={()=>setShowBinderCreate(true)} className="tap" style={{ marginTop:12, width:"100%", padding:"9px", borderRadius:12, background:"transparent", border:`1.5px solid ${b.color||C.accent}44`, color:b.color||C.accent, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, cursor:"pointer" }}>Open Binder →</button>
-                </div>
+            {bindersLoading && <div style={{ textAlign:"center",padding:32,color:C.textMid,fontSize:12 }}>Loading binders...</div>}
+
+            {!bindersLoading && binders.length===0 && (
+              <div style={{ textAlign:"center",padding:"32px 16px",background:`${C.accent}08`,border:`1.5px dashed ${C.border}`,borderRadius:20 }}>
+                <p style={{ fontSize:30,marginBottom:10 }}>🃏</p>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14,marginBottom:5 }}>No binders yet</p>
+                <p style={{ fontSize:12,color:C.textMid }}>Create your first binder to start tracking your collection.</p>
               </div>
-            ))}
+            )}
+
+            {binders.map(b=>{
+              const col = b.cover_color || C.accent;
+              return (
+                <div key={b.id} onClick={()=>setSelectedBinder(b)} className="tap" style={{ marginBottom:12, ...VS.glowCard(col), padding:16, cursor:"pointer" }}>
+                  <div style={VS.shimmerLine(col)} />
+                  <div style={VS.innerGlow(col)} />
+                  <div style={{ position:"relative" }}>
+                    <div style={{ display:"flex", gap:12, alignItems:"flex-start", marginBottom:10 }}>
+                      <div style={{ width:52,height:52,borderRadius:16,background:`${col}22`,border:`1.5px solid ${col}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,flexShrink:0,boxShadow:`0 0 16px ${col}18` }}>{b.emoji||"🃏"}</div>
+                      <div style={{ flex:1 }}>
+                        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14.5,color:C.text,marginBottom:3 }}>{b.name}</p>
+                        {b.group_name&&<div style={VS.activePill(col)}>{b.group_name}</div>}
+                      </div>
+                      <span style={{ color:col,fontSize:18 }}>→</span>
+                    </div>
+                    <p style={{ fontSize:10.5,color:C.textMid }}>Tap to view cards</p>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
         {view==="trackers" && (
