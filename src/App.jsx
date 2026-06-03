@@ -1329,6 +1329,10 @@ const MOCK_CONCERTS = [
     parkingTip:         "Stadium parking via MyPark app · book in advance · arrive 2h before doors",
     merchTip:           "Official BTS merch inside stadium · cash and card accepted · lines open at doors",
     lastSyncedAt:       "2026-05-20",
+    // ISO dates for lifecycle logic — drives ConcertDayBanner status
+    startDateISO:       "2026-05-23",   // Night 1
+    endDateISO:         "2026-05-28",   // Night 4 (last show)
+    showEndTime:        "23:30",        // approx end time for lifecycle cut-off
   },
   // ── PREVIEW CARDS — sample/demo data for app testing ─────────────────────────
   // These are illustrative mock concerts. Not verified upcoming events.
@@ -1809,6 +1813,9 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go }) {
     milestones:REFERRAL_MILESTONES.map(m=>({ ...m, unlocked:false })),
   });
   const [referralSetupRequired, setReferralSetupRequired] = useState(false);
+  const [referralCodeFetched, setReferralCodeFetched] = useState(false);
+  const [referralCodeError, setReferralCodeError] = useState(false);
+  const [referralRetryKey, setReferralRetryKey] = useState(0);
 
   // ── Social search state ───────────────────────────────────────────────────
   const [searchQ, setSearchQ] = useState("");
@@ -1820,6 +1827,7 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go }) {
   const [searching, setSearching] = useState(false);
   const [apiResults, setApiResults] = useState([]);
   const [apiError, setApiError] = useState(false);
+  const [searchRetry, setSearchRetry] = useState(0);
   const [suggestedFans, setSuggestedFans] = useState([]);
 
   const fallbackCode = `BACKSTAGE-${(user?.username||user?.name||"FAN").toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,8)||"FAN"}-LOCAL`;
@@ -1856,7 +1864,7 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go }) {
       setSearching(false);
     }, 350);
     return () => clearTimeout(t);
-  }, [searchQ]);
+  }, [searchQ, searchRetry]);
 
   // Load suggested fans once on mount
   useEffect(() => {
@@ -1870,15 +1878,17 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go }) {
     // tokenReady=true, causing all backend calls to return 401 silently and
     // the LOCAL fallback code to display instead of the real generated code.
     if (!tokenReady) return;
+    setReferralCodeError(false);
     let alive = true;
     api.get('/api/referrals/code').then(d => {
       if (!alive) return;
-      // api.get never throws — check d.error before touching state
-      if (d?.error || !d?.code) return;
+      setReferralCodeFetched(true);
+      if (d?.error || !d?.code) { setReferralCodeError(true); return; }
       setReferralSetupRequired(false);
+      setReferralCodeError(false);
       setReferralCode(d.code);
       setReferralUrl(d.invite_url || d.url || '');
-    }).catch(() => {});
+    }).catch(() => { if (alive) { setReferralCodeFetched(true); setReferralCodeError(true); } });
     api.get('/api/referrals/stats').then(d => {
       if (!alive) return;
       if (d?.error) return;
@@ -1911,7 +1921,7 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go }) {
       ls.set("backstage_circle", members);
     }).catch(() => {});
     return () => { alive = false; };
-  }, [tokenReady]);
+  }, [tokenReady, referralRetryKey]);
 
   const copyLink = () => {
     navigator.clipboard?.writeText(myLink).catch(()=>{});
@@ -2144,10 +2154,11 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go }) {
                     );
                   })}
 
-                  {/* Auth/network error — don't show invite fallback for a 401 */}
+                  {/* Auth/network error — show retry, never show invite fallback */}
                   {!searching && apiError && q.length >= 2 && (
                     <div style={{ padding:"22px 18px", textAlign:"center" }}>
-                      <p style={{ fontSize:12.5, color:C.textMid }}>Search unavailable — check your connection.</p>
+                      <p style={{ fontSize:12.5, color:C.textMid, marginBottom:10 }}>Search unavailable — couldn't reach Backstage.</p>
+                      <button onClick={()=>{ setApiError(false); setSearchRetry(r=>r+1); }} style={{ padding:"7px 18px",borderRadius:99,background:`${C.accent}18`,border:`1px solid ${C.accent}44`,color:C.accent,fontSize:11,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>Try again</button>
                     </div>
                   )}
 
@@ -2201,9 +2212,10 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go }) {
                   <div style={{ fontSize:34,marginBottom:10,animation:"float 3s ease-in-out infinite" }}>🌌</div>
                   <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14,marginBottom:6 }}>Your Circle is waiting</p>
                   <p style={{ fontSize:12,color:C.textMid,lineHeight:1.6,marginBottom:14 }}>Add your first concert friend above.<br/>Find your people before the show.</p>
+                  <p style={{ fontSize:10,color:C.textDim,marginBottom:8 }}>Try searching for a friend:</p>
                   <div style={{ display:"flex",gap:6,justifyContent:"center",flexWrap:"wrap" }}>
-                    {["@armyjoon","@staymia","@purplehour"].map(u=>(
-                      <button key={u} onClick={()=>setSearchQ(u.slice(1))} className="tap" style={{ padding:"5px 12px",borderRadius:99,background:C.surfaceHi,border:`1px solid ${C.border}`,fontSize:10.5,color:C.textMid,cursor:"pointer",fontFamily:"'Instrument Sans',sans-serif" }}>{u}</button>
+                    {["armyjoon","staymia","purplehour"].map(u=>(
+                      <button key={u} onClick={()=>setSearchQ(u)} className="tap" style={{ padding:"5px 12px",borderRadius:99,background:C.surfaceHi,border:`1px solid ${C.border}`,fontSize:10.5,color:C.textMid,cursor:"pointer",fontFamily:"'Instrument Sans',sans-serif" }}>@{u}</button>
                     ))}
                   </div>
                 </div>
@@ -2265,17 +2277,28 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go }) {
               <div style={{ position:"absolute",inset:0,background:`radial-gradient(ellipse at top,${C.accent}0a,transparent 70%)`,pointerEvents:"none" }} />
               <div style={{ fontSize:40,marginBottom:10,animation:"float 3s ease infinite",display:"inline-block" }}>🎤</div>
               <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:20,marginBottom:4 }}>Your Invite Code</p>
-              <div style={{ background:C.surfaceHi,borderRadius:13,padding:"12px 16px",marginBottom:14,border:`1.5px solid ${C.accent}44` }}>
-                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:16,color:C.accent,letterSpacing:"0.1em" }}>{myCode}</p>
-              </div>
-              <div style={{ display:"flex",gap:8 }}>
-                <button onClick={copyLink} className="tap" style={{ flex:1,padding:"11px",borderRadius:12,background:copied?`${C.mint}22`:"transparent",border:`1.5px solid ${copied?C.mint:C.accent}55`,color:copied?C.mint:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer",transition:"all .2s" }}>{copied?"✓ Copied!":"📋 Copy Link"}</button>
-                <button onClick={simulateInvite} className="tap" style={{ flex:1,padding:"11px",borderRadius:12,background:C.accent,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}>📨 Share Invite</button>
-              </div>
-              {referralSetupRequired && (
-                <p style={{ fontSize:10.5,color:C.gold,marginTop:10,lineHeight:1.5 }}>
-                  Referral database setup is pending. This link is safe to share, but rewards start counting after the Supabase referral tables are installed.
-                </p>
+              {!referralCode && !referralCodeError && (
+                <div style={{ background:C.surfaceHi,borderRadius:13,padding:"14px 16px",marginBottom:14,border:`1.5px solid ${C.accent}22`,textAlign:"center" }}>
+                  <p style={{ fontSize:12,color:C.textMid }}>Getting your invite code…</p>
+                </div>
+              )}
+              {referralCodeError && !referralCode && (
+                <div style={{ background:C.surfaceHi,borderRadius:13,padding:"12px 16px",marginBottom:14,border:`1.5px solid ${C.border}`,textAlign:"center" }}>
+                  <p style={{ fontSize:12,color:C.textMid,marginBottom:8 }}>Invite code unavailable — try again</p>
+                  <button onClick={()=>{ setReferralCodeError(false); setReferralCodeFetched(false); setReferralRetryKey(k=>k+1); }} style={{ padding:"6px 16px",borderRadius:99,background:`${C.accent}18`,border:`1px solid ${C.accent}44`,color:C.accent,fontSize:11,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>Retry</button>
+                </div>
+              )}
+              {referralCode && (
+                <>
+                  <div style={{ position:"relative",background:C.surfaceHi,borderRadius:13,padding:"12px 16px",marginBottom:14,border:`1.5px solid ${C.accent}44` }}>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:16,color:C.accent,letterSpacing:"0.1em" }}>{referralCode}</p>
+                    <span style={{ position:"absolute",top:8,right:10,fontSize:8,color:C.mint,fontFamily:"'Epilogue',sans-serif",fontWeight:700,letterSpacing:"0.05em" }}>● LIVE</span>
+                  </div>
+                  <div style={{ display:"flex",gap:8 }}>
+                    <button onClick={copyLink} className="tap" style={{ flex:1,padding:"11px",borderRadius:12,background:copied?`${C.mint}22`:"transparent",border:`1.5px solid ${copied?C.mint:C.accent}55`,color:copied?C.mint:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer",transition:"all .2s" }}>{copied?"✓ Copied!":"📋 Copy Link"}</button>
+                    <button onClick={simulateInvite} className="tap" style={{ flex:1,padding:"11px",borderRadius:12,background:C.accent,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}>📨 Share Invite</button>
+                  </div>
+                </>
               )}
             </div>
 
@@ -9064,6 +9087,50 @@ function EventDiscovery({ onBack, go }) {
 }
 
 // ─── 20. CONCERT DAY MODE ────────────────────────────────────────────────────
+// ─── CONCERT LIFECYCLE HELPERS ───────────────────────────────────────────────
+// Returns: 'future' | 'upcoming' | 'soon' | 'today' | 'afterglow' | 'expired' | 'no_date'
+// Callers gate their UI on this — never render fake countdowns.
+function parseConcertShowTime(dateISO, showTime) {
+  if (!dateISO) return new Date(NaN);
+  try {
+    const t = (showTime || '20:00').trim();
+    // Try direct parse first ("2026-05-23 8:00 PM" works in Chrome but not Safari)
+    const direct = new Date(`${dateISO}T${t}`);
+    if (!isNaN(direct.getTime())) return direct;
+    // Parse "8:00 PM" / "7:30 PM" / "20:00" manually
+    const m = t.match(/(\d+):(\d+)\s*(AM|PM)?/i);
+    if (!m) return new Date(`${dateISO}T20:00:00`);
+    let h = parseInt(m[1], 10);
+    const min = parseInt(m[2], 10);
+    const period = (m[3] || '').toUpperCase();
+    if (period === 'PM' && h !== 12) h += 12;
+    if (period === 'AM' && h === 12) h = 0;
+    return new Date(`${dateISO}T${h.toString().padStart(2,'0')}:${min.toString().padStart(2,'0')}:00`);
+  } catch { return new Date(NaN); }
+}
+
+function getConcertStatus(concert) {
+  if (!concert) return 'no_date';
+  const startISO = concert.startDateISO;
+  const endISO   = concert.endDateISO || startISO;
+  if (!startISO) return 'no_date';
+
+  const now      = Date.now();
+  const showEnd  = parseConcertShowTime(endISO,   concert.showEndTime || '23:00');
+  const showStart= parseConcertShowTime(startISO,  concert.showTime   || '20:00');
+  if (isNaN(showEnd.getTime()) || isNaN(showStart.getTime())) return 'no_date';
+
+  const msAfterEnd  = now - showEnd.getTime();
+  const msToStart   = showStart.getTime() - now;
+  const HOUR = 3600_000;
+
+  if (msAfterEnd  > 72 * HOUR) return 'expired';   // >72 h after last night → hide
+  if (msAfterEnd  >  0       ) return 'afterglow';  // 0–72 h post-show
+  if (msToStart   <= 0       ) return 'today';      // show in progress
+  if (msToStart   <= 24*HOUR ) return 'soon';       // <24 h to first night
+  if (msToStart   <= 7*24*HOUR) return 'upcoming';  // 1–7 days out
+  return 'future';                                  // >7 days → no Home banner
+}
 // ─── CONCERT DAY UTILS ────────────────────────────────────────────────────────
 function useConcertCountdown(showTime, concertDate) {
   const [timeLeft, setTimeLeft] = useState("");
@@ -9079,12 +9146,11 @@ function useConcertCountdown(showTime, concertDate) {
         target = new Date(combined);
         if(isNaN(target.getTime())) throw new Error("Invalid date");
       } catch {
-        // Fallback: mock countdown for demo
-        const now = new Date();
-        target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 19, 30, 0);
-        if(target < now) target.setDate(target.getDate()+1);
+        // Unparseable date — show nothing rather than a fake countdown
+        setTimeLeft(""); return;
       }
       const diff = target - Date.now();
+      // If the target is in the past, the banner shouldn't be visible (getConcertStatus gates it)
       if(diff <= 0) { setTimeLeft("Show time! 🎤"); return; }
       const h = Math.floor(diff/3600000);
       const m = Math.floor((diff%3600000)/60000);
@@ -9179,28 +9245,76 @@ function VenueCrowdTips({ concertId, concertColor }) {
   );
 }
 
-// ─── CONCERT DAY BANNER — auto-shown on Home/Concerts when show is imminent ──
+// ─── CONCERT DAY BANNER — auto-shown on Home when show is imminent/today ──────
+// Renders nothing for expired concerts (>72h after last show) so stale data
+// never appears on Home. Afterglow phase (0–72h post-show) shows a memory prompt.
 function ConcertDayBanner({ go }) {
-  // TODO: In production, compare real dates — for demo we use the first mock concert
   const concert = MOCK_CONCERTS[0];
-  const isActive = ls.get("backstage_concertday_active", true); // mock: always show
-  if(!isActive) return null;
+  const col     = concert.color || C.pink;
+  const status  = getConcertStatus(concert);
+
+  // Purge stale localStorage flag left over from previous builds
+  useEffect(() => {
+    if (status === 'expired' || status === 'future' || status === 'no_date') {
+      ls.del('backstage_concertday_active');
+    }
+  }, [status]);
+
+  if (status === 'expired' || status === 'future' || status === 'no_date') return null;
+
+  if (status === 'afterglow') {
+    return (
+      <div onClick={()=>go('capsule')} className="tap" style={{ margin:"0 18px 18px", borderRadius:18, cursor:"pointer", background:`linear-gradient(140deg,${col}18,${col}08)`, border:`1.5px solid ${col}33`, padding:"13px 16px", display:"flex", gap:12, alignItems:"center" }}>
+        <div style={{ fontSize:26 }}>🌙</div>
+        <div style={{ flex:1 }}>
+          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13.5,color:C.text,marginBottom:2 }}>How was the show?</p>
+          <p style={{ fontSize:11,color:C.textMid }}>{concert.name} · Add your memories to the Capsule</p>
+        </div>
+        <span style={{ fontSize:13,color:col }}>→</span>
+      </div>
+    );
+  }
+
+  // today / soon / upcoming — show live countdown
+  return <ConcertDayBannerActive concert={concert} status={status} go={go} />;
+}
+
+function ConcertDayBannerActive({ concert, status, go }) {
+  const col = concert.color || C.pink;
+  // Pass ISO date + raw showTime to the countdown hook so it parses correctly
+  const countdownStr = useConcertCountdown(
+    concert.showTime,
+    concert.startDateISO ? `${concert.startDateISO} ${concert.showTime}` : concert.date
+  );
+  const statusLabel = status === 'today' ? 'Concert Day Mode Active'
+                    : status === 'soon'  ? 'Show Tomorrow'
+                    :                     'Coming Up';
+  // Display the hour portion only ("6h") when countdown is hours out
+  const hourMatch = countdownStr?.match(/^(\d+)h /);
   return (
-    <div onClick={()=>go("concertday")} className="tap" style={{ margin:"0 18px 18px", borderRadius:20, overflow:"hidden", cursor:"pointer", position:"relative", background:`linear-gradient(140deg,${concert.color}28,${concert.color}0e)`, border:`1.5px solid ${concert.color}55`, boxShadow:`0 8px 28px ${concert.color}20` }}>
-      <div style={{ position:"absolute",top:0,left:0,right:0,height:1.5,background:`linear-gradient(90deg,transparent,${concert.color}99,transparent)` }} />
+    <div onClick={()=>go("concertday")} className="tap" style={{ margin:"0 18px 18px", borderRadius:20, overflow:"hidden", cursor:"pointer", position:"relative", background:`linear-gradient(140deg,${col}28,${col}0e)`, border:`1.5px solid ${col}55`, boxShadow:`0 8px 28px ${col}20` }}>
+      <div style={{ position:"absolute",top:0,left:0,right:0,height:1.5,background:`linear-gradient(90deg,transparent,${col}99,transparent)` }} />
       <div style={{ padding:"13px 16px",display:"flex",gap:12,alignItems:"center" }}>
-        <div style={{ width:44,height:44,borderRadius:13,background:`${concert.color}22`,border:`1.5px solid ${concert.color}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0,animation:"concertPulse 2s ease-in-out infinite" }}>🎤</div>
+        <div style={{ width:44,height:44,borderRadius:13,background:`${col}22`,border:`1.5px solid ${col}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0,animation:"concertPulse 2s ease-in-out infinite" }}>🎤</div>
         <div style={{ flex:1 }}>
           <div style={{ display:"flex",gap:6,alignItems:"center",marginBottom:3 }}>
-            <div style={{ width:6,height:6,borderRadius:"50%",background:C.rose,animation:"pulse 1s ease infinite" }} />
-            <p style={{ fontSize:9,color:C.rose,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em" }}>Concert Day Mode Active</p>
+            {status === 'today' && <div style={{ width:6,height:6,borderRadius:"50%",background:C.rose,animation:"pulse 1s ease infinite" }} />}
+            <p style={{ fontSize:9,color:status==='today'?C.rose:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em" }}>{statusLabel}</p>
           </div>
           <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:C.text,marginBottom:1 }}>{concert.name}</p>
           <p style={{ fontSize:10.5,color:C.textMid }}>📍 {concert.venue} · {concert.city}</p>
         </div>
-        <div style={{ textAlign:"center",background:`${concert.color}1c`,borderRadius:10,padding:"6px 10px" }}>
-          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:18,color:concert.color,lineHeight:1 }}>6h</p>
-          <p style={{ fontSize:8,color:C.textMid }}>to show</p>
+        <div style={{ textAlign:"center",background:`${col}1c`,borderRadius:10,padding:"6px 10px",minWidth:50 }}>
+          {hourMatch ? (
+            <>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:18,color:col,lineHeight:1 }}>{hourMatch[1]}h</p>
+              <p style={{ fontSize:8,color:C.textMid }}>to show</p>
+            </>
+          ) : countdownStr ? (
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10,color:col,lineHeight:1.4 }}>{countdownStr}</p>
+          ) : (
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10,color:col }}>Soon</p>
+          )}
         </div>
       </div>
     </div>
@@ -11007,6 +11121,7 @@ function DirectMessages({ onBack, user, initialFan }) {
   const [dmSearchResults, setDmSearchResults] = useState([]);
   const [dmSearching, setDmSearching] = useState(false);
   const [dmSearchError, setDmSearchError] = useState(false);
+  const [dmSearchRetry, setDmSearchRetry] = useState(0);
   // Backstage Kit tray state
   const [kitOpen, setKitOpen]           = useState(false);
   const [charmPickerOpen, setCharmPickerOpen] = useState(false);
@@ -11073,7 +11188,7 @@ function DirectMessages({ onBack, user, initialFan }) {
       setDmSearching(false);
     }, 250);
     return () => { alive = false; clearTimeout(t); };
-  }, [dmSearch]);
+  }, [dmSearch, dmSearchRetry]);
 
   // Open DM with a specific fan — Circle-only guard
   useEffect(()=>{
@@ -11469,9 +11584,14 @@ function DirectMessages({ onBack, user, initialFan }) {
                   </button>
                 ))}
                 {!dmSearching && dmSearchResults.length === 0 && (
-                  <p style={{ padding:"12px",fontSize:11,color:C.textMid }}>
-                    {dmSearchError ? "Search unavailable — check your connection." : "No Backstage profile found for that search."}
-                  </p>
+                  dmSearchError ? (
+                    <div style={{ padding:"12px",display:"flex",gap:10,alignItems:"center" }}>
+                      <p style={{ flex:1,fontSize:11,color:C.textMid }}>Search unavailable — couldn't reach Backstage.</p>
+                      <button onClick={()=>{ setDmSearchError(false); setDmSearchRetry(r=>r+1); }} style={{ padding:"5px 12px",borderRadius:99,background:`${C.accent}18`,border:`1px solid ${C.accent}44`,color:C.accent,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",whiteSpace:"nowrap" }}>Try again</button>
+                    </div>
+                  ) : (
+                    <p style={{ padding:"12px",fontSize:11,color:C.textMid }}>No Backstage profile found for that search.</p>
+                  )
                 )}
               </div>
             )}
@@ -11677,6 +11797,7 @@ function MyCircleSection({ go, user }) {
   const [selectedProfile, setSelectedProfile] = useState(null);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState(false);
+  const [searchRetryCircle, setSearchRetryCircle] = useState(0);
   const [copied, setCopied] = useState(false);
 
   const accepted = friends.filter(f=>f.status==="accepted");
@@ -11699,7 +11820,7 @@ function MyCircleSection({ go, user }) {
       setSearching(false);
     }, 250);
     return () => { cancelled = true; clearTimeout(t); };
-  }, [adding, query, tokenReady]);
+  }, [adding, query, tokenReady, searchRetryCircle]);
 
   const addFriend = async () => {
     if(!selectedProfile?.id) return;
@@ -11769,7 +11890,7 @@ function MyCircleSection({ go, user }) {
       {/* Add friend sheet */}
       {adding && (
         <div onClick={()=>setAdding(false)} style={{ position:"fixed",inset:0,zIndex:400,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
-          <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:24,width:"100%",animation:"slideUp .25s ease" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:24,paddingBottom:"max(24px, calc(env(safe-area-inset-bottom) + 24px))",width:"100%",animation:"slideUp .25s ease" }}>
             <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 20px" }} />
             <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17,marginBottom:18 }}>Add to My Circle</p>
             <div style={{ marginBottom:12 }}>
@@ -11789,8 +11910,9 @@ function MyCircleSection({ go, user }) {
                   );
                 })}
                 {!searching && searchError && (
-                  <div style={{ padding:"12px", borderRadius:12, background:C.surface, border:`1px solid ${C.border}` }}>
-                    <p style={{ fontSize:11, color:C.textMid }}>Search unavailable — check your connection.</p>
+                  <div style={{ padding:"12px", borderRadius:12, background:C.surface, border:`1px solid ${C.border}`, display:"flex", gap:10, alignItems:"center" }}>
+                    <p style={{ flex:1, fontSize:11, color:C.textMid }}>Search unavailable — couldn't reach Backstage.</p>
+                    <button onClick={()=>{ setSearchError(false); setSearchRetryCircle(r=>r+1); }} style={{ padding:"5px 12px",borderRadius:99,background:`${C.accent}18`,border:`1px solid ${C.accent}44`,color:C.accent,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",whiteSpace:"nowrap" }}>Try again</button>
                   </div>
                 )}
                 {!searching && !searchError && results.length === 0 && (
