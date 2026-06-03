@@ -54,7 +54,14 @@ const useAuth = () => useContext(AuthCtx);
 // null vs [] lets callers show "unavailable" vs "no results" without treating them the same.
 async function searchBackstageUsers(q) {
   const safe = q.replace(/^@/, '').trim();
-  if (safe.length < 2 || !api._token) return null;
+  if (safe.length < 2) return [];
+  // If api._token is null (transient sign-out event or cold boot race), recover
+  // by reading the current session directly from Supabase before giving up.
+  if (!api._token && _supabase) {
+    const { data } = await _supabase.auth.getSession();
+    if (data?.session?.access_token) api._setToken(data.session.access_token);
+  }
+  if (!api._token) return null;
   const d = await api.get(`/api/users/search?q=${encodeURIComponent(safe)}`);
   if (d?.error || !Array.isArray(d?.users)) return null;
   return d.users;
@@ -301,7 +308,12 @@ function AuthProvider({ children }) {
           setUser(u);
           ls.set('backstage_session', { user: u });
           if (u.id) ls.set(`backstage_profile_${u.id}`, u);
-        } else {
+        } else if (event === 'SIGNED_OUT') {
+          // Only clear state on an explicit sign-out — not on transient null sessions
+          // that Supabase emits during INITIAL_SESSION (before storage resolves) or
+          // during the TOKEN_REFRESHED cycle. Clearing the token during those brief
+          // windows causes search and other API calls to fail even though the user
+          // is still authenticated.
           api._setToken(null);
           setTokenReady(false);
           setUser(null);

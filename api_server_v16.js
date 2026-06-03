@@ -1643,19 +1643,30 @@ app.get('/api/users/me', requireAuth, async (req, res) => {
     // Row missing (new user / trigger didn't fire) — create it from Supabase Auth data
     if (!data || error?.code === 'PGRST116') {
       const usernameBase = (req.userEmail || '').split('@')[0].replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase() || 'fan';
-      const newUser = {
-        id:           req.userId,
-        email:        req.userEmail || '',
-        username:     usernameBase,
-        display_name: usernameBase,
-        bio:          '',
-        city:         '',
-        fandoms:      [],
-        bias:         '',
-        is_vip:       false,
-        proof_score:  0,
+      // Attempt insert with base username; on unique-constraint collision fall back to
+      // a short UUID suffix so duplicate email-prefixes (e.g. same handle on gmail + outlook)
+      // never block account creation.
+      const tryInsert = async (username) => {
+        const newUser = {
+          id:           req.userId,
+          email:        req.userEmail || '',
+          username,
+          display_name: usernameBase,
+          bio:          '',
+          city:         '',
+          fandoms:      [],
+          bias:         '',
+          is_vip:       false,
+          proof_score:  0,
+        };
+        return supabase.from('users').upsert(newUser).select('*').single();
       };
-      const { data: created, error: insertErr } = await supabase.from('users').upsert(newUser).select('*').single();
+      let { data: created, error: insertErr } = await tryInsert(usernameBase);
+      if (insertErr && insertErr.code === '23505') {
+        // Unique constraint on username — append short id suffix and retry once
+        const suffix = req.userId.slice(0, 6);
+        ({ data: created, error: insertErr } = await tryInsert(`${usernameBase}_${suffix}`));
+      }
       if (insertErr) {
         console.error('[GET /api/users/me] Auto-create failed:', insertErr.message);
         return res.status(500).json({ error: 'Could not create user profile', detail: insertErr.message });
