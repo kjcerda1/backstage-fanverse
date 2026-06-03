@@ -427,9 +427,9 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 @keyframes memoryFade{from{opacity:0;transform:translateY(10px) scale(0.97)}to{opacity:1;transform:translateY(0) scale(1)}}
 /* ── Mobile-safe app shell height ───────────────────────────────────────── */
 /* 100dvh = dynamic viewport height (excludes browser chrome on mobile)    */
-/* Falls back to 100vh on browsers that don't support dvh yet               */
-#root{height:100%;overflow:hidden}
-.app-shell{height:100vh;height:100dvh}
+/* -webkit-fill-available fills the visible viewport on older iOS Safari    */
+#root{height:100%;height:-webkit-fill-available;overflow:hidden}
+.app-shell{min-height:-webkit-fill-available;height:100vh;height:100dvh}
 .tap{transition:transform .12s,opacity .12s}
 .tap:active{transform:scale(.94);opacity:.8}
 /* ── Collectible card hover lift ─────────────────────────────────────────── */
@@ -1037,11 +1037,11 @@ function UpgradeModal({ onClose, onUpgrade }) {
           )}
         </div>
 
-        {/* Reassurance + micro-links */}
+        {/* Reassurance line */}
         {API_URL && <p style={{ textAlign:"center", fontSize:11, color:C.textDim, padding:"10px 26px 0", fontStyle:"italic" }}>Cancel anytime. No pressure.</p>}
-        <div style={{ display:"flex", justifyContent:API_URL?"space-between":"flex-end", padding:"12px 26px 32px" }}>
-          {API_URL && <button onClick={()=>{}} style={{ background:"none",border:"none",color:C.textDim,fontSize:11.5,cursor:"pointer",fontFamily:"'Instrument Sans',sans-serif" }}>Restore Purchase</button>}
-          <button onClick={onClose} style={{ background:"none",border:"none",color:C.textDim,fontSize:11.5,cursor:"pointer",fontFamily:"'Instrument Sans',sans-serif" }}>Maybe later</button>
+        {/* Sticky footer — always visible even on small screens without scrolling */}
+        <div style={{ position:"sticky", bottom:0, background:C.surfaceMid, borderTop:`1px solid rgba(255,255,255,0.06)`, display:"flex", justifyContent:"center", padding:"12px 26px calc(12px + env(safe-area-inset-bottom))" }}>
+          <button onClick={onClose} style={{ background:"none",border:"none",color:C.textDim,fontSize:13,cursor:"pointer",fontFamily:"'Instrument Sans',sans-serif",padding:"4px 12px" }}>Maybe later</button>
         </div>
       </div>
     </div>
@@ -14749,7 +14749,14 @@ function AppInner() {
   // background profile re-fetch. onAuthStateChange fires on token refresh and
   // the freshly-fetched profile can transiently lack fandoms if the DB row is
   // sparse, causing canEnterApp to fail on an otherwise valid existing user.
-  const hasReachedMain = useRef(canEnterApp(normalizeProfile(ls.get("backstage_session")?.user)));
+  // hasReachedMain: true if the user has ever completed onboarding.
+  // Check both the session cache AND the per-user profile key so a cleared
+  // backstage_session (new device, cleared storage) doesn't trigger onboarding
+  // for a user whose profile is already complete in per-user localStorage.
+  const _initSessUser  = normalizeProfile(ls.get("backstage_session")?.user);
+  const _initUserId    = _initSessUser?.id || ls.get("backstage_pending_uid");
+  const _initPerUser   = _initUserId ? normalizeProfile(ls.get(`backstage_profile_${_initUserId}`)) : null;
+  const hasReachedMain = useRef(canEnterApp(_initSessUser) || canEnterApp(_initPerUser));
   const [tab, setTab] = useState("home");
   // Auto-open capsule modal if signed-in user lands on /capsule
   const [modal, setModal] = useState(()=>_IS_CAPSULE_PATH&&canEnterApp(normalizeProfile(ls.get("backstage_session")?.user))?"capsule":null);
@@ -14765,7 +14772,11 @@ function AppInner() {
 
   // ── VIP — backed by Supabase users.is_vip ───────────────────────────────────
   // POST /api/subscriptions/checkout | GET /api/subscriptions/status
-  const [isVip, setIsVip] = useState(()=>{ const u=ls.get("backstage_session")?.user; return hasVipEntitlement(u)||getCachedVip(u); });
+  const [isVip, setIsVip] = useState(()=>{
+    const u = ls.get("backstage_session")?.user;
+    // Check session, per-user cache, and global cache (global covers cleared-session case after sign-out is NOT called)
+    return hasVipEntitlement(u) || getCachedVip(u) || ls.get("backstage_is_vip", false) === true;
+  });
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [showVipCelebration, setShowVipCelebration] = useState(false);
   const [showVipTour, setShowVipTour] = useState(false);
@@ -14801,9 +14812,24 @@ function AppInner() {
       markOnboardingComplete(nextUser);
       setAppState("main");
     } else if (!hasReachedMain.current) {
-      ls.set("backstage_pending_uid", nextUser.id);
-      setAppState("onboarding");
-      setModal(null);
+      // Before routing to onboarding, check per-user localStorage. A returning
+      // user whose backstage_session was cleared (new device, cache cleared) but
+      // whose full profile is stored under backstage_profile_${id} should skip
+      // onboarding entirely.
+      const savedProfile = nextUser?.id ? normalizeProfile(ls.get(`backstage_profile_${nextUser.id}`)) : null;
+      if (savedProfile && canEnterApp(savedProfile)) {
+        setUser(savedProfile);
+        ls.set('backstage_session', { user: savedProfile });
+        hasReachedMain.current = true;
+        markOnboardingComplete(savedProfile);
+        setAppState("main");
+      } else if (!auth.loading) {
+        // auth.loading = false means the full profile has loaded (or failed). Safe to show onboarding.
+        ls.set("backstage_pending_uid", nextUser.id);
+        setAppState("onboarding");
+        setModal(null);
+      }
+      // If auth.loading is still true, do nothing — the profile may still be arriving.
     }
   },[auth.user, auth.loading]);
 
@@ -15291,12 +15317,21 @@ function AppInner() {
           }} />}
           {appState==="main"&&!modal&&(
             <>
-              {tab==="home"&&<HomeFeed user={user} go={go} weather={weatherData} isVip={isVip} onUpgrade={openUpgrade} onSmartNotifs={()=>setShowSmartNotifs(true)} />}
-              {tab==="concerts"&&<ConcertsPage go={go} isVip={isVip} onUpgrade={openUpgrade} user={user} />}
-              {tab==="community"&&<FanverseTab go={go} user={user} isVip={isVip} onUpgrade={openUpgrade} />}
-              {tab==="collect"&&<LibraryTab cards={cards} setCards={setCards} isVip={isVip} onUpgrade={openUpgrade} go={go} user={user} weather={weatherData} />}
-              {tab==="fanverse"&&<ExploreTab user={user} weather={weatherData} isVip={isVip} onUpgrade={openUpgrade} go={go} />}
-              {tab==="profile"&&<ProfileTab user={user} cards={cards} go={go} isVip={isVip} onUpgrade={openUpgrade} onReplayTour={()=>setShowVipTour(true)} onAccountRefresh={handleAccountRefresh} />}
+              {/* effectiveIsVip: truthy if the backend-synced state OR any local cache confirms VIP.
+                  Prevents the upgrade banner from flashing for VIP users on cold Render starts. */}
+              {(()=>{
+                const effectiveIsVip = isVip || hasVipEntitlement(user) || getCachedVip(user);
+                return (
+                  <>
+              {tab==="home"&&<HomeFeed user={user} go={go} weather={weatherData} isVip={effectiveIsVip} onUpgrade={openUpgrade} onSmartNotifs={()=>setShowSmartNotifs(true)} />}
+              {tab==="concerts"&&<ConcertsPage go={go} isVip={effectiveIsVip} onUpgrade={openUpgrade} user={user} />}
+              {tab==="community"&&<FanverseTab go={go} user={user} isVip={effectiveIsVip} onUpgrade={openUpgrade} />}
+              {tab==="collect"&&<LibraryTab cards={cards} setCards={setCards} isVip={effectiveIsVip} onUpgrade={openUpgrade} go={go} user={user} weather={weatherData} />}
+              {tab==="fanverse"&&<ExploreTab user={user} weather={weatherData} isVip={effectiveIsVip} onUpgrade={openUpgrade} go={go} />}
+              {tab==="profile"&&<ProfileTab user={user} cards={cards} go={go} isVip={effectiveIsVip} onUpgrade={openUpgrade} onReplayTour={()=>setShowVipTour(true)} onAccountRefresh={handleAccountRefresh} />}
+                  </>
+                );
+              })()}
               {/* Ask Backstage AI — hidden on profile (has its own Studio/Preview actions) */}
               {tab!=="profile"&&<AskBackstageButton go={go} />}
               {/* Notification Bell — floating, hidden on home (has its own bell) and profile (has section nav) */}
