@@ -1774,6 +1774,7 @@ async function requestNotificationPermission(userId) {
 // POST /api/referrals/invite | GET /api/referrals/:userId | POST /api/referrals/claim
 // POST /api/circle/request | GET /api/circle/:userId | POST /api/circle/accept
 function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go }) {
+  const { tokenReady } = useAuth();
   const [tab, setTab] = useState("find");
   const [copied, setCopied] = useState(false);
   const [showReward, setShowReward] = useState(false);
@@ -1843,18 +1844,22 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go }) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    // Wait until the Supabase auth token is ready — api._token is null before
+    // tokenReady=true, causing all backend calls to return 401 silently and
+    // the LOCAL fallback code to display instead of the real generated code.
+    if (!tokenReady) return;
     let alive = true;
     api.get('/api/referrals/code').then(d => {
       if (!alive) return;
+      // api.get never throws — check d.error before touching state
+      if (d?.error || !d?.code) return;
       setReferralSetupRequired(false);
-      setReferralCode(d?.code || "");
-      setReferralUrl(d?.invite_url || d?.url || "");
-    }).catch(err => {
-      if (!alive) return;
-      setReferralSetupRequired(err?.status === 503);
-    });
+      setReferralCode(d.code);
+      setReferralUrl(d.invite_url || d.url || '');
+    }).catch(() => {});
     api.get('/api/referrals/stats').then(d => {
       if (!alive) return;
+      if (d?.error) return;
       setReferralSetupRequired(false);
       setReferralStats({
         converted_count: Number(d?.converted_count || 0),
@@ -1862,12 +1867,10 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go }) {
         rewards: Array.isArray(d?.rewards) ? d.rewards : [],
         milestones: Array.isArray(d?.milestones) ? d.milestones : REFERRAL_MILESTONES.map(m => ({ ...m, unlocked:false })),
       });
-    }).catch(err => {
-      if (!alive) return;
-      setReferralSetupRequired(err?.status === 503);
-    });
+    }).catch(() => {});
     api.get('/api/circle').then(d => {
       if (!alive) return;
+      if (d?.error) return;
       const members = Array.isArray(d?.members) ? d.members.map(m => ({
         id:m.id,
         profileId:m.id,
@@ -1886,7 +1889,7 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go }) {
       ls.set("backstage_circle", members);
     }).catch(() => {});
     return () => { alive = false; };
-  }, []);
+  }, [tokenReady]);
 
   const copyLink = () => {
     navigator.clipboard?.writeText(myLink).catch(()=>{});
@@ -10953,6 +10956,7 @@ const BACKSTAGE_CHARMS = [
 ];
 
 function DirectMessages({ onBack, user, initialFan }) {
+  const { tokenReady } = useAuth();
   const KEY = "backstage_dms";
   // Read dm-target from localStorage if not explicitly passed (set by Message buttons)
   const [dmTarget] = useState(()=>{
@@ -10961,16 +10965,13 @@ function DirectMessages({ onBack, user, initialFan }) {
     ls.del("backstage_dm_target");
     return t;
   });
-  const [convos, setConvos]     = useState(()=>ls.get(KEY,[]/* production inbox loads from /api/messages/threads; legacy seed disabled
-    { id:"dm-mia",   fan:{ name:"@mia_stays",  avatar:"M", color:C.accent }, messages:[
-      {from:"them",text:"Hey!! You going to the BTS show in Dallas? 💜",time:"2h ago"},
-      {from:"them",text:"I have an extra photocard if you want to trade before the show!",time:"2h ago"},
-    ], unread:2, lastTime:"2h ago" },
-    { id:"dm-kween", fan:{ name:"@kpopkween",  avatar:"K", color:C.pink   }, messages:[
-      {from:"them",text:"Loved your outfit post in the Fanverse 👏✨",time:"5h ago"},
-      {from:"me",   text:"Thank you!! It was so fun putting together 💜",time:"4h ago"},
-    ], unread:0, lastTime:"4h ago" },
-  */));
+  const [convos, setConvos]     = useState(()=>{
+    const stored = ls.get(KEY, []);
+    // Strip legacy mock entries (id starts with "dm-") that were seeded in early
+    // builds. Real backend threads have UUID ids. Stale mock data caused
+    // @mia_stays / @kpopkween to appear in production even with no real messages.
+    return Array.isArray(stored) ? stored.filter(c => !String(c.id || "").startsWith("dm-")) : [];
+  });
   const [activeConvo, setActiveConvo] = useState(dmTarget ? convos.find(c=>c.fan.name===dmTarget?.name)||null : null);
   const [circleGuard, setCircleGuard] = useState(null); // fan not in Circle
   const [dmSearch, setDmSearch] = useState("");
@@ -11015,13 +11016,14 @@ function DirectMessages({ onBack, user, initialFan }) {
   useEffect(()=>{ msgEndRef.current?.scrollIntoView({behavior:"smooth"}); }, [activeConvo?.messages?.length]);
 
   useEffect(() => {
+    if (!tokenReady) return;
     let alive = true;
     api.get('/api/messages/threads').then(d => {
       if (!alive || !Array.isArray(d?.threads)) return;
       setConvos(d.threads.map(t => normalizeDmThread(t)));
     }).catch(() => {});
     return () => { alive = false; };
-  }, [user?.id]);
+  }, [user?.id, tokenReady]);
 
   useEffect(() => {
     const q = dmSearch.trim().replace(/^@/, "");
