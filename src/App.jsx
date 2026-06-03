@@ -1426,17 +1426,25 @@ const MOCK_ACTIVE_TRADES_DEFAULT = [
   },
 ];
 
+// ─── NOTIFICATION LIFECYCLE HELPERS ─────────────────────────────────────────────
+// Filters out notifications whose expiresAt timestamp has passed.
+// Notifications without expiresAt are always kept (permanent inbox entries).
+function filterActiveNotifs(inbox) {
+  const now = Date.now();
+  return inbox.filter(n => !n.expiresAt || n.expiresAt > now);
+}
+
 // ─── MOCK NOTIFICATION EXAMPLES ────────────────────────────────────────────────
 const MOCK_NOTIF_EXAMPLES = [
-  { id:"n1", type:"concert",      icon:"🎤", title:"Concert Day — BTS Dallas!",             body:"Show starts in 6 hours. Check your checklist and circle.",      color:C.pink,    time:"Today 1:30 PM", read:false },
+  { id:"n1", type:"friend_req",   icon:"💫", title:"@nightcityarmy sent a Circle request", body:"They're attending the same show season. Tap to review their profile.", color:C.lavender, time:"1h ago", read:false, fromUserId:"fu1", fromUsername:"nightcityarmy", fromDisplayName:"Jess", fromAvatar:"J", fromColor:C.lavender },
   { id:"n2", type:"trade",        icon:"🃏", title:"Trade Match Found!",                    body:"@cardqueen_mia has your Karina MY WORLD UR. 1 match waiting.", color:C.accent,  time:"2h ago",        read:false },
   { id:"n3", type:"friend_req",   icon:"💫", title:"@vegasarmy wants to join your Circle",  body:"Yuna • BTS · Vegas weekend. Tap Accept to add them to your Circle.", color:C.lavender, time:"3h ago",   read:false, fromUserId:"fu5", fromUsername:"vegasarmy", fromDisplayName:"Yuna", fromAvatar:"Y", fromColor:C.rose },
-  { id:"n4", type:"capsule",      icon:"✨", title:"Tonight's capsule is live",              body:"Fans are adding moments to the BTS Vegas capsule right now. Join the memory.", color:C.berry,  time:"4h ago",        read:false },
-  { id:"n5", type:"meetup",       icon:"📍", title:"Meetup Starting Soon",                  body:"Klyde Warren Pre-show Meetup starts in 30 minutes. 23 fans RSVP'd.", color:C.mint, time:"5h ago",     read:true },
+  { id:"n4", type:"capsule",      icon:"✨", title:"Add memories to your Capsule",          body:"Don't let your concert memories fade — your Capsule is waiting.", color:C.berry,  time:"4h ago",        read:false },
+  { id:"n5", type:"meetup",       icon:"📍", title:"Meetups near your shows",               body:"Fans are organizing meetups in your city. Discover them before they fill up.", color:C.mint, time:"5h ago",     read:true },
   { id:"n6", type:"comeback",     icon:"🔔", title:"aespa Comeback Announced!",             body:"New mini-album drops July 12. Pre-save now for early photocard access.", color:C.rose, time:"6h ago", read:true },
   { id:"n7", type:"pass_reaction",icon:"💜", title:"Your Pass got a reaction",              body:"@staymia reacted 💜 to your Fit Check pass from tonight.",       color:C.gold,    time:"8h ago",        read:true, passId:"p1" },
   { id:"n8", type:"accepted",     icon:"🌟", title:"Circle accepted",                       body:"@armyjoon accepted your invite. They're in your Circle now ✦",   color:C.mint,    time:"Yesterday",     read:true },
-  { id:"n9", type:"afterglow",    icon:"🌙", title:"How was BTS Dallas last night? ✨",     body:"Don't forget your Afterglow — save the memory while it's fresh.", color:C.gold,   time:"Yesterday",     read:true },
+  { id:"n9", type:"afterglow",    icon:"🌙", title:"Afterglow is real ✨",                  body:"Save your concert memory before it fades. Add it to your Capsule.", color:C.gold,  time:"Yesterday",     read:true },
 ];
 
 const MOCK_MEETUPS = [
@@ -2786,14 +2794,13 @@ function HomeHero({ go }) {
     {
       id:2,
       label:"Your Era",
-      title:"concert era starts May 22nd ✦",
-      sub:"📍 Globe Life Field · Dallas, TX · 21 days away",
-      cta:"Mark Me Going",
-      ctaAction:"concerts",
+      title:"Your concert era is calling ✦",
+      sub:"💜 Find your crew before the next show",
+      cta:"Find Fans",
+      ctaAction:"invite",
       color:C.berry,
       bg:"linear-gradient(145deg,#2a0818 0%,#1a0410 45%,#07050f 100%)",
       mesh:"radial-gradient(ellipse at 75% 25%,#e879a032,transparent 55%),radial-gradient(ellipse at 20% 75%,#c4b5fd12,transparent 50%)",
-      pill:"LIVE",
     },
     {
       id:3,
@@ -2810,20 +2817,19 @@ function HomeHero({ go }) {
     {
       id:4,
       label:"Upcoming",
-      title:"aespa Drama Tour · LA Jun 2 ✨",
-      sub:"💜 Find your concert people on Backstage",
+      title:"Find your next show ✦",
+      sub:"💜 Discover K-pop events and find your people",
       cta:"Enter Fanverse",
       ctaAction:"fanverse",
       color:C.teal,
       bg:"linear-gradient(145deg,#041818 0%,#020e0e 45%,#07050f 100%)",
       mesh:"radial-gradient(ellipse at 70% 25%,#2dd4bf28,transparent 55%),radial-gradient(ellipse at 25% 70%,#8eefd414,transparent 50%)",
-      pill:"PREVIEW",
     },
     {
       id:5,
       label:"Your Crew",
       title:"Find fans before the show",
-      sub:"💜 Bring your Circle · concert-safe social",
+      sub:"💜 Find your people, without sharing too much.",
       cta:"Find Fans",
       ctaAction:"invite",
       color:C.blush,
@@ -2909,10 +2915,10 @@ function HomeHero({ go }) {
 // ── 2. IDENTITY STRIP ────────────────────────────────────────────────────────
 function HomeIdentity({ user, go }) {
   const name       = user?.username || user?.name || "Moonlight";
-  const bias       = user?.bias || "Karina";
-  const fandoms    = user?.fandoms?.length ? user.fandoms : ["aespa","Stray Kids","BTS"];
-  const nowPlaying = user?.now_playing || ls.get("backstage_now_playing") || { song:"Whiplash", artist:"aespa" };
-  const status     = ls.get("backstage_status") || "currently in my concert era 🌙";
+  const bias       = user?.bias || null;
+  const fandoms    = user?.fandoms?.length ? user.fandoms : [];
+  const nowPlaying = user?.now_playing || ls.get("backstage_now_playing") || null;
+  const status     = ls.get("backstage_status") || null;
 
   return (
     <div style={{ padding:"0 18px 22px" }}>
@@ -2927,35 +2933,46 @@ function HomeIdentity({ user, go }) {
             </div>
             <div style={{ flex:1, minWidth:0 }}>
               <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:17,letterSpacing:"-0.015em",marginBottom:2 }}>@{name}</p>
-              <p style={{ fontSize:11,color:C.textMid,fontStyle:"italic",marginBottom:8 }}>{status}</p>
-              {/* Fandoms */}
-              <div style={{ display:"flex",gap:5,flexWrap:"wrap" }}>
-                {fandoms.slice(0,3).map(f=>(
-                  <div key={f} style={{ ...VS.activePill(C.accent), fontSize:9 }}>{f}</div>
-                ))}
-                {fandoms.length>3&&<div style={{ ...VS.mutedPill, fontSize:9 }}>+{fandoms.length-3}</div>}
-              </div>
+              {status
+                ? <p style={{ fontSize:11,color:C.textMid,fontStyle:"italic",marginBottom:8 }}>{status}</p>
+                : <p onClick={()=>go("profile")} style={{ fontSize:11,color:C.textDim,fontStyle:"italic",marginBottom:8,cursor:"pointer" }}>tap to set your vibe... ✏️</p>
+              }
+              {/* Fandoms — only shown when set; empty state prompts edit */}
+              {fandoms.length > 0 ? (
+                <div style={{ display:"flex",gap:5,flexWrap:"wrap" }}>
+                  {fandoms.slice(0,3).map(f=>(
+                    <div key={f} style={{ ...VS.activePill(C.accent), fontSize:9 }}>{f}</div>
+                  ))}
+                  {fandoms.length>3&&<div style={{ ...VS.mutedPill, fontSize:9 }}>+{fandoms.length-3}</div>}
+                </div>
+              ) : (
+                <div onClick={()=>go("profile")} style={{ display:"inline-flex",alignItems:"center",gap:4,background:C.surfaceHi,border:`1px dashed ${C.border}`,borderRadius:99,padding:"3px 10px",cursor:"pointer" }}>
+                  <p style={{ fontSize:9,color:C.textDim }}>+ Add your groups</p>
+                </div>
+              )}
             </div>
             <button onClick={()=>go("profile")} style={{ flexShrink:0,background:`${C.accent}18`,border:`1px solid ${C.accent}38`,borderRadius:10,padding:"5px 10px",color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10,cursor:"pointer" }}>Edit</button>
           </div>
 
-          {/* Now Playing */}
-          <div style={{ display:"flex",gap:10,alignItems:"center",background:`${C.pink}0a`,border:`1px solid ${C.pink}22`,borderRadius:12,padding:"8px 11px" }}>
-            <div style={{ width:30,height:30,borderRadius:9,background:`linear-gradient(135deg,${C.pink}44,${C.accent}22)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,flexShrink:0 }}>🎵</div>
-            <div style={{ flex:1, minWidth:0 }}>
-              <p style={{ fontSize:8.5,color:C.pink,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:1 }}>♫ Now Playing</p>
-              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{nowPlaying.song}</p>
-              <p style={{ fontSize:10,color:C.textMid }}>{nowPlaying.artist}</p>
+          {/* Now Playing — only renders when user has set a song */}
+          {nowPlaying ? (
+            <div style={{ display:"flex",gap:10,alignItems:"center",background:`${C.pink}0a`,border:`1px solid ${C.pink}22`,borderRadius:12,padding:"8px 11px" }}>
+              <div style={{ width:30,height:30,borderRadius:9,background:`linear-gradient(135deg,${C.pink}44,${C.accent}22)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,flexShrink:0 }}>🎵</div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <p style={{ fontSize:8.5,color:C.pink,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:1 }}>♫ My Music</p>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{nowPlaying.song}</p>
+                <p style={{ fontSize:10,color:C.textMid }}>{nowPlaying.artist}</p>
+              </div>
+              {bias && <div style={{ ...VS.activePill(C.gold),fontSize:9,flexShrink:0 }}>Bias: {bias}</div>}
             </div>
-            {/* Mini EQ */}
-            <div style={{ display:"flex",gap:2,alignItems:"flex-end",height:14,flexShrink:0 }}>
-              {[1,2,3,4].map(i=>(
-                <div key={i} style={{ width:2.5,borderRadius:2,background:C.pink,animation:`eqBar ${0.4+i*0.18}s ease-in-out infinite`,animationDelay:`${i*0.1}s`,transformOrigin:"bottom",height:`${8+i*2}px` }} />
-              ))}
+          ) : (
+            <div onClick={()=>go("profile")} style={{ display:"flex",gap:10,alignItems:"center",background:`${C.pink}06`,border:`1px dashed ${C.border}`,borderRadius:12,padding:"8px 11px",cursor:"pointer" }}>
+              <div style={{ width:30,height:30,borderRadius:9,background:C.surfaceHi,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,flexShrink:0 }}>🎵</div>
+              <div style={{ flex:1 }}>
+                <p style={{ fontSize:11,color:C.textDim,fontFamily:"'Epilogue',sans-serif" }}>Set your now playing in Studio →</p>
+              </div>
             </div>
-            {/* Bias pill */}
-            <div style={{ ...VS.activePill(C.gold),fontSize:9,flexShrink:0 }}>Bias: {bias}</div>
-          </div>
+          )}
         </div>
       </div>
     </div>
@@ -3219,20 +3236,20 @@ function HomeFanversePreview({ go }) {
   const PREVIEW_CARDS = [
     {
       icon:"🔥",
-      title:"Dallas — STRAY KIDS show week",
-      sub:"Concert activity · preview signal",
+      title:"Concert season activity",
+      sub:"Fan signals across tour cities · preview",
       color:C.rose,
     },
     {
       icon:"💜",
-      title:"Seoul — BTS era preview",
-      sub:"Fan community signal · preview",
+      title:"K-pop fan hubs",
+      sub:"Community signal · across cities · preview",
       color:C.accent,
     },
     {
       icon:"🎤",
-      title:"LA — aespa Drama Tour",
-      sub:"Upcoming concert activity · preview",
+      title:"Upcoming shows near you",
+      sub:"Concert activity signal · preview",
       color:C.mint,
     },
   ];
@@ -3603,7 +3620,7 @@ function HomeFeed({ user, go, weather, isVip, onUpgrade, onSmartNotifs }) {
             })()}
             {/* 3. Backstage Buzz bell — badge reflects unread alerts */}
             {(()=>{
-              const unreadCount = (()=>{ try { const i=JSON.parse(localStorage.getItem("backstage_notif_inbox")||"null"); return Array.isArray(i)?i.filter(n=>!n.read).length:4; } catch{return 4;} })();
+              const unreadCount = (()=>{ try { const i=JSON.parse(localStorage.getItem("backstage_notif_inbox")||"null"); return Array.isArray(i)?filterActiveNotifs(i).filter(n=>!n.read).length:4; } catch{return 4;} })();
               return (
                 <button onClick={()=>go("notifications")} title="Backstage Buzz" style={{ width:36,height:36,borderRadius:"50%",background:C.surfaceHi,border:`1.5px solid ${unreadCount>0?C.accent:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",position:"relative",boxShadow:unreadCount>0?`0 0 12px ${C.accent}28`:"none",transition:"all .2s" }}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M18 8A6 6 0 1 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" stroke={unreadCount>0?C.accent:C.text} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.73 21a2 2 0 0 1-3.46 0" stroke={unreadCount>0?C.accent:C.text} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -3672,14 +3689,14 @@ function HomeFeed({ user, go, weather, isVip, onUpgrade, onSmartNotifs }) {
 // ─── NOTIFICATION BELL ────────────────────────────────────────────────────────
 function NotificationBell({ onOpen }) {
   const [unread, setUnread] = useState(()=>{
-    const inbox = ls.get("backstage_notif_inbox", MOCK_NOTIF_EXAMPLES);
+    const inbox = filterActiveNotifs(ls.get("backstage_notif_inbox", MOCK_NOTIF_EXAMPLES));
     return inbox.filter(n=>!n.read).length;
   });
 
   // Re-count unread every 2 seconds (simple polling for localStorage updates)
   useEffect(()=>{
     const iv = setInterval(()=>{
-      const inbox = ls.get("backstage_notif_inbox", MOCK_NOTIF_EXAMPLES);
+      const inbox = filterActiveNotifs(ls.get("backstage_notif_inbox", MOCK_NOTIF_EXAMPLES));
       setUnread(inbox.filter(n=>!n.read).length);
     }, 2000);
     return ()=>clearInterval(iv);
@@ -12267,6 +12284,10 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
         <div key={i} style={{ position:"absolute", top:`${SPARKLE_POS[i]?.[0]??i*12}%`, left:`${SPARKLE_POS[i]?.[1]??80}%`, fontSize:ch.length>1?16:11, opacity:0.15, animation:`sparkleFloat ${3.5+i*0.6}s ease-in-out infinite`, animationDelay:`${i*0.45}s`, color:"rgba(255,255,255,0.9)", pointerEvents:"none", zIndex:0 }}>{ch}</div>
       ))}
       <Screen style={{ position:"relative", zIndex:1 }}>
+        {/* Fan passport label */}
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"18px 20px 0" }}>
+          <p style={{ fontSize:9, color:"rgba(255,255,255,0.25)", fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.18em" }}>✦ Your fan passport</p>
+        </div>
         {/* STATUS BANNER — uses active skin gradient */}
         <div style={{ background:activeSkinGrad, borderRadius:28, padding:"22px 18px 18px", marginTop:18, marginBottom:18, position:"relative", minHeight:120, boxShadow:`0 16px 48px rgba(0,0,0,0.6), 0 4px 20px ${C.berry}18`, overflow:"hidden" }}>
           {/* Cosmic texture overlay */}
@@ -13727,7 +13748,7 @@ function StandaloneNotifCenter({ onBack, onNavigate }) {
 // FCM push payload should mirror the same shape in the `data` field so
 // that notification taps from the system tray open the correct modal/tab.
 function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNotif, onNavigate }) {
-  const [inbox, setInbox] = useState(()=>ls.get("backstage_notif_inbox", MOCK_NOTIF_EXAMPLES));
+  const [inbox, setInbox] = useState(()=>filterActiveNotifs(ls.get("backstage_notif_inbox", MOCK_NOTIF_EXAMPLES)));
   const [tab, setTab]     = useState("updates"); // updates | settings
   const unread = inbox.filter(n=>!n.read).length;
 
