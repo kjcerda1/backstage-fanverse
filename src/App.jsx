@@ -13740,7 +13740,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
           <Card>
             {[
               {label:"🔔 Push Notifications",sub:"Concert alerts, trade updates",val:notifOn,set:notifOn?()=>setNotifOn(false):requestNotif,color:C.accent,action:()=>setSection("notifications")},
-              {label:"🔍 Fan Discovery",sub:"Let fans at concerts find you",val:discoverable,set:setDiscoverable,color:C.mint,action:null},
+              {label:"🔍 Fan Discovery",sub:"Show me in fan suggestions & concert discovery",val:discoverable,set:setDiscoverable,color:C.mint,action:null},
               {label:"🎯 Solo Mode",sub:"Prioritize solo fans & safer meetups",val:soloMode,set:setSoloMode,color:C.gold,action:null},
               {label:"☀️ Light Mode",sub:"Softer purple-tinted light theme",val:ls.get("backstage_light_mode",false),set:(v)=>{
                 ls.set("backstage_light_mode",v);

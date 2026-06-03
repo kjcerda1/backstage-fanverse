@@ -179,6 +179,7 @@ async function requireAuth(req, res, next) {
   if (MOCK_MODE) {
     req.userId    = 'mock_user_1';
     req.userEmail = 'fan@backstage.app';
+    req.userToken = null;
     return next();
   }
   const token = req.headers.authorization?.replace('Bearer ', '');
@@ -187,19 +188,33 @@ async function requireAuth(req, res, next) {
   if (error || !user) return res.status(401).json({ error: 'Invalid or expired session' });
   req.userId    = user.id;
   req.userEmail = user.email;
+  req.userToken = token;
   next();
 }
 
+// Creates a per-request Supabase client that forwards the user's JWT.
+// Works correctly whether SUPABASE_SERVICE_KEY is the service role key
+// (bypasses RLS entirely) or the anon key (queries run as authenticated role,
+// which RLS grants allow after the fix_table_grants_all_roles migration).
+function makeUserClient(req) {
+  return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { Authorization: `Bearer ${req.userToken}` } },
+  });
+}
+
 async function optionalAuth(req, res, next) {
-  if (MOCK_MODE) { req.userId = null; return next(); }
+  if (MOCK_MODE) { req.userId = null; req.userToken = null; return next(); }
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (!token) return next();
   try {
     const { data: { user }, error } = await supabase.auth.getUser(token);
     req.userId = user?.id || null;
+    req.userToken = user?.id ? token : null;
     req.authError = error || null;
   } catch (err) {
     req.userId = null;
+    req.userToken = null;
     req.authError = err;
   }
   next();
@@ -566,7 +581,8 @@ app.get('/api/subscriptions/status', optionalAuth, async (req, res) => {
   if (!req.userId) return res.status(401).json({ error: 'Authentication required' });
   if (MOCK_MODE)   return res.json({ is_vip: false, plan: null, status: 'free', mock: true });
   try {
-    const { data, error } = await supabase
+    const db = req.userToken ? makeUserClient(req) : supabase;
+    const { data, error } = await db
       .from('users')
       .select('is_vip, vip_since, vip_source, vip_expires_at, stripe_customer_id')
       .eq('id', req.userId)
@@ -1800,7 +1816,7 @@ app.get('/api/users/me', requireAuth, async (req, res) => {
     });
   }
   try {
-    const { data, error } = await supabase.from('users').select('*').eq('id', req.userId).single();
+    const { data, error } = await makeUserClient(req).from('users').select('*').eq('id', req.userId).single();
 
     // Row exists — return it
     if (data && !error) return res.json(decorateCurrentUserProfile(data));
@@ -1824,7 +1840,7 @@ app.get('/api/users/me', requireAuth, async (req, res) => {
           is_vip:       false,
           proof_score:  0,
         };
-        return supabase.from('users').upsert(newUser).select('*').single();
+        return makeUserClient(req).from('users').upsert(newUser).select('*').single();
       };
       let { data: created, error: insertErr } = await tryInsert(usernameBase);
       if (insertErr && insertErr.code === '23505') {
@@ -2144,7 +2160,7 @@ app.get('/api/users/search', requireAuth, async (req, res) => {
     let orClause = `username.ilike.${contains},display_name.ilike.${contains},email.ilike.${prefix}`;
     if (looksLikePhone) orClause += `,phone_normalized.eq.${phoneDigits}`;
 
-    const { data, error } = await supabase
+    const { data, error } = await makeUserClient(req)
       .from('users')
       .select('id, username, display_name, fandoms, avatar_url, city, bio, proof_score, is_vip')
       .or(orClause)
