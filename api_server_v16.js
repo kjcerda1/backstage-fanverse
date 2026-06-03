@@ -3279,6 +3279,197 @@ app.post('/api/cards/upload-url', requireAuth, async (req, res) => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
+// CARD TEMPLATES — /api/card-templates | /api/binders/from-template
+// ═════════════════════════════════════════════════════════════════════════════
+
+const TEMPLATE_STATUS_LABELS = {
+  backstage:     'Backstage Template',
+  fan_submitted: 'Fan-Submitted · Needs review',
+  verified:      'Verified Template',
+  in_progress:   'In Progress',
+  archived:      'Archived',
+};
+
+const TEMPLATE_COMPLETENESS_LABELS = {
+  complete:          'Complete',
+  may_include_gaps:  'May include gaps',
+  partial:           'Partial',
+  unknown:           'Unknown completeness',
+};
+
+// GET /api/card-templates — search/list templates (public, no auth required)
+app.get('/api/card-templates', async (req, res) => {
+  if (!supabase) return res.json({ templates: [], mock: true });
+  const { group, album, status, q } = req.query;
+  try {
+    let query = supabase
+      .from('card_templates')
+      .select('*')
+      .neq('status', 'archived')
+      .order('group_name')
+      .order('album_name');
+
+    if (group)  query = query.ilike('group_name', `%${group}%`);
+    if (album)  query = query.ilike('album_name', `%${album}%`);
+    if (status) query = query.eq('status', status);
+    if (q)      query = query.or(`group_name.ilike.%${q}%,album_name.ilike.%${q}%,era.ilike.%${q}%`);
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const templates = (data || []).map(t => ({
+      ...t,
+      status_label:       TEMPLATE_STATUS_LABELS[t.status]      || t.status,
+      completeness_label: TEMPLATE_COMPLETENESS_LABELS[t.completeness] || t.completeness,
+      last_updated_fmt:   t.last_updated ? new Date(t.last_updated).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : null,
+    }));
+    res.json({ templates });
+  } catch (err) {
+    console.error('[CardTemplates GET]', err.message);
+    res.json({ templates: [], mock: true });
+  }
+});
+
+// GET /api/card-templates/:id — template + its cards
+app.get('/api/card-templates/:id', async (req, res) => {
+  if (!supabase) return res.json({ template: null, cards: [], mock: true });
+  try {
+    const [{ data: tmpl, error: te }, { data: cards, error: ce }] = await Promise.all([
+      supabase.from('card_templates').select('*').eq('id', req.params.id).single(),
+      supabase.from('template_cards').select('*').eq('template_id', req.params.id).order('sort_order'),
+    ]);
+    if (te) throw te;
+    const template = {
+      ...tmpl,
+      status_label:       TEMPLATE_STATUS_LABELS[tmpl.status]      || tmpl.status,
+      completeness_label: TEMPLATE_COMPLETENESS_LABELS[tmpl.completeness] || tmpl.completeness,
+      last_updated_fmt:   tmpl.last_updated ? new Date(tmpl.last_updated).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : null,
+    };
+    res.json({ template, cards: cards || [] });
+  } catch (err) {
+    console.error('[CardTemplates/:id GET]', err.message);
+    res.status(404).json({ error: 'Template not found' });
+  }
+});
+
+// POST /api/card-templates — fan-submitted template
+app.post('/api/card-templates', requireAuth, async (req, res) => {
+  if (!supabase) return res.json({ template: null, mock: true });
+  const { group_name, album_name, era, release_year, cover_emoji, cover_color, notes } = req.body;
+  if (!group_name || !album_name) return res.status(400).json({ error: 'group_name and album_name required' });
+  try {
+    const { data, error } = await supabase
+      .from('card_templates')
+      .insert({
+        group_name, album_name, era, release_year,
+        cover_emoji: cover_emoji || '🃏',
+        cover_color,
+        notes,
+        status:       'fan_submitted',
+        completeness: 'unknown',
+        source_label: 'Fan-Submitted · Needs review',
+        created_by:   req.userId,
+        last_updated: new Date().toISOString(),
+      })
+      .select().single();
+    if (error) throw error;
+    res.json({ template: data });
+  } catch (err) {
+    console.error('[CardTemplates POST]', err.message);
+    res.status(500).json({ error: 'Failed to create template' });
+  }
+});
+
+// POST /api/card-templates/:id/cards — add card to a template
+app.post('/api/card-templates/:id/cards', requireAuth, async (req, res) => {
+  if (!supabase) return res.json({ card: null, mock: true });
+  const { member_name, card_name, card_type, version, store_source, notes } = req.body;
+  if (!member_name && !card_name) return res.status(400).json({ error: 'member_name or card_name required' });
+  try {
+    const { data: tmpl } = await supabase.from('card_templates').select('group_name, album_name, era').eq('id', req.params.id).single();
+    if (!tmpl) return res.status(404).json({ error: 'Template not found' });
+
+    const { data, error } = await supabase.from('template_cards')
+      .insert({ template_id: req.params.id, group_name: tmpl.group_name, member_name, album_name: tmpl.album_name, era: tmpl.era, card_name, card_type: card_type || 'album', version, store_source, notes })
+      .select().single();
+    if (error) throw error;
+
+    // Increment card_count
+    await supabase.rpc('increment_card_count', { template_id_input: req.params.id }).catch(() => {
+      supabase.from('card_templates').update({ card_count: supabase.raw('card_count + 1'), last_updated: new Date().toISOString() }).eq('id', req.params.id);
+    });
+
+    res.json({ card: data });
+  } catch (err) {
+    console.error('[TemplateCards POST]', err.message);
+    res.status(500).json({ error: 'Failed to add card to template' });
+  }
+});
+
+// POST /api/binders/from-template — create binder + user_cards from template
+app.post('/api/binders/from-template', requireAuth, async (req, res) => {
+  if (!supabase) return res.json({ binder: null, mock: true });
+  const { template_id } = req.body;
+  if (!template_id) return res.status(400).json({ error: 'template_id required' });
+
+  try {
+    // Fetch template + cards
+    const [{ data: tmpl }, { data: cards }] = await Promise.all([
+      supabase.from('card_templates').select('*').eq('id', template_id).single(),
+      supabase.from('template_cards').select('*').eq('template_id', template_id).order('sort_order'),
+    ]);
+    if (!tmpl) return res.status(404).json({ error: 'Template not found' });
+
+    // Check for existing binder from same template to prevent accidental duplicates
+    const { data: existing } = await supabase
+      .from('binders')
+      .select('id, name')
+      .eq('user_id', req.userId)
+      .ilike('name', `${tmpl.group_name}%${tmpl.album_name}%`)
+      .maybeSingle();
+    if (existing) {
+      return res.status(409).json({ error: `You already have a binder for ${tmpl.group_name} — ${tmpl.album_name}`, existing_binder_id: existing.id });
+    }
+
+    // Create binder
+    const { data: binder, error: binderErr } = await supabase
+      .from('binders')
+      .insert({
+        user_id:    req.userId,
+        name:       `${tmpl.group_name} — ${tmpl.album_name}`,
+        group_name: tmpl.group_name,
+        cover_color: tmpl.cover_color,
+        emoji:       tmpl.cover_emoji || '🃏',
+      })
+      .select().single();
+    if (binderErr) throw binderErr;
+
+    // Create user_cards from template_cards, all status = missing
+    if (cards?.length) {
+      const userCards = cards.map(tc => ({
+        user_id:    req.userId,
+        binder_id:  binder.id,
+        group_name: tc.group_name,
+        album:      tc.album_name,
+        era:        tc.era,
+        member:     tc.member_name || tc.card_name,
+        version:    tc.version,
+        card_type:  tc.card_type || 'album',
+        description: tc.card_name,
+        status:     'missing',
+      }));
+      const { error: cardsErr } = await supabase.from('user_cards').insert(userCards);
+      if (cardsErr) throw cardsErr;
+    }
+
+    res.json({ binder, card_count: cards?.length || 0 });
+  } catch (err) {
+    console.error('[BinderFromTemplate POST]', err.message);
+    res.status(500).json({ error: 'Failed to create binder from template' });
+  }
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
 // TRADE FLOW V2 — listing_offers | listing_messages | listing_reports
 // ═════════════════════════════════════════════════════════════════════════════
 

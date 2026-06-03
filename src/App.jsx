@@ -5055,54 +5055,90 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
 
 const BINDER_STATUS_TO_DB = { missing:"missing", owned:"owned", wishlist:"iso", dupe:"duplicate", tradeable:"for_trade" };
 
-function BinderCreate({ onBack, onCustom }) {
-  const [step, setStep] = useState("search"); // search | template | slots
+function BinderCreate({ onBack, onCustom, onCreatedBinder }) {
+  const [step, setStep] = useState("search"); // search | preview | slots
   const [groupSearch, setGroupSearch] = useState("");
-  const [selectedTemplate, setSelectedTemplate] = useState(null);
+  const [selectedTemplate, setSelectedTemplate] = useState(null);   // DB template
+  const [selectedMock, setSelectedMock] = useState(null);           // mock template (legacy slots flow)
   const [slots, setSlots] = useState([]);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [dbTemplates, setDbTemplates] = useState([]);
+  const [dbLoading, setDbLoading] = useState(true);
+  const [dbError, setDbError] = useState(false);
+  const [duplicateErr, setDuplicateErr] = useState(null);
 
-  const filtered = groupSearch
-    ? MOCK_COLLECTION_TEMPLATES.filter(t => t.group.toLowerCase().includes(groupSearch.toLowerCase()) || t.album.toLowerCase().includes(groupSearch.toLowerCase()))
-    : MOCK_COLLECTION_TEMPLATES;
+  // Fetch DB templates on mount; fall back to MOCK if unavailable
+  useEffect(() => {
+    api.get('/api/card-templates')
+      .then(d => {
+        if (d?.templates?.length) { setDbTemplates(d.templates); }
+        else setDbError(true);
+        setDbLoading(false);
+      })
+      .catch(() => { setDbError(true); setDbLoading(false); });
+  }, []);
 
-  const loadTemplate = (t) => {
-    setSelectedTemplate(t);
-    const initSlots = t.cards.map((name, i) => ({ id: i, name, status: "missing" }));
-    setSlots(initSlots);
-    setStep("slots");
-  };
+  // Which templates to show: DB if available, otherwise mock-shaped fallback
+  const showingDb = !dbError && dbTemplates.length > 0;
+  const q = groupSearch.toLowerCase();
+  const filteredDb = showingDb
+    ? dbTemplates.filter(t => !q || t.group_name.toLowerCase().includes(q) || t.album_name.toLowerCase().includes(q) || (t.era||'').toLowerCase().includes(q))
+    : [];
+  const filteredMock = !showingDb
+    ? MOCK_COLLECTION_TEMPLATES.filter(t => !q || t.group.toLowerCase().includes(q) || t.album.toLowerCase().includes(q))
+    : [];
+
+  const openDbTemplate = (t) => { setSelectedTemplate(t); setSelectedMock(null); setDuplicateErr(null); setStep("preview"); };
+  const openMockTemplate = (t) => { setSelectedMock(t); setSelectedTemplate(null); const initSlots = t.cards.map((name,i)=>({id:i,name,status:"missing"})); setSlots(initSlots); setStep("slots"); };
 
   const cycleStatus = (id) => {
     const order = ["missing", "owned", "wishlist", "dupe", "tradeable"];
     setSlots(s => s.map(slot => slot.id === id ? { ...slot, status: order[(order.indexOf(slot.status) + 1) % order.length] } : slot));
   };
 
+  // Legacy: save mock-template binder (slots flow)
   const saveBinder = async () => {
-    if (saving) return;
+    if (saving || !selectedMock) return;
     setSaving(true);
     const d = await api.post('/api/binders', {
-      name: `${selectedTemplate.group} — ${selectedTemplate.album}`,
-      group_name: selectedTemplate.group,
-      cover_color: selectedTemplate.color,
-      emoji: selectedTemplate.emoji,
+      name: `${selectedMock.group} — ${selectedMock.album}`,
+      group_name: selectedMock.group,
+      cover_color: selectedMock.color,
+      emoji: selectedMock.emoji,
     });
     if (d?.binder?.id) {
       const binderId = d.binder.id;
       await Promise.all(slots.map(slot =>
         api.post('/api/cards', {
           binder_id: binderId,
-          group_name: selectedTemplate.group,
-          album: selectedTemplate.album,
-          era: selectedTemplate.era,
+          group_name: selectedMock.group,
+          album: selectedMock.album,
+          era: selectedMock.era,
           member: slot.name,
           status: BINDER_STATUS_TO_DB[slot.status] || 'missing',
         })
       ));
       ls.set('backstage_has_binder', true);
-      setSaved(true);
-      setTimeout(() => onBack(), 1200);
+      if (onCreatedBinder) onCreatedBinder(d.binder);
+      else { setSaved(true); setTimeout(() => onBack(), 1200); }
+    } else {
+      setSaving(false);
+    }
+  };
+
+  // DB template path: create binder from template via API
+  const createFromTemplate = async () => {
+    if (saving || !selectedTemplate) return;
+    setSaving(true); setDuplicateErr(null);
+    const d = await api.post('/api/binders/from-template', { template_id: selectedTemplate.id });
+    if (d?.binder) {
+      ls.set('backstage_has_binder', true);
+      if (onCreatedBinder) onCreatedBinder(d.binder);
+      else { setSaved(true); setTimeout(() => onBack(), 1200); }
+    } else if (d?.existing_binder_id) {
+      setDuplicateErr(`You already have a binder for ${selectedTemplate.group_name} — ${selectedTemplate.album_name}.`);
+      setSaving(false);
     } else {
       setSaving(false);
     }
@@ -5115,16 +5151,77 @@ function BinderCreate({ onBack, onCustom }) {
     <div style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:40, textAlign:"center" }}>
       <div style={{ fontSize:52, marginBottom:16, animation:"burst .4s ease" }}>🎉</div>
       <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, marginBottom:8 }}>Binder Created!</p>
-      <p style={{ fontSize:13, color:C.textMid }}>Your {selectedTemplate?.group} collection is ready to track.</p>
+      <p style={{ fontSize:13, color:C.textMid }}>Your {(selectedMock||selectedTemplate)?.group_name||(selectedMock?.group)} collection is ready to track.</p>
     </div>
   );
 
-  if (step === "slots" && selectedTemplate) return (
+  // DB template preview step
+  if (step === "preview" && selectedTemplate) {
+    const STATUS_CHIP_META = { backstage:'Backstage Template', fan_submitted:'Fan-Submitted · Needs review', verified:'Verified Template', in_progress:'In Progress' };
+    const COMPLETENESS_CHIP = { complete:{ label:'Complete', color:C.mint }, may_include_gaps:{ label:'May include gaps', color:C.gold }, partial:{ label:'Partial', color:C.gold }, unknown:{ label:'Unknown', color:C.textMid } };
+    const cComp = COMPLETENESS_CHIP[selectedTemplate.completeness] || COMPLETENESS_CHIP.unknown;
+    return (
+      <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
+        <div style={{ padding:"16px 20px 14px", flexShrink:0, display:"flex", alignItems:"center", gap:10 }}>
+          <button onClick={()=>setStep("search")} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
+          <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:18 }}>Template Preview</h2>
+        </div>
+        <Screen style={{ padding:"0 20px calc(140px + env(safe-area-inset-bottom))" }}>
+          {/* Hero */}
+          <div style={{ background:`linear-gradient(140deg,${selectedTemplate.cover_color||C.accent}18,${selectedTemplate.cover_color||C.accent}06)`, border:`1.5px solid ${selectedTemplate.cover_color||C.accent}33`, borderRadius:22, padding:20, marginBottom:16, position:"relative", overflow:"hidden" }}>
+            <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${selectedTemplate.cover_color||C.accent}44,transparent)` }} />
+            <div style={{ display:"flex", gap:14, alignItems:"center", marginBottom:14 }}>
+              <div style={{ width:60,height:60,borderRadius:18,background:`${selectedTemplate.cover_color||C.accent}22`,border:`1.5px solid ${selectedTemplate.cover_color||C.accent}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,flexShrink:0 }}>{selectedTemplate.cover_emoji||"🃏"}</div>
+              <div style={{ flex:1,minWidth:0 }}>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:18,color:C.text,lineHeight:1.2,marginBottom:3 }}>{selectedTemplate.album_name}</p>
+                <p style={{ fontSize:12,color:C.textMid }}>{selectedTemplate.group_name}{selectedTemplate.era&&selectedTemplate.era!==selectedTemplate.album_name?` · ${selectedTemplate.era}`:""}{selectedTemplate.release_year?` · ${selectedTemplate.release_year}`:""}</p>
+              </div>
+            </div>
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:10 }}>
+              <div style={{ ...VS.activePill(selectedTemplate.cover_color||C.accent), fontSize:9 }}>{STATUS_CHIP_META[selectedTemplate.status]||selectedTemplate.status}</div>
+              <div style={{ ...VS.activePill(cComp.color), fontSize:9 }}>⚠ {cComp.label}</div>
+              <div style={{ ...VS.activePill(C.silver), fontSize:9 }}>🃏 {selectedTemplate.card_count} cards</div>
+            </div>
+            {/* Stats row */}
+            <div style={{ display:"flex", gap:0, background:`${C.bg}55`, borderRadius:14, overflow:"hidden" }}>
+              {[{val:selectedTemplate.card_count,label:"Cards"},{val:selectedTemplate.release_year||"—",label:"Year"},{val:selectedTemplate.last_updated_fmt||"—",label:"Updated"}].map((s,i)=>(
+                <div key={s.label} style={{ flex:1,textAlign:"center",padding:"10px 4px",borderRight:i<2?`1px solid ${C.border}`:"none" }}>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,color:selectedTemplate.cover_color||C.accent,lineHeight:1 }}>{s.val}</p>
+                  <p style={{ fontSize:9,color:C.textMid,marginTop:2 }}>{s.label}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Honesty note */}
+          <div style={{ background:`${C.gold}0a`, border:`1px solid ${C.gold}28`, borderRadius:14, padding:"10px 14px", marginBottom:16, display:"flex", gap:8, alignItems:"flex-start" }}>
+            <span style={{ fontSize:14, flexShrink:0 }}>⚠</span>
+            <div>
+              <p style={{ fontSize:10.5, color:C.gold, fontFamily:"'Epilogue',sans-serif", fontWeight:700, marginBottom:2 }}>May include gaps</p>
+              <p style={{ fontSize:10.5, color:C.textMid, lineHeight:1.55 }}>{selectedTemplate.notes||"This template may not include every POB, lucky draw, fansign, or store-exclusive card. Add missing cards manually."}</p>
+            </div>
+          </div>
+
+          {duplicateErr && (
+            <div style={{ background:`${C.rose}10`,border:`1.5px solid ${C.rose}33`,borderRadius:14,padding:"10px 14px",marginBottom:14 }}>
+              <p style={{ fontSize:11.5, color:C.rose }}>{duplicateErr}</p>
+              <p style={{ fontSize:10.5, color:C.textMid, marginTop:3 }}>Find it in your Albums tab to open it.</p>
+            </div>
+          )}
+
+          <Btn onClick={createFromTemplate} disabled={saving}>{saving?"Creating...":"Create Binder from Template ✦"}</Btn>
+          <p style={{ textAlign:"center", fontSize:10.5, color:C.textDim, marginTop:10 }}>All cards will be set to Missing. Open the binder to mark what you own.</p>
+        </Screen>
+      </div>
+    );
+  }
+
+  if (step === "slots" && selectedMock) return (
     <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
       <div style={{ padding:"16px 20px 14px", flexShrink:0, display:"flex", alignItems:"center", gap:10 }}>
         <button onClick={()=>setStep("search")} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
         <div style={{ flex:1 }}>
-          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:16, lineHeight:1.2 }}>{selectedTemplate.group} — {selectedTemplate.album}</p>
+          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:16, lineHeight:1.2 }}>{selectedMock.group} — {selectedMock.album}</p>
           <p style={{ fontSize:11, color:C.textMid }}>{slots.filter(s=>s.status==="owned").length}/{slots.length} owned · tap cards to cycle status</p>
         </div>
       </div>
@@ -5156,7 +5253,7 @@ function BinderCreate({ onBack, onCustom }) {
           ))}
         </div>
         <div style={{ height:20 }} />
-        <div style={{ background:`linear-gradient(140deg,${selectedTemplate.color}10,${selectedTemplate.color}04)`, border:`1.5px solid ${selectedTemplate.color}28`, borderRadius:22, padding:18, marginBottom:10, textAlign:"center" }}>
+        <div style={{ background:`linear-gradient(140deg,${selectedMock.color}10,${selectedMock.color}04)`, border:`1.5px solid ${selectedMock.color}28`, borderRadius:22, padding:18, marginBottom:10, textAlign:"center" }}>
           <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,marginBottom:6 }}>Collection Summary</p>
           <div style={{ display:"flex", gap:14, justifyContent:"center", marginBottom:14 }}>
             {[["owned",C.mint],["wishlist",C.accent],["dupe",C.gold],["tradeable",C.rose],["missing",C.textDim]].map(([s,col])=>(
@@ -5166,7 +5263,7 @@ function BinderCreate({ onBack, onCustom }) {
               </div>
             ))}
           </div>
-          <ProgressBar value={(slots.filter(s=>s.status==="owned").length/slots.length)*100} color={selectedTemplate.color} />
+          <ProgressBar value={(slots.filter(s=>s.status==="owned").length/slots.length)*100} color={selectedMock.color} />
         </div>
         <Btn onClick={saveBinder} disabled={saving}>{saving?"Saving...":"Save Binder ✦"}</Btn>
       </Screen>
@@ -5180,34 +5277,75 @@ function BinderCreate({ onBack, onCustom }) {
         <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:19 }}>Start a Binder</h2>
       </div>
       <Screen style={{ padding:"0 18px calc(120px + env(safe-area-inset-bottom))" }}>
-        <p style={{ fontSize:12.5, color:C.textMid, marginBottom:16, lineHeight:1.65 }}>Choose an album template to auto-generate card slots. Then mark what you own, want, or have to trade.</p>
-        <Input value={groupSearch} onChange={e=>setGroupSearch(e.target.value)} placeholder="Search group or album..." style={{ marginBottom:16 }} />
-        <div style={{ display:"flex", flexDirection:"column", gap:11 }}>
-          {filtered.map(t => (
-            <button key={t.id} onClick={()=>loadTemplate(t)} className="tap" style={{
-              padding:"16px 16px", borderRadius:24, textAlign:"left", cursor:"pointer",
-              ...VS.glowCard(t.color),
-            }}>
-              <div style={VS.shimmerLine(t.color)} />
-              <div style={VS.innerGlow(t.color)} />
-              <div style={{ display:"flex", alignItems:"center", gap:12, position:"relative" }}>
-                <div style={{ width:52,height:52,borderRadius:16,background:`${t.color}20`,border:`1.5px solid ${t.color}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,flexShrink:0,boxShadow:`0 0 16px ${t.color}18` }}>{t.emoji}</div>
-                <div style={{ flex:1 }}>
-                  <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:15, color:C.text, marginBottom:3 }}>{t.group}</p>
-                  <p style={{ fontSize:12, color:C.textMid, marginBottom:4 }}>{t.album}</p>
-                  <div style={{ display:"flex", gap:5, alignItems:"center" }}>
-                    <div style={VS.activePill(t.color)}>{t.total} cards</div>
+        <p style={{ fontSize:12, color:C.textMid, marginBottom:12, lineHeight:1.6 }}>Choose an album template to create a binder, or build a custom one for any group.</p>
+        <Input value={groupSearch} onChange={e=>setGroupSearch(e.target.value)} placeholder="Search group or album..." style={{ marginBottom:14 }} />
+
+        {/* Loading indicator */}
+        {dbLoading && <p style={{ textAlign:"center", fontSize:12, color:C.textMid, padding:"12px 0" }}>Loading templates...</p>}
+
+        {/* DB templates */}
+        {!dbLoading && showingDb && (
+          <>
+            {!dbError && <p style={{ fontSize:9.5, color:C.textDim, marginBottom:10, fontFamily:"'Epilogue',sans-serif", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.08em" }}>Backstage Starter Templates</p>}
+            <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:14 }}>
+              {(filteredDb.length ? filteredDb : dbTemplates).map(t => {
+                const col = t.cover_color || C.accent;
+                return (
+                  <button key={t.id} onClick={()=>openDbTemplate(t)} className="tap" style={{ padding:"14px 16px", borderRadius:22, textAlign:"left", cursor:"pointer", ...VS.glowCard(col) }}>
+                    <div style={VS.shimmerLine(col)} />
+                    <div style={VS.innerGlow(col)} />
+                    <div style={{ display:"flex", alignItems:"center", gap:12, position:"relative" }}>
+                      <div style={{ width:50,height:50,borderRadius:15,background:`${col}20`,border:`1.5px solid ${col}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,flexShrink:0 }}>{t.cover_emoji||"🃏"}</div>
+                      <div style={{ flex:1,minWidth:0 }}>
+                        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14.5,color:C.text,marginBottom:2 }}>{t.group_name}</p>
+                        <p style={{ fontSize:11.5,color:C.textMid,marginBottom:5 }}>{t.album_name}</p>
+                        <div style={{ display:"flex",gap:5,flexWrap:"wrap",alignItems:"center" }}>
+                          <div style={{ ...VS.activePill(col),fontSize:8 }}>{t.status_label||t.status}</div>
+                          <div style={{ ...VS.activePill(C.gold),fontSize:8 }}>⚠ {t.completeness_label||"May include gaps"}</div>
+                          <div style={{ ...VS.activePill(C.silver),fontSize:8 }}>{t.card_count} cards</div>
+                        </div>
+                      </div>
+                      <span style={{ color:col,fontSize:18,flexShrink:0 }}>→</span>
+                    </div>
+                  </button>
+                );
+              })}
+              {filteredDb.length===0 && groupSearch && <p style={{ fontSize:12,color:C.textMid,textAlign:"center",padding:"10px 0" }}>No templates match "{groupSearch}"</p>}
+            </div>
+          </>
+        )}
+
+        {/* Mock fallback (when DB unavailable) */}
+        {!dbLoading && !showingDb && (
+          <>
+            <p style={{ fontSize:9.5, color:C.textDim, marginBottom:10, fontFamily:"'Epilogue',sans-serif", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.08em" }}>Starter Templates</p>
+            <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:14 }}>
+              {filteredMock.map(t => (
+                <button key={t.id} onClick={()=>openMockTemplate(t)} className="tap" style={{ padding:"14px 16px", borderRadius:22, textAlign:"left", cursor:"pointer", ...VS.glowCard(t.color) }}>
+                  <div style={VS.shimmerLine(t.color)} />
+                  <div style={VS.innerGlow(t.color)} />
+                  <div style={{ display:"flex", alignItems:"center", gap:12, position:"relative" }}>
+                    <div style={{ width:50,height:50,borderRadius:15,background:`${t.color}20`,border:`1.5px solid ${t.color}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,flexShrink:0 }}>{t.emoji}</div>
+                    <div style={{ flex:1 }}>
+                      <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14.5,color:C.text,marginBottom:2 }}>{t.group}</p>
+                      <p style={{ fontSize:11.5,color:C.textMid,marginBottom:5 }}>{t.album}</p>
+                      <div style={{ display:"flex",gap:5 }}>
+                        <div style={{ ...VS.activePill(t.color),fontSize:8 }}>{t.total} cards</div>
+                        <div style={{ ...VS.activePill(C.gold),fontSize:8 }}>⚠ May include gaps</div>
+                      </div>
+                    </div>
+                    <span style={{ color:t.color,fontSize:18 }}>→</span>
                   </div>
-                </div>
-                <span style={{ color:t.color, fontSize:18 }}>→</span>
-              </div>
-            </button>
-          ))}
-        </div>
-        <div style={{ height:16 }} />
-        <div style={{ background:`${C.accent}0a`, border:`1.5px dashed ${C.border}`, borderRadius:22, padding:20, textAlign:"center" }}>
-          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13, marginBottom:5 }}>Manual Add</p>
-          <p style={{ fontSize:11.5, color:C.textMid, marginBottom:12 }}>Create a custom binder for any group or era not listed above.</p>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* Custom binder CTA */}
+        <div style={{ background:`${C.accent}0a`, border:`1.5px dashed ${C.border}`, borderRadius:22, padding:18, textAlign:"center" }}>
+          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13, marginBottom:4 }}>Any other group?</p>
+          <p style={{ fontSize:11, color:C.textMid, marginBottom:12 }}>Create a custom binder for any group, era, or set not listed above.</p>
           <Btn ghost color={C.accent} small onClick={onCustom}>+ Create Custom Binder</Btn>
         </div>
       </Screen>
@@ -6470,8 +6608,8 @@ function CollectTab({ cards, setCards, isVip, onUpgrade, user }) {
     setTracking({ status:"In Transit", statusDetail:"Package departed sorting facility", location:"Memphis, TN", estimatedDelivery:"Apr 29" });
   };
 
-  if (showBinderCreate) return <BinderCreate onBack={()=>{ setShowBinderCreate(false); refreshBinders(); }} onCustom={()=>{ setShowBinderCreate(false); setShowCustomBinder(true); }} />;
-  if (showCustomBinder) return <CustomBinderForm onBack={()=>setShowCustomBinder(false)} onSaved={()=>{ setShowCustomBinder(false); refreshBinders(); }} />;
+  if (showBinderCreate) return <BinderCreate onBack={()=>{ setShowBinderCreate(false); refreshBinders(); }} onCustom={()=>{ setShowBinderCreate(false); setShowCustomBinder(true); }} onCreatedBinder={b=>{ setShowBinderCreate(false); refreshBinders(); setSelectedBinder(b); }} />;
+  if (showCustomBinder) return <CustomBinderForm onBack={()=>setShowCustomBinder(false)} onSaved={b=>{ setShowCustomBinder(false); refreshBinders(); setSelectedBinder(b); }} />;
   if (showTradeHub) return <TradeHub onBack={()=>setShowTradeHub(false)} user={user} />;
   if (selectedBinder) return <BinderDetail binder={selectedBinder} onBack={()=>setSelectedBinder(null)} />;
 
