@@ -50,6 +50,57 @@ const api = {
 const AuthCtx = createContext({ user: null, session: null, loading: true, tokenReady: false, signOut: ()=>{} });
 const useAuth = () => useContext(AuthCtx);
 
+// ─── DATA HOOKS ───────────────────────────────────────────────────────────────
+// useEvents — fetches /api/events and returns { events, dataState }.
+// dataState: 'loading' | 'real' | 'preview' | 'empty' | 'error'
+// 'preview' when the backend responds with mock:true (no live data source).
+// Components should label preview data with a "Preview" chip, real data with nothing.
+function useEvents({ group, city, groups } = {}) {
+  const [events, setEvents]       = useState([]);
+  const [dataState, setDataState] = useState('loading');
+
+  useEffect(() => {
+    const qs = new URLSearchParams();
+    if (group)  qs.set('group', group);
+    if (city)   qs.set('city',  city);
+    if (groups?.length) qs.set('groups', groups.join(','));
+
+    api.get(`/api/events${qs.toString() ? `?${qs}` : ''}`)
+      .then(d => {
+        const list = d?.events || [];
+        setEvents(list);
+        if (d?.error)      setDataState('error');
+        else if (d?.mock)  setDataState('preview');
+        else if (!list.length) setDataState('empty');
+        else               setDataState('real');
+      })
+      .catch(() => { setEvents([]); setDataState('error'); });
+  }, [group, city, groups?.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return { events, dataState };
+}
+
+// useAnnouncements — fetches /api/announcements.
+// Returns client-filtered array (expiresAt respected on frontend too).
+// Falls back to [] silently — announcements are optional, never block UI.
+function useAnnouncements({ fandom, city, group_name } = {}) {
+  const [items, setItems] = useState([]);
+
+  useEffect(() => {
+    const qs = new URLSearchParams();
+    if (fandom)     qs.set('fandom',     fandom);
+    if (city)       qs.set('city',       city);
+    if (group_name) qs.set('group_name', group_name);
+
+    api.get(`/api/announcements${qs.toString() ? `?${qs}` : ''}`)
+      .then(d => setItems(d?.announcements || []))
+      .catch(() => setItems([]));
+  }, [fandom, city, group_name]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Client-side expiry filter mirrors the server filter for edge cases
+  return items.filter(n => !n.expires_at || new Date(n.expires_at).getTime() > Date.now());
+}
+
 // Shared user search — returns users[] on success, null on auth/API failure, [] on no results.
 // null vs [] lets callers show "unavailable" vs "no results" without treating them the same.
 async function searchBackstageUsers(q) {
@@ -3586,6 +3637,14 @@ function HomeFeed({ user, go, weather, isVip, onUpgrade, onSmartNotifs }) {
   const [searchVal, setSearchVal] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
 
+  // Live announcements from backend — tour announcements, event alerts etc.
+  // Falls back to [] silently; does not block render.
+  const userFandoms = user?.fandoms?.length ? user.fandoms : [];
+  const announcements = useAnnouncements({
+    fandom:     userFandoms[0] || undefined,
+    group_name: userFandoms[0] || undefined,
+  });
+
   const hour     = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const name     = user?.username || user?.name || "Moonlight";
@@ -3651,7 +3710,24 @@ function HomeFeed({ user, go, weather, isVip, onUpgrade, onSmartNotifs }) {
         {/* VIP/Founder welcome card — shown at top when user has active pass */}
         {isVip && <HomeFounderCard user={user} go={go} />}
 
-        {/* 1b. CONCERT DAY BANNER — auto-shown when show is today/imminent */}
+        {/* 1b. LIVE ANNOUNCEMENTS — real backend events/tour alerts (no badge needed) */}
+        {announcements.length > 0 && (
+          <div style={{ padding:"0 18px 4px" }}>
+            {announcements.slice(0,3).map(a => (
+              <div key={a.id} onClick={()=>go(a.action_route||'concerts')} className="tap"
+                style={{ display:"flex",gap:11,alignItems:"center",background:C.surface,border:`1.5px solid ${C.borderHi}`,borderRadius:16,padding:"11px 14px",marginBottom:8,cursor:"pointer" }}>
+                <div style={{ width:36,height:36,borderRadius:11,background:`${C.accent}18`,border:`1px solid ${C.accent}33`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0 }}>🎤</div>
+                <div style={{ flex:1,minWidth:0 }}>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12.5,color:C.text,marginBottom:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{a.title}</p>
+                  {a.body && <p style={{ fontSize:10.5,color:C.textMid,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{a.body}</p>}
+                </div>
+                <span style={{ fontSize:11,color:C.accent,flexShrink:0 }}>→</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* 1c. CONCERT DAY BANNER — lifecycle-gated, shows day-of/afterglow/upcoming */}
         <ConcertDayBanner go={go} />
 
         {/* 2. LIVE STATS STRIP — today in the fanverse */}
@@ -4155,39 +4231,33 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
   const [going, setGoing] = useState(()=>ls.get("backstage_going",{}));
   const [selected, setSelected] = useState(null);
   const [rsvped, setRsvped] = useState(()=>ls.get("backstage_rsvped",{}));
-  const [apiConcerts, setApiConcerts] = useState([]);
-
   const setGoingPersisted   = (fn) => setGoing(prev=>{ const next=typeof fn==="function"?fn(prev):fn; ls.set("backstage_going",next); return next; });
   const setRsvpedPersisted  = (fn) => setRsvped(prev=>{ const next=typeof fn==="function"?fn(prev):fn; ls.set("backstage_rsvped",next); return next; });
 
-  useEffect(()=>{
-    if (!API_URL) return;
-    const groups = user?.fandoms || user?.favorite_groups || [];
-    const query  = groups.length ? `?groups=${encodeURIComponent(groups.join(','))}` : '';
-    api.get(`/api/events${query}`).then(d=>{
-      if (d?.events?.length) {
-        // Normalize TM/API events to MOCK_CONCERTS shape, skip IDs already in MOCK_CONCERTS
-        const existingIds = new Set(MOCK_CONCERTS.map(c=>c.id));
-        const fresh = d.events
-          .filter(e => !existingIds.has(e.id))
-          .map(e=>({
-            id:                 e.id,
-            name:               e.title || e.name,
-            city:               e.city,
-            date:               e.date,
-            venue:              e.venue,
-            group:              e.group,
-            color:              C.accent,
-            attendees:          e.going || null,
-            verificationStatus: e.verificationStatus || 'api',
-            sourceType:         'ticketmaster',
-            sourceName:         'Ticketmaster',
-            sourceUrl:          e.url || null,
-          }));
-        setApiConcerts(fresh);
-      }
-    }).catch(()=>{});
-  },[user?.id]);
+  // Live events from backend — useEvents handles mock flag + data state labeling
+  const userGroups = user?.fandoms || user?.favorite_groups || [];
+  const { events: liveEvents, dataState: eventsState } = useEvents({ groups: userGroups });
+
+  // Normalize API events to MOCK_CONCERTS shape, skip IDs already in MOCK_CONCERTS
+  const existingIds   = new Set(MOCK_CONCERTS.map(c => c.id));
+  const apiConcerts   = liveEvents
+    .filter(e => !existingIds.has(e.id))
+    .map(e => ({
+      id:                 e.id,
+      name:               e.name || e.title,
+      city:               e.city,
+      date:               e.date,
+      venue:              e.venue,
+      group:              e.group_name || e.group,
+      color:              C.accent,
+      attendees:          e.going || null,
+      ticket_url:         e.ticket_url || e.url || null,
+      image_url:          e.image_url   || null,
+      verificationStatus: e.verificationStatus || (eventsState === 'real' ? 'confirmed' : 'preview'),
+      sourceType:         e.source || 'ticketmaster',
+      sourceName:         e.source === 'ticketmaster' ? 'Ticketmaster' : 'Backstage',
+      sourceUrl:          e.ticket_url || e.url || null,
+    }));
 
   if (selected) return <ShowDetail concert={selected} onBack={()=>setSelected(null)} going={going} setGoing={setGoingPersisted} go={go} isVip={isVip} onUpgrade={onUpgrade} rsvped={rsvped} setRsvped={setRsvpedPersisted} />;
 
@@ -4197,11 +4267,20 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
     <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
       {/* ── HEADER — title + disclaimer + tabs ── */}
       <div style={{ padding:"16px 20px 0", flexShrink:0, background:`linear-gradient(180deg,${C.bg} 85%,transparent)` }}>
-        <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, letterSpacing:"-0.02em", marginBottom:6 }}>Concerts</h2>
-        {/* Data source disclaimer — legible, not hidden */}
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
+          <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, letterSpacing:"-0.02em" }}>Concerts</h2>
+          {/* Data state badge — honest about source */}
+          {eventsState === 'real'    && <span style={{ fontSize:8, color:C.mint, fontFamily:"'Epilogue',sans-serif", fontWeight:700, letterSpacing:"0.1em" }}>● SYNCED</span>}
+          {eventsState === 'preview' && <StatusChip label="PREVIEW" style={{ fontSize:8 }} />}
+          {eventsState === 'loading' && <span style={{ fontSize:8, color:C.textDim }}>Loading…</span>}
+        </div>
         <p style={{ fontSize:10, color:C.textMid, marginBottom:14, lineHeight:1.55 }}>
-          Confirmed events are from official ticketing or venue pages.{" "}
-          <span style={{ color:C.textDim }}>Preview cards are sample data.</span>
+          {eventsState === 'real'
+            ? 'Live events from official ticketing sources.'
+            : eventsState === 'empty'
+              ? 'No upcoming shows found for your groups yet.'
+              : <>Confirmed events are from official sources.{" "}<span style={{ color:C.textDim }}>Preview cards are sample data.</span></>
+          }
         </p>
         {/* Tab row — paddingRight so last tab doesn't clip at edge */}
         <div style={{ display:"flex", gap:7, overflowX:"auto", paddingBottom:12, paddingRight:20, scrollbarWidth:"none", WebkitOverflowScrolling:"touch" }}>

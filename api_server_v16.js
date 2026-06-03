@@ -218,6 +218,7 @@ app.get('/api/health', (req, res) => {
     has_firebase:        HAS_FIREBASE,
     has_spotify:         HAS_SPOTIFY,
     has_mapbox:          HAS_MAPBOX,
+    has_ticketmaster:    HAS_TICKETMASTER,
     timestamp:           new Date().toISOString(),
   });
 });
@@ -1191,34 +1192,118 @@ app.post('/api/outfits/save-inspo', requireAuth, async (req, res) => {
 
 
 // ═════════════════════════════════════════════════════════════════════════════
-// EVENTS
+// EVENTS + TICKETMASTER PIPELINE
 // ═════════════════════════════════════════════════════════════════════════════
 //
-// CURRENT STATE (Phase 1):
-//   - Frontend ConcertsPage renders MOCK_CONCERTS directly (not this route).
-//   - This route exists but is NOT called by the frontend yet.
-//   - Mock fallback returns MOCK_EVENTS (outdated 2025 test data).
+// PIPELINE (active):
+//   1. GET /api/events — frontend hook reads events, respects mock flag
+//   2. POST /api/events/sync-ticketmaster — admin trigger; upserts TM events
+//      into Supabase events table and creates announcements for new ones
+//   3. GET /api/announcements — returns active non-expired announcements
 //
-// PHASE 2 PLAN — wire frontend ConcertsPage to this route:
-//   1. Frontend calls GET /api/events?groups=BTS,aespa (from user.fandoms)
-//   2. Backend queries Supabase events table OR Ticketmaster Discovery API
-//   3. Merge with manually-confirmed events (e.g. Vegas BTS ARIRANG)
-//   4. Return ranked by user's fandoms
+// DATA FLOW:
+//   Ticketmaster API (backend only — key never in frontend bundle)
+//     → fetchTicketmasterEvents() → normalizeTicketmasterEvent()
+//     → supabase events table (upsert on external_id)
+//     → supabase announcements table
+//     → GET /api/events + GET /api/announcements
+//     → Frontend useEvents() + useAnnouncements() hooks
 //
-// PHASE 3 PLAN — Ticketmaster integration:
-//   Required env: TICKETMASTER_API_KEY (server-side only, never frontend)
-//   Endpoint: https://app.ticketmaster.com/discovery/v2/events.json
-//     ?classificationName=K-Pop&keyword={group}&apikey={TICKETMASTER_API_KEY}
-//   Sync strategy: nightly cron → populate supabase.from('events') table
-//   Frontend never calls Ticketmaster directly — always through this proxy.
+// DATA STATES (mirrors frontend badge logic):
+//   mock: true  → frontend shows "Preview"
+//   source=ticketmaster → real, no badge
+//   source=manual → real, no badge
+//   empty real response → honest empty state on frontend
+//
+// ENV: TICKETMASTER_API_KEY — server-side only, Render environment.
+//      Never reaches the browser. HAS_TICKETMASTER flag guards all TM calls.
 // ═════════════════════════════════════════════════════════════════════════════
 
+// Mock fallback — used when MOCK_MODE=true or all live sources fail.
+// Dates kept one year out from latest session so they don't look stale.
 const MOCK_EVENTS = [
-  { id: 'e1', title: 'Stray Kids DOMINATEE World Tour', date: '2025-05-30', city: 'Dallas', venue: 'Moody Center', group: 'Stray Kids', fandom: 'STAY', going: 2341, image: null },
-  { id: 'e2', title: 'ATEEZ THE FELLOWSHIP: BREAK THE WALL', date: '2025-06-15', city: 'Los Angeles', venue: 'Kia Forum', group: 'ATEEZ', fandom: 'ATINY', going: 1892, image: null },
-  { id: 'e3', title: 'TWICE 5TH WORLD TOUR: READY TO BE', date: '2025-06-28', city: 'New York', venue: 'Prudential Center', group: 'TWICE', fandom: 'ONCE', going: 3102, image: null },
-  { id: 'e4', title: 'aespa MY WORLD TOUR', date: '2025-07-12', city: 'Chicago', venue: 'United Center', group: 'aespa', fandom: 'MY', going: 2780, image: null },
+  { id: 'e1', title: 'Stray Kids DOMINATEE World Tour', date: '2026-08-15', city: 'Dallas, TX', venue: 'Moody Center', group: 'Stray Kids', fandom: 'STAY', going: 2341, image: null },
+  { id: 'e2', title: 'ATEEZ THE FELLOWSHIP: BREAK THE WALL', date: '2026-09-05', city: 'Los Angeles, CA', venue: 'Kia Forum', group: 'ATEEZ', fandom: 'ATINY', going: 1892, image: null },
+  { id: 'e3', title: 'TWICE 5TH WORLD TOUR: READY TO BE', date: '2026-09-20', city: 'New York, NY', venue: 'Prudential Center', group: 'TWICE', fandom: 'ONCE', going: 3102, image: null },
+  { id: 'e4', title: 'aespa MY WORLD TOUR', date: '2026-10-08', city: 'Chicago, IL', venue: 'United Center', group: 'aespa', fandom: 'MY', going: 2780, image: null },
 ];
+
+// ─── TICKETMASTER HELPERS ─────────────────────────────────────────────────────
+// Normalise a raw Ticketmaster event object into the shape expected by
+// both the /api/events response and the Supabase events table.
+function normalizeTicketmasterEvent(e) {
+  const venue      = e._embedded?.venues?.[0];
+  const attraction = e._embedded?.attractions?.[0];
+  const cityName   = venue?.city?.name  || '';
+  const stateCode  = venue?.state?.stateCode || '';
+  return {
+    id:          e.id,
+    name:        e.name,
+    group_name:  attraction?.name || e.classifications?.[0]?.genre?.name || 'K-Pop',
+    // Keep legacy `group` field for frontend compatibility
+    group:       attraction?.name || e.classifications?.[0]?.genre?.name || 'K-Pop',
+    city:        cityName && stateCode ? `${cityName}, ${stateCode}` : cityName,
+    state:       stateCode,
+    venue:       venue?.name || '',
+    // `date` for legacy shape; `starts_at` stored in DB column
+    date:        e.dates?.start?.localDate || null,
+    ticket_url:  e.url || null,
+    image_url:   e.images?.find(i => i.ratio === '16_9' && i.width >= 640)?.url
+              || e.images?.[0]?.url || null,
+    external_id: e.id,
+    source:      'ticketmaster',
+    updated_at:  new Date().toISOString(),
+    raw:         e,
+    // legacy fields
+    verificationStatus: 'confirmed',
+    sourceType:         'ticketmaster',
+    url:                e.url || null,
+  };
+}
+
+// Fetch events from Ticketmaster Discovery v2 for one or more keywords.
+// Returns [] when TICKETMASTER_API_KEY is not set (safe no-op).
+async function fetchTicketmasterEvents({ keywords = ['K-Pop'], city, size = 20 } = {}) {
+  if (!HAS_TICKETMASTER) return [];
+  const TM_KEY = process.env.TICKETMASTER_API_KEY;
+  try {
+    const results = await Promise.all(
+      keywords.map(kw => {
+        const params = new URLSearchParams({
+          apikey:             TM_KEY,
+          keyword:            kw,
+          classificationName: 'Music',
+          locale:             'en-us',
+          size:               String(size),
+          sort:               'date,asc',
+        });
+        if (city) params.set('city', city);
+        return fetch(`https://app.ticketmaster.com/discovery/v2/events.json?${params}`)
+          .then(r => r.ok ? r.json() : null)
+          .catch(() => null);
+      })
+    );
+    const seen = new Set();
+    const events = [];
+    for (const data of results) {
+      for (const e of (data?._embedded?.events || [])) {
+        if (!seen.has(e.id)) { seen.add(e.id); events.push(normalizeTicketmasterEvent(e)); }
+      }
+    }
+    return events;
+  } catch (err) {
+    console.error('[TM] fetchTicketmasterEvents error:', err.message);
+    return [];
+  }
+}
+
+// Returns true when an event title/group_name matches any of the user's fandoms.
+function eventMatchesUser(event, user) {
+  const groups = user?.fandoms || user?.top_groups || user?.favorite_groups || [];
+  if (!groups.length) return false;
+  const haystack = `${event.name || ''} ${event.group_name || ''} ${event.group || ''} ${event.fandom || ''}`.toLowerCase();
+  return groups.some(g => haystack.includes(g.toLowerCase()));
+}
 
 // Confirmed events always surfaced regardless of Ticketmaster or Supabase state
 const CONFIRMED_EVENTS = [
@@ -1246,39 +1331,9 @@ app.get('/api/events', optionalAuth, async (req, res) => {
 
   // 1 — Ticketmaster Discovery API (when key is present)
   if (HAS_TICKETMASTER) {
-    const TM_KEY   = process.env.TICKETMASTER_API_KEY;
     const keywords = requestedGroups.length ? requestedGroups : (group ? [group] : ['K-Pop']);
-    try {
-      const tmResults = await Promise.all(
-        keywords.map(kw =>
-          fetch(
-            `https://app.ticketmaster.com/discovery/v2/events.json` +
-            `?classificationName=K-Pop&keyword=${encodeURIComponent(kw)}` +
-            `&apikey=${TM_KEY}&locale=en-us&size=20&sort=date,asc`
-          ).then(r => r.ok ? r.json() : null).catch(() => null)
-        )
-      );
-      for (const tmData of tmResults) {
-        const items = tmData?._embedded?.events || [];
-        for (const e of items) {
-          const venue  = e._embedded?.venues?.[0];
-          const date   = e.dates?.start?.localDate;
-          collected.push({
-            id:                 e.id,
-            title:              e.name,
-            group:              e.classifications?.[0]?.genre?.name || 'K-Pop',
-            city:               venue ? `${venue.city?.name}, ${venue.state?.stateCode}` : '',
-            venue:              venue?.name || '',
-            date,
-            verificationStatus: 'confirmed',
-            sourceType:         'ticketmaster',
-            url:                e.url,
-          });
-        }
-      }
-    } catch (err) {
-      console.error('[Events TM] Error:', err.message);
-    }
+    const tmEvents = await fetchTicketmasterEvents({ keywords, city, size: 20 });
+    collected.push(...tmEvents);
   }
 
   // 2 — Supabase events table (manually curated or cached from TM nightly sync)
@@ -1323,6 +1378,116 @@ app.post('/api/events/attendance', requireAuth, async (req, res) => {
     res.json({ success: true, message: "You're going! 🎉" });
   } catch (err) {
     res.status(500).json({ error: 'Could not update attendance' });
+  }
+});
+
+// ─── POST /api/events/sync-ticketmaster ──────────────────────────────────────
+// Fetches events from Ticketmaster, upserts into Supabase events table, and
+// creates an announcement for each brand-new event (not previously in DB).
+// Requires auth. Ticketmaster key never reaches the browser.
+// Body: { keyword?: string, city?: string, size?: number }
+app.post('/api/events/sync-ticketmaster', requireAuth, async (req, res) => {
+  if (MOCK_MODE) {
+    return res.json({ success: true, mock: true, synced: 0, message: 'Mock mode — Ticketmaster sync skipped.' });
+  }
+  if (!HAS_TICKETMASTER) {
+    return res.status(503).json({ error: 'TICKETMASTER_API_KEY not configured on this server.' });
+  }
+
+  const { keyword, city, size = 50 } = req.body || {};
+  const keywords = keyword ? [keyword] : ['K-Pop', 'BTS', 'aespa', 'Stray Kids', 'NewJeans', 'ATEEZ'];
+
+  try {
+    const fetched = await fetchTicketmasterEvents({ keywords, city, size });
+    if (!fetched.length) return res.json({ success: true, synced: 0, events: [] });
+
+    // Map to events table shape (uses existing columns + new external_id columns)
+    const rows = fetched.map(e => ({
+      id:          e.id,
+      name:        e.name,
+      group_name:  e.group_name,
+      city:        e.city,
+      state:       e.state,
+      venue:       e.venue,
+      date:        e.date ? new Date(e.date).toISOString() : null,
+      image_url:   e.image_url,
+      ticket_url:  e.ticket_url,
+      external_id: e.external_id,
+      source:      'ticketmaster',
+      raw:         e.raw,
+      updated_at:  new Date().toISOString(),
+    }));
+
+    // Upsert on PK (id = TM event ID). existing rows get updated_at refreshed.
+    const { data: upserted, error: upsertErr } = await supabase
+      .from('events')
+      .upsert(rows, { onConflict: 'id' })
+      .select('id, name, group_name, city, date, external_id');
+
+    if (upsertErr) throw upsertErr;
+
+    // For each newly upserted event create an announcement if one doesn't exist
+    const announcementRows = (upserted || []).map(e => ({
+      type:         'tour_announcement',
+      title:        e.name,
+      body:         `${e.group_name || 'K-pop artist'} announced a show${e.city ? ` in ${e.city}` : ''}.`,
+      event_id:     e.id,
+      group_name:   e.group_name,
+      city:         e.city,
+      source:       'ticketmaster',
+      data_state:   'real',
+      priority:     2,
+      action_route: 'concerts',
+      // Expire 24h after the event date so stale announcements disappear
+      expires_at:   e.date ? new Date(new Date(e.date).getTime() + 86_400_000).toISOString() : null,
+      status:       'active',
+    }));
+
+    if (announcementRows.length) {
+      // insert ignore — if announcement for this event already exists, skip
+      await supabase.from('announcements').upsert(announcementRows, {
+        onConflict: 'event_id,type',
+        ignoreDuplicates: true,
+      }).catch(() => {}); // non-fatal if upsert fails (conflict index may not exist yet)
+    }
+
+    res.json({ success: true, synced: upserted?.length || 0, events: upserted });
+  } catch (err) {
+    console.error('[Sync TM] Error:', err.message);
+    res.status(500).json({ error: 'Ticketmaster sync failed', detail: err.message });
+  }
+});
+
+// ─── GET /api/announcements ───────────────────────────────────────────────────
+// Returns active, non-expired announcements ordered by priority desc.
+// Optional filters: ?fandom=BTS&city=Dallas&group_name=BTS&limit=20
+// data_state field: 'real' | 'preview' | 'stale' — frontend uses for badge logic.
+// Falls back to [] (no mock announcements — they are always real or absent).
+app.get('/api/announcements', optionalAuth, async (req, res) => {
+  if (MOCK_MODE) return res.json({ announcements: [], mock: true });
+
+  const { fandom, city, group_name, limit = 20 } = req.query;
+  try {
+    let q = supabase
+      .from('announcements')
+      .select('*')
+      .eq('status', 'active')
+      .or('expires_at.is.null,expires_at.gt.' + new Date().toISOString())
+      .order('priority', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(Number(limit));
+
+    if (fandom)     q = q.ilike('fandom', `%${fandom}%`);
+    if (city)       q = q.ilike('city', `%${city}%`);
+    if (group_name) q = q.ilike('group_name', `%${group_name}%`);
+
+    const { data, error } = await q;
+    if (error) throw error;
+
+    res.json({ announcements: data || [] });
+  } catch (err) {
+    console.error('[Announcements] Error:', err.message);
+    res.status(500).json({ error: 'Could not load announcements' });
   }
 });
 
