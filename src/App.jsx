@@ -534,6 +534,8 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 /* ── Collectible card hover lift ─────────────────────────────────────────── */
 .card-lift{transition:transform .2s ease,box-shadow .2s ease}
 .card-lift:active{transform:scale(0.97) translateY(1px)}
+/* ── Bottom nav hidden while any bottom sheet is open ───────────────────── */
+body.bs-sheet-open .bs-bottom-nav{display:none!important}
 `;
 
 // ─── RESERVED USERNAMES ────────────────────────────────────────────────────────
@@ -13048,6 +13050,13 @@ function MyCircleSection({ go, user }) {
   const accepted = friends.filter(f=>f.status==="accepted");
   const query = form.name.replace(/^@/, "").trim();
 
+  // Hide the global bottom nav while this sheet is open so it doesn't
+  // overlap the action buttons. Class is removed on unmount as well.
+  useEffect(() => {
+    document.body.classList.toggle('bs-sheet-open', adding);
+    return () => document.body.classList.remove('bs-sheet-open');
+  }, [adding]);
+
   useEffect(() => {
     if (!adding || query.length < 2) {
       setResults([]);
@@ -16943,7 +16952,7 @@ function AppInner() {
 
         {/* BOTTOM NAV */}
         {appState==="main"&&!modal&&(
-          <div style={{ position:"absolute",left:0,right:0,bottom:0,display:"flex",minHeight:62,background:"rgba(10,10,22,0.98)",borderTop:`1px solid ${C.borderHi}`,paddingBottom:"max(env(safe-area-inset-bottom), 10px)",backdropFilter:"blur(24px)",boxShadow:"0 -1px 0 rgba(184,162,255,0.06)",zIndex:100 }}>
+          <div className="bs-bottom-nav" style={{ position:"absolute",left:0,right:0,bottom:0,display:"flex",minHeight:62,background:"rgba(10,10,22,0.98)",borderTop:`1px solid ${C.borderHi}`,paddingBottom:"max(env(safe-area-inset-bottom), 10px)",backdropFilter:"blur(24px)",boxShadow:"0 -1px 0 rgba(184,162,255,0.06)",zIndex:100 }}>
             {NAV.map(n=>{
               const active = tab===n.id;
               const NAV_ICONS = {
