@@ -524,6 +524,17 @@ app.post('/api/ai/assistant', aiLimiter, requireAuth, async (req, res) => {
 // GET VIP status for current user
 // Response includes vip_source and vip_expires_at when present so the
 // frontend isVipActive() helper can handle both paid and comped VIP.
+function computeVipStatus(data = {}) {
+  const source = data?.vip_source || null;
+  const sourceActive = source === 'founder' || source === 'stripe' ||
+    (source === 'comped' && (!data?.vip_expires_at || new Date(data.vip_expires_at) > new Date()));
+  const active = data?.is_vip === true || sourceActive;
+  return {
+    active,
+    plan: active ? (source === 'founder' ? 'founder' : 'vip') : null,
+    status: active ? 'active' : 'free',
+  };
+}
 //
 // ── COMP VIP PLAN ────────────────────────────────────────────────────────────
 // To support admin-granted free VIP (founders, testers, family, influencers)
@@ -560,14 +571,12 @@ app.get('/api/subscriptions/status', optionalAuth, async (req, res) => {
       .eq('id', req.userId)
       .single();
     if (error) throw error;
-    // Determine effective VIP: paid Stripe OR active comp grant
-    const compActive = data?.vip_source === 'comped' &&
-      (!data?.vip_expires_at || new Date(data.vip_expires_at) > new Date());
-    const effectiveVip = data?.is_vip === true || compActive;
+    const vip = computeVipStatus(data);
     res.json({
-      is_vip:         effectiveVip,
-      plan:           effectiveVip ? 'vip' : null,
-      status:         effectiveVip ? 'active' : 'free',
+      is_vip:         vip.active,
+      vip_active:     vip.active,
+      plan:           vip.plan,
+      status:         vip.status,
       vip_since:      data?.vip_since,
       vip_source:     data?.vip_source || null,
       vip_expires_at: data?.vip_expires_at || null,
@@ -1629,7 +1638,7 @@ app.get('/api/users/me', requireAuth, async (req, res) => {
     const { data, error } = await supabase.from('users').select('*').eq('id', req.userId).single();
 
     // Row exists — return it
-    if (data && !error) return res.json(data);
+    if (data && !error) return res.json(decorateCurrentUserProfile(data));
 
     // Row missing (new user / trigger didn't fire) — create it from Supabase Auth data
     if (!data || error?.code === 'PGRST116') {
@@ -1651,7 +1660,7 @@ app.get('/api/users/me', requireAuth, async (req, res) => {
         console.error('[GET /api/users/me] Auto-create failed:', insertErr.message);
         return res.status(500).json({ error: 'Could not create user profile', detail: insertErr.message });
       }
-      return res.json(created);
+      return res.json(decorateCurrentUserProfile(created));
     }
 
     // Any other DB error
@@ -1690,6 +1699,19 @@ const isBackendReservedUsername = (name) => {
   if (!name || typeof name !== 'string') return false;
   return BACKEND_RESERVED_USERNAMES.has(name.toLowerCase().replace(/[^a-z0-9_]/g,''));
 };
+
+function decorateCurrentUserProfile(profile = {}) {
+  const vip = computeVipStatus(profile);
+  return {
+    ...profile,
+    handle: profile.username,
+    backstage_name: profile.display_name,
+    favorite_groups: profile.fandoms || [],
+    is_vip: vip.active,
+    vip_active: vip.active,
+    plan: vip.plan,
+  };
+}
 
 // ─── PATCH /api/users/me ──────────────────────────────────────────────────────
 // Updates user profile fields — fandoms is the canonical selected-groups field.
@@ -1748,7 +1770,7 @@ app.patch('/api/users/me', requireAuth, async (req, res) => {
     const { data, error } = await supabase
       .from('users')
       .upsert(updates, { onConflict: 'id' })
-      .select('id, username, display_name, fandoms, bias, city, bio, is_vip')
+      .select('id, username, display_name, fandoms, bias, city, bio, is_vip, vip_source, vip_since, vip_expires_at, stripe_customer_id')
       .single();
 
     if (error) {
@@ -1756,8 +1778,9 @@ app.patch('/api/users/me', requireAuth, async (req, res) => {
       return res.status(500).json({ error: error.message });
     }
 
+    await convertPendingReferralForUser(req.userId);
     console.log('[PATCH /api/users/me] updated fandoms for', req.userId, ':', data.fandoms);
-    res.json({ ...data, handle:data.username, backstage_name:data.display_name, favorite_groups:data.fandoms, onboarding_complete:true, profile_complete:true });
+    res.json({ ...decorateCurrentUserProfile(data), onboarding_complete:true, profile_complete:true });
   } catch (err) {
     console.error('[PATCH /api/users/me] Exception:', err.message);
     // Never crash the frontend — return a safe partial response so
@@ -1960,6 +1983,323 @@ app.get('/api/users/search', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('[GET /api/users/search] Exception:', err.message);
     res.status(500).json({ error: 'Search unavailable' });
+  }
+});
+
+const REFERRAL_REWARDS = [
+  { key: 'vip_7_day_trial', count: 1, label: 'VIP 7-day Trial', note: 'VIP trial pending activation' },
+  { key: 'founding_fan_badge', count: 3, label: 'Founding Fan Badge', note: 'Perk unlocked in app' },
+  { key: 'vip_30_day_glow', count: 5, label: 'VIP 30-day + Glow', note: 'VIP glow pending activation' },
+  { key: 'fanverse_pioneer', count: 10, label: 'Fanverse Pioneer', note: 'Perk unlocked in app' },
+];
+
+function normalizeReferralBase(value) {
+  return String(value || 'fan').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 8) || 'FAN';
+}
+
+async function getOrCreateReferralCodeForUser(userId) {
+  const { data: existing, error: existingErr } = await supabase
+    .from('referral_codes')
+    .select('code')
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (existingErr) throw existingErr;
+  if (existing?.code) return existing.code;
+
+  const { data: profile } = await supabase
+    .from('users')
+    .select('username, display_name, email')
+    .eq('id', userId)
+    .maybeSingle();
+  const base = normalizeReferralBase(profile?.username || profile?.display_name || profile?.email);
+
+  for (let i = 0; i < 5; i++) {
+    const suffix = Math.random().toString(36).slice(2, 6).toUpperCase();
+    const code = `BACKSTAGE-${base}-${suffix}`;
+    const { data, error } = await supabase
+      .from('referral_codes')
+      .insert({ user_id: userId, code })
+      .select('code')
+      .single();
+    if (!error && data?.code) return data.code;
+    if (error?.code !== '23505') throw error;
+  }
+  throw new Error('Could not create unique referral code');
+}
+
+async function syncReferralRewards(userId) {
+  const { count, error: countErr } = await supabase
+    .from('referrals')
+    .select('id', { count: 'exact', head: true })
+    .eq('referrer_user_id', userId)
+    .eq('status', 'converted');
+  if (countErr) throw countErr;
+  const converted = count || 0;
+  for (const reward of REFERRAL_REWARDS.filter(r => converted >= r.count)) {
+    await supabase
+      .from('user_rewards')
+      .upsert({ user_id: userId, reward_key: reward.key, source: 'referral' }, { onConflict: 'user_id,reward_key' });
+  }
+  return converted;
+}
+
+async function convertPendingReferralForUser(userId) {
+  if (MOCK_MODE || !supabase) return;
+  const { data: rows, error } = await supabase
+    .from('referrals')
+    .update({ status: 'converted', converted_at: new Date().toISOString() })
+    .eq('referred_user_id', userId)
+    .eq('status', 'pending')
+    .select('referrer_user_id');
+  if (error) {
+    console.warn('[Referrals] convert skipped:', error.message);
+    return;
+  }
+  const referrers = [...new Set((rows || []).map(r => r.referrer_user_id).filter(Boolean))];
+  await Promise.all(referrers.map(syncReferralRewards));
+}
+
+app.get('/api/referrals/code', requireAuth, async (req, res) => {
+  if (MOCK_MODE) return res.json({ code: 'BACKSTAGE-MOCK-2026', invite_url: 'https://backstagefanverse.com/?ref=BACKSTAGE-MOCK-2026', mock: true });
+  try {
+    const code = await getOrCreateReferralCodeForUser(req.userId);
+    res.json({ code, invite_url: `https://backstagefanverse.com/?ref=${encodeURIComponent(code)}` });
+  } catch (err) {
+    console.error('[GET /api/referrals/code] Error:', err.message);
+    res.status(503).json({ error: 'Referral code unavailable', setup_required: true });
+  }
+});
+
+app.get('/api/referrals/stats', requireAuth, async (req, res) => {
+  if (MOCK_MODE) {
+    return res.json({ converted_count: 0, pending_count: 0, rewards: [], milestones: REFERRAL_REWARDS.map(r => ({ ...r, unlocked: false })), mock: true });
+  }
+  try {
+    const [{ count: converted }, { count: pending }, rewardsRes] = await Promise.all([
+      supabase.from('referrals').select('id', { count: 'exact', head: true }).eq('referrer_user_id', req.userId).eq('status', 'converted'),
+      supabase.from('referrals').select('id', { count: 'exact', head: true }).eq('referrer_user_id', req.userId).eq('status', 'pending'),
+      supabase.from('user_rewards').select('reward_key, unlocked_at, source').eq('user_id', req.userId),
+    ]);
+    if (rewardsRes.error) throw rewardsRes.error;
+    const convertedCount = converted || 0;
+    res.json({
+      converted_count: convertedCount,
+      pending_count: pending || 0,
+      rewards: rewardsRes.data || [],
+      milestones: REFERRAL_REWARDS.map(r => ({ ...r, unlocked: convertedCount >= r.count })),
+    });
+  } catch (err) {
+    console.error('[GET /api/referrals/stats] Error:', err.message);
+    res.status(503).json({ error: 'Referral stats unavailable', setup_required: true });
+  }
+});
+
+app.post('/api/referrals/claim', requireAuth, async (req, res) => {
+  const code = String(req.body?.code || '').trim().toUpperCase();
+  if (!code) return res.status(400).json({ error: 'code required' });
+  if (MOCK_MODE) return res.json({ success: true, status: 'pending', mock: true });
+  try {
+    const { data: refCode, error: codeErr } = await supabase
+      .from('referral_codes')
+      .select('user_id, code')
+      .eq('code', code)
+      .single();
+    if (codeErr || !refCode) return res.status(404).json({ error: 'Referral code not found' });
+    if (refCode.user_id === req.userId) return res.status(400).json({ error: 'Self-referrals are not allowed' });
+
+    const { error } = await supabase.from('referrals').upsert({
+      referrer_user_id: refCode.user_id,
+      referred_user_id: req.userId,
+      referral_code: refCode.code,
+      status: 'pending',
+    }, { onConflict: 'referred_user_id', ignoreDuplicates: true });
+    if (error) throw error;
+    res.json({ success: true, status: 'pending' });
+  } catch (err) {
+    console.error('[POST /api/referrals/claim] Error:', err.message);
+    res.status(503).json({ error: 'Referral claim unavailable', setup_required: true });
+  }
+});
+
+app.get('/api/circle', requireAuth, async (req, res) => {
+  if (MOCK_MODE) return res.json({ friends: [], circle: [], mock: true });
+  try {
+    const { data: rows, error } = await supabase
+      .from('friends')
+      .select('friend_id, status')
+      .eq('user_id', req.userId)
+      .eq('status', 'accepted');
+    if (error) throw error;
+    const ids = (rows || []).map(r => r.friend_id).filter(Boolean);
+    if (!ids.length) return res.json({ friends: [], circle: [] });
+    const { data: users, error: userErr } = await supabase
+      .from('users')
+      .select('id, username, display_name, fandoms, city, bio, avatar_url, is_vip')
+      .in('id', ids);
+    if (userErr) throw userErr;
+    const friends = (users || []).map(toPublicCard);
+    res.json({ friends, circle: friends });
+  } catch (err) {
+    console.error('[GET /api/circle] Error:', err.message);
+    res.status(503).json({ error: 'Circle unavailable' });
+  }
+});
+
+app.post('/api/circle/request', requireAuth, async (req, res) => {
+  req.body.targetUserId = req.body.targetUserId || req.body.userId || req.body.circleUserId;
+  const { targetUserId } = req.body;
+  if (!targetUserId) return res.status(400).json({ error: 'targetUserId required' });
+  if (targetUserId === req.userId) return res.status(400).json({ error: 'Cannot add yourself' });
+  if (MOCK_MODE) return res.json({ success: true, status: 'pending', mock: true });
+  try {
+    const { error } = await supabase.from('friend_requests').upsert({
+      sender_id: req.userId,
+      receiver_id: targetUserId,
+      status: 'pending',
+    }, { onConflict: 'sender_id,receiver_id' });
+    if (error) throw error;
+    res.json({ success: true, status: 'pending' });
+  } catch (err) {
+    console.error('[POST /api/circle/request] Error:', err.message);
+    res.status(503).json({ error: 'Could not send circle request' });
+  }
+});
+
+async function getThreadForUsers(userId, targetUserId) {
+  const { data: mine, error: mineErr } = await supabase
+    .from('message_thread_members')
+    .select('thread_id')
+    .eq('user_id', userId);
+  if (mineErr) throw mineErr;
+  const myThreadIds = (mine || []).map(r => r.thread_id);
+  if (!myThreadIds.length) return null;
+  const { data: theirs, error: theirsErr } = await supabase
+    .from('message_thread_members')
+    .select('thread_id')
+    .eq('user_id', targetUserId)
+    .in('thread_id', myThreadIds);
+  if (theirsErr) throw theirsErr;
+  return theirs?.[0]?.thread_id || null;
+}
+
+app.get('/api/messages/threads', requireAuth, async (req, res) => {
+  if (MOCK_MODE) return res.json({ threads: [], mock: true });
+  try {
+    const { data: memberRows, error } = await supabase
+      .from('message_thread_members')
+      .select('thread_id')
+      .eq('user_id', req.userId);
+    if (error) throw error;
+    const threadIds = [...new Set((memberRows || []).map(r => r.thread_id))];
+    if (!threadIds.length) return res.json({ threads: [] });
+
+    const [{ data: allMembers }, { data: messages }] = await Promise.all([
+      supabase.from('message_thread_members').select('thread_id, user_id').in('thread_id', threadIds),
+      supabase.from('messages').select('id, thread_id, sender_user_id, body, created_at').in('thread_id', threadIds).order('created_at', { ascending: true }),
+    ]);
+    const otherIds = [...new Set((allMembers || []).map(m => m.user_id).filter(id => id !== req.userId))];
+    const { data: profiles } = otherIds.length
+      ? await supabase.from('users').select('id, username, display_name, fandoms, city, bio, avatar_url, is_vip').in('id', otherIds)
+      : { data: [] };
+    const profileById = Object.fromEntries((profiles || []).map(p => [p.id, toPublicCard(p)]));
+    const messagesByThread = {};
+    (messages || []).forEach(m => {
+      if (!messagesByThread[m.thread_id]) messagesByThread[m.thread_id] = [];
+      messagesByThread[m.thread_id].push(m);
+    });
+
+    const threads = threadIds.map(id => {
+      const other = (allMembers || []).find(m => m.thread_id === id && m.user_id !== req.userId);
+      const safeProfile = profileById[other?.user_id] || { id: other?.user_id, username: 'fan', display_name: 'Backstage fan', avatar: 'B' };
+      const threadMessages = messagesByThread[id] || [];
+      return { id, fan: safeProfile, messages: threadMessages, last_message: threadMessages[threadMessages.length - 1] || null, unread: 0 };
+    });
+    res.json({ threads });
+  } catch (err) {
+    console.error('[GET /api/messages/threads] Error:', err.message);
+    res.status(503).json({ error: 'Messages unavailable' });
+  }
+});
+
+app.post('/api/messages/thread', requireAuth, async (req, res) => {
+  const targetUserId = req.body?.targetUserId || req.body?.userId;
+  if (!targetUserId) return res.status(400).json({ error: 'targetUserId required' });
+  if (targetUserId === req.userId) return res.status(400).json({ error: 'Cannot message yourself' });
+  if (MOCK_MODE) return res.json({ thread: { id: `mock-thread-${targetUserId}`, messages: [] }, mock: true });
+  try {
+    let threadId = await getThreadForUsers(req.userId, targetUserId);
+    if (!threadId) {
+      const { data: thread, error: threadErr } = await supabase
+        .from('message_threads')
+        .insert({})
+        .select('id')
+        .single();
+      if (threadErr) throw threadErr;
+      threadId = thread.id;
+      const { error: memberErr } = await supabase.from('message_thread_members').insert([
+        { thread_id: threadId, user_id: req.userId },
+        { thread_id: threadId, user_id: targetUserId },
+      ]);
+      if (memberErr) throw memberErr;
+    }
+    const { data: profile } = await supabase
+      .from('users')
+      .select('id, username, display_name, fandoms, city, bio, avatar_url, is_vip')
+      .eq('id', targetUserId)
+      .single();
+    res.json({ thread: { id: threadId, fan: profile ? toPublicCard(profile) : null, messages: [] } });
+  } catch (err) {
+    console.error('[POST /api/messages/thread] Error:', err.message);
+    res.status(503).json({ error: 'Could not create message thread' });
+  }
+});
+
+app.get('/api/messages/thread/:id', requireAuth, async (req, res) => {
+  if (MOCK_MODE) return res.json({ thread: { id: req.params.id, messages: [] }, mock: true });
+  try {
+    const { data: membership } = await supabase
+      .from('message_thread_members')
+      .select('thread_id')
+      .eq('thread_id', req.params.id)
+      .eq('user_id', req.userId)
+      .single();
+    if (!membership) return res.status(403).json({ error: 'Forbidden' });
+    const { data: messages, error } = await supabase
+      .from('messages')
+      .select('id, thread_id, sender_user_id, body, created_at')
+      .eq('thread_id', req.params.id)
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    res.json({ thread: { id: req.params.id, messages: messages || [] } });
+  } catch (err) {
+    console.error('[GET /api/messages/thread] Error:', err.message);
+    res.status(503).json({ error: 'Could not load message thread' });
+  }
+});
+
+app.post('/api/messages/thread/:id/send', requireAuth, async (req, res) => {
+  const body = String(req.body?.body || '').trim();
+  if (!body) return res.status(400).json({ error: 'body required' });
+  if (MOCK_MODE) return res.json({ message: { id: `mock-msg-${Date.now()}`, body, sender_user_id: req.userId, created_at: new Date().toISOString() }, mock: true });
+  try {
+    const { data: membership } = await supabase
+      .from('message_thread_members')
+      .select('thread_id')
+      .eq('thread_id', req.params.id)
+      .eq('user_id', req.userId)
+      .single();
+    if (!membership) return res.status(403).json({ error: 'Forbidden' });
+    const { data, error } = await supabase
+      .from('messages')
+      .insert({ thread_id: req.params.id, sender_user_id: req.userId, body })
+      .select('id, thread_id, sender_user_id, body, created_at')
+      .single();
+    if (error) throw error;
+    await supabase.from('message_threads').update({ updated_at: new Date().toISOString() }).eq('id', req.params.id);
+    res.json({ message: data });
+  } catch (err) {
+    console.error('[POST /api/messages/thread/send] Error:', err.message);
+    res.status(503).json({ error: 'Could not send message' });
   }
 });
 

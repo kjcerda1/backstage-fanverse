@@ -79,7 +79,9 @@ function normalizeProfile(user) {
 // Both sources unlock identical VIP features. Stripe is not bypassed for paid.
 function isVipActive(user) {
   if (!user) return false;
+  if (user.vip_active === true) return true;
   if (user.is_vip === true) return true;
+  if (user.vip_source === "founder" || user.vip_source === "stripe") return true;
   if (user.vip_source === "comped") {
     if (!user.vip_expires_at) return true;
     return new Date(user.vip_expires_at) > new Date();
@@ -89,6 +91,10 @@ function isVipActive(user) {
 
 function hasVipEntitlement(user) {
   return isVipActive(user) || user?.vip_source === "founder" || user?.vip_source === "stripe";
+}
+
+function isFounderVip(user) {
+  return user?.vip_source === "founder" || user?.plan === "founder";
 }
 
 const onboardingCompleteKey = userId => `backstage_onboarding_complete_${userId}`;
@@ -1768,10 +1774,18 @@ async function requestNotificationPermission(userId) {
 // POST /api/referrals/invite | GET /api/referrals/:userId | POST /api/referrals/claim
 // POST /api/circle/request | GET /api/circle/:userId | POST /api/circle/accept
 function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go }) {
-  const [invites, setInvites] = useState(ls.get("backstage_invites", MOCK_INVITES));
   const [tab, setTab] = useState("find");
   const [copied, setCopied] = useState(false);
   const [showReward, setShowReward] = useState(false);
+  const [referralCode, setReferralCode] = useState("");
+  const [referralUrl, setReferralUrl] = useState("");
+  const [referralStats, setReferralStats] = useState({
+    converted_count:0,
+    pending_count:0,
+    rewards:[],
+    milestones:REFERRAL_MILESTONES.map(m=>({ ...m, unlocked:false })),
+  });
+  const [referralSetupRequired, setReferralSetupRequired] = useState(false);
 
   // ── Social search state ───────────────────────────────────────────────────
   const [searchQ, setSearchQ] = useState("");
@@ -1784,10 +1798,10 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go }) {
   const [apiResults, setApiResults] = useState([]);
   const [suggestedFans, setSuggestedFans] = useState([]);
 
-  const myCode = `BACKSTAGE-${(user?.username||user?.name||"FAN").toUpperCase().slice(0,6)}-2026`;
-  const myHandle = user?.username || user?.handle || user?.name || "me";
-  const myLink = `${window.location.origin}/u/${myHandle}`;
-  const converted = invites.filter(i=>i.joined).length;
+  const fallbackCode = `BACKSTAGE-${(user?.username||user?.name||"FAN").toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,8)||"FAN"}-LOCAL`;
+  const myCode = referralCode || fallbackCode;
+  const myLink = referralUrl || `https://backstagefanverse.com/?ref=${encodeURIComponent(myCode)}`;
+  const converted = referralStats.converted_count || 0;
   const nextMilestone = REFERRAL_MILESTONES.find(m=>m.count>converted)||REFERRAL_MILESTONES[REFERRAL_MILESTONES.length-1];
 
   // Normalize an API user card to the local card shape expected by the UI
@@ -1828,6 +1842,52 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go }) {
     }).catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    let alive = true;
+    api.get('/api/referrals/code').then(d => {
+      if (!alive) return;
+      setReferralSetupRequired(false);
+      setReferralCode(d?.code || "");
+      setReferralUrl(d?.invite_url || d?.url || "");
+    }).catch(err => {
+      if (!alive) return;
+      setReferralSetupRequired(err?.status === 503);
+    });
+    api.get('/api/referrals/stats').then(d => {
+      if (!alive) return;
+      setReferralSetupRequired(false);
+      setReferralStats({
+        converted_count: Number(d?.converted_count || 0),
+        pending_count: Number(d?.pending_count || 0),
+        rewards: Array.isArray(d?.rewards) ? d.rewards : [],
+        milestones: Array.isArray(d?.milestones) ? d.milestones : REFERRAL_MILESTONES.map(m => ({ ...m, unlocked:false })),
+      });
+    }).catch(err => {
+      if (!alive) return;
+      setReferralSetupRequired(err?.status === 503);
+    });
+    api.get('/api/circle').then(d => {
+      if (!alive) return;
+      const members = Array.isArray(d?.members) ? d.members.map(m => ({
+        id:m.id,
+        profileId:m.id,
+        name:`@${m.handle || m.username || "fan"}`,
+        displayName:m.display_name || m.backstage_name || m.handle || "Backstage fan",
+        avatar:(m.display_name || m.handle || "B").slice(0,1).toUpperCase(),
+        color:C.accent,
+        type:"moot",
+        groups:m.favorite_groups || m.fandoms || [],
+        trust:5.0,
+        concerts:0,
+        status:"accepted",
+        realProfile:true,
+      })) : [];
+      setCircle(members);
+      ls.set("backstage_circle", members);
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
   const copyLink = () => {
     navigator.clipboard?.writeText(myLink).catch(()=>{});
     setCopied(true); setTimeout(()=>setCopied(false),2000);
@@ -1835,22 +1895,25 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go }) {
   };
 
   const simulateInvite = () => {
-    const newInvite = { id:`i-${Date.now()}`, code:myCode, invitee:"Pending", joined:false, reward:"VIP 7-day", date:"Today", status:"pending" };
-    const next = [newInvite,...invites];
-    setInvites(next); ls.set("backstage_invites",next);
+    copyLink();
     setShowReward(true); setTimeout(()=>setShowReward(false),3500);
-    onNotif({title:"Invite sent! 🎉",body:"When they join, you both get VIP.",icon:"🎉",color:C.accent});
+    onNotif({title:"Invite link ready",body:"Rewards unlock after your friend creates a confirmed Backstage account.",icon:"link",color:C.accent});
   };
 
   // ── Social: send crew invite / circle request ─────────────────────────────
-  const sendRequest = (fu) => {
+  const sendRequest = async (fu) => {
     const next = {...userStatuses, [fu.id]:"sent"};
     setUserStatuses(next); ls.set("backstage_circle_statuses", next);
     const reqEntry = { id:`req-${Date.now()}`, userId:fu.id, username:fu.username, displayName:fu.displayName, avatar:fu.avatar, color:fu.color||C.accent, fandoms:fu.fandoms, concertContext:fu.concertContext, sentAt:Date.now() };
     const reqs = [reqEntry, ...pendingReqs];
     setPendingReqs(reqs); ls.set("backstage_friend_requests", reqs);
     // Best-effort backend sync — localStorage is the source of truth
-    api.post('/api/friends/request', { targetUserId: fu.id }).catch(()=>{});
+    try {
+      await api.post('/api/circle/request', { targetUserId: fu.id });
+    } catch {
+      onNotif({title:"Request saved locally",body:"Backstage will sync it after the social tables are installed.",icon:"link",color:C.lavender});
+      return;
+    }
     onNotif({title:`Circle invite sent to @${fu.username} ✦`,body:"They'll see your invite in their notifications.",icon:"💜",color:C.lavender});
   };
 
@@ -1900,10 +1963,7 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go }) {
         }));
     } catch { return []; }
   })();
-  const searchableUsers = [
-    ...localProfiles,
-    ...MOCK_FANVERSE_USERS.filter(u=>!localProfiles.find(p=>p.username===u.username || p.id===u.id)),
-  ];
+  const searchableUsers = suggestedFans.length > 0 ? suggestedFans : localProfiles;
 
   // Build the displayed results list:
   // q >= 2 chars → API results merged with any local-only profiles not in API set
@@ -1926,10 +1986,10 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go }) {
       ).slice(0,6);
     }
     // No query — show suggested fans if loaded, else local slice
-    return suggestedFans.length > 0 ? suggestedFans.slice(0,6) : searchableUsers.slice(0,5);
+    return suggestedFans.length > 0 ? suggestedFans.slice(0,6) : [];
   })();
 
-  const circleMembers = [...circle, ...MOCK_FRIENDS.filter(f=>f.status==="accepted" && !circle.find(c=>c.id===f.id))];
+  const circleMembers = circle;
 
   // ── Highlight matching query text ─────────────────────────────────────────
   const highlight = (text) => {
@@ -2180,16 +2240,18 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go }) {
                 <button onClick={copyLink} className="tap" style={{ flex:1,padding:"11px",borderRadius:12,background:copied?`${C.mint}22`:"transparent",border:`1.5px solid ${copied?C.mint:C.accent}55`,color:copied?C.mint:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer",transition:"all .2s" }}>{copied?"✓ Copied!":"📋 Copy Link"}</button>
                 <button onClick={simulateInvite} className="tap" style={{ flex:1,padding:"11px",borderRadius:12,background:C.accent,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}>📨 Share Invite</button>
               </div>
+              {referralSetupRequired && (
+                <p style={{ fontSize:10.5,color:C.gold,marginTop:10,lineHeight:1.5 }}>
+                  Referral database setup is pending. This link is safe to share, but rewards start counting after the Supabase referral tables are installed.
+                </p>
+              )}
             </div>
 
             {/* QR Card */}
             <div style={{ background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:18,padding:18,marginBottom:14,textAlign:"center" }}>
               <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,marginBottom:12,color:C.textMid }}>📱 QR Code Invite</p>
-              <div style={{ width:120,height:120,margin:"0 auto 12px",background:C.surfaceHi,borderRadius:14,border:`2px solid ${C.accent}33`,display:"flex",alignItems:"center",justifyContent:"center",position:"relative" }}>
-                <div style={{ position:"absolute",inset:10,display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:3,opacity:0.7 }}>
-                  {Array.from({length:36}).map((_,i)=><div key={i} style={{ background:[0,1,2,6,7,8,12,14,17,18,19,20,21,27,29,30,31,32,33,34,35].includes(i)?C.accent:"transparent",borderRadius:2 }} />)}
-                </div>
-                <div style={{ width:32,height:32,borderRadius:8,background:C.bg,border:`1.5px solid ${C.accent}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,zIndex:1 }}>💜</div>
+              <div style={{ width:120,height:120,margin:"0 auto 12px",background:C.surfaceHi,borderRadius:14,border:`2px solid ${C.accent}33`,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden" }}>
+                <img src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=10&data=${encodeURIComponent(myLink)}`} alt="Invite QR code" style={{ width:"100%",height:"100%",display:"block" }} />
               </div>
               <p style={{ fontSize:11,color:C.textMid }}>Scan to join Backstage as your crew</p>
             </div>
@@ -2255,7 +2317,7 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go }) {
       {showReward && (
         <div style={{ position:"absolute",top:80,left:16,right:16,zIndex:900,animation:"viralPop .3s ease" }}>
           <div style={{ background:`${C.accent}f0`,borderRadius:18,padding:"14px 18px",backdropFilter:"blur(20px)",textAlign:"center" }}>
-            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:15,color:C.bg }}>✨ Invite sent! Both of you earn VIP!</p>
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:15,color:C.bg }}>Invite link copied. Rewards unlock after confirmed signup.</p>
           </div>
         </div>
       )}
@@ -2461,7 +2523,7 @@ function IdentityCard({ onBack, user }) {
           {/* Footer */}
           <div style={{ marginTop:14,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
             <p style={{ fontSize:9,color:"rgba(255,255,255,0.5)",fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>2026 · FANVERSE</p>
-            <p style={{ fontSize:9,color:"rgba(255,255,255,0.5)",fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>backstageapp.co</p>
+            <p style={{ fontSize:9,color:"rgba(255,255,255,0.5)",fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>backstagefanverse.com</p>
           </div>
         </div>
 
@@ -2510,7 +2572,7 @@ function MapSnapshot({ onBack }) {
             </div>
           </div>
           <div style={{ position:"absolute",bottom:14,right:16 }}>
-            <p style={{ fontSize:9,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>backstageapp.co/map</p>
+            <p style={{ fontSize:9,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>backstagefanverse.com/map</p>
           </div>
         </div>
 
@@ -10865,8 +10927,7 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack })
 // ─── MESSAGES — Circle-only P2P chat ─────────────────────────────────────────
 // Circle-only: only fans accepted into backstage_circle can be messaged.
 // Data shape is Supabase-ready (see conversation/message schema in comments).
-// TODO Phase 2: POST /api/dms/:userId — Supabase Realtime channel
-// TODO Phase 2: GET /api/dms — fetch with Supabase Realtime subscription
+// Backend text threads: GET/POST /api/messages/*. Media upload and realtime can layer on later.
 //
 // Message type shape:
 //   { from, type:"text"|"charm"|"voice"|"gif"|"media",
@@ -10900,7 +10961,7 @@ function DirectMessages({ onBack, user, initialFan }) {
     ls.del("backstage_dm_target");
     return t;
   });
-  const [convos, setConvos]     = useState(()=>ls.get(KEY,[
+  const [convos, setConvos]     = useState(()=>ls.get(KEY,[]/* production inbox loads from /api/messages/threads; legacy seed disabled
     { id:"dm-mia",   fan:{ name:"@mia_stays",  avatar:"M", color:C.accent }, messages:[
       {from:"them",text:"Hey!! You going to the BTS show in Dallas? 💜",time:"2h ago"},
       {from:"them",text:"I have an extra photocard if you want to trade before the show!",time:"2h ago"},
@@ -10909,9 +10970,12 @@ function DirectMessages({ onBack, user, initialFan }) {
       {from:"them",text:"Loved your outfit post in the Fanverse 👏✨",time:"5h ago"},
       {from:"me",   text:"Thank you!! It was so fun putting together 💜",time:"4h ago"},
     ], unread:0, lastTime:"4h ago" },
-  ]));
+  */));
   const [activeConvo, setActiveConvo] = useState(dmTarget ? convos.find(c=>c.fan.name===dmTarget?.name)||null : null);
   const [circleGuard, setCircleGuard] = useState(null); // fan not in Circle
+  const [dmSearch, setDmSearch] = useState("");
+  const [dmSearchResults, setDmSearchResults] = useState([]);
+  const [dmSearching, setDmSearching] = useState(false);
   // Backstage Kit tray state
   const [kitOpen, setKitOpen]           = useState(false);
   const [charmPickerOpen, setCharmPickerOpen] = useState(false);
@@ -10923,8 +10987,63 @@ function DirectMessages({ onBack, user, initialFan }) {
   const msgEndRef  = useRef(null);
   const attachRef  = useRef(null);
 
+  const normalizeDmThread = (thread, messages = null) => {
+    const member = thread.member || thread.fan || {};
+    const display = member.handle || member.username || member.display_name || member.backstage_name || "fan";
+    const threadMessages = Array.isArray(messages) ? messages : (thread.last_message ? [thread.last_message] : []);
+    return {
+      id:thread.id,
+      backend:true,
+      fan:{
+        id:member.id,
+        name:`@${String(display).replace(/^@/, "")}`,
+        avatar:(member.display_name || member.handle || display || "B").slice(0,1).toUpperCase(),
+        color:C.accent,
+      },
+      messages:threadMessages.map(m => ({
+        id:m.id,
+        from:m.sender_user_id === user?.id ? "me" : "them",
+        text:m.body || m.text || "",
+        time:m.created_at ? new Date(m.created_at).toLocaleTimeString([], { hour:"numeric", minute:"2-digit" }) : "now",
+      })),
+      unread:0,
+      lastTime:thread.last_message?.created_at ? new Date(thread.last_message.created_at).toLocaleTimeString([], { hour:"numeric", minute:"2-digit" }) : "now",
+    };
+  };
+
   useEffect(()=>{ ls.set(KEY, convos); }, [convos]);
   useEffect(()=>{ msgEndRef.current?.scrollIntoView({behavior:"smooth"}); }, [activeConvo?.messages?.length]);
+
+  useEffect(() => {
+    let alive = true;
+    api.get('/api/messages/threads').then(d => {
+      if (!alive || !Array.isArray(d?.threads)) return;
+      setConvos(d.threads.map(t => normalizeDmThread(t)));
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [user?.id]);
+
+  useEffect(() => {
+    const q = dmSearch.trim().replace(/^@/, "");
+    if (q.length < 2) {
+      setDmSearchResults([]);
+      setDmSearching(false);
+      return;
+    }
+    let alive = true;
+    setDmSearching(true);
+    const t = setTimeout(async () => {
+      try {
+        const d = await api.get(`/api/users/search?q=${encodeURIComponent(q)}`);
+        if (alive) setDmSearchResults(Array.isArray(d?.users) ? d.users : []);
+      } catch {
+        if (alive) setDmSearchResults([]);
+      } finally {
+        if (alive) setDmSearching(false);
+      }
+    }, 250);
+    return () => { alive = false; clearTimeout(t); };
+  }, [dmSearch]);
 
   // Open DM with a specific fan — Circle-only guard
   useEffect(()=>{
@@ -10950,14 +11069,20 @@ function DirectMessages({ onBack, user, initialFan }) {
     r.readAsDataURL(f);
   };
 
-  const sendMessage = () => {
+  const sendMessage = async () => {
     if((!msgDraft.trim() && !attachPreview)||!activeConvo) return;
     const msg = { from:"me", type:"text", text:msgDraft, time:"now", image:attachPreview||null };
+    if (activeConvo.backend && msgDraft.trim()) {
+      try {
+        const saved = await api.post(`/api/messages/thread/${encodeURIComponent(activeConvo.id)}/send`, { body:msgDraft.trim() });
+        msg.id = saved?.message?.id || msg.id;
+        msg.time = saved?.message?.created_at ? new Date(saved.message.created_at).toLocaleTimeString([], { hour:"numeric", minute:"2-digit" }) : "now";
+      } catch {}
+    }
     const updated = convos.map(c=>c.id===activeConvo.id ? {...c, messages:[...c.messages,msg], lastTime:"now"} : c);
     setConvos(updated);
     setActiveConvo(prev=>({...prev, messages:[...prev.messages,msg]}));
     setMsgDraft(""); setAttachPreview(null);
-    // TODO: POST /api/dms/:fanId — Supabase Realtime; upload image to Supabase Storage
   };
 
   // Send a charm into the active conversation
@@ -11026,11 +11151,34 @@ function DirectMessages({ onBack, user, initialFan }) {
     { id:"lightstick", emoji:"🔦", label:"Lightstick Moment",  action:()=>sendCharm("lightstick","🔦","Lightstick Glow") },
   ];
 
-  const openConvo = (convo) => {
+  const openConvo = async (convo) => {
     // Mark as read
     const updated = convos.map(c=>c.id===convo.id ? {...c,unread:0} : c);
     setConvos(updated);
-    setActiveConvo({...convo,unread:0});
+    let next = {...convo,unread:0};
+    if (convo.backend) {
+      try {
+        const d = await api.get(`/api/messages/thread/${encodeURIComponent(convo.id)}`);
+        next = normalizeDmThread({ ...convo, member:{ id:convo.fan.id, handle:convo.fan.name } }, Array.isArray(d?.messages) ? d.messages : []);
+      } catch {}
+    }
+    setActiveConvo(next);
+  };
+
+  const startThreadWithProfile = async (profile) => {
+    try {
+      const d = await api.post('/api/messages/thread', { targetUserId:profile.id });
+      const convo = normalizeDmThread(d.thread || { id:d.threadId, member:profile }, []);
+      setConvos(prev => [convo, ...prev.filter(c => c.id !== convo.id)]);
+      setDmSearch("");
+      setDmSearchResults([]);
+      setActiveConvo(convo);
+    } catch {
+      const fan = { id:profile.id, name:`@${profile.handle || profile.username || "fan"}`, avatar:(profile.display_name || profile.handle || "B").slice(0,1).toUpperCase(), color:C.accent };
+      const convo = { id:`dm-${profile.id}`, fan, messages:[], unread:0, lastTime:"now" };
+      setConvos(prev => [convo, ...prev.filter(c => c.id !== convo.id)]);
+      setActiveConvo(convo);
+    }
   };
 
   const totalUnread = convos.reduce((s,c)=>s+c.unread,0);
@@ -11270,6 +11418,32 @@ function DirectMessages({ onBack, user, initialFan }) {
 
       <Screen style={{ padding:"0 0 calc(120px + env(safe-area-inset-bottom))" }}>
         <div style={{ padding:"0 18px" }}>
+          <div style={{ padding:"14px 0 8px" }}>
+            <input
+              value={dmSearch}
+              onChange={e=>setDmSearch(e.target.value)}
+              placeholder="Search a Backstage username to message..."
+              style={{ width:"100%",boxSizing:"border-box",padding:"12px 14px",borderRadius:14,background:C.surfaceHi,border:`1.5px solid ${C.borderHi}`,color:C.text,fontSize:12.5,outline:"none" }}
+            />
+            {dmSearch.trim().length >= 2 && (
+              <div style={{ marginTop:8,background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,overflow:"hidden" }}>
+                {dmSearching && <p style={{ padding:"12px",fontSize:11,color:C.textMid }}>Searching Backstage profiles...</p>}
+                {!dmSearching && dmSearchResults.map(profile => (
+                  <button key={profile.id} onClick={()=>startThreadWithProfile(profile)} style={{ width:"100%",display:"flex",gap:10,alignItems:"center",padding:"10px 12px",background:"transparent",border:"none",borderBottom:`1px solid ${C.border}`,color:C.text,textAlign:"left",cursor:"pointer" }}>
+                    <span style={{ width:34,height:34,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.accent}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.bg }}>{(profile.display_name || profile.handle || "B").slice(0,1).toUpperCase()}</span>
+                    <span style={{ flex:1,minWidth:0 }}>
+                      <span style={{ display:"block",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5 }}>@{profile.handle || profile.username || "fan"}</span>
+                      <span style={{ display:"block",fontSize:10.5,color:C.textMid,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{profile.display_name || profile.backstage_name || "Backstage fan"}</span>
+                    </span>
+                    <span style={{ fontSize:11,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>Message</span>
+                  </button>
+                ))}
+                {!dmSearching && dmSearchResults.length === 0 && (
+                  <p style={{ padding:"12px",fontSize:11,color:C.textMid }}>No Backstage profile found for that search.</p>
+                )}
+              </div>
+            )}
+          </div>
           {convos.map(convo=>(
             <div key={convo.id} onClick={()=>openConvo(convo)} className="tap" style={{ display:"flex",gap:12,alignItems:"center",padding:"13px 0",borderBottom:`1px solid ${C.border}`,cursor:"pointer" }}>
               <div style={{ position:"relative",flexShrink:0 }}>
@@ -11495,12 +11669,17 @@ function MyCircleSection({ go, user }) {
     return () => { cancelled = true; clearTimeout(t); };
   }, [adding, query]);
 
-  const addFriend = () => {
+  const addFriend = async () => {
     if(!selectedProfile?.id) return;
     const groups = selectedProfile.favorite_groups || selectedProfile.fandoms || [];
     const name = selectedProfile.handle ? `@${selectedProfile.handle}` : selectedProfile.display_name || "Backstage fan";
     const avatar = selectedProfile.avatar || (selectedProfile.display_name || selectedProfile.handle || "B").trim()[0].toUpperCase();
-    const newF = { id:selectedProfile.id, profileId:selectedProfile.id, name, displayName:selectedProfile.display_name || name, avatar, color:C.accent, type:"moot", groups, trust:5.0, concerts:0, status:"accepted", realProfile:true };
+    const newF = { id:selectedProfile.id, profileId:selectedProfile.id, name, displayName:selectedProfile.display_name || name, avatar, color:C.accent, type:"moot", groups, trust:5.0, concerts:0, status:"sent", realProfile:true };
+    try {
+      await api.post('/api/circle/request', { targetUserId:selectedProfile.id });
+    } catch {
+      // Keep the local pending request visible if the social tables are not installed yet.
+    }
     const next = [newF, ...friends];
     setFriends(next); ls.set("backstage_friends", next);
     setForm({name:"",fandom:"",avatar:""}); setResults([]); setSelectedProfile(null); setAdding(false);
@@ -11997,8 +12176,8 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
           <div style={{ flex:1 }}>
             <div style={{ display:"flex", gap:6, alignItems:"center", marginBottom:3, flexWrap:"wrap" }}>
               <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:19, letterSpacing:"-0.02em" }}>@{user?.username||user?.name||user?.stanName||"stan"}</p>
-              {isVip&&<VipBadge />}
-              {(()=>{ const invites = ls.get("backstage_invites",[]); const converted=invites.filter(i=>i.joined).length; return converted>=3?<FounderBadge inline />:null; })()}
+              {profileVip&&<VipBadge />}
+              {(isFounderVip(user) || isFounderVip(cachedUser)) && <FounderBadge inline />}
             </div>
             <p style={{ fontSize:10.5,color:C.textMid }}>Multi-fan · she/her · Seoul → LA</p>
             {/* Era tags — like the design reference */}
@@ -15052,6 +15231,11 @@ function AppInner() {
   useEffect(()=>{
     const params = new URLSearchParams(window.location.search);
 
+    const referralParam = params.get('ref');
+    if (referralParam) {
+      ls.set('backstage_pending_referral_code', referralParam);
+    }
+
     // Stripe checkout success return
     // ALWAYS store in localStorage first so it survives a login if the session
     // was lost during the Stripe redirect (common on Safari / PWA mode).
@@ -15125,6 +15309,15 @@ function AppInner() {
     navigator.serviceWorker?.addEventListener('message', onSwMessage);
     return () => navigator.serviceWorker?.removeEventListener('message', onSwMessage);
   },[appState]);
+
+  useEffect(() => {
+    if (!auth.user?.id || !auth.tokenReady) return;
+    const code = ls.get('backstage_pending_referral_code');
+    if (!code) return;
+    api.post('/api/referrals/claim', { code }).then(() => {
+      ls.del('backstage_pending_referral_code');
+    }).catch(() => {});
+  }, [auth.user?.id, auth.tokenReady]);
 
   useEffect(()=>{
     if(appState!=="main") return;
