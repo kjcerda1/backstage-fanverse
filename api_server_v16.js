@@ -3279,6 +3279,249 @@ app.post('/api/cards/upload-url', requireAuth, async (req, res) => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
+// TRADE FLOW V2 — listing_offers | listing_messages | listing_reports
+// ═════════════════════════════════════════════════════════════════════════════
+
+// Helper: verify current user is a party to this offer (sender or lister)
+async function getOfferAndVerifyParty(offerId, userId) {
+  const { data: offer } = await supabase
+    .from('listing_offers')
+    .select('*, trade_listings!listing_id(user_id)')
+    .eq('id', offerId)
+    .single();
+  if (!offer) return null;
+  const isParty = offer.sender_id === userId || offer.trade_listings?.user_id === userId;
+  return isParty ? { ...offer, listerId: offer.trade_listings?.user_id } : null;
+}
+
+// ── Get my offers (received on my listings + sent by me) ──────────────────────
+app.get('/api/listing-offers', requireAuth, async (req, res) => {
+  if (!supabase) return res.json({ offers: [], mock: true });
+  try {
+    // Offers sent by me
+    const { data: sent } = await supabase
+      .from('listing_offers')
+      .select(`*, trade_listings!listing_id(id, user_id, card_id, wants_description, proof_image_url, trade_type, location, user_cards!card_id(group_name, member, album, era, condition, image_url)), sender_card:sender_card_id(group_name, member, album, era, condition)`)
+      .eq('sender_id', req.userId)
+      .neq('status', 'declined')
+      .order('created_at', { ascending: false });
+
+    // Offers received on my listings
+    const { data: received } = await supabase
+      .from('listing_offers')
+      .select(`*, trade_listings!listing_id(id, user_id, card_id, wants_description, proof_image_url, trade_type, location, user_cards!card_id(group_name, member, album, era, condition, image_url)), sender_card:sender_card_id(group_name, member, album, era, condition), sender:sender_id(id, username, display_name, proof_score, trade_count)`)
+      .in('listing_id',
+        (await supabase.from('trade_listings').select('id').eq('user_id', req.userId)).data?.map(l=>l.id) || []
+      )
+      .neq('status', 'declined')
+      .order('created_at', { ascending: false });
+
+    const sentTagged    = (sent    || []).map(o => ({ ...o, role: 'sender' }));
+    const receivedTagged = (received || []).map(o => ({ ...o, role: 'lister' }));
+    const all = [...sentTagged, ...receivedTagged].sort((a,b) => new Date(b.updated_at) - new Date(a.updated_at));
+    res.json({ offers: all });
+  } catch (err) {
+    console.error('[ListingOffers GET]', err.message);
+    res.json({ offers: [], mock: true });
+  }
+});
+
+// ── Make offer on a listing ───────────────────────────────────────────────────
+app.post('/api/listing-offers', requireAuth, async (req, res) => {
+  if (!supabase) return res.json({ offer: null, mock: true });
+  const { listing_id, sender_card_id, message } = req.body;
+  if (!listing_id) return res.status(400).json({ error: 'listing_id required' });
+
+  try {
+    // Can't offer on own listing
+    const { data: listing } = await supabase.from('trade_listings').select('user_id').eq('id', listing_id).single();
+    if (!listing) return res.status(404).json({ error: 'Listing not found' });
+    if (listing.user_id === req.userId) return res.status(400).json({ error: 'Cannot offer on your own listing' });
+
+    // Check for existing pending/accepted offer from same user
+    const { data: existing } = await supabase.from('listing_offers').select('id,status').eq('listing_id', listing_id).eq('sender_id', req.userId).in('status',['pending','accepted','in_progress']).maybeSingle();
+    if (existing) return res.status(409).json({ error: 'You already have an active offer on this listing' });
+
+    const { data, error } = await supabase.from('listing_offers')
+      .insert({ listing_id, sender_id: req.userId, sender_card_id, message })
+      .select().single();
+    if (error) throw error;
+
+    // Move listing to pending
+    await supabase.from('trade_listings').update({ status: 'pending', updated_at: new Date().toISOString() }).eq('id', listing_id);
+    res.json({ offer: data });
+  } catch (err) {
+    console.error('[ListingOffers POST]', err.message);
+    res.status(500).json({ error: 'Failed to create offer' });
+  }
+});
+
+// ── Update offer state (accept/decline/cancel/proof/tracking/confirm) ─────────
+app.patch('/api/listing-offers/:id', requireAuth, async (req, res) => {
+  if (!supabase) return res.json({ ok: true, mock: true });
+  const offer = await getOfferAndVerifyParty(req.params.id, req.userId);
+  if (!offer) return res.status(403).json({ error: 'Not found or not a party' });
+
+  const { action, value } = req.body;
+  const isLister = req.userId === offer.listerId;
+  const isSender = req.userId === offer.sender_id;
+  const updates = { updated_at: new Date().toISOString() };
+
+  try {
+    switch (action) {
+      case 'accept':
+        if (!isLister) return res.status(403).json({ error: 'Only the lister can accept' });
+        if (offer.status !== 'pending') return res.status(400).json({ error: 'Offer is not pending' });
+        updates.status = 'accepted';
+        break;
+
+      case 'decline':
+        if (!isLister) return res.status(403).json({ error: 'Only the lister can decline' });
+        updates.status = 'declined';
+        // Restore listing to active if no other active offers exist
+        await restoreListingIfEmpty(offer.listing_id, req.params.id);
+        break;
+
+      case 'cancel':
+        if (!['pending','accepted','in_progress'].includes(offer.status)) return res.status(400).json({ error: 'Cannot cancel in current state' });
+        updates.status = 'cancelled';
+        await restoreListingIfEmpty(offer.listing_id, req.params.id);
+        break;
+
+      case 'sender_proof':
+        if (!isSender) return res.status(403).json({ error: 'Only sender can set sender proof' });
+        if (!value) return res.status(400).json({ error: 'value (url) required' });
+        updates.sender_proof_url = value;
+        if (offer.status === 'accepted') updates.status = 'in_progress';
+        break;
+
+      case 'lister_proof':
+        if (!isLister) return res.status(403).json({ error: 'Only lister can set lister proof' });
+        if (!value) return res.status(400).json({ error: 'value (url) required' });
+        updates.lister_proof_url = value;
+        if (offer.status === 'accepted') updates.status = 'in_progress';
+        break;
+
+      case 'sender_tracking':
+        if (!isSender) return res.status(403).json({ error: 'Only sender can set sender tracking' });
+        updates.sender_tracking = value;
+        break;
+
+      case 'lister_tracking':
+        if (!isLister) return res.status(403).json({ error: 'Only lister can set lister tracking' });
+        updates.lister_tracking = value;
+        break;
+
+      case 'confirm': {
+        const confirmField = isSender ? 'sender_confirmed' : 'lister_confirmed';
+        updates[confirmField] = true;
+        // Check if both now confirmed
+        const otherConfirmed = isSender ? offer.lister_confirmed : offer.sender_confirmed;
+        if (otherConfirmed) {
+          updates.status = 'completed';
+          // Mark listing completed
+          await supabase.from('trade_listings').update({ status:'completed', updated_at:new Date().toISOString() }).eq('id', offer.listing_id);
+          // Mark both cards as no longer for_trade
+          if (offer.sender_card_id) await supabase.from('user_cards').update({ status:'owned', updated_at:new Date().toISOString() }).eq('id', offer.sender_card_id);
+          const { data: listing } = await supabase.from('trade_listings').select('card_id').eq('id', offer.listing_id).single();
+          if (listing?.card_id) await supabase.from('user_cards').update({ status:'owned', updated_at:new Date().toISOString() }).eq('id', listing.card_id);
+          // Increment trade counts
+          await supabase.from('users').update({ trade_count: supabase.raw('trade_count + 1') }).eq('id', req.userId);
+          await supabase.from('users').update({ trade_count: supabase.raw('trade_count + 1') }).eq('id', isSender ? offer.listerId : offer.sender_id);
+        }
+        break;
+      }
+
+      default:
+        return res.status(400).json({ error: `Unknown action: ${action}` });
+    }
+
+    const { error } = await supabase.from('listing_offers').update(updates).eq('id', req.params.id);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[ListingOffers PATCH]', err.message);
+    res.status(500).json({ error: 'Failed to update offer' });
+  }
+});
+
+async function restoreListingIfEmpty(listingId, excludeOfferId) {
+  if (!supabase) return;
+  const { data } = await supabase.from('listing_offers').select('id').eq('listing_id', listingId).in('status',['pending','accepted','in_progress']).neq('id', excludeOfferId);
+  if (!data?.length) await supabase.from('trade_listings').update({ status:'active', updated_at:new Date().toISOString() }).eq('id', listingId);
+}
+
+// ── Messages ──────────────────────────────────────────────────────────────────
+app.get('/api/listing-offers/:id/messages', requireAuth, async (req, res) => {
+  if (!supabase) return res.json({ messages: [], mock: true });
+  const offer = await getOfferAndVerifyParty(req.params.id, req.userId);
+  if (!offer) return res.status(403).json({ error: 'Not found or not a party' });
+  try {
+    const { data } = await supabase.from('listing_messages')
+      .select('*, sender:sender_id(id, username, display_name)')
+      .eq('offer_id', req.params.id)
+      .order('created_at', { ascending: true });
+    res.json({ messages: data || [] });
+  } catch (err) {
+    console.error('[Messages GET]', err.message);
+    res.json({ messages: [], mock: true });
+  }
+});
+
+app.post('/api/listing-offers/:id/messages', requireAuth, async (req, res) => {
+  if (!supabase) return res.json({ message: null, mock: true });
+  const offer = await getOfferAndVerifyParty(req.params.id, req.userId);
+  if (!offer) return res.status(403).json({ error: 'Not found or not a party' });
+  const { body } = req.body;
+  if (!body?.trim()) return res.status(400).json({ error: 'body required' });
+  try {
+    const { data, error } = await supabase.from('listing_messages')
+      .insert({ offer_id: req.params.id, sender_id: req.userId, body: body.trim() })
+      .select('*, sender:sender_id(id, username, display_name)').single();
+    if (error) throw error;
+    res.json({ message: data });
+  } catch (err) {
+    console.error('[Messages POST]', err.message);
+    res.status(500).json({ error: 'Failed to send message' });
+  }
+});
+
+// ── Reports ───────────────────────────────────────────────────────────────────
+app.post('/api/listing-reports', requireAuth, async (req, res) => {
+  if (!supabase) return res.json({ ok: true, mock: true });
+  const { listing_id, offer_id, reported_user_id, reason, notes } = req.body;
+  if (!reason) return res.status(400).json({ error: 'reason required' });
+  try {
+    const { error } = await supabase.from('listing_reports')
+      .insert({ reporter_id: req.userId, listing_id, offer_id, reported_user_id, reason, notes });
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[Reports POST]', err.message);
+    res.status(500).json({ error: 'Failed to submit report' });
+  }
+});
+
+// ── Trade Reviews (uses existing trade_reviews table) ─────────────────────────
+// POST /api/trade-reviews already exists — extend it for listing_offer context
+// GET trader stats for a user
+app.get('/api/trader-stats/:userId', async (req, res) => {
+  if (!supabase) return res.json({ completed_trades: 0, positive: 0, negative: 0, is_trusted: false, mock: true });
+  try {
+    const uid = req.params.userId;
+    const { data: user } = await supabase.from('users').select('trade_count, proof_score').eq('id', uid).single();
+    const { data: reviews } = await supabase.from('trade_reviews').select('rating').eq('trader_id', uid);
+    const pos = (reviews||[]).filter(r=>r.rating>=4).length;
+    const neg = (reviews||[]).filter(r=>r.rating<=2).length;
+    const completed = user?.trade_count || 0;
+    res.json({ completed_trades: completed, positive: pos, negative: neg, is_trusted: completed >= 3 && neg === 0 });
+  } catch (err) {
+    console.error('[TraderStats]', err.message);
+    res.json({ completed_trades:0, positive:0, negative:0, is_trusted:false });
+  }
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
 // START
 // ═════════════════════════════════════════════════════════════════════════════
 

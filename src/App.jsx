@@ -5026,7 +5026,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                 )}
               </div>
             </div>
-            <CollectTab cards={cards} setCards={setCards} isVip={isVip} onUpgrade={onUpgrade} />
+            <CollectTab cards={cards} setCards={setCards} isVip={isVip} onUpgrade={onUpgrade} user={user} />
           </div>
         )}
 
@@ -5568,20 +5568,574 @@ const TRADE_STAGE_META = {
   rate:     { label:"Rate Trader",   color:C.gold,   icon:"⭐" },
 };
 
-function TradeHub({ onBack, onNotif }) {
-  const [trades, setTrades] = useState(()=>ls.get("backstage_active_trades", MOCK_ACTIVE_TRADES_DEFAULT));
-  const [selected, setSelected] = useState(null); // trade id currently viewed
+// ─── TRADE LISTING DETAIL ─────────────────────────────────────────────────────
+// View a single public listing. Lister sees manage controls. Others see "Make Offer".
+function TradeListingDetail({ listing, onBack, user, onOfferMade }) {
+  const [showOffer, setShowOffer] = useState(false);
+  const [showReport, setShowReport] = useState(false);
+  const [reportReason, setReportReason] = useState("");
+  const [reportNote, setReportNote] = useState("");
+  const [reportSent, setReportSent] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelled, setCancelled] = useState(false);
+
+  const uc  = listing.user_cards || {};
+  const trader = listing.users || {};
+  const isOwner = user?.id === listing.user_id;
+  const col = C.rose;
+
+  const cancelListing = async () => {
+    setCancelling(true);
+    await api.patch(`/api/trade-listings/${listing.id}`, { status:'cancelled' });
+    setCancelled(true);
+  };
+
+  const submitReport = async () => {
+    if (!reportReason) return;
+    await api.post('/api/listing-reports', { listing_id: listing.id, reported_user_id: listing.user_id, reason: reportReason, notes: reportNote });
+    setReportSent(true);
+  };
+
+  if (showOffer) return <MakeOfferForm listing={listing} user={user} onBack={()=>setShowOffer(false)} onSaved={(offer)=>{ setShowOffer(false); onOfferMade?.(offer); onBack(); }} />;
+
+  const REPORT_REASONS = [
+    ["wrong_card","Wrong card / not as described"],
+    ["stolen_image","Stolen / stock image"],
+    ["fake_listing","Fake listing"],
+    ["damaged_not_disclosed","Damage not disclosed"],
+    ["duplicate_listing","Duplicate listing"],
+    ["suspicious_account","Suspicious account"],
+  ];
+
+  return (
+    <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
+      <div style={{ padding:"14px 20px 12px", flexShrink:0, display:"flex", alignItems:"center", gap:10 }}>
+        <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
+        <div style={{ flex:1 }}>
+          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16 }}>Trade Listing</p>
+          <p style={{ fontSize:10,color:C.textMid }}>@{trader.username||"fan"}</p>
+        </div>
+        {!isOwner && !showReport && (
+          <button onClick={()=>setShowReport(r=>!r)} style={{ background:"none",border:`1px solid ${C.border}`,borderRadius:9,padding:"5px 10px",color:C.textMid,fontSize:10,cursor:"pointer" }}>⚑ Report</button>
+        )}
+      </div>
+
+      <Screen style={{ padding:"0 20px calc(140px + env(safe-area-inset-bottom))" }}>
+
+        {/* Card info */}
+        <div style={{ background:`linear-gradient(140deg,${col}18,${col}06)`, border:`1.5px solid ${col}33`, borderRadius:22, padding:18, marginBottom:16, display:"flex", gap:14, alignItems:"flex-start" }}>
+          {listing.proof_image_url ? (
+            <img src={listing.proof_image_url} alt="proof" style={{ width:72,height:96,objectFit:"cover",borderRadius:14,border:`2px solid ${col}44`,flexShrink:0 }} />
+          ) : (
+            <div style={{ width:72,height:96,borderRadius:14,background:`${col}12`,border:`2px dashed ${col}33`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,flexShrink:0 }}>🃏</div>
+          )}
+          <div style={{ flex:1,minWidth:0 }}>
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:18,color:C.text,marginBottom:3 }}>{uc.member||"Card"}</p>
+            <p style={{ fontSize:12,color:C.textMid,marginBottom:8 }}>{uc.group_name||""} · {uc.album||uc.era||""}</p>
+            <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
+              {uc.condition&&<div style={{ ...VS.activePill(C.mint),fontSize:9 }}>{uc.condition}</div>}
+              <div style={{ ...VS.activePill(col),fontSize:9 }}>{listing.trade_type==="any"?"Any trade":listing.trade_type}</div>
+              {listing.location&&<div style={{ ...VS.activePill(C.silver),fontSize:9 }}>📍 {listing.location}</div>}
+              <div style={{ ...VS.activePill(C.accent),fontSize:9 }}>📷 Proof photo</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Wants */}
+        {listing.wants_description && (
+          <div style={{ background:`${C.accent}0a`,border:`1px solid ${C.accent}22`,borderRadius:16,padding:"12px 14px",marginBottom:12 }}>
+            <p style={{ fontSize:10,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,marginBottom:4 }}>Looking for</p>
+            <p style={{ fontSize:13,color:C.text,lineHeight:1.6 }}>{listing.wants_description}</p>
+          </div>
+        )}
+
+        {/* Notes */}
+        {listing.notes && (
+          <div style={{ background:`${C.surfaceHi}`,border:`1px solid ${C.border}`,borderRadius:16,padding:"12px 14px",marginBottom:12 }}>
+            <p style={{ fontSize:10,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,marginBottom:4 }}>Seller notes</p>
+            <p style={{ fontSize:12.5,color:C.text,lineHeight:1.6 }}>{listing.notes}</p>
+          </div>
+        )}
+
+        {/* Safety reminder */}
+        <div style={{ background:`${C.gold}0a`,border:`1px solid ${C.gold}22`,borderRadius:14,padding:"10px 14px",marginBottom:20,display:"flex",gap:8,alignItems:"flex-start" }}>
+          <span style={{ fontSize:14,flexShrink:0 }}>🛡️</span>
+          <p style={{ fontSize:10.5,color:C.textMid,lineHeight:1.6 }}>Never share your full address in public. Exchange shipping info only after you've agreed to trade in your offer thread.</p>
+        </div>
+
+        {/* Report form */}
+        {showReport && !reportSent && (
+          <div style={{ background:C.surfaceHi,border:`1.5px solid ${C.border}`,borderRadius:18,padding:16,marginBottom:16 }}>
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,marginBottom:10 }}>Report Listing</p>
+            <div style={{ display:"flex",flexDirection:"column",gap:6,marginBottom:10 }}>
+              {REPORT_REASONS.map(([v,l])=>(
+                <button key={v} onClick={()=>setReportReason(v)} style={{ padding:"9px 12px",borderRadius:10,textAlign:"left",background:reportReason===v?`${C.rose}18`:"transparent",border:`1.5px solid ${reportReason===v?C.rose:C.border}`,color:reportReason===v?C.rose:C.text,fontSize:11.5,cursor:"pointer" }}>{l}</button>
+              ))}
+            </div>
+            <textarea value={reportNote} onChange={e=>setReportNote(e.target.value)} placeholder="Additional context (optional)..." style={{ width:"100%",height:60,background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:10,color:C.text,fontSize:12,padding:"9px 12px",resize:"none",outline:"none",fontFamily:"'Instrument Sans',sans-serif",marginBottom:10 }} />
+            <div style={{ display:"flex",gap:8 }}>
+              <Btn ghost color={C.textMid} small onClick={()=>setShowReport(false)}>Cancel</Btn>
+              <Btn color={C.rose} small disabled={!reportReason} onClick={submitReport}>Submit Report</Btn>
+            </div>
+          </div>
+        )}
+        {reportSent && <div style={{ background:`${C.mint}12`,border:`1px solid ${C.mint}33`,borderRadius:14,padding:"12px 14px",marginBottom:16,textAlign:"center" }}><p style={{ fontSize:12,color:C.mint }}>✓ Report submitted. We'll review it shortly.</p></div>}
+
+        {/* Actions */}
+        {!cancelled && isOwner && (
+          <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
+            <p style={{ fontSize:11,color:C.textMid,textAlign:"center" }}>This is your listing.</p>
+            <Btn ghost color={C.rose} disabled={cancelling} onClick={cancelListing}>{cancelling?"Cancelling...":"Cancel Listing"}</Btn>
+          </div>
+        )}
+        {cancelled && <div style={{ textAlign:"center",padding:"12px 0",color:C.textMid,fontSize:12 }}>Listing cancelled.</div>}
+
+        {!isOwner && !cancelled && listing.status==="active" && (
+          <Btn color={C.rose} onClick={()=>setShowOffer(true)}>Make Offer ⇄</Btn>
+        )}
+        {listing.status==="pending" && !isOwner && (
+          <p style={{ textAlign:"center",fontSize:12,color:C.textMid,marginTop:8 }}>This listing has a pending offer.</p>
+        )}
+        {listing.status!=="active" && listing.status!=="pending" && !isOwner && (
+          <p style={{ textAlign:"center",fontSize:12,color:C.textMid,marginTop:8 }}>This listing is no longer available.</p>
+        )}
+      </Screen>
+    </div>
+  );
+}
+
+// ─── MAKE OFFER FORM ──────────────────────────────────────────────────────────
+function MakeOfferForm({ listing, user, onBack, onSaved }) {
+  const { tokenReady } = useAuth();
+  const [myCards, setMyCards] = useState([]);
+  const [selectedCard, setSelectedCard] = useState(null);
+  const [message, setMessage] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+  const uc = listing.user_cards || {};
+
+  useEffect(()=>{
+    if (!tokenReady) return;
+    api.get('/api/cards?status=for_trade').then(d=>setMyCards(d?.cards||[]));
+  },[tokenReady]);
+
+  const submit = async () => {
+    setSaving(true); setErr("");
+    const d = await api.post('/api/listing-offers', { listing_id: listing.id, sender_card_id: selectedCard?.id || null, message: message.trim() || null });
+    if (d?.offer) onSaved(d.offer);
+    else { setErr(d?.error || "Failed to send offer. Try again."); setSaving(false); }
+  };
+
+  return (
+    <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden" }}>
+      <div style={{ padding:"14px 20px 12px",flexShrink:0,display:"flex",alignItems:"center",gap:10 }}>
+        <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
+        <div>
+          <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18 }}>Make Offer</h2>
+          <p style={{ fontSize:10.5,color:C.textMid }}>{uc.group_name} · {uc.member}</p>
+        </div>
+      </div>
+      <Screen style={{ padding:"0 20px calc(140px + env(safe-area-inset-bottom))" }}>
+
+        {/* Their card */}
+        <div style={{ background:`${C.rose}10`,border:`1.5px solid ${C.rose}33`,borderRadius:16,padding:"12px 14px",marginBottom:16,display:"flex",gap:10,alignItems:"center" }}>
+          <span style={{ fontSize:22 }}>🃏</span>
+          <div>
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13 }}>You want: {uc.member||"this card"}</p>
+            <p style={{ fontSize:10.5,color:C.textMid }}>{uc.group_name} · {uc.album||uc.era||""} · {uc.condition}</p>
+          </div>
+        </div>
+
+        <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
+          {/* Select your card to offer (optional) */}
+          <div>
+            <p style={{ fontSize:10,color:C.textMid,marginBottom:8,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em" }}>Your card to offer (optional)</p>
+            {myCards.length===0 ? (
+              <div style={{ background:`${C.accent}0a`,border:`1.5px dashed ${C.border}`,borderRadius:14,padding:"12px 14px",textAlign:"center" }}>
+                <p style={{ fontSize:11.5,color:C.textMid }}>No cards marked "For Trade" yet.</p>
+                <p style={{ fontSize:10.5,color:C.textDim,marginTop:3 }}>Go to your binder → tap a card → cycle to "For Trade" to add one here.</p>
+              </div>
+            ) : (
+              <div style={{ display:"flex",flexDirection:"column",gap:7 }}>
+                <button onClick={()=>setSelectedCard(null)} style={{ padding:"10px 14px",borderRadius:12,textAlign:"left",background:!selectedCard?`${C.accent}18`:"transparent",border:`1.5px solid ${!selectedCard?C.accent:C.border}`,color:C.text,fontSize:12,cursor:"pointer" }}>
+                  Open offer — let them pick
+                </button>
+                {myCards.map(c=>(
+                  <button key={c.id} onClick={()=>setSelectedCard(c)} style={{ padding:"10px 14px",borderRadius:12,textAlign:"left",background:selectedCard?.id===c.id?`${C.rose}18`:"transparent",border:`1.5px solid ${selectedCard?.id===c.id?C.rose:C.border}`,color:C.text,fontSize:12,cursor:"pointer",display:"flex",gap:10,alignItems:"center" }}>
+                    <span style={{ fontSize:20 }}>🃏</span>
+                    <div>
+                      <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12.5 }}>{c.member}</p>
+                      <p style={{ fontSize:10.5,color:C.textMid }}>{c.group_name} · {c.album||c.era||""} · {c.condition}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <Textarea label="Message (optional)" value={message} onChange={e=>setMessage(e.target.value)} placeholder="Introduce yourself — e.g. I'm in Dallas, open to mail trade, I have matching condition card..." style={{ height:88 }} />
+
+          <div style={{ background:`${C.gold}0a`,border:`1px solid ${C.gold}22`,borderRadius:14,padding:"10px 14px",display:"flex",gap:8,alignItems:"flex-start" }}>
+            <span style={{ fontSize:14,flexShrink:0 }}>🛡️</span>
+            <p style={{ fontSize:10.5,color:C.textMid,lineHeight:1.6 }}>Only send your card after both of you agree and confirm in your offer thread. Never share personal details outside Backstage.</p>
+          </div>
+
+          {err && <p style={{ fontSize:11.5,color:C.rose }}>{err}</p>}
+          <Btn onClick={submit} disabled={saving}>{saving?"Sending...":"Send Offer ⇄"}</Btn>
+        </div>
+      </Screen>
+    </div>
+  );
+}
+
+// ─── OFFER THREAD ─────────────────────────────────────────────────────────────
+// Full negotiation view. Works for both lister and sender.
+function OfferThread({ offer: initialOffer, user, onBack, onComplete }) {
+  const [offer, setOffer]       = useState(initialOffer);
+  const [messages, setMessages] = useState([]);
   const [msgDraft, setMsgDraft] = useState("");
-  const [rating, setRating] = useState(0);
+  const [sending, setSending]   = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [rating, setRating]     = useState(0);
   const [rateNote, setRateNote] = useState("");
-  const [rateDone, setRateDone] = useState({});
-  const [photoProof, setPhotoProof] = useState({});
-  const photoRef = useRef(null);
-  const [hubTab, setHubTab] = useState("mine"); // "mine" | "hub"
+  const [rateDone, setRateDone] = useState(false);
+  const [showReport, setShowReport] = useState(false);
+  const [reportReason, setReportReason] = useState("");
+  const [reportSent, setReportSent] = useState(false);
+  const proofRef = useRef(null);
+  const msgBottom = useRef(null);
+
+  const listing   = offer.trade_listings || {};
+  const listerCard= listing.user_cards || {};
+  const senderCard= offer.sender_card  || {};
+  const isLister  = user?.id === listing.user_id;
+  const isSender  = user?.id === offer.sender_id;
+  const otherUser = offer.sender || {};
+
+  const STATUS_META = {
+    pending:     { label:"Offer Sent",    color:C.accent, icon:"📤" },
+    accepted:    { label:"Accepted ✓",   color:C.mint,   icon:"✓"  },
+    declined:    { label:"Declined",      color:C.textMid,icon:"✗"  },
+    cancelled:   { label:"Cancelled",     color:C.textMid,icon:"✗"  },
+    in_progress: { label:"In Progress",   color:C.sky,    icon:"📦" },
+    completed:   { label:"Completed ✦",  color:C.gold,   icon:"🏅" },
+    disputed:    { label:"Disputed",      color:C.rose,   icon:"⚑"  },
+  };
+  const meta = STATUS_META[offer.status] || STATUS_META.pending;
+
+  const STAGE_STEPS = ["pending","accepted","in_progress","completed"];
+  const stageIdx = STAGE_STEPS.indexOf(offer.status);
+
+  useEffect(()=>{
+    loadMessages();
+  },[offer.id]);
+
+  useEffect(()=>{
+    msgBottom.current?.scrollIntoView({ behavior:"smooth" });
+  },[messages]);
+
+  const loadMessages = async () => {
+    const d = await api.get(`/api/listing-offers/${offer.id}/messages`);
+    setMessages(d?.messages || []);
+  };
+
+  const doAction = async (action, value) => {
+    setActionLoading(true);
+    const d = await api.patch(`/api/listing-offers/${offer.id}`, { action, value });
+    if (d?.ok) {
+      // Optimistically update local offer state
+      const stateMap = { accept:"accepted", decline:"declined", cancel:"cancelled" };
+      if (stateMap[action]) setOffer(o=>({...o, status:stateMap[action]}));
+      if (action==="confirm") {
+        const field = isSender ? "sender_confirmed" : "lister_confirmed";
+        setOffer(o=>{
+          const next = {...o, [field]:true};
+          const bothConfirmed = next.sender_confirmed && next.lister_confirmed;
+          if (bothConfirmed) { next.status = "completed"; onComplete?.(); }
+          return next;
+        });
+      }
+      if (action==="sender_tracking") setOffer(o=>({...o, sender_tracking:value}));
+      if (action==="lister_tracking") setOffer(o=>({...o, lister_tracking:value}));
+    }
+    setActionLoading(false);
+  };
+
+  const handleProofUpload = async (e, who) => {
+    const f = e.target.files[0]; if(!f) return;
+    setActionLoading(true);
+    const urlRes = await api.post('/api/cards/upload-url', { filename:f.name, content_type:f.type });
+    if (!urlRes?.signed_url) { setActionLoading(false); return; }
+    await fetch(urlRes.signed_url, { method:"PUT", body:f, headers:{"Content-Type":f.type} });
+    await doAction(who==="sender"?"sender_proof":"lister_proof", urlRes.public_url);
+    setOffer(o=>({...o, [who==="sender"?"sender_proof_url":"lister_proof_url"]:urlRes.public_url}));
+    setActionLoading(false);
+  };
+
+  const sendMsg = async () => {
+    if (!msgDraft.trim() || sending) return;
+    setSending(true);
+    const d = await api.post(`/api/listing-offers/${offer.id}/messages`, { body: msgDraft.trim() });
+    if (d?.message) setMessages(m=>[...m, d.message]);
+    setMsgDraft("");
+    setSending(false);
+  };
+
+  const submitReview = async () => {
+    if (!rating) return;
+    const rateeId = isLister ? offer.sender_id : listing.user_id;
+    await api.post('/api/trade-reviews', { listing_id: listing.id, ratee_id: rateeId, rating: rating>=4?1:-1, notes: rateNote });
+    setRateDone(true);
+  };
+
+  const submitReport = async () => {
+    if (!reportReason) return;
+    await api.post('/api/listing-reports', { listing_id: listing.id, offer_id: offer.id, reported_user_id: isLister?offer.sender_id:listing.user_id, reason: reportReason });
+    setReportSent(true); setShowReport(false);
+  };
+
+  const REPORT_REASONS = [["wrong_card","Wrong card"],["fake_listing","Fake listing"],["no_send","No-send after agreement"],["damaged_not_disclosed","Damage not disclosed"],["suspicious_account","Suspicious account"]];
+
+  return (
+    <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden",background:C.bg }}>
+      {/* Header */}
+      <div style={{ padding:"14px 20px 10px",display:"flex",gap:10,alignItems:"center",flexShrink:0,borderBottom:`1px solid ${C.border}` }}>
+        <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
+        <div style={{ flex:1,minWidth:0 }}>
+          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15 }}>
+            {isLister ? `Offer from @${otherUser.username||"fan"}` : `Your offer`}
+          </p>
+          <p style={{ fontSize:10,color:C.textMid }}>{listerCard.member} · {listerCard.group_name}</p>
+        </div>
+        <div style={{ ...VS.activePill(meta.color),fontSize:9 }}>{meta.icon} {meta.label}</div>
+      </div>
+
+      <Screen style={{ padding:"0 18px calc(120px + env(safe-area-inset-bottom))" }}>
+        {/* Stage stepper */}
+        <div style={{ display:"flex",gap:3,alignItems:"center",marginTop:14,marginBottom:16,overflowX:"auto",scrollbarWidth:"none" }}>
+          {["Offered","Accepted","In Progress","Complete"].map((label,i)=>(
+            <div key={i} style={{ display:"flex",alignItems:"center",flexShrink:0 }}>
+              <div style={{ width:i===stageIdx?28:22,height:i===stageIdx?28:22,borderRadius:"50%",background:i<stageIdx?C.mint:i===stageIdx?`linear-gradient(135deg,${C.accent},${C.pink})`:`${C.surfaceHi}`,border:i<stageIdx?`1.5px solid ${C.mint}`:i===stageIdx?"none":`1.5px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:i===stageIdx?10:9,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:i<=stageIdx?C.bg:C.textDim,boxShadow:i===stageIdx?`0 0 12px ${C.accent}55`:"none",flexShrink:0 }}>
+                {i<stageIdx?"✓":i+1}
+              </div>
+              {i<3&&<div style={{ width:16,height:2,background:i<stageIdx?C.mint:C.border,borderRadius:99,margin:"0 2px" }} />}
+            </div>
+          ))}
+        </div>
+
+        {/* Card swap */}
+        {["pending","accepted","in_progress"].includes(offer.status) && (
+          <div style={{ display:"flex",gap:10,alignItems:"center",marginBottom:18 }}>
+            {/* Lister's card */}
+            <div style={{ flex:1,padding:"12px 10px",borderRadius:18,textAlign:"center",...VS.glowCard(C.rose) }}>
+              <div style={VS.innerGlow(C.rose)} />
+              <div style={{ position:"relative" }}>
+                <p style={{ fontSize:8.5,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4 }}>
+                  {isLister?"Your Card":"Their Card"}
+                </p>
+                {listing.proof_image_url ? (
+                  <img src={listing.proof_image_url} alt="card" style={{ width:54,height:72,objectFit:"cover",borderRadius:10,margin:"0 auto 6px",display:"block",border:`1.5px solid ${C.rose}44` }} />
+                ) : <div style={{ fontSize:26,marginBottom:6 }}>🃏</div>}
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,color:C.text,marginBottom:1 }}>{listerCard.member||"Card"}</p>
+                <p style={{ fontSize:9.5,color:C.textMid }}>{listerCard.group_name}</p>
+                {isLister && (offer.status==="accepted"||offer.status==="in_progress") && (
+                  <div style={{ marginTop:8 }}>
+                    {offer.lister_proof_url ? (
+                      <div style={{ ...VS.activePill(C.mint),fontSize:8,marginTop:4 }}>📷 Proof added</div>
+                    ) : (
+                      <button onClick={()=>proofRef.current?.click()} style={{ fontSize:9,background:`${C.rose}18`,border:`1.5px dashed ${C.rose}44`,borderRadius:8,padding:"4px 8px",color:C.rose,cursor:"pointer",fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>+ Proof</button>
+                    )}
+                    <input ref={proofRef} type="file" accept="image/*" onChange={e=>handleProofUpload(e,"lister")} style={{ display:"none" }} />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div style={{ flexShrink:0,width:32,height:32,borderRadius:"50%",background:`${C.accent}18`,border:`1.5px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,color:C.accent }}>⇄</div>
+
+            {/* Sender's card / open offer */}
+            <div style={{ flex:1,padding:"12px 10px",borderRadius:18,textAlign:"center",...VS.glowCard(senderCard.id?C.accent:C.border) }}>
+              <div style={VS.innerGlow(senderCard.id?C.accent:C.border)} />
+              <div style={{ position:"relative" }}>
+                <p style={{ fontSize:8.5,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4 }}>
+                  {isSender?"Your Offer":"Their Offer"}
+                </p>
+                {senderCard.id ? (
+                  <>
+                    <div style={{ fontSize:26,marginBottom:6 }}>🃏</div>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,color:C.text,marginBottom:1 }}>{senderCard.member}</p>
+                    <p style={{ fontSize:9.5,color:C.textMid }}>{senderCard.group_name}</p>
+                    {isSender && (offer.status==="accepted"||offer.status==="in_progress") && (
+                      <div style={{ marginTop:8 }}>
+                        {offer.sender_proof_url ? (
+                          <div style={{ ...VS.activePill(C.mint),fontSize:8,marginTop:4 }}>📷 Proof added</div>
+                        ) : (
+                          <button onClick={()=>proofRef.current?.click()} style={{ fontSize:9,background:`${C.accent}18`,border:`1.5px dashed ${C.accent}44`,borderRadius:8,padding:"4px 8px",color:C.accent,cursor:"pointer",fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>+ Proof</button>
+                        )}
+                        <input ref={proofRef} type="file" accept="image/*" onChange={e=>handleProofUpload(e,"sender")} style={{ display:"none" }} />
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div style={{ fontSize:26,marginBottom:6 }}>✨</div>
+                    <p style={{ fontSize:10,color:C.textMid,lineHeight:1.4 }}>Open offer — you choose what to send</p>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Action area */}
+        <div style={{ marginBottom:16 }}>
+          {/* Lister actions on pending offer */}
+          {isLister && offer.status==="pending" && (
+            <div style={{ display:"flex",gap:8 }}>
+              <Btn color={C.mint} disabled={actionLoading} onClick={()=>doAction("accept")} style={{ flex:1 }}>Accept ✓</Btn>
+              <Btn ghost color={C.textMid} disabled={actionLoading} onClick={()=>doAction("decline")} style={{ flex:1 }}>Decline</Btn>
+            </div>
+          )}
+
+          {/* Sender actions on pending offer */}
+          {isSender && offer.status==="pending" && (
+            <Btn ghost color={C.textMid} disabled={actionLoading} onClick={()=>doAction("cancel")}>Cancel Offer</Btn>
+          )}
+
+          {/* Accepted / In Progress — tracking */}
+          {["accepted","in_progress"].includes(offer.status) && (
+            <div style={{ background:C.surfaceHi,border:`1.5px solid ${C.border}`,borderRadius:16,padding:"12px 14px",marginBottom:12 }}>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,marginBottom:10 }}>📦 Shipping Details</p>
+              <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+                {isSender && (
+                  <div>
+                    <p style={{ fontSize:9.5,color:C.textMid,marginBottom:4 }}>Your tracking number</p>
+                    <div style={{ display:"flex",gap:6 }}>
+                      <input defaultValue={offer.sender_tracking||""} onBlur={e=>doAction("sender_tracking",e.target.value)} placeholder="e.g. 9400111899223372..." style={{ flex:1,padding:"8px 11px",borderRadius:9,background:C.surface,border:`1.5px solid ${C.border}`,color:C.text,fontSize:12,outline:"none" }} />
+                    </div>
+                  </div>
+                )}
+                {isLister && (
+                  <div>
+                    <p style={{ fontSize:9.5,color:C.textMid,marginBottom:4 }}>Your tracking number</p>
+                    <div style={{ display:"flex",gap:6 }}>
+                      <input defaultValue={offer.lister_tracking||""} onBlur={e=>doAction("lister_tracking",e.target.value)} placeholder="e.g. 9400111899223372..." style={{ flex:1,padding:"8px 11px",borderRadius:9,background:C.surface,border:`1.5px solid ${C.border}`,color:C.text,fontSize:12,outline:"none" }} />
+                    </div>
+                  </div>
+                )}
+                {/* Show other party's tracking (read-only) */}
+                {isLister && offer.sender_tracking && <p style={{ fontSize:10.5,color:C.textMid }}>Their tracking: <span style={{ color:C.text,fontFamily:"monospace" }}>{offer.sender_tracking}</span></p>}
+                {isSender && offer.lister_tracking  && <p style={{ fontSize:10.5,color:C.textMid }}>Their tracking: <span style={{ color:C.text,fontFamily:"monospace" }}>{offer.lister_tracking}</span></p>}
+              </div>
+            </div>
+          )}
+
+          {/* Confirm received */}
+          {["accepted","in_progress"].includes(offer.status) && (
+            <div style={{ marginBottom:12 }}>
+              {isSender && !offer.sender_confirmed && (
+                <Btn color={C.mint} disabled={actionLoading} onClick={()=>doAction("confirm")}>✓ I Received My Card</Btn>
+              )}
+              {isLister && !offer.lister_confirmed && (
+                <Btn color={C.mint} disabled={actionLoading} onClick={()=>doAction("confirm")}>✓ I Received My Card</Btn>
+              )}
+              {isSender && offer.sender_confirmed && <p style={{ textAlign:"center",fontSize:11,color:C.mint,marginBottom:6 }}>✓ You confirmed receipt</p>}
+              {isLister && offer.lister_confirmed && <p style={{ textAlign:"center",fontSize:11,color:C.mint,marginBottom:6 }}>✓ You confirmed receipt</p>}
+            </div>
+          )}
+
+          {/* Cancel option */}
+          {["accepted","in_progress"].includes(offer.status) && (
+            <Btn ghost color={C.textMid} small disabled={actionLoading} onClick={()=>doAction("cancel")}>Cancel Trade</Btn>
+          )}
+
+          {/* Trade complete */}
+          {offer.status==="completed" && !rateDone && (
+            <div style={{ background:`linear-gradient(140deg,${C.gold}12,${C.gold}04)`,border:`1.5px solid ${C.gold}44`,borderRadius:18,padding:18,marginBottom:12,textAlign:"center" }}>
+              <div style={{ fontSize:36,marginBottom:8 }}>🏅</div>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:18,color:C.gold,marginBottom:6 }}>Trade Complete!</p>
+              <p style={{ fontSize:11.5,color:C.textMid,marginBottom:16 }}>Rate your trade partner to help the community.</p>
+              <div style={{ display:"flex",gap:10,justifyContent:"center",marginBottom:14 }}>
+                {[1,2,3,4,5].map(s=>(
+                  <button key={s} onClick={()=>setRating(s)} style={{ background:"none",border:"none",fontSize:28,cursor:"pointer",color:s<=rating?C.gold:C.border,transition:"all .15s" }}>★</button>
+                ))}
+              </div>
+              <textarea value={rateNote} onChange={e=>setRateNote(e.target.value)} placeholder="Optional note for the community..." style={{ width:"100%",height:64,background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:11,color:C.text,fontSize:12,resize:"none",outline:"none",fontFamily:"'Instrument Sans',sans-serif",padding:"9px 12px",marginBottom:12 }} />
+              <Btn color={C.gold} disabled={!rating} onClick={submitReview}>Submit Rating ✦</Btn>
+            </div>
+          )}
+          {rateDone && <div style={{ textAlign:"center",padding:16,color:C.mint,fontSize:12 }}>✓ Rating submitted.</div>}
+
+          {/* Declined / Cancelled */}
+          {["declined","cancelled","disputed"].includes(offer.status) && (
+            <div style={{ textAlign:"center",padding:"20px 0",color:C.textMid,fontSize:12 }}>
+              <p style={{ fontSize:24,marginBottom:8 }}>{offer.status==="declined"?"✗":"⚑"}</p>
+              <p>This offer was {offer.status}.</p>
+            </div>
+          )}
+        </div>
+
+        {/* Report */}
+        {!["completed","declined","cancelled"].includes(offer.status) && !showReport && (
+          <button onClick={()=>setShowReport(true)} style={{ background:"none",border:"none",color:C.textDim,fontSize:10.5,cursor:"pointer",display:"block",margin:"0 auto 12px",textDecoration:"underline" }}>⚑ Report an issue with this trade</button>
+        )}
+        {showReport && !reportSent && (
+          <div style={{ background:C.surfaceHi,border:`1.5px solid ${C.border}`,borderRadius:16,padding:14,marginBottom:12 }}>
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,marginBottom:8 }}>Report Issue</p>
+            {REPORT_REASONS.map(([v,l])=>(
+              <button key={v} onClick={()=>setReportReason(v)} style={{ width:"100%",marginBottom:5,padding:"8px 11px",borderRadius:9,textAlign:"left",background:reportReason===v?`${C.rose}18`:"transparent",border:`1.5px solid ${reportReason===v?C.rose:C.border}`,color:reportReason===v?C.rose:C.text,fontSize:11.5,cursor:"pointer" }}>{l}</button>
+            ))}
+            <div style={{ display:"flex",gap:8,marginTop:6 }}>
+              <Btn ghost color={C.textMid} small onClick={()=>setShowReport(false)}>Cancel</Btn>
+              <Btn color={C.rose} small disabled={!reportReason} onClick={submitReport}>Submit</Btn>
+            </div>
+          </div>
+        )}
+        {reportSent && <p style={{ textAlign:"center",fontSize:11,color:C.mint,marginBottom:12 }}>✓ Report submitted.</p>}
+
+        {/* Message thread */}
+        {!["declined","cancelled"].includes(offer.status) && (
+          <div>
+            <p style={{ ...VS.softSectionHeader,marginBottom:10 }}>Messages</p>
+            <div style={{ background:C.surfaceHi,borderRadius:18,padding:12,marginBottom:10,maxHeight:220,overflowY:"auto" }}>
+              {messages.length===0&&<p style={{ fontSize:11,color:C.textDim,textAlign:"center",padding:"10px 0" }}>No messages yet. Say hi!</p>}
+              {messages.map((msg,i)=>{
+                const isMe = msg.sender_id === user?.id;
+                return (
+                  <div key={i} style={{ display:"flex",justifyContent:isMe?"flex-end":"flex-start",marginBottom:8 }}>
+                    <div style={{ maxWidth:"78%",background:isMe?`linear-gradient(140deg,${C.accent},${C.accentDim})`:C.surface,borderRadius:isMe?"16px 16px 4px 16px":"16px 16px 16px 4px",padding:"9px 13px",border:isMe?"none":`1px solid ${C.border}` }}>
+                      {!isMe&&<p style={{ fontSize:8.5,color:C.textDim,marginBottom:3 }}>@{msg.sender?.username||"fan"}</p>}
+                      <p style={{ fontSize:12.5,lineHeight:1.55,color:isMe?C.white:C.text }}>{msg.body}</p>
+                      <p style={{ fontSize:8.5,color:isMe?"rgba(255,255,255,0.5)":C.textDim,marginTop:3 }}>{new Date(msg.created_at).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}</p>
+                    </div>
+                  </div>
+                );
+              })}
+              <div ref={msgBottom} />
+            </div>
+            <div style={{ display:"flex",gap:8 }}>
+              <input value={msgDraft} onChange={e=>setMsgDraft(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&sendMsg()} placeholder="Message..." style={{ flex:1,padding:"10px 13px",borderRadius:12,background:C.surfaceHi,border:`1.5px solid ${C.border}`,color:C.text,fontSize:12.5,outline:"none" }} />
+              <button onClick={sendMsg} disabled={!msgDraft.trim()||sending} style={{ width:42,height:42,borderRadius:12,background:msgDraft.trim()?C.accent:`${C.accent}33`,border:"none",color:C.bg,fontSize:16,cursor:"pointer" }}>→</button>
+            </div>
+          </div>
+        )}
+      </Screen>
+    </div>
+  );
+}
+
+function TradeHub({ onBack, onNotif, user }) {
+  const { tokenReady } = useAuth();
+  const [hubTab, setHubTab]         = useState("mine");
   const [publicListings, setPublicListings] = useState([]);
   const [hubLoading, setHubLoading] = useState(false);
+  const [myOffers, setMyOffers]     = useState([]);
+  const [offersLoading, setOffersLoading] = useState(false);
+  const [selectedListing, setSelectedListing] = useState(null); // for TradeListingDetail
+  const [selectedOffer, setSelectedOffer]     = useState(null); // for OfferThread
 
-  useEffect(()=>{ ls.set("backstage_active_trades", trades); }, [trades]);
+  // Keep mock trades as fallback for the old "My Trades" flow (pre-real-data)
+  const [trades] = useState(()=>ls.get("backstage_active_trades", MOCK_ACTIVE_TRADES_DEFAULT));
 
   useEffect(()=>{
     if (hubTab !== "hub") return;
@@ -5589,8 +6143,14 @@ function TradeHub({ onBack, onNotif }) {
     api.get('/api/trade-listings').then(d=>{ setPublicListings(d?.listings||[]); setHubLoading(false); });
   }, [hubTab]);
 
-  const advanceStage = (tradeId, nextStage) => {
-    setTrades(ts=>ts.map(t=>t.id===tradeId?{...t,stage:nextStage}:t));
+  useEffect(()=>{
+    if (hubTab !== "mine" || !tokenReady) return;
+    setOffersLoading(true);
+    api.get('/api/listing-offers').then(d=>{ setMyOffers(d?.offers||[]); setOffersLoading(false); });
+  }, [hubTab, tokenReady]);
+
+  const refreshOffers = () => {
+    api.get('/api/listing-offers').then(d=>setMyOffers(d?.offers||[]));
   };
 
   const sendMessage = (tradeId) => {
@@ -5610,7 +6170,11 @@ function TradeHub({ onBack, onNotif }) {
     r.readAsDataURL(f);
   };
 
-  const activeTrade = selected ? trades.find(t=>t.id===selected) : null;
+  // Route to sub-views
+  if (selectedListing) return <TradeListingDetail listing={selectedListing} user={user} onBack={()=>setSelectedListing(null)} onOfferMade={()=>{ setSelectedListing(null); setHubTab("mine"); refreshOffers(); }} />;
+  if (selectedOffer)   return <OfferThread offer={selectedOffer} user={user} onBack={()=>{ setSelectedOffer(null); refreshOffers(); }} onComplete={refreshOffers} />;
+
+  const activeTrade = null; // legacy mock flow disabled — real offers used below
 
   const STAGE_FLOW = ["match","offer","waiting","accepted","shipped","confirm","done","rate"];
   const STAGE_LABELS = {
@@ -5773,23 +6337,23 @@ function TradeHub({ onBack, onNotif }) {
       </div>
 
       <Screen style={{ padding:"0 18px calc(120px + env(safe-area-inset-bottom))" }}>
-        {/* Public Hub */}
+        {/* Public Hub — clickable listings */}
         {hubTab==="hub" && (
           hubLoading ? <div style={{ textAlign:"center",padding:40,color:C.textMid,fontSize:13 }}>Loading listings...</div> : (
-            publicListings.length===0 ? (
+            publicListings.filter(l=>l.status==="active"||l.status==="pending").length===0 ? (
               <div style={{ textAlign:"center",padding:"48px 20px" }}>
                 <p style={{ fontSize:36,marginBottom:12 }}>⇄</p>
-                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:15,marginBottom:6 }}>No listings yet</p>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:15,marginBottom:6 }}>No active listings</p>
                 <p style={{ fontSize:12,color:C.textMid }}>Mark a card as "For Trade" in your binder to list it here.</p>
               </div>
-            ) : publicListings.map(listing=>{
+            ) : publicListings.filter(l=>l.status==="active"||l.status==="pending").map(listing=>{
               const uc = listing.user_cards || {};
               const trader = listing.users || {};
               return (
-                <div key={listing.id} style={{ background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:18,padding:14,marginBottom:12 }}>
+                <div key={listing.id} onClick={()=>setSelectedListing(listing)} className="tap" style={{ background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:18,padding:14,marginBottom:12,cursor:"pointer" }}>
                   <div style={{ display:"flex",gap:10,alignItems:"flex-start" }}>
-                    {uc.image_url ? (
-                      <img src={uc.image_url} alt={uc.member} style={{ width:50,height:66,objectFit:"cover",borderRadius:10,border:`1.5px solid ${C.border}`,flexShrink:0 }} />
+                    {listing.proof_image_url ? (
+                      <img src={listing.proof_image_url} alt={uc.member} style={{ width:50,height:66,objectFit:"cover",borderRadius:10,border:`1.5px solid ${C.border}`,flexShrink:0 }} />
                     ) : (
                       <div style={{ width:50,height:66,borderRadius:10,background:`${C.accent}18`,border:`1.5px dashed ${C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0 }}>🃏</div>
                     )}
@@ -5798,15 +6362,17 @@ function TradeHub({ onBack, onNotif }) {
                       <p style={{ fontSize:11,color:C.textMid,marginBottom:4 }}>{uc.group_name} · {uc.album||uc.era||""}</p>
                       <div style={{ display:"flex",gap:5,flexWrap:"wrap" }}>
                         {uc.condition&&<div style={{ ...VS.activePill(C.mint),fontSize:8 }}>{uc.condition}</div>}
-                        <div style={{ ...VS.activePill(C.accent),fontSize:8 }}>{listing.trade_type==="any"?"Any trade":listing.trade_type}</div>
+                        <div style={{ ...VS.activePill(C.accent),fontSize:8 }}>{listing.trade_type==="any"?"Any":listing.trade_type}</div>
                         {listing.location&&<div style={{ ...VS.activePill(C.silver),fontSize:8 }}>📍 {listing.location}</div>}
+                        {listing.status==="pending"&&<div style={{ ...VS.activePill(C.gold),fontSize:8 }}>Offer pending</div>}
                       </div>
                       {listing.wants_description&&<p style={{ fontSize:10.5,color:C.textMid,marginTop:5,lineHeight:1.5 }}>Wants: {listing.wants_description}</p>}
                     </div>
+                    <div style={{ ...VS.activePill(C.rose),fontSize:9,flexShrink:0 }}>📷</div>
                   </div>
-                  <div style={{ marginTop:10,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                  <div style={{ marginTop:8,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
                     <p style={{ fontSize:10,color:C.textDim }}>@{trader.username||"fan"}</p>
-                    <div style={{ ...VS.activePill(C.rose),fontSize:9 }}>📷 Proof</div>
+                    <p style={{ fontSize:10,color:C.accent }}>View →</p>
                   </div>
                 </div>
               );
@@ -5814,60 +6380,75 @@ function TradeHub({ onBack, onNotif }) {
           )
         )}
 
-        {/* My Trades list */}
-        {hubTab==="mine" && trades.filter(t=>t.stage!=="done").map(trade=>{
-          const meta = TRADE_STAGE_META[trade.stage]||TRADE_STAGE_META.match;
-          return (
-            <div key={trade.id} onClick={()=>setSelected(trade.id)} className="tap" style={{ ...VS.glowCard(trade.myCard.color),padding:14,marginBottom:12,cursor:"pointer" }}>
-              <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${trade.myCard.color}55,transparent)` }} />
-              <div style={{ position:"relative",display:"flex",gap:11,alignItems:"center" }}>
-                <div style={{ width:48,height:48,borderRadius:"50%",background:`linear-gradient(135deg,${trade.partner.color},${trade.partner.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18,color:C.bg,flexShrink:0 }}>{trade.partner.avatar}</div>
-                <div style={{ flex:1,minWidth:0 }}>
-                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13 }}>{trade.partner.name}</p>
-                  <p style={{ fontSize:10.5,color:C.textMid }}>★ {trade.partner.trustScore} · {trade.partner.trades} trades</p>
-                  <div style={{ display:"flex",gap:6,marginTop:4,alignItems:"center" }}>
-                    <p style={{ fontSize:10.5,color:C.textMid }}>{trade.myCard.name} ⇄ {trade.theirCard.name}</p>
+        {/* My Trades — real offers */}
+        {hubTab==="mine" && (
+          offersLoading ? <div style={{ textAlign:"center",padding:32,color:C.textMid,fontSize:13 }}>Loading...</div> :
+          myOffers.length===0 ? (
+            <div style={{ textAlign:"center",padding:"48px 20px" }}>
+              <p style={{ fontSize:36,marginBottom:12 }}>⇄</p>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:15,marginBottom:6 }}>No active offers</p>
+              <p style={{ fontSize:12,color:C.textMid }}>Browse the Public Hub and make an offer on a listing to get started.</p>
+            </div>
+          ) : myOffers.map(offer=>{
+            const listing = offer.trade_listings || {};
+            const uc = listing.user_cards || {};
+            const STATUS_META_OFFER = {
+              pending:    { label:"Pending",      color:C.accent  },
+              accepted:   { label:"Accepted ✓",  color:C.mint    },
+              in_progress:{ label:"In Progress",  color:C.sky     },
+              completed:  { label:"Complete 🏅",  color:C.gold    },
+              declined:   { label:"Declined",     color:C.textMid },
+              cancelled:  { label:"Cancelled",    color:C.textMid },
+            };
+            const ometa = STATUS_META_OFFER[offer.status] || STATUS_META_OFFER.pending;
+            const isLister = offer.role === "lister";
+            return (
+              <div key={offer.id} onClick={()=>setSelectedOffer(offer)} className="tap" style={{ ...VS.glowCard(ometa.color),padding:14,marginBottom:12,cursor:"pointer" }}>
+                <div style={VS.shimmerLine(ometa.color)} />
+                <div style={{ position:"relative",display:"flex",gap:11,alignItems:"center" }}>
+                  <div style={{ width:46,height:62,borderRadius:10,background:`${ometa.color}14`,border:`1.5px solid ${ometa.color}33`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0 }}>🃏</div>
+                  <div style={{ flex:1,minWidth:0 }}>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,marginBottom:2 }}>{uc.member||"Card"}</p>
+                    <p style={{ fontSize:10.5,color:C.textMid,marginBottom:4 }}>{uc.group_name} · {uc.album||uc.era||""}</p>
+                    <p style={{ fontSize:10,color:C.textDim }}>{isLister?"Offer received":"Your offer"}</p>
+                  </div>
+                  <div style={{ display:"flex",flexDirection:"column",alignItems:"flex-end",gap:5 }}>
+                    <div style={{ ...VS.activePill(ometa.color),fontSize:8.5 }}>{ometa.label}</div>
+                    {isLister&&offer.status==="pending"&&<div style={{ ...VS.activePill(C.rose),fontSize:8 }}>Action needed</div>}
                   </div>
                 </div>
-                <div style={{ display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6 }}>
-                  <div style={{ ...VS.activePill(meta.color),fontSize:8.5 }}>{meta.icon} {meta.label}</div>
-                  {trade.messages.length>0&&<div style={{ ...VS.activePill(C.textMid),fontSize:8 }}>💬 {trade.messages.length}</div>}
-                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })
+        )}
 
-        {/* Completed trades */}
-        {hubTab==="mine"&&trades.filter(t=>t.stage==="done").length>0&&(
+        {/* Completed trades section */}
+        {hubTab==="mine"&&myOffers.filter(o=>o.status==="completed").length>0&&(
           <div style={{ marginTop:8 }}>
             <p style={{ ...VS.softSectionHeader,marginBottom:10 }}>Completed</p>
-            {trades.filter(t=>t.stage==="done").map(trade=>(
-              <div key={trade.id} style={{ background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:12,marginBottom:8,display:"flex",gap:10,alignItems:"center",opacity:0.65 }}>
-                <p style={{ fontSize:14 }}>🏅</p>
-                <div style={{ flex:1 }}>
-                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12.5 }}>{trade.myCard.name} ↔ {trade.theirCard.name}</p>
-                  <p style={{ fontSize:10.5,color:C.textMid }}>with {trade.partner.name}</p>
+            {myOffers.filter(o=>o.status==="completed").map(offer=>{
+              const uc = (offer.trade_listings||{}).user_cards || {};
+              return (
+                <div key={offer.id} onClick={()=>setSelectedOffer(offer)} className="tap" style={{ background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:12,marginBottom:8,display:"flex",gap:10,alignItems:"center",opacity:0.75,cursor:"pointer" }}>
+                  <p style={{ fontSize:14 }}>🏅</p>
+                  <div style={{ flex:1 }}>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12.5 }}>{uc.member||"Card"}</p>
+                    <p style={{ fontSize:10.5,color:C.textMid }}>{uc.group_name}</p>
+                  </div>
+                  <div style={{ ...VS.activePill(C.gold),fontSize:8 }}>✓ Done</div>
                 </div>
-                <div style={{ ...VS.activePill(C.gold),fontSize:8 }}>✓ Done</div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
-        {hubTab==="mine"&&trades.length===0&&(
-          <div style={{ textAlign:"center",padding:"48px 20px" }}>
-            <p style={{ fontSize:36,marginBottom:14 }}>🃏</p>
-            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:16,marginBottom:6 }}>No active trades</p>
-            <p style={{ fontSize:12,color:C.textMid }}>Mark cards as "For Trade" in your binder and list them here.</p>
-          </div>
-        )}
+{/* empty state handled inside the "mine" block above */}
       </Screen>
     </div>
   );
 }
 
-function CollectTab({ cards, setCards, isVip, onUpgrade }) {
+function CollectTab({ cards, setCards, isVip, onUpgrade, user }) {
   const [view, setView] = useState("shelf");
   const [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState(null);
@@ -5891,7 +6472,7 @@ function CollectTab({ cards, setCards, isVip, onUpgrade }) {
 
   if (showBinderCreate) return <BinderCreate onBack={()=>{ setShowBinderCreate(false); refreshBinders(); }} onCustom={()=>{ setShowBinderCreate(false); setShowCustomBinder(true); }} />;
   if (showCustomBinder) return <CustomBinderForm onBack={()=>setShowCustomBinder(false)} onSaved={()=>{ setShowCustomBinder(false); refreshBinders(); }} />;
-  if (showTradeHub) return <TradeHub onBack={()=>setShowTradeHub(false)} />;
+  if (showTradeHub) return <TradeHub onBack={()=>setShowTradeHub(false)} user={user} />;
   if (selectedBinder) return <BinderDetail binder={selectedBinder} onBack={()=>setSelectedBinder(null)} />;
 
   return (
