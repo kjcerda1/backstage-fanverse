@@ -12158,6 +12158,122 @@ function GroupDetailEditor({ group, initial={}, statusOptions=[], statusColors={
   );
 }
 
+// ─── PUBLIC FAN PASSPORT ─────────────────────────────────────────────────────
+// Reusable full public profile view. Used from DM, My Circle, Fan Discovery.
+// Fetches real profile data from GET /api/profile/:id.
+// Shows honest empty states — never implies data is hidden.
+function PublicFanPassport({ fan, onBack, onBackToMessage }) {
+  const [profile, setProfile]   = useState(null);
+  const [loading, setLoading]   = useState(true);
+
+  useEffect(() => {
+    if (!fan?.id) { setLoading(false); return; }
+    api.get(`/api/profile/${fan.id}`).then(data => {
+      if (data && !data.error) setProfile(data);
+      setLoading(false);
+    });
+  }, [fan?.id]);
+
+  const ps        = profile?.profile_style || {};
+  const skinGrad  = SKIN_GRADIENTS[SKIN_ID_TO_GRAD[ps.skinId||"classic"]||"purple haze"];
+  const skinChars = (OVERLAY_CHARS[ps.skinOverlay||"sparkles"]||[]).slice(0,8);
+  const SPOS      = [[5,78],[20,90],[35,10],[50,68],[65,85],[78,22],[88,55],[14,42]];
+
+  const username   = profile?.username ? `@${profile.username}` : fan.name;
+  const dispName   = profile?.display_name;
+  const bio        = ps.bannerText || profile?.bio;
+  const fandoms    = profile?.fandoms || fan.groups || fan.fandoms || [];
+  const bias       = profile?.bias;
+  const city       = profile?.city;
+  const isVip      = profile?.is_vip;
+
+  return (
+    <div style={{ position:"absolute",inset:0,zIndex:400,background:skinGrad,display:"flex",flexDirection:"column",animation:"in .2s ease",overflow:"hidden" }}>
+      {/* Skin sparkles */}
+      {skinChars.map((ch,i)=>(
+        <div key={i} style={{ position:"absolute",top:`${SPOS[i]?.[0]??i*12}%`,left:`${SPOS[i]?.[1]??80}%`,fontSize:ch.length>1?15:10,opacity:0.11,animation:`sparkleFloat ${3.5+i*0.6}s ease-in-out infinite`,animationDelay:`${i*0.45}s`,color:"rgba(255,255,255,0.9)",pointerEvents:"none",zIndex:0 }}>{ch}</div>
+      ))}
+
+      {/* Header */}
+      <div style={{ padding:"14px 20px 12px",display:"flex",gap:10,alignItems:"center",flexShrink:0,borderBottom:"1px solid rgba(255,255,255,0.08)",position:"relative",zIndex:1,background:"rgba(6,6,15,0.45)",backdropFilter:"blur(14px)" }}>
+        <button onClick={onBack} style={{ background:"none",border:"none",color:"rgba(255,255,255,0.65)",fontSize:22,cursor:"pointer",lineHeight:1 }}>←</button>
+        <div style={{ flex:1 }}>
+          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,color:C.text }}>Fan Passport</p>
+          <p style={{ fontSize:9.5,color:"rgba(255,255,255,0.4)" }}>{username}</p>
+        </div>
+        {isVip&&<div style={{ background:"rgba(255,215,0,0.14)",border:"1px solid rgba(255,215,0,0.4)",borderRadius:99,padding:"3px 10px",fontSize:9,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>⭐ VIP</div>}
+      </div>
+
+      {loading ? (
+        <div style={{ flex:1,display:"flex",alignItems:"center",justifyContent:"center",zIndex:1,position:"relative" }}>
+          <p style={{ fontSize:12,color:"rgba(255,255,255,0.35)",fontFamily:"'Epilogue',sans-serif",animation:"pulse 1.5s ease infinite" }}>Loading…</p>
+        </div>
+      ) : (
+        <div style={{ flex:1,overflowY:"auto",position:"relative",zIndex:1,padding:"0 20px calc(32px + env(safe-area-inset-bottom))" }}>
+
+          {/* Bio / status banner */}
+          <div style={{ background:"rgba(6,6,15,0.52)",backdropFilter:"blur(16px)",borderRadius:22,padding:"18px 18px 16px",marginTop:18,marginBottom:20,position:"relative",overflow:"hidden",border:"1px solid rgba(255,255,255,0.09)" }}>
+            <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:"linear-gradient(90deg,transparent,rgba(255,255,255,0.28),transparent)" }} />
+            {[{t:"10%",l:"72%",s:13,d:"0s"},{t:"68%",l:"86%",s:8,d:"1s"},{t:"28%",l:"8%",s:8,d:"1.5s"}].map((sp,i)=>(
+              <div key={i} style={{ position:"absolute",top:sp.t,left:sp.l,fontSize:sp.s,opacity:0.35,animation:`sparkleFloat 3.5s ease-in-out infinite`,animationDelay:sp.d,pointerEvents:"none",color:C.lavender }}>✦</div>
+            ))}
+            <p style={{ fontSize:7.5,color:"rgba(255,255,255,0.25)",fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.18em",marginBottom:8 }}>✦ FAN PASSPORT</p>
+            {bio
+              ? <p style={{ fontFamily:"'Epilogue',sans-serif",fontStyle:"italic",fontWeight:700,fontSize:15,color:"rgba(255,255,255,0.9)",lineHeight:1.5,textShadow:"0 2px 12px rgba(0,0,0,0.5)" }}>"{bio}"</p>
+              : <p style={{ fontSize:12,color:"rgba(255,255,255,0.28)",fontStyle:"italic" }}>No status set yet</p>
+            }
+            {bias&&(
+              <div style={{ marginTop:10 }}>
+                <div style={{ display:"inline-block",background:"rgba(6,6,15,0.5)",border:"1px solid rgba(255,255,255,0.14)",borderRadius:99,padding:"3px 10px",fontSize:8.5,color:"rgba(255,255,255,0.7)",fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>BIAS: {bias.toUpperCase()}</div>
+              </div>
+            )}
+          </div>
+
+          {/* Avatar + identity */}
+          <div style={{ display:"flex",gap:14,alignItems:"center",marginBottom:20 }}>
+            <div style={{ width:72,height:72,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.pink})`,border:"2.5px solid rgba(255,255,255,0.18)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:26,color:C.bg,flexShrink:0,boxShadow:`0 0 24px ${C.accent}40` }}>
+              {fan.avatar||"?"}
+            </div>
+            <div style={{ flex:1,minWidth:0 }}>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18,marginBottom:2 }}>{dispName||username}</p>
+              {dispName&&<p style={{ fontSize:10.5,color:"rgba(255,255,255,0.4)",marginBottom:4 }}>{username}</p>}
+              {city&&<p style={{ fontSize:11,color:"rgba(255,255,255,0.4)",marginBottom:6 }}>📍 {city}</p>}
+              {fandoms.length>0
+                ? <div style={{ display:"flex",gap:5,flexWrap:"wrap" }}>
+                    {fandoms.slice(0,4).map(f=>(
+                      <span key={f} style={{ padding:"3px 9px",borderRadius:99,background:`${C.accent}1e`,border:`1px solid ${C.accent}40`,fontSize:10,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{f}</span>
+                    ))}
+                  </div>
+                : <p style={{ fontSize:11,color:"rgba(255,255,255,0.28)",fontStyle:"italic" }}>No fandoms added yet</p>
+              }
+            </div>
+          </div>
+
+          {/* Info rows */}
+          <div style={{ display:"flex",flexDirection:"column",gap:8,marginBottom:24 }}>
+            {[
+              { icon:"🎤", label:"Concerts attended" },
+              { icon:"🃏", label:"Photocard collection" },
+              { icon:"💜", label:"Fan since" },
+            ].map(row=>(
+              <div key={row.label} style={{ display:"flex",alignItems:"center",gap:12,padding:"12px 14px",background:"rgba(6,6,15,0.42)",backdropFilter:"blur(8px)",borderRadius:13,border:"1px solid rgba(255,255,255,0.07)" }}>
+                <span style={{ fontSize:18 }}>{row.icon}</span>
+                <p style={{ flex:1,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:12.5 }}>{row.label}</p>
+                <p style={{ fontSize:11,color:"rgba(255,255,255,0.28)",fontStyle:"italic" }}>Not added yet</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Back to message CTA */}
+          <button onClick={onBackToMessage} style={{ width:"100%",padding:"13px",borderRadius:14,background:`linear-gradient(140deg,${C.accent}cc,${C.pink}88)`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer" }}>
+            Back to Message
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── PROFILE ──────────────────────────────────────────────────────────────────
 // ─── TOP BIASES ───────────────────────────────────────────────────────────────
 // GET /api/profile/biases | POST /api/profile/biases/update
@@ -12844,69 +12960,13 @@ function DirectMessages({ onBack, user, initialFan }) {
         </div>
       )}
 
-      {/* ── FAN PASSPORT OVERLAY ── full profile, opened from profile sheet */}
+      {/* ── FAN PASSPORT OVERLAY ── delegates to reusable PublicFanPassport */}
       {viewFanPassport&&viewProfileFan&&(
-        <div style={{ position:"absolute",inset:0,zIndex:400,background:C.bg,display:"flex",flexDirection:"column",animation:"in .2s ease",overflow:"hidden" }}>
-          {/* Header */}
-          <div style={{ padding:"14px 20px 12px",display:"flex",gap:10,alignItems:"center",flexShrink:0,borderBottom:`1px solid ${C.border}` }}>
-            <button onClick={()=>setViewFanPassport(false)} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer",lineHeight:1 }}>←</button>
-            <div style={{ flex:1 }}>
-              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15 }}>Fan Passport</p>
-              <p style={{ fontSize:9.5,color:C.textMid }}>{viewProfileFan.name}</p>
-            </div>
-            <div style={{ background:`${C.accent}18`,border:`1px solid ${C.accent}33`,borderRadius:99,padding:"3px 10px",fontSize:9,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>✦ Backstage Fan</div>
-          </div>
-          <div style={{ flex:1,overflowY:"auto",padding:"0 20px calc(32px + env(safe-area-inset-bottom))" }}>
-            {/* Cinematic banner */}
-            <div style={{ background:`linear-gradient(135deg,${viewProfileFan.color||C.accent}33,${C.pink}18)`,borderRadius:26,padding:"22px 18px 18px",marginTop:16,marginBottom:20,position:"relative",minHeight:90,overflow:"hidden",border:`1px solid ${viewProfileFan.color||C.accent}22` }}>
-              <div style={{ position:"absolute",inset:0,backgroundImage:`radial-gradient(circle,rgba(255,255,255,0.35) 1px,transparent 1px)`,backgroundSize:"28px 28px",opacity:0.04,pointerEvents:"none" }} />
-              <div style={{ position:"absolute",inset:0,background:`radial-gradient(ellipse at 80% 20%,${viewProfileFan.color||C.accent}18,transparent 55%)`,pointerEvents:"none" }} />
-              {[{t:"12%",l:"72%",s:14,d:"0s"},{t:"68%",l:"86%",s:9,d:"1s"},{t:"28%",l:"8%",s:8,d:"1.5s"}].map((sp,i)=>(
-                <div key={i} style={{ position:"absolute",top:sp.t,left:sp.l,fontSize:sp.s,opacity:0.45,animation:`sparkleFloat 3.5s ease-in-out infinite`,animationDelay:sp.d,pointerEvents:"none",color:C.lavender }}>✦</div>
-              ))}
-              <p style={{ fontSize:8,color:"rgba(255,255,255,0.3)",fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.18em",marginBottom:6 }}>✦ fan passport</p>
-              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:20,color:"rgba(255,255,255,0.9)" }}>{viewProfileFan.name}</p>
-              <p style={{ fontSize:11.5,color:"rgba(255,255,255,0.5)",marginTop:3 }}>Backstage fan</p>
-            </div>
-
-            {/* Avatar + identity */}
-            <div style={{ display:"flex",gap:14,alignItems:"center",marginBottom:20 }}>
-              <div style={{ width:72,height:72,borderRadius:"50%",background:`linear-gradient(135deg,${viewProfileFan.color||C.accent},${viewProfileFan.color||C.accent}66)`,border:`2.5px solid ${viewProfileFan.color||C.accent}66`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:26,color:C.bg,flexShrink:0,boxShadow:`0 0 22px ${viewProfileFan.color||C.accent}30` }}>{viewProfileFan.avatar||"?"}</div>
-              <div style={{ flex:1,minWidth:0 }}>
-                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18,marginBottom:4 }}>{viewProfileFan.name}</p>
-                {(viewProfileFan.groups||viewProfileFan.fandoms||[]).length>0?(
-                  <div style={{ display:"flex",gap:5,flexWrap:"wrap" }}>
-                    {(viewProfileFan.groups||viewProfileFan.fandoms||[]).slice(0,4).map(g=>(
-                      <span key={g} style={{ padding:"3px 9px",borderRadius:99,background:`${C.accent}18`,border:`1px solid ${C.accent}33`,fontSize:10,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{g}</span>
-                    ))}
-                  </div>
-                ):(
-                  <p style={{ fontSize:11,color:C.textDim,fontStyle:"italic" }}>No fandoms shared yet</p>
-                )}
-              </div>
-            </div>
-
-            {/* Fan info placeholder rows */}
-            <div style={{ display:"flex",flexDirection:"column",gap:10,marginBottom:20 }}>
-              {[
-                { icon:"🎤", label:"Concerts attended", val:"Not added yet" },
-                { icon:"🃏", label:"Photocard collection", val:"Not added yet" },
-                { icon:"💜", label:"Fan since", val:"Not added yet" },
-              ].map(row=>(
-                <div key={row.label} style={{ display:"flex",alignItems:"center",gap:12,padding:"12px 14px",background:C.surface,borderRadius:13,border:`1px solid ${C.border}` }}>
-                  <span style={{ fontSize:18 }}>{row.icon}</span>
-                  <p style={{ flex:1,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:12.5 }}>{row.label}</p>
-                  <p style={{ fontSize:11,color:C.textDim }}>{row.val}</p>
-                </div>
-              ))}
-            </div>
-
-            {/* Back to DM CTA */}
-            <button onClick={()=>{ setViewFanPassport(false); setViewProfileFan(null); }} style={{ width:"100%",padding:"13px",borderRadius:14,background:`linear-gradient(140deg,${viewProfileFan.color||C.accent}cc,${viewProfileFan.color||C.accent}88)`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer" }}>
-              Back to Message
-            </button>
-          </div>
-        </div>
+        <PublicFanPassport
+          fan={viewProfileFan}
+          onBack={()=>setViewFanPassport(false)}
+          onBackToMessage={()=>{ setViewFanPassport(false); setViewProfileFan(null); }}
+        />
       )}
     </div>
   );
