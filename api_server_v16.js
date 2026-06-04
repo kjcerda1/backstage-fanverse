@@ -1466,11 +1466,14 @@ app.post('/api/events/sync-ticketmaster', async (req, res, next) => {
     }));
 
     if (announcementRows.length) {
-      // insert ignore — if announcement for this event already exists, skip
-      await supabase.from('announcements').upsert(announcementRows, {
-        onConflict: 'event_id,type',
-        ignoreDuplicates: true,
-      }).catch(() => {}); // non-fatal if upsert fails (conflict index may not exist yet)
+      // insert ignore — non-fatal. Supabase v2 builder is PromiseLike not Promise,
+      // so use try/catch instead of .catch() which doesn't exist on the builder.
+      try {
+        await supabase.from('announcements').upsert(announcementRows, {
+          onConflict: 'event_id,type',
+          ignoreDuplicates: true,
+        });
+      } catch (_) { /* non-fatal — conflict index may not exist yet */ }
     }
 
     res.json({ success: true, synced: upserted?.length || 0, events: upserted });
