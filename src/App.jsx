@@ -12256,7 +12256,9 @@ function PublicProfilePreview({ fan, onBack, onBackToMessage, onViewFullProfile 
 // ─── PUBLIC PROFILE FULL ─────────────────────────────────────────────────────
 // Rich fan profile view — mirrors the Viewer Mode / ProfilePreview experience.
 // Used as the second step from the DM compact card "View Full Profile" action.
-function PublicProfileFull({ fan, onBack }) {
+// PublicProfileFull: fetches real profile data then renders the SAME ProfilePreview UI
+// with overrideFan so the experience is identical to viewing your own profile preview.
+function PublicProfileFull({ fan, onBack, onBackToMessage }) {
   const [apiData, setApiData] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -12268,135 +12270,42 @@ function PublicProfileFull({ fan, onBack }) {
     });
   }, [fan?.id]);
 
-  const ps        = apiData?.profile_style || {};
-  const skinGrad  = SKIN_GRADIENTS[SKIN_ID_TO_GRAD[ps.skinId||"classic"]||"purple haze"];
-  const skinChars = (OVERLAY_CHARS[ps.skinOverlay||"sparkles"]||[]).slice(0,8);
-  const SPOS      = [[5,78],[20,90],[35,10],[50,68],[65,85],[78,22],[88,55],[14,42]];
+  if (loading) return (
+    <div style={{ position:"absolute",inset:0,zIndex:1,background:C.bg,display:"flex",alignItems:"center",justifyContent:"center" }}>
+      <p style={{ fontSize:12,color:C.textDim,fontFamily:"'Epilogue',sans-serif",animation:"pulse 1.5s ease infinite" }}>Loading profile…</p>
+    </div>
+  );
 
-  const name    = apiData?.username || fan.name?.replace(/^@/,"") || "fan";
-  const city    = apiData?.city;
-  const isVip   = apiData?.is_vip || false;
-  const bio     = ps.bannerText || apiData?.bio || null;
-  const fandoms = apiData?.fandoms || fan.groups || fan.fandoms || [];
-  const bias    = apiData?.bias || null;
-  const COLORS  = [C.accent,C.pink,C.mint,C.gold,C.silver];
+  // Build the overrideFan object that ProfilePreview consumes
+  const overrideFan = {
+    username: apiData?.username || fan.name?.replace(/^@/,"") || "fan",
+    name: fan.name,
+    avatar: fan.avatar,
+    fandoms: apiData?.fandoms || fan.groups || fan.fandoms || [],
+    bias: apiData?.bias || null,
+    city: apiData?.city || null,
+    is_vip: apiData?.is_vip || false,
+    bio: apiData?.bio || null,
+    profile_style: apiData?.profile_style || {},
+  };
 
   return (
-    <div style={{ position:"absolute",inset:0,zIndex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:skinGrad }}>
-      {skinChars.map((ch,i)=>(
-        <div key={i} style={{ position:"absolute",top:`${SPOS[i]?.[0]??i*12}%`,left:`${SPOS[i]?.[1]??80}%`,fontSize:ch.length>1?15:10,opacity:0.13,animation:`sparkleFloat ${3.5+i*0.6}s ease-in-out infinite`,animationDelay:`${i*0.45}s`,color:"rgba(255,255,255,0.9)",pointerEvents:"none",zIndex:0 }}>{ch}</div>
-      ))}
-
-      {/* Header */}
-      <div style={{ padding:"14px 20px 12px",display:"flex",gap:10,alignItems:"center",flexShrink:0,borderBottom:`1px solid rgba(255,255,255,0.08)`,position:"relative",zIndex:1,background:"rgba(6,6,15,0.3)",backdropFilter:"blur(12px)" }}>
-        <button onClick={onBack} style={{ background:"none",border:"none",color:"rgba(255,255,255,0.7)",fontSize:22,cursor:"pointer",lineHeight:1 }}>←</button>
-        <div style={{ flex:1 }}>
-          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,color:C.text }}>Fan Profile</p>
-          <p style={{ fontSize:9.5,color:"rgba(255,255,255,0.4)" }}>@{name}</p>
-        </div>
-        {isVip&&<div style={{ background:"rgba(255,215,0,0.14)",border:"1px solid rgba(255,215,0,0.38)",borderRadius:99,padding:"3px 10px",fontSize:9,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>⭐ VIP</div>}
-      </div>
-
-      {loading ? (
-        <div style={{ flex:1,display:"flex",alignItems:"center",justifyContent:"center",zIndex:1,position:"relative" }}>
-          <p style={{ fontSize:12,color:"rgba(255,255,255,0.35)",fontFamily:"'Epilogue',sans-serif",animation:"pulse 1.5s ease infinite" }}>Loading profile…</p>
-        </div>
-      ) : (
-        <Screen style={{ padding:"0 20px calc(80px + env(safe-area-inset-bottom))",position:"relative",zIndex:1 }}>
-          {/* Status banner */}
-          <div style={{ background:skinGrad,borderRadius:26,padding:"20px 18px 16px",marginTop:16,marginBottom:18,position:"relative",minHeight:88,overflow:"hidden",boxShadow:`0 12px 40px rgba(0,0,0,0.45)` }}>
-            <div style={{ position:"absolute",inset:0,backgroundImage:`radial-gradient(circle,rgba(255,255,255,0.35) 1px,transparent 1px)`,backgroundSize:"28px 28px",opacity:0.04,pointerEvents:"none" }} />
-            <div style={{ position:"absolute",inset:0,background:`radial-gradient(ellipse at 80% 20%,${C.blush}25,transparent 55%)`,pointerEvents:"none" }} />
-            <div style={{ position:"absolute",top:0,left:0,right:0,height:1.5,background:"linear-gradient(90deg,transparent,rgba(255,255,255,0.45),transparent)" }} />
-            {[{t:"12%",l:"72%",s:14,d:"0s"},{t:"68%",l:"86%",s:9,d:"1s"},{t:"28%",l:"8%",s:8,d:"1.5s"}].map((sp,i)=>(
-              <div key={i} style={{ position:"absolute",top:sp.t,left:sp.l,fontSize:sp.s,opacity:0.5,animation:`sparkleFloat 3.5s ease-in-out infinite`,animationDelay:sp.d,pointerEvents:"none",color:C.lavender }}>✦</div>
-            ))}
-            <p style={{ fontFamily:"'Epilogue',sans-serif",fontStyle:"italic",fontWeight:700,fontSize:15,color:"rgba(255,255,255,0.92)",lineHeight:1.45,marginBottom:bias?6:0,textShadow:"0 2px 12px rgba(0,0,0,0.5)",position:"relative" }}>
-              {bio ? `"${bio}"` : "Backstage fan 💜"}
-            </p>
-            {bias&&(
-              <div style={{ position:"relative",display:"flex",gap:6 }}>
-                <div style={{ background:"rgba(6,6,15,0.45)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:99,padding:"3px 10px",fontSize:8.5,color:"rgba(255,255,255,0.75)",fontFamily:"'Epilogue',sans-serif",fontWeight:700,backdropFilter:"blur(8px)" }}>BIAS: {bias.toUpperCase()}</div>
-              </div>
-            )}
-          </div>
-
-          {/* Avatar + identity */}
-          <div style={{ display:"flex",gap:14,alignItems:"center",marginBottom:16 }}>
-            <div style={{ position:"relative",flexShrink:0 }}>
-              <div style={{ width:72,height:72,borderRadius:"50%",background:`linear-gradient(135deg,${fan.color||C.accent},${C.berry})`,border:`2.5px solid ${C.lavender}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:26,color:C.white,boxShadow:`0 0 24px ${C.accent}40` }}>
-                {fan.avatar||name[0]?.toUpperCase()||"?"}
-              </div>
-              {isVip&&<div style={{ position:"absolute",bottom:-2,right:-2,width:22,height:22,borderRadius:"50%",background:C.gold,border:`2px solid ${C.cosmic}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10 }}>⭐</div>}
-            </div>
-            <div style={{ flex:1,minWidth:0 }}>
-              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18,marginBottom:3 }}>@{name}</p>
-              {city&&<p style={{ fontSize:10.5,color:C.textMid,marginBottom:5 }}>📍 {city}</p>}
-              <div style={{ display:"flex",gap:5,flexWrap:"wrap" }}>
-                {fandoms.slice(0,3).map(f=><Pill key={f} color={C.lavender} small>{f}</Pill>)}
-                {fandoms.length===0&&<p style={{ fontSize:10,color:"rgba(255,255,255,0.3)",fontStyle:"italic" }}>No fandoms added yet</p>}
-              </div>
-            </div>
-          </div>
-
-          {/* Stats */}
-          <div style={{ display:"flex",gap:8,marginBottom:16 }}>
-            {[["—","Cards",C.accent,"🃏"],["—","Shows",C.gold,"🎤"],["—","Circle",C.pink,"💜"]].map(([val,label,color,icon])=>(
-              <div key={label} style={{ flex:1,padding:"12px 6px",textAlign:"center",...VS.glowCard(color) }}>
-                <div style={{ position:"absolute",inset:0,background:`radial-gradient(circle at 50% 0%,${color}10,transparent 60%)`,pointerEvents:"none" }} />
-                <p style={{ fontSize:15,marginBottom:3 }}>{icon}</p>
-                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:20,color,lineHeight:1,position:"relative" }}>{val}</p>
-                <p style={{ fontSize:9,color:C.textMid,position:"relative",marginTop:2 }}>{label}</p>
-              </div>
-            ))}
-          </div>
-
-          {/* Top Groups / fandoms */}
-          {fandoms.length>0&&(
-            <div style={{ ...VS.glowCard(C.gold),padding:"14px 16px",marginBottom:16 }}>
-              <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.gold}44,transparent)` }} />
-              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5,marginBottom:12,position:"relative" }}>⭐ Top Groups</p>
-              {fandoms.slice(0,5).map((g,i)=>(
-                <div key={g} style={{ display:"flex",gap:10,alignItems:"center",marginBottom:i<Math.min(fandoms.length,5)-1?8:0,position:"relative" }}>
-                  <span style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,color:[C.gold,C.silver,C.accent,C.pink,C.mint][i],minWidth:22 }}>{i===0?"👑":`#${i+1}`}</span>
-                  <p style={{ fontSize:13.5 }}>{g}</p>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Top Biases */}
-          {bias&&(
-            <div style={{ marginBottom:16 }}>
-              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5,marginBottom:14 }}>⭐ Top Biases</p>
-              <div style={{ display:"flex",gap:10,flexWrap:"wrap" }}>
-                {[bias].map((b,i)=>{
-                  const col=COLORS[i%COLORS.length];
-                  return (
-                    <div key={b} style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:4,position:"relative" }}>
-                      <div style={{ position:"absolute",top:-4,left:-4,right:-4,bottom:-4,borderRadius:"50%",background:`radial-gradient(circle,${col}18,transparent 70%)`,animation:`pulse ${2.2}s ease infinite`,pointerEvents:"none" }} />
-                      <div style={{ width:60,height:60,borderRadius:"50%",background:`linear-gradient(135deg,${col}44,${col}22,${C.cosmic})`,border:`2.5px solid ${col}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:21,color:col,position:"relative",boxShadow:`0 0 16px ${col}44` }}>
-                        <div style={{ position:"absolute",inset:0,borderRadius:"50%",background:`radial-gradient(circle at 35% 30%,rgba(255,255,255,0.12),transparent 55%)`,pointerEvents:"none" }} />
-                        {b[0].toUpperCase()}
-                      </div>
-                      <div style={{ position:"absolute",top:5,right:4,fontSize:8,color:col,opacity:0.8 }}>✦</div>
-                      <p style={{ fontSize:9,color:col,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textAlign:"center",maxWidth:64,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{b}</p>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Back to Message CTA */}
-          <button onClick={onBack} style={{ width:"100%",padding:"13px",borderRadius:16,background:`linear-gradient(140deg,${C.accent}20,${C.pink}0e)`,border:`1.5px solid ${C.accent}33`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8,marginBottom:14 }}>
-            💬 Back to Message
-          </button>
-        </Screen>
-      )}
+    <div style={{ position:"absolute",inset:0,zIndex:1,display:"flex",flexDirection:"column",overflow:"hidden" }}>
+      <ProfilePreview
+        user={{}}
+        profileStyle={{}}
+        cards={[]}
+        top5={[]}
+        biases={[]}
+        go={()=>{}}
+        onBack={onBack}
+        onBackToMessage={onBackToMessage}
+        overrideFan={overrideFan}
+      />
     </div>
   );
 }
+
 
 // ─── PUBLIC FAN PASSPORT ─────────────────────────────────────────────────────
 // Reusable full public profile view. Used from DM, My Circle, Fan Discovery.
@@ -12520,17 +12429,32 @@ function PublicFanPassport({ fan, onBack, onBackToMessage }) {
 // ─── TOP BIASES ───────────────────────────────────────────────────────────────
 // GET /api/profile/biases | POST /api/profile/biases/update
 // ─── PROFILE PREVIEW — read-only view as other fans see you ──────────────────
-function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack }) {
-  const name    = user?.username || user?.name || "stan";
-  const bias    = user?.bias || "Karina";
-  const fandoms = user?.fandoms || top5.slice(0,3) || ["aespa","Stray Kids","BTS"];
-  const status  = profileStyle?.bannerText || "currently in my concert era 🎤";
+function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack, overrideFan, onBackToMessage }) {
+  // overrideFan: when set, renders another user's public profile instead of the current user's preview
+  const isPublic = !!overrideFan;
+  const name    = isPublic
+    ? (overrideFan.username || overrideFan.name?.replace(/^@/,"") || "fan")
+    : (user?.username || user?.name || "stan");
+  const bias    = isPublic
+    ? (overrideFan.bias || null)
+    : (user?.bias || "Karina");
+  const fandoms = isPublic
+    ? (overrideFan.fandoms || [])
+    : (user?.fandoms || top5.slice(0,3) || ["aespa","Stray Kids","BTS"]);
+  const status  = isPublic
+    ? (overrideFan.profile_style?.bannerText || overrideFan.bio || "Backstage fan 💜")
+    : (profileStyle?.bannerText || "currently in my concert era 🎤");
   const COLORS  = [C.accent,C.pink,C.mint,C.gold,C.silver];
-  const nowPlaying = ls.get("backstage_now_playing",{song:"Whiplash",artist:"aespa"});
-  const friends = ls.get("backstage_friends",[]).filter(f=>f.status==="accepted").slice(0,4);
+  const nowPlaying = isPublic ? null : ls.get("backstage_now_playing",{song:"Whiplash",artist:"aespa"});
+  const friends = isPublic ? [] : ls.get("backstage_friends",[]).filter(f=>f.status==="accepted").slice(0,4);
+  const publicTop5 = isPublic ? fandoms : top5;
+  const publicBiases = isPublic ? (bias ? [bias] : []) : biases;
+  const publicCards = isPublic ? [] : cards;
 
-  const skinGrad = SKIN_GRADIENTS[SKIN_ID_TO_GRAD[profileStyle?.skinId||"classic"]||"purple haze"];
-  const skinChars = (OVERLAY_CHARS[profileStyle?.skinOverlay||"sparkles"]||[]).slice(0,8);
+  const skinId  = isPublic ? (overrideFan.profile_style?.skinId||"classic") : (profileStyle?.skinId||"classic");
+  const skinOv  = isPublic ? (overrideFan.profile_style?.skinOverlay||"sparkles") : (profileStyle?.skinOverlay||"sparkles");
+  const skinGrad = SKIN_GRADIENTS[SKIN_ID_TO_GRAD[skinId]||"purple haze"];
+  const skinChars = (OVERLAY_CHARS[skinOv]||[]).slice(0,8);
   const PREVIEW_SPARKLE_POS = [[5,78],[20,90],[35,10],[50,68],[65,85],[78,22],[88,55],[14,42]];
 
   return (
@@ -12578,26 +12502,38 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack })
           </div>
           <div style={{ flex:1,minWidth:0 }}>
             <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18,marginBottom:3 }}>@{name}</p>
-            <p style={{ fontSize:10.5,color:C.textMid,marginBottom:6 }}>Multi-fan · she/her · Seoul → LA</p>
+            {!isPublic&&<p style={{ fontSize:10.5,color:C.textMid,marginBottom:6 }}>Multi-fan · she/her · Seoul → LA</p>}
             <div style={{ display:"flex",gap:5,flexWrap:"wrap" }}>
               {fandoms.slice(0,3).map(f=><Pill key={f} color={C.lavender} small>{f}</Pill>)}
+              {isPublic&&fandoms.length===0&&<p style={{ fontSize:10,color:"rgba(255,255,255,0.3)",fontStyle:"italic" }}>No fandoms added yet</p>}
             </div>
           </div>
         </div>
 
         {/* Stats */}
         <div style={{ display:"flex",gap:8,marginBottom:16 }}>
-          {[[cards.length,"Cards",C.accent,"🃏"],[MOCK_SHOWS.length,"Shows",C.gold,"🎤"],[friends.length||2,"Circle",C.pink,"💜"]].map(([val,label,color,icon])=>(
-            <div key={label} style={{ flex:1,padding:"12px 6px",textAlign:"center",...VS.glowCard(color) }}>
-              <div style={{ position:"absolute",inset:0,background:`radial-gradient(circle at 50% 0%,${color}10,transparent 60%)`,pointerEvents:"none" }} />
-              <p style={{ fontSize:15,marginBottom:3 }}>{icon}</p>
-              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:20,color,lineHeight:1,position:"relative" }}>{val}</p>
-              <p style={{ fontSize:9,color:C.textMid,position:"relative",marginTop:2 }}>{label}</p>
-            </div>
-          ))}
+          {isPublic
+            ? [["—","Cards",C.accent,"🃏"],["—","Shows",C.gold,"🎤"],["—","Circle",C.pink,"💜"]].map(([val,label,color,icon])=>(
+                <div key={label} style={{ flex:1,padding:"12px 6px",textAlign:"center",...VS.glowCard(color) }}>
+                  <div style={{ position:"absolute",inset:0,background:`radial-gradient(circle at 50% 0%,${color}10,transparent 60%)`,pointerEvents:"none" }} />
+                  <p style={{ fontSize:15,marginBottom:3 }}>{icon}</p>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:20,color,lineHeight:1,position:"relative" }}>{val}</p>
+                  <p style={{ fontSize:9,color:C.textMid,position:"relative",marginTop:2 }}>{label}</p>
+                </div>
+              ))
+            : [[publicCards.length,"Cards",C.accent,"🃏"],[MOCK_SHOWS.length,"Shows",C.gold,"🎤"],[friends.length||2,"Circle",C.pink,"💜"]].map(([val,label,color,icon])=>(
+                <div key={label} style={{ flex:1,padding:"12px 6px",textAlign:"center",...VS.glowCard(color) }}>
+                  <div style={{ position:"absolute",inset:0,background:`radial-gradient(circle at 50% 0%,${color}10,transparent 60%)`,pointerEvents:"none" }} />
+                  <p style={{ fontSize:15,marginBottom:3 }}>{icon}</p>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:20,color,lineHeight:1,position:"relative" }}>{val}</p>
+                  <p style={{ fontSize:9,color:C.textMid,position:"relative",marginTop:2 }}>{label}</p>
+                </div>
+              ))
+          }
         </div>
 
-        {/* Now Playing */}
+        {/* Now Playing — own profile only */}
+        {!isPublic&&nowPlaying&&(
         <div style={{ background:`linear-gradient(140deg,${C.surface},${C.surfaceHi})`,border:`1.5px solid ${C.borderHi}`,borderRadius:16,padding:"10px 14px",marginBottom:16,display:"flex",gap:11,alignItems:"center" }}>
           <div style={{ width:36,height:36,borderRadius:11,background:`linear-gradient(135deg,${C.pink}40,${C.accent}20)`,border:`1.5px solid ${C.pink}30`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,flexShrink:0 }}>🎵</div>
           <div style={{ flex:1,minWidth:0 }}>
@@ -12609,14 +12545,15 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack })
             {[1,2,3,4].map(i=>(<div key={i} style={{ width:2.5,borderRadius:2,background:C.pink,animation:`eqBar ${0.4+i*0.18}s ease-in-out infinite`,animationDelay:`${i*0.1}s`,transformOrigin:"bottom",height:`${8+i*2}px` }} />))}
           </div>
         </div>
+        )}
 
-        {/* Top 5 */}
-        {top5.length>0&&(
+        {/* Top 5 / Top Groups */}
+        {publicTop5.length>0&&(
           <div style={{ ...VS.glowCard(C.gold),padding:"14px 16px",marginBottom:16 }}>
             <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.gold}44,transparent)` }} />
-            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5,marginBottom:12,position:"relative" }}>⭐ Top 5 Right Now</p>
-            {top5.slice(0,5).map((g,i)=>(
-              <div key={g} style={{ display:"flex",gap:10,alignItems:"center",marginBottom:i<top5.length-1?8:0,position:"relative" }}>
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5,marginBottom:12,position:"relative" }}>{isPublic?"⭐ Top Groups":"⭐ Top 5 Right Now"}</p>
+            {publicTop5.slice(0,5).map((g,i)=>(
+              <div key={g} style={{ display:"flex",gap:10,alignItems:"center",marginBottom:i<publicTop5.length-1?8:0,position:"relative" }}>
                 <span style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,color:[C.gold,C.silver,C.accent,C.pink,C.mint][i],minWidth:22 }}>{i===0?"👑":`#${i+1}`}</span>
                 <p style={{ fontSize:13.5 }}>{g}</p>
               </div>
@@ -12625,11 +12562,11 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack })
         )}
 
         {/* Top Biases — full sparkle treatment */}
-        {biases.length>0&&(
+        {publicBiases.length>0&&(
           <div style={{ marginBottom:16 }}>
             <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5,marginBottom:14 }}>⭐ Top Biases</p>
             <div style={{ display:"flex",gap:10,flexWrap:"wrap" }}>
-              {biases.map((b,i)=>{
+              {publicBiases.map((b,i)=>{
                 const col = COLORS[i%COLORS.length];
                 return (
                   <div key={b} style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:4,position:"relative" }}>
@@ -12648,8 +12585,8 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack })
           </div>
         )}
 
-        {/* My Circle */}
-        {friends.length>0&&(
+        {/* My Circle — own profile only */}
+        {!isPublic&&friends.length>0&&(
           <div style={{ ...cosmicCard(C.pink),padding:"14px 16px",marginBottom:16 }}>
             <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.pink}44,transparent)` }} />
             <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5,marginBottom:12,position:"relative" }}>My Circle 💜</p>
@@ -12664,11 +12601,18 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack })
           </div>
         )}
 
-        {/* Message CTA */}
-        <button onClick={()=>go("chats")} style={{ width:"100%",padding:"13px",borderRadius:16,background:`linear-gradient(140deg,${C.accent}20,${C.pink}0e)`,border:`1.5px solid ${C.accent}33`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8,marginBottom:14 }}>
-          💬 Send Message
-        </button>
-        <p style={{ fontSize:10.5,color:C.textDim,textAlign:"center" }}>This is exactly how your profile appears to other fans. Tap Studio ✦ to customize.</p>
+        {/* CTA — Back to Message (public view) or Send Message (own preview) */}
+        {isPublic
+          ? <button onClick={onBackToMessage||onBack} style={{ width:"100%",padding:"13px",borderRadius:16,background:`linear-gradient(140deg,${C.accent}20,${C.pink}0e)`,border:`1.5px solid ${C.accent}33`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8,marginBottom:14 }}>
+              💬 Back to Message
+            </button>
+          : <>
+              <button onClick={()=>go("chats")} style={{ width:"100%",padding:"13px",borderRadius:16,background:`linear-gradient(140deg,${C.accent}20,${C.pink}0e)`,border:`1.5px solid ${C.accent}33`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8,marginBottom:14 }}>
+                💬 Send Message
+              </button>
+              <p style={{ fontSize:10.5,color:C.textDim,textAlign:"center" }}>This is exactly how your profile appears to other fans. Tap Studio ✦ to customize.</p>
+            </>
+        }
       </Screen>
     </div>
   );
@@ -16963,6 +16907,20 @@ if(_IS_CAPSULE_PATH && typeof window!=="undefined") {
   ls.set("backstage_pending_invite", ctx.inviteCode ? { code:ctx.inviteCode, capsuleId:ctx.capsuleId } : null);
 }
 
+// ─── STABLE MODAL WRAPPER ────────────────────────────────────────────────────
+// MUST be defined outside AppInner — if defined inside, every AppInner re-render
+// creates a new function reference, causing React to unmount/remount all children
+// (including DirectMessages), wiping local state like activeConvo.
+function ModalWrapper({ children }) {
+  return (
+    <div style={{ position:"absolute",inset:0,zIndex:300,background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 50%,#0c0820 100%)`,display:"flex",flexDirection:"column",animation:"in .18s ease" }}>
+      <div style={{ position:"absolute",top:0,right:0,width:200,height:200,borderRadius:"50%",background:`radial-gradient(circle,${C.berry}06,transparent 70%)`,pointerEvents:"none",zIndex:0 }} />
+      <div style={{ position:"absolute",bottom:100,left:0,width:150,height:150,borderRadius:"50%",background:`radial-gradient(circle,${C.accent}05,transparent 70%)`,pointerEvents:"none",zIndex:0 }} />
+      <div style={{ position:"relative",zIndex:1,flex:1,display:"flex",flexDirection:"column",overflow:"hidden" }}>{children}</div>
+    </div>
+  );
+}
+
 function AppInner() {
   const auth = useAuth();
   const [user, setUser] = useState(()=>normalizeProfile(ls.get("backstage_session")?.user)||null);
@@ -17390,15 +17348,6 @@ function AppInner() {
     {id:"profile",   icon:"profile",   label:"Profile"},
   ];
 
-  const ModalWrapper = ({ children }) => (
-    <div style={{ position:"absolute",inset:0,zIndex:300,background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 50%,#0c0820 100%)`,display:"flex",flexDirection:"column",animation:"in .18s ease" }}>
-      {/* Persistent cosmic ambient on all modals */}
-      <div style={{ position:"absolute",top:0,right:0,width:200,height:200,borderRadius:"50%",background:`radial-gradient(circle,${C.berry}06,transparent 70%)`,pointerEvents:"none",zIndex:0 }} />
-      <div style={{ position:"absolute",bottom:100,left:0,width:150,height:150,borderRadius:"50%",background:`radial-gradient(circle,${C.accent}05,transparent 70%)`,pointerEvents:"none",zIndex:0 }} />
-      <div style={{ position:"relative",zIndex:1,flex:1,display:"flex",flexDirection:"column",overflow:"hidden" }}>{children}</div>
-    </div>
-  );
-
   const ToolModalWrapper = ({ title, children }) => (
     <ModalWrapper>
       <div style={{ padding:"16px 20px 0",flexShrink:0,display:"flex",alignItems:"center",gap:10 }}>
@@ -17626,12 +17575,13 @@ function AppInner() {
           />
         </div>
       )}
-      {/* ── FULL RICH PROFILE — step 2, z:650, back returns to compact card */}
+      {/* ── FULL RICH PROFILE — step 2, z:650; ← back to compact card, Back to Message closes all */}
       {fullProfileFan&&(
         <div style={{ position:"absolute",inset:0,zIndex:650,display:"flex",flexDirection:"column" }}>
           <PublicProfileFull
             fan={fullProfileFan}
             onBack={()=>setFullProfileFan(null)}
+            onBackToMessage={()=>{ setFullProfileFan(null); setPublicProfileFan(null); }}
           />
         </div>
       )}
