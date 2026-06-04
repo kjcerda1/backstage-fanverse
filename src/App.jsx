@@ -3732,20 +3732,52 @@ function HomeFeed({ user, go, weather, isVip, onUpgrade, onSmartNotifs }) {
         {/* VIP/Founder welcome card — shown at top when user has active pass */}
         {isVip && <HomeFounderCard user={user} go={go} />}
 
-        {/* 1b. LIVE ANNOUNCEMENTS — real backend events/tour alerts (no badge needed) */}
+        {/* 1b. LIVE FAN DROPS — real backend events/tour alerts */}
         {announcements.length > 0 && (
-          <div style={{ padding:"0 18px 4px" }}>
-            {announcements.slice(0,3).map(a => (
-              <div key={a.id} onClick={()=>go(a.action_route||'concerts')} className="tap"
-                style={{ display:"flex",gap:11,alignItems:"center",background:C.surface,border:`1.5px solid ${C.borderHi}`,borderRadius:16,padding:"11px 14px",marginBottom:8,cursor:"pointer" }}>
-                <div style={{ width:36,height:36,borderRadius:11,background:`${C.accent}18`,border:`1px solid ${C.accent}33`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0 }}>🎤</div>
-                <div style={{ flex:1,minWidth:0 }}>
-                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12.5,color:C.text,marginBottom:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{a.title}</p>
-                  {a.body && <p style={{ fontSize:10.5,color:C.textMid,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{a.body}</p>}
-                </div>
-                <span style={{ fontSize:11,color:C.accent,flexShrink:0 }}>→</span>
+          <div style={{ padding:"0 18px 18px" }}>
+            {/* Section header */}
+            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12 }}>
+              <div>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,color:C.text,marginBottom:2 }}>⚡ Live Fan Drops</p>
+                <p style={{ fontSize:9,color:"rgba(255,255,255,0.28)",fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>Tours, meetups &amp; fandom alerts updating now</p>
               </div>
-            ))}
+              <div style={{ background:`${C.rose}18`,border:`1px solid ${C.rose}35`,borderRadius:99,padding:"3px 9px",display:"flex",alignItems:"center",gap:4 }}>
+                <div style={{ width:5,height:5,borderRadius:"50%",background:C.rose,animation:"pulse 1.2s ease infinite" }} />
+                <p style={{ fontSize:8,color:C.rose,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>LIVE</p>
+              </div>
+            </div>
+            {/* Drop cards */}
+            {announcements.slice(0,3).map((a,i) => {
+              const LABELS  = ["TOUR ALERT","JUST ANNOUNCED","FAN EVENT"];
+              const COLORS  = [C.accent, C.pink, C.mint];
+              const ICONS   = ["🎤","🌟","🎊"];
+              const col     = COLORS[i%COLORS.length];
+              const lbl     = LABELS[i%LABELS.length];
+              const icon    = ICONS[i%ICONS.length];
+              return (
+                <div key={a.id} onClick={()=>go(a.action_route||'concerts')} className="tap"
+                  style={{ position:"relative",overflow:"hidden",display:"flex",gap:12,alignItems:"center",background:`linear-gradient(140deg,${col}10,rgba(255,255,255,0.025))`,border:`1px solid ${col}28`,borderRadius:18,padding:"13px 14px",marginBottom:8,cursor:"pointer",backdropFilter:"blur(10px)",boxShadow:`0 4px 20px ${col}0e` }}>
+                  {/* Left glow */}
+                  <div style={{ position:"absolute",left:-20,top:"50%",transform:"translateY(-50%)",width:60,height:60,borderRadius:"50%",background:`radial-gradient(circle,${col}22,transparent 70%)`,pointerEvents:"none" }} />
+                  {/* Icon */}
+                  <div style={{ width:40,height:40,borderRadius:13,background:`${col}1a`,border:`1.5px solid ${col}40`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0,position:"relative" }}>
+                    {icon}
+                  </div>
+                  {/* Text */}
+                  <div style={{ flex:1,minWidth:0,position:"relative" }}>
+                    <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:3 }}>
+                      <span style={{ fontSize:7.5,color:col,fontFamily:"'Epilogue',sans-serif",fontWeight:800,letterSpacing:"0.08em",background:`${col}18`,borderRadius:99,padding:"1px 7px",border:`1px solid ${col}33` }}>{lbl}</span>
+                    </div>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12.5,color:C.text,marginBottom:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{a.title}</p>
+                    {a.body&&<p style={{ fontSize:10,color:"rgba(255,255,255,0.42)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{a.body}</p>}
+                  </div>
+                  {/* CTA */}
+                  <div style={{ flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",width:28,height:28,borderRadius:99,background:`${col}18`,border:`1px solid ${col}35` }}>
+                    <span style={{ fontSize:11,color:col }}>→</span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -12375,7 +12407,7 @@ function PublicFanPassport({ fan, onBack, onBackToMessage }) {
             }
             {bias&&(
               <div style={{ marginTop:10 }}>
-                <div style={{ display:"inline-block",background:"rgba(6,6,15,0.5)",border:"1px solid rgba(255,255,255,0.14)",borderRadius:99,padding:"3px 10px",fontSize:8.5,color:"rgba(255,255,255,0.7)",fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>BIAS: {bias.toUpperCase()}</div>
+                <div style={{ display:"inline-block",background:"rgba(6,6,15,0.5)",border:"1px solid rgba(255,255,255,0.14)",borderRadius:99,padding:"3px 10px",fontSize:8.5,color:"rgba(255,255,255,0.7)",fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>BIAS: {String(bias||"").toUpperCase()}</div>
               </div>
             )}
           </div>
@@ -12485,7 +12517,7 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack, o
           <div style={{ position:"relative" }}>
             <p style={{ fontFamily:"'Epilogue',sans-serif",fontStyle:"italic",fontWeight:700,fontSize:16,color:"rgba(255,255,255,0.93)",lineHeight:1.45,marginBottom:6,textShadow:"0 2px 12px rgba(0,0,0,0.5)" }}>"{status}"</p>
             <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
-              {["★ CURRENT ERA",`BIAS: ${bias.toUpperCase()}`].map(tag=>(
+              {["★ CURRENT ERA",...(bias?[`BIAS: ${String(bias).toUpperCase()}`]:[])].map(tag=>(
                 <div key={tag} style={{ background:"rgba(6,6,15,0.45)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:99,padding:"3px 10px",fontSize:8.5,color:"rgba(255,255,255,0.75)",fontFamily:"'Epilogue',sans-serif",fontWeight:700,backdropFilter:"blur(8px)" }}>{tag}</div>
               ))}
             </div>
@@ -12496,7 +12528,7 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack, o
         <div style={{ display:"flex",gap:14,alignItems:"center",marginBottom:16 }}>
           <div style={{ position:"relative",flexShrink:0 }}>
             <div style={{ width:72,height:72,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.berry})`,border:`2.5px solid ${C.lavender}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:26,color:C.white,boxShadow:`0 0 24px ${C.accent}40` }}>
-              {name[0].toUpperCase()}
+              {(name||"?")[0].toUpperCase()}
             </div>
             <div style={{ position:"absolute",bottom:-2,right:-2,width:22,height:22,borderRadius:"50%",background:C.mint,border:`2px solid ${C.cosmic}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11 }}>●</div>
           </div>
@@ -12574,7 +12606,7 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack, o
                     <div style={{ position:"absolute",top:-4,left:-4,right:-4,bottom:-4,borderRadius:"50%",background:`radial-gradient(circle,${col}18,transparent 70%)`,animation:`pulse ${2.2+i*0.3}s ease infinite`,pointerEvents:"none" }} />
                     <div style={{ width:60,height:60,borderRadius:"50%",background:`linear-gradient(135deg,${col}44,${col}22,${C.cosmic})`,border:`2.5px solid ${col}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:21,color:col,position:"relative",boxShadow:`0 0 16px ${col}44` }}>
                       <div style={{ position:"absolute",inset:0,borderRadius:"50%",background:`radial-gradient(circle at 35% 30%,rgba(255,255,255,0.12),transparent 55%)`,pointerEvents:"none" }} />
-                      {b[0].toUpperCase()}
+                      {(b||"?")[0].toUpperCase()}
                     </div>
                     <div style={{ position:"absolute",top:5,right:4,fontSize:8,color:col,opacity:0.8,animation:`sparkleFloat ${2.8+i*0.5}s ease-in-out infinite`,animationDelay:`${i*0.4}s` }}>✦</div>
                     <p style={{ fontSize:9,color:col,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textAlign:"center",maxWidth:60,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{b}</p>
@@ -17543,7 +17575,7 @@ function AppInner() {
                 concerts: <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M12 2C12 2 7 6 7 11C7 13.76 9.24 16 12 16C14.76 16 17 13.76 17 11C17 6 12 2 12 2Z" fill={active?"url(#navG2)":"none"} stroke={active?"url(#navG2)":C.textDim} strokeWidth="1.8"/><path d="M8 20H16M12 16V20" stroke={active?"url(#navG2)":C.textDim} strokeWidth="1.8" strokeLinecap="round"/><defs><linearGradient id="navG2" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent}/><stop offset="1" stopColor={C.pink}/></linearGradient></defs></svg>,
                 community: <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke={active?"url(#navG3)":C.textDim} strokeWidth="1.7"/><path d="M12 3C12 3 8 7 8 12C8 17 12 21 12 21" stroke={active?"url(#navG3)":C.textDim} strokeWidth="1.4"/><path d="M12 3C12 3 16 7 16 12C16 17 12 21 12 21" stroke={active?"url(#navG3)":C.textDim} strokeWidth="1.4"/><path d="M3 12H21" stroke={active?"url(#navG3)":C.textDim} strokeWidth="1.4"/><circle cx="12" cy="12" r="2" fill={active?"url(#navG3)":"none"} stroke={active?"url(#navG3)":C.textDim} strokeWidth="1.4"/><defs><linearGradient id="navG3" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent}/><stop offset="1" stopColor={C.pink}/></linearGradient></defs></svg>,
                 shelf: <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="4" height="16" rx="1" fill={active?"url(#navG4)":"none"} stroke={active?"url(#navG4)":C.textDim} strokeWidth="1.8"/><rect x="9" y="6" width="4" height="14" rx="1" fill={active?"url(#navG4)":"none"} stroke={active?"url(#navG4)":C.textDim} strokeWidth="1.8"/><path d="M15 9L19 7V21L15 22V9Z" fill={active?"url(#navG4)":"none"} stroke={active?"url(#navG4)":C.textDim} strokeWidth="1.8" strokeLinejoin="round"/><defs><linearGradient id="navG4" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent}/><stop offset="1" stopColor={C.pink}/></linearGradient></defs></svg>,
-                fanverse: <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke={active?"url(#navG6)":C.textDim} strokeWidth="1.7"/><ellipse cx="12" cy="12" rx="8.5" ry="3.4" stroke={active?"url(#navG6)":C.textDim} strokeWidth="1.4" transform="rotate(-30 12 12)"/><defs><linearGradient id="navG6" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent}/><stop offset="1" stopColor={C.mint}/></linearGradient></defs></svg>,
+                fanverse: <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" fill={active?"url(#navG6)":C.textDim}/><circle cx="12" cy="12" r="8" stroke={active?"url(#navG6)":C.textDim} strokeWidth="1.5" fill="none"/><circle cx="12" cy="4" r="1.6" fill={active?"url(#navG6)":C.textDim}/><circle cx="19.2" cy="16" r="1.6" fill={active?"url(#navG6)":C.textDim}/><circle cx="4.8" cy="16" r="1.6" fill={active?"url(#navG6)":C.textDim}/><defs><linearGradient id="navG6" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent}/><stop offset="1" stopColor={C.mint}/></linearGradient></defs></svg>,
                 profile: <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4" fill={active?"url(#navG5)":"none"} stroke={active?"url(#navG5)":C.textDim} strokeWidth="1.8"/><path d="M4 20C4 16.69 7.58 14 12 14C16.42 14 20 16.69 20 20" stroke={active?"url(#navG5)":C.textDim} strokeWidth="1.8" strokeLinecap="round"/><defs><linearGradient id="navG5" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent}/><stop offset="1" stopColor={C.pink}/></linearGradient></defs></svg>,
               };
               return(
