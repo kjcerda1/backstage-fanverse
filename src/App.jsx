@@ -12373,6 +12373,8 @@ function DirectMessages({ onBack, user, initialFan }) {
   const [kitOpen, setKitOpen]           = useState(false);
   const [charmPickerOpen, setCharmPickerOpen] = useState(false);
   const [kitPlaceholder, setKitPlaceholder]   = useState(null); // temp toast msg
+  // Fan profile sheet — opened by tapping avatar/username in DM header
+  const [viewProfileFan, setViewProfileFan] = useState(null);
   // Message reactions — which message row has the picker open (convoId + msgIdx)
   const [reactionPicker, setReactionPicker] = useState(null); // {convoId, msgIdx}
   const [msgDraft, setMsgDraft]       = useState("");
@@ -12577,18 +12579,21 @@ function DirectMessages({ onBack, user, initialFan }) {
 
   // Conversation view
   if(activeConvo) return (
-    <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden",background:C.bg }}>
+    <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden",background:C.bg,position:"relative" }}>
       <div style={{ padding:"14px 20px 12px",display:"flex",gap:10,alignItems:"center",flexShrink:0,borderBottom:`1px solid ${C.border}` }}>
         <button onClick={()=>setActiveConvo(null)} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
-        <div style={{ width:38,height:38,borderRadius:"50%",background:`linear-gradient(135deg,${activeConvo.fan.color},${activeConvo.fan.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,color:C.bg,flexShrink:0 }}>{activeConvo.fan.avatar}</div>
-        <div style={{ flex:1 }}>
-          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:15 }}>{activeConvo.fan.name}</p>
-          <div style={{ display:"flex",alignItems:"center",gap:5 }}>
-            <div style={{ width:6,height:6,borderRadius:"50%",background:C.mint }} />
-            <p style={{ fontSize:10,color:C.textMid }}>Fan · End-to-end encrypted</p>
+        {/* Avatar + name — tappable to open fan profile */}
+        <button onClick={()=>setViewProfileFan(activeConvo.fan)} className="tap" style={{ display:"flex",gap:10,alignItems:"center",background:"none",border:"none",cursor:"pointer",flex:1,textAlign:"left",minWidth:0 }}>
+          <div style={{ width:38,height:38,borderRadius:"50%",background:`linear-gradient(135deg,${activeConvo.fan.color},${activeConvo.fan.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,color:C.bg,flexShrink:0 }}>{activeConvo.fan.avatar}</div>
+          <div style={{ flex:1,minWidth:0 }}>
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:15,color:C.text }}>{activeConvo.fan.name}</p>
+            <div style={{ display:"flex",alignItems:"center",gap:5 }}>
+              <div style={{ width:6,height:6,borderRadius:"50%",background:C.mint }} />
+              <p style={{ fontSize:10,color:C.textMid }}>Fan · End-to-end encrypted</p>
+            </div>
           </div>
-        </div>
-        <div style={{ ...VS.activePill(activeConvo.fan.color),fontSize:8.5 }}>Direct Message</div>
+        </button>
+        <div style={{ ...VS.activePill(activeConvo.fan.color),fontSize:8.5,flexShrink:0 }}>Direct Message</div>
       </div>
 
       {/* Messages scroll area */}
@@ -12722,55 +12727,115 @@ function DirectMessages({ onBack, user, initialFan }) {
 
       {/* ── BACKSTAGE KIT TRAY ── */}
       {kitOpen&&(
-        <div style={{ position:"absolute",bottom:0,left:0,right:0,zIndex:200,animation:"slideUp .24s ease" }}>
-          <div style={{ background:`linear-gradient(160deg,${C.surfaceMid},${C.cosmic})`,borderRadius:"22px 22px 0 0",border:`1.5px solid ${C.borderHi}`,borderBottom:"none",padding:"18px 18px 32px",position:"relative",overflow:"hidden" }}>
-            {/* Shimmer top line */}
-            <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.lavender}55,${C.pink}44,transparent)` }} />
-            {/* Sparkle accents */}
-            {[{t:"10%",l:"88%",s:10},{t:"70%",l:"4%",s:8}].map((sp,i)=>(
-              <div key={i} style={{ position:"absolute",top:sp.t,left:sp.l,fontSize:sp.s,opacity:0.28,animation:`sparkleFloat 3s ease-in-out infinite`,pointerEvents:"none",color:C.lavender }}>✦</div>
-            ))}
-            {/* Drag handle */}
-            <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 16px" }} />
-            {/* Header */}
-            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,marginBottom:3 }}>Backstage Kit</p>
-            <p style={{ fontSize:11,color:C.textMid,marginBottom:18 }}>Send a little concert magic.</p>
-            {/* Options grid */}
-            <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10 }}>
-              {KIT_OPTIONS.map(opt=>(
-                <button key={opt.id} onClick={opt.action} className="tap" style={{ padding:"14px 10px",borderRadius:16,background:`linear-gradient(150deg,${C.surfaceHi},${C.surface})`,border:`1.5px solid ${C.borderHi}`,display:"flex",flexDirection:"column",alignItems:"center",gap:7,cursor:"pointer",transition:"all .18s" }}>
-                  <span style={{ fontSize:26 }}>{opt.emoji}</span>
-                  <span style={{ fontSize:10,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textAlign:"center",lineHeight:1.3 }}>{opt.label}</span>
-                </button>
-              ))}
+        <>
+          {/* Backdrop — tap outside to dismiss */}
+          <div onClick={()=>setKitOpen(false)} style={{ position:"absolute",inset:0,zIndex:199 }} />
+          <div style={{ position:"absolute",bottom:0,left:0,right:0,zIndex:200,animation:"slideUp .24s ease" }}>
+            <div style={{ background:`linear-gradient(160deg,${C.surfaceMid},${C.cosmic})`,borderRadius:"22px 22px 0 0",border:`1.5px solid ${C.borderHi}`,borderBottom:"none",padding:"16px 18px 28px",position:"relative",overflow:"hidden" }}>
+              <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.lavender}44,transparent)` }} />
+              {/* Drag handle row with close button */}
+              <div style={{ display:"flex",alignItems:"center",marginBottom:14 }}>
+                <div style={{ flex:1 }} />
+                <div style={{ width:34,height:4,borderRadius:99,background:C.border }} />
+                <div style={{ flex:1,display:"flex",justifyContent:"flex-end" }}>
+                  <button onClick={()=>setKitOpen(false)} style={{ background:"none",border:"none",color:C.textMid,fontSize:18,cursor:"pointer",padding:"2px 0",lineHeight:1 }}>✕</button>
+                </div>
+              </div>
+              {/* Header */}
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,marginBottom:2 }}>Backstage Kit</p>
+              <p style={{ fontSize:11,color:C.textMid,marginBottom:16 }}>Send a little concert magic.</p>
+              {/* Options grid */}
+              <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10 }}>
+                {KIT_OPTIONS.map(opt=>(
+                  <button key={opt.id} onClick={opt.action} className="tap" style={{ padding:"14px 10px",borderRadius:14,background:C.surfaceHi,border:`1px solid ${C.border}`,display:"flex",flexDirection:"column",alignItems:"center",gap:7,cursor:"pointer",transition:"all .18s" }}>
+                    <span style={{ fontSize:24 }}>{opt.emoji}</span>
+                    <span style={{ fontSize:10,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textAlign:"center",lineHeight:1.3 }}>{opt.label}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
-        </div>
+        </>
       )}
 
       {/* ── CHARM PICKER ── */}
       {charmPickerOpen&&(
-        <div style={{ position:"absolute",bottom:0,left:0,right:0,zIndex:200,animation:"slideUp .24s ease" }}>
-          <div style={{ background:`linear-gradient(160deg,${C.surfaceMid},${C.cosmic})`,borderRadius:"22px 22px 0 0",border:`1.5px solid ${C.borderHi}`,borderBottom:"none",padding:"18px 18px 32px",position:"relative",overflow:"hidden" }}>
-            <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.lavender}55,${C.pink}44,transparent)` }} />
-            {[{t:"8%",l:"90%",s:9},{t:"72%",l:"4%",s:7}].map((sp,i)=>(
-              <div key={i} style={{ position:"absolute",top:sp.t,left:sp.l,fontSize:sp.s,opacity:0.22,animation:`sparkleFloat 3s ease-in-out infinite`,pointerEvents:"none",color:C.lavender }}>✦</div>
-            ))}
-            <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 14px" }} />
-            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4 }}>
-              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14 }}>✦ Message Charms</p>
-              <button onClick={()=>setCharmPickerOpen(false)} style={{ background:"none",border:"none",color:C.textMid,fontSize:16,cursor:"pointer" }}>✕</button>
+        <>
+          {/* Backdrop — tap outside to dismiss */}
+          <div onClick={()=>setCharmPickerOpen(false)} style={{ position:"absolute",inset:0,zIndex:199 }} />
+          <div style={{ position:"absolute",bottom:0,left:0,right:0,zIndex:200,animation:"slideUp .24s ease" }}>
+            <div style={{ background:`linear-gradient(160deg,${C.surfaceMid},${C.cosmic})`,borderRadius:"22px 22px 0 0",border:`1.5px solid ${C.borderHi}`,borderBottom:"none",padding:"16px 18px 28px",position:"relative",overflow:"hidden" }}>
+              <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.lavender}44,transparent)` }} />
+              <div style={{ display:"flex",alignItems:"center",marginBottom:12 }}>
+                <div style={{ flex:1 }} />
+                <div style={{ width:34,height:4,borderRadius:99,background:C.border }} />
+                <div style={{ flex:1,display:"flex",justifyContent:"flex-end" }}>
+                  <button onClick={()=>setCharmPickerOpen(false)} style={{ background:"none",border:"none",color:C.textMid,fontSize:18,cursor:"pointer",padding:"2px 0",lineHeight:1 }}>✕</button>
+                </div>
+              </div>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,marginBottom:3 }}>✦ Message Charms</p>
+              <p style={{ fontSize:10.5,color:C.textMid,marginBottom:14 }}>Send a little fan magic.</p>
+              <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8 }}>
+                {BACKSTAGE_CHARMS.map(s=>(
+                  <button key={s.id} onClick={()=>sendCharm(s.id,s.emoji,s.label)} className="tap" style={{ padding:"12px 6px",borderRadius:12,background:C.surfaceHi,border:`1px solid ${C.border}`,display:"flex",flexDirection:"column",alignItems:"center",gap:5,cursor:"pointer" }}>
+                    <span style={{ fontSize:22,lineHeight:1 }}>{s.emoji}</span>
+                    <span style={{ fontSize:8,color:C.silver,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textAlign:"center",lineHeight:1.3 }}>{s.label}</span>
+                  </button>
+                ))}
+              </div>
             </div>
-            <p style={{ fontSize:10.5,color:C.textMid,marginBottom:16 }}>Send a little fan magic.</p>
-            {/* Charms grid — compact tiles, premium feel */}
-            <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8 }}>
-              {BACKSTAGE_CHARMS.map(s=>(
-                <button key={s.id} onClick={()=>sendCharm(s.id,s.emoji,s.label)} className="tap" style={{ padding:"12px 6px",borderRadius:14,background:`linear-gradient(150deg,${C.surfaceHi},${C.surface})`,border:`1.5px solid ${C.borderHi}`,display:"flex",flexDirection:"column",alignItems:"center",gap:5,cursor:"pointer",transition:"all .18s",boxShadow:`0 2px 8px rgba(0,0,0,0.2)` }}>
-                  <span style={{ fontSize:24,lineHeight:1,filter:`drop-shadow(0 0 4px ${C.lavender}44)` }}>{s.emoji}</span>
-                  <span style={{ fontSize:8,color:C.silver,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textAlign:"center",lineHeight:1.3 }}>{s.label}</span>
-                </button>
-              ))}
+          </div>
+        </>
+      )}
+
+      {/* ── FAN PROFILE SHEET ── tapped from DM header avatar/username */}
+      {viewProfileFan&&(
+        <div onClick={()=>setViewProfileFan(null)} style={{ position:"absolute",inset:0,zIndex:300,background:"rgba(6,6,15,0.88)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:24,paddingBottom:"max(28px, calc(env(safe-area-inset-bottom) + 28px))",width:"100%",animation:"slideUp .25s ease",border:`1px solid ${C.borderHi}` }}>
+            {/* Handle + close */}
+            <div style={{ display:"flex",alignItems:"center",marginBottom:20 }}>
+              <div style={{ flex:1 }} />
+              <div style={{ width:34,height:4,borderRadius:99,background:C.border }} />
+              <div style={{ flex:1,display:"flex",justifyContent:"flex-end" }}>
+                <button onClick={()=>setViewProfileFan(null)} style={{ background:"none",border:"none",color:C.textMid,fontSize:18,cursor:"pointer",lineHeight:1 }}>✕</button>
+              </div>
             </div>
+            {/* Fan identity */}
+            <div style={{ display:"flex",gap:14,alignItems:"center",marginBottom:20 }}>
+              <div style={{ width:60,height:60,borderRadius:"50%",background:`linear-gradient(135deg,${viewProfileFan.color||C.accent},${viewProfileFan.color||C.accent}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:22,color:C.bg,flexShrink:0 }}>{viewProfileFan.avatar||"?"}</div>
+              <div style={{ flex:1,minWidth:0 }}>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17,marginBottom:3 }}>{viewProfileFan.name||viewProfileFan.username}</p>
+                <p style={{ fontSize:11,color:C.textMid }}>Backstage fan</p>
+                {(viewProfileFan.groups||viewProfileFan.fandoms||[]).length>0&&(
+                  <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginTop:6 }}>
+                    {(viewProfileFan.groups||viewProfileFan.fandoms||[]).slice(0,3).map(g=>(
+                      <span key={g} style={{ padding:"2px 8px",borderRadius:99,background:`${C.accent}18`,border:`1px solid ${C.accent}33`,fontSize:9.5,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{g}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+            {/* Shared Space — honest empty state */}
+            <div style={{ background:C.surface,borderRadius:14,padding:"14px 16px",marginBottom:18,border:`1px solid ${C.border}` }}>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,marginBottom:3 }}>Shared Space</p>
+              <p style={{ fontSize:11,color:C.textMid,lineHeight:1.6 }}>Photos, charms, links, and memories you share will appear here.</p>
+              {/* Show charms already exchanged in this convo */}
+              {(()=>{
+                const sharedCharms = activeConvo.messages.filter(m=>m.type==="charm"||m.type==="sticker");
+                if(!sharedCharms.length) return <p style={{ fontSize:10.5,color:C.textDim,marginTop:6,fontStyle:"italic" }}>No shared moments yet.</p>;
+                return (
+                  <div style={{ display:"flex",gap:6,flexWrap:"wrap",marginTop:8 }}>
+                    {sharedCharms.slice(-6).map((m,i)=>(
+                      <span key={i} style={{ fontSize:20 }}>{m.charmEmoji||m.stickerEmoji}</span>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+            {/* Action */}
+            <button onClick={()=>setViewProfileFan(null)} style={{ width:"100%",padding:"13px",borderRadius:14,background:`linear-gradient(140deg,${viewProfileFan.color||C.accent}cc,${viewProfileFan.color||C.accent}88)`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer" }}>
+              Back to Message
+            </button>
           </div>
         </div>
       )}
