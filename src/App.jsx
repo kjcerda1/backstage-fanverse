@@ -12161,7 +12161,7 @@ function GroupDetailEditor({ group, initial={}, statusOptions=[], statusColors={
 // ─── PUBLIC PROFILE PREVIEW ──────────────────────────────────────────────────
 // Compact profile card opened from DM avatar/name taps.
 // Fetches real data from GET /api/profile/:id. Clean identity card — not a passport form.
-function PublicProfilePreview({ fan, onBack, onBackToMessage }) {
+function PublicProfilePreview({ fan, onBack, onBackToMessage, onViewFullProfile }) {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading]  = useState(true);
 
@@ -12240,12 +12240,160 @@ function PublicProfilePreview({ fan, onBack, onBackToMessage }) {
         )}
       </div>
 
-      {/* CTA — always pinned to bottom regardless of content height */}
-      <div style={{ padding:"12px 20px",paddingBottom:"max(16px, calc(env(safe-area-inset-bottom) + 12px))",borderTop:`1px solid ${C.border}`,flexShrink:0,position:"relative",zIndex:1,background:C.bg }}>
-        <button onClick={onBackToMessage} style={{ width:"100%",padding:"13px",borderRadius:14,background:`linear-gradient(140deg,${C.accent},${C.pink})`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer" }}>
+      {/* CTAs — pinned to bottom */}
+      <div style={{ padding:"12px 20px",paddingBottom:"max(16px, calc(env(safe-area-inset-bottom) + 12px))",borderTop:`1px solid ${C.border}`,flexShrink:0,position:"relative",zIndex:1,background:C.bg,display:"flex",flexDirection:"column",gap:8 }}>
+        <button onClick={()=>onViewFullProfile?.(fan)} style={{ width:"100%",padding:"12px",borderRadius:14,background:`linear-gradient(140deg,${C.accent},${C.pink})`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer" }}>
+          View Full Profile →
+        </button>
+        <button onClick={onBackToMessage} style={{ width:"100%",padding:"10px",borderRadius:14,background:"transparent",border:`1px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}>
           Back to Message
         </button>
       </div>
+    </div>
+  );
+}
+
+// ─── PUBLIC PROFILE FULL ─────────────────────────────────────────────────────
+// Rich fan profile view — mirrors the Viewer Mode / ProfilePreview experience.
+// Used as the second step from the DM compact card "View Full Profile" action.
+function PublicProfileFull({ fan, onBack }) {
+  const [apiData, setApiData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!fan?.id) { setLoading(false); return; }
+    api.get(`/api/profile/${fan.id}`).then(data => {
+      if (data && !data.error) setApiData(data);
+      setLoading(false);
+    });
+  }, [fan?.id]);
+
+  const ps        = apiData?.profile_style || {};
+  const skinGrad  = SKIN_GRADIENTS[SKIN_ID_TO_GRAD[ps.skinId||"classic"]||"purple haze"];
+  const skinChars = (OVERLAY_CHARS[ps.skinOverlay||"sparkles"]||[]).slice(0,8);
+  const SPOS      = [[5,78],[20,90],[35,10],[50,68],[65,85],[78,22],[88,55],[14,42]];
+
+  const name    = apiData?.username || fan.name?.replace(/^@/,"") || "fan";
+  const city    = apiData?.city;
+  const isVip   = apiData?.is_vip || false;
+  const bio     = ps.bannerText || apiData?.bio || null;
+  const fandoms = apiData?.fandoms || fan.groups || fan.fandoms || [];
+  const bias    = apiData?.bias || null;
+  const COLORS  = [C.accent,C.pink,C.mint,C.gold,C.silver];
+
+  return (
+    <div style={{ position:"absolute",inset:0,zIndex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:skinGrad }}>
+      {skinChars.map((ch,i)=>(
+        <div key={i} style={{ position:"absolute",top:`${SPOS[i]?.[0]??i*12}%`,left:`${SPOS[i]?.[1]??80}%`,fontSize:ch.length>1?15:10,opacity:0.13,animation:`sparkleFloat ${3.5+i*0.6}s ease-in-out infinite`,animationDelay:`${i*0.45}s`,color:"rgba(255,255,255,0.9)",pointerEvents:"none",zIndex:0 }}>{ch}</div>
+      ))}
+
+      {/* Header */}
+      <div style={{ padding:"14px 20px 12px",display:"flex",gap:10,alignItems:"center",flexShrink:0,borderBottom:`1px solid rgba(255,255,255,0.08)`,position:"relative",zIndex:1,background:"rgba(6,6,15,0.3)",backdropFilter:"blur(12px)" }}>
+        <button onClick={onBack} style={{ background:"none",border:"none",color:"rgba(255,255,255,0.7)",fontSize:22,cursor:"pointer",lineHeight:1 }}>←</button>
+        <div style={{ flex:1 }}>
+          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,color:C.text }}>Fan Profile</p>
+          <p style={{ fontSize:9.5,color:"rgba(255,255,255,0.4)" }}>@{name}</p>
+        </div>
+        {isVip&&<div style={{ background:"rgba(255,215,0,0.14)",border:"1px solid rgba(255,215,0,0.38)",borderRadius:99,padding:"3px 10px",fontSize:9,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>⭐ VIP</div>}
+      </div>
+
+      {loading ? (
+        <div style={{ flex:1,display:"flex",alignItems:"center",justifyContent:"center",zIndex:1,position:"relative" }}>
+          <p style={{ fontSize:12,color:"rgba(255,255,255,0.35)",fontFamily:"'Epilogue',sans-serif",animation:"pulse 1.5s ease infinite" }}>Loading profile…</p>
+        </div>
+      ) : (
+        <Screen style={{ padding:"0 20px calc(80px + env(safe-area-inset-bottom))",position:"relative",zIndex:1 }}>
+          {/* Status banner */}
+          <div style={{ background:skinGrad,borderRadius:26,padding:"20px 18px 16px",marginTop:16,marginBottom:18,position:"relative",minHeight:88,overflow:"hidden",boxShadow:`0 12px 40px rgba(0,0,0,0.45)` }}>
+            <div style={{ position:"absolute",inset:0,backgroundImage:`radial-gradient(circle,rgba(255,255,255,0.35) 1px,transparent 1px)`,backgroundSize:"28px 28px",opacity:0.04,pointerEvents:"none" }} />
+            <div style={{ position:"absolute",inset:0,background:`radial-gradient(ellipse at 80% 20%,${C.blush}25,transparent 55%)`,pointerEvents:"none" }} />
+            <div style={{ position:"absolute",top:0,left:0,right:0,height:1.5,background:"linear-gradient(90deg,transparent,rgba(255,255,255,0.45),transparent)" }} />
+            {[{t:"12%",l:"72%",s:14,d:"0s"},{t:"68%",l:"86%",s:9,d:"1s"},{t:"28%",l:"8%",s:8,d:"1.5s"}].map((sp,i)=>(
+              <div key={i} style={{ position:"absolute",top:sp.t,left:sp.l,fontSize:sp.s,opacity:0.5,animation:`sparkleFloat 3.5s ease-in-out infinite`,animationDelay:sp.d,pointerEvents:"none",color:C.lavender }}>✦</div>
+            ))}
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontStyle:"italic",fontWeight:700,fontSize:15,color:"rgba(255,255,255,0.92)",lineHeight:1.45,marginBottom:bias?6:0,textShadow:"0 2px 12px rgba(0,0,0,0.5)",position:"relative" }}>
+              {bio ? `"${bio}"` : "Backstage fan 💜"}
+            </p>
+            {bias&&(
+              <div style={{ position:"relative",display:"flex",gap:6 }}>
+                <div style={{ background:"rgba(6,6,15,0.45)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:99,padding:"3px 10px",fontSize:8.5,color:"rgba(255,255,255,0.75)",fontFamily:"'Epilogue',sans-serif",fontWeight:700,backdropFilter:"blur(8px)" }}>BIAS: {bias.toUpperCase()}</div>
+              </div>
+            )}
+          </div>
+
+          {/* Avatar + identity */}
+          <div style={{ display:"flex",gap:14,alignItems:"center",marginBottom:16 }}>
+            <div style={{ position:"relative",flexShrink:0 }}>
+              <div style={{ width:72,height:72,borderRadius:"50%",background:`linear-gradient(135deg,${fan.color||C.accent},${C.berry})`,border:`2.5px solid ${C.lavender}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:26,color:C.white,boxShadow:`0 0 24px ${C.accent}40` }}>
+                {fan.avatar||name[0]?.toUpperCase()||"?"}
+              </div>
+              {isVip&&<div style={{ position:"absolute",bottom:-2,right:-2,width:22,height:22,borderRadius:"50%",background:C.gold,border:`2px solid ${C.cosmic}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10 }}>⭐</div>}
+            </div>
+            <div style={{ flex:1,minWidth:0 }}>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18,marginBottom:3 }}>@{name}</p>
+              {city&&<p style={{ fontSize:10.5,color:C.textMid,marginBottom:5 }}>📍 {city}</p>}
+              <div style={{ display:"flex",gap:5,flexWrap:"wrap" }}>
+                {fandoms.slice(0,3).map(f=><Pill key={f} color={C.lavender} small>{f}</Pill>)}
+                {fandoms.length===0&&<p style={{ fontSize:10,color:"rgba(255,255,255,0.3)",fontStyle:"italic" }}>No fandoms added yet</p>}
+              </div>
+            </div>
+          </div>
+
+          {/* Stats */}
+          <div style={{ display:"flex",gap:8,marginBottom:16 }}>
+            {[["—","Cards",C.accent,"🃏"],["—","Shows",C.gold,"🎤"],["—","Circle",C.pink,"💜"]].map(([val,label,color,icon])=>(
+              <div key={label} style={{ flex:1,padding:"12px 6px",textAlign:"center",...VS.glowCard(color) }}>
+                <div style={{ position:"absolute",inset:0,background:`radial-gradient(circle at 50% 0%,${color}10,transparent 60%)`,pointerEvents:"none" }} />
+                <p style={{ fontSize:15,marginBottom:3 }}>{icon}</p>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:20,color,lineHeight:1,position:"relative" }}>{val}</p>
+                <p style={{ fontSize:9,color:C.textMid,position:"relative",marginTop:2 }}>{label}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Top Groups / fandoms */}
+          {fandoms.length>0&&(
+            <div style={{ ...VS.glowCard(C.gold),padding:"14px 16px",marginBottom:16 }}>
+              <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.gold}44,transparent)` }} />
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5,marginBottom:12,position:"relative" }}>⭐ Top Groups</p>
+              {fandoms.slice(0,5).map((g,i)=>(
+                <div key={g} style={{ display:"flex",gap:10,alignItems:"center",marginBottom:i<Math.min(fandoms.length,5)-1?8:0,position:"relative" }}>
+                  <span style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,color:[C.gold,C.silver,C.accent,C.pink,C.mint][i],minWidth:22 }}>{i===0?"👑":`#${i+1}`}</span>
+                  <p style={{ fontSize:13.5 }}>{g}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Top Biases */}
+          {bias&&(
+            <div style={{ marginBottom:16 }}>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5,marginBottom:14 }}>⭐ Top Biases</p>
+              <div style={{ display:"flex",gap:10,flexWrap:"wrap" }}>
+                {[bias].map((b,i)=>{
+                  const col=COLORS[i%COLORS.length];
+                  return (
+                    <div key={b} style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:4,position:"relative" }}>
+                      <div style={{ position:"absolute",top:-4,left:-4,right:-4,bottom:-4,borderRadius:"50%",background:`radial-gradient(circle,${col}18,transparent 70%)`,animation:`pulse ${2.2}s ease infinite`,pointerEvents:"none" }} />
+                      <div style={{ width:60,height:60,borderRadius:"50%",background:`linear-gradient(135deg,${col}44,${col}22,${C.cosmic})`,border:`2.5px solid ${col}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:21,color:col,position:"relative",boxShadow:`0 0 16px ${col}44` }}>
+                        <div style={{ position:"absolute",inset:0,borderRadius:"50%",background:`radial-gradient(circle at 35% 30%,rgba(255,255,255,0.12),transparent 55%)`,pointerEvents:"none" }} />
+                        {b[0].toUpperCase()}
+                      </div>
+                      <div style={{ position:"absolute",top:5,right:4,fontSize:8,color:col,opacity:0.8 }}>✦</div>
+                      <p style={{ fontSize:9,color:col,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textAlign:"center",maxWidth:64,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{b}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Back to Message CTA */}
+          <button onClick={onBack} style={{ width:"100%",padding:"13px",borderRadius:16,background:`linear-gradient(140deg,${C.accent}20,${C.pink}0e)`,border:`1.5px solid ${C.accent}33`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8,marginBottom:14 }}>
+            💬 Back to Message
+          </button>
+        </Screen>
+      )}
     </div>
   );
 }
@@ -16862,7 +17010,8 @@ function AppInner() {
   const [showComingSoon, setShowComingSoon] = useState(false);
   const [comingSoonTool, setComingSoonTool] = useState(null);
   // Public user profile — lifted to root so it covers tabs + nav (not a modal-internal overlay)
-  const [publicProfileFan, setPublicProfileFan] = useState(null);
+  const [publicProfileFan, setPublicProfileFan] = useState(null); // compact card
+  const [fullProfileFan,   setFullProfileFan]   = useState(null); // full rich profile (above compact card)
 
   // Tools paused for polish — intercept before they open
   const COMING_SOON_TOOLS = ["outfits", "trip"];
@@ -17466,13 +17615,23 @@ function AppInner() {
           </div>
         )}
 
-      {/* ── PUBLIC USER PROFILE ── inside app-shell so it respects maxWidth:390 and position:relative */}
-      {publicProfileFan&&(
+      {/* ── COMPACT PROFILE CARD — step 1, z:600 */}
+      {publicProfileFan&&!fullProfileFan&&(
         <div style={{ position:"absolute",inset:0,zIndex:600,display:"flex",flexDirection:"column" }}>
           <PublicProfilePreview
             fan={publicProfileFan}
             onBack={()=>setPublicProfileFan(null)}
             onBackToMessage={()=>setPublicProfileFan(null)}
+            onViewFullProfile={(f)=>setFullProfileFan(f)}
+          />
+        </div>
+      )}
+      {/* ── FULL RICH PROFILE — step 2, z:650, back returns to compact card */}
+      {fullProfileFan&&(
+        <div style={{ position:"absolute",inset:0,zIndex:650,display:"flex",flexDirection:"column" }}>
+          <PublicProfileFull
+            fan={fullProfileFan}
+            onBack={()=>setFullProfileFan(null)}
           />
         </div>
       )}
