@@ -12182,9 +12182,10 @@ function PublicProfilePreview({ fan, onBack, onBackToMessage }) {
   const bio      = profile?.profile_style?.bannerText || profile?.bio;
 
   return (
-    <div style={{ height:"100%",background:C.bg,display:"flex",flexDirection:"column",overflow:"hidden",position:"relative" }}>
-      {/* Subtle ambient tint */}
-      <div style={{ position:"absolute",inset:0,background:`radial-gradient(ellipse at 50% 0%,${C.accent}0d,transparent 55%)`,pointerEvents:"none",zIndex:0 }} />
+    // Fills the app-shell (390px, position:relative) exactly via absolute inset:0
+    <div style={{ position:"absolute",inset:0,background:C.bg,display:"flex",flexDirection:"column",overflow:"hidden",zIndex:1 }}>
+      {/* Ambient accent tint */}
+      <div style={{ position:"absolute",inset:0,background:`radial-gradient(ellipse at 50% 0%,${C.accent}10,transparent 50%)`,pointerEvents:"none",zIndex:0 }} />
 
       {/* Header */}
       <div style={{ padding:"14px 20px 12px",display:"flex",gap:10,alignItems:"center",flexShrink:0,borderBottom:`1px solid ${C.border}`,position:"relative",zIndex:1 }}>
@@ -12192,54 +12193,59 @@ function PublicProfilePreview({ fan, onBack, onBackToMessage }) {
         <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15 }}>Profile</p>
       </div>
 
-      {loading ? (
-        <div style={{ flex:1,display:"flex",alignItems:"center",justifyContent:"center",position:"relative",zIndex:1 }}>
-          <p style={{ fontSize:12,color:C.textDim,fontFamily:"'Epilogue',sans-serif",animation:"pulse 1.5s ease infinite" }}>Loading…</p>
-        </div>
-      ) : (
-        <div style={{ flex:1,overflowY:"auto",position:"relative",zIndex:1,padding:"28px 20px calc(32px + env(safe-area-inset-bottom))" }}>
-
-          {/* Identity card */}
-          <div style={{ display:"flex",flexDirection:"column",alignItems:"center",textAlign:"center",marginBottom:28 }}>
-            <div style={{ width:82,height:82,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.pink})`,border:`3px solid ${C.borderHi}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:32,color:C.bg,marginBottom:14,boxShadow:`0 0 28px ${C.accent}28` }}>
-              {fan.avatar||"?"}
-            </div>
-            <div style={{ display:"flex",alignItems:"center",gap:7,marginBottom:4 }}>
-              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:21 }}>{dispName||username}</p>
-              {isVip&&<span style={{ background:"rgba(255,215,0,0.14)",border:"1px solid rgba(255,215,0,0.38)",borderRadius:99,padding:"2px 8px",fontSize:9,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>⭐ VIP</span>}
-            </div>
-            {dispName&&<p style={{ fontSize:11.5,color:C.textMid,marginBottom:6 }}>{username}</p>}
-            {city&&<p style={{ fontSize:11,color:C.textDim,marginBottom:8 }}>📍 {city}</p>}
-            {bio&&<p style={{ fontSize:12,color:C.textMid,fontStyle:"italic",lineHeight:1.55,maxWidth:280,margin:"6px auto 0" }}>"{bio}"</p>}
+      {/* Scrollable body */}
+      <div style={{ flex:1,overflowY:"auto",position:"relative",zIndex:1 }}>
+        {loading ? (
+          <div style={{ display:"flex",alignItems:"center",justifyContent:"center",padding:"60px 20px" }}>
+            <p style={{ fontSize:12,color:C.textDim,fontFamily:"'Epilogue',sans-serif",animation:"pulse 1.5s ease infinite" }}>Loading…</p>
           </div>
+        ) : (
+          <div style={{ padding:"28px 20px 20px" }}>
 
-          {/* Fandoms */}
-          <div style={{ marginBottom:22 }}>
-            <p style={{ fontSize:9,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.14em",marginBottom:10 }}>Fandoms</p>
-            {fandoms.length>0
-              ? <div style={{ display:"flex",gap:7,flexWrap:"wrap" }}>
-                  {fandoms.slice(0,6).map(f=>(
-                    <span key={f} style={{ padding:"5px 13px",borderRadius:99,background:`${C.accent}18`,border:`1px solid ${C.accent}40`,fontSize:11,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{f}</span>
-                  ))}
-                </div>
-              : <p style={{ fontSize:11.5,color:C.textDim,fontStyle:"italic" }}>No fandoms added yet</p>
-            }
-          </div>
-
-          {/* Bias */}
-          {bias&&(
-            <div style={{ marginBottom:22 }}>
-              <p style={{ fontSize:9,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.14em",marginBottom:10 }}>Bias</p>
-              <span style={{ display:"inline-block",padding:"5px 14px",borderRadius:99,background:`${C.pink}18`,border:`1px solid ${C.pink}38`,fontSize:11,color:C.pink,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{bias}</span>
+            {/* Avatar + identity */}
+            <div style={{ display:"flex",flexDirection:"column",alignItems:"center",textAlign:"center",marginBottom:24 }}>
+              <div style={{ width:80,height:80,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.pink})`,border:`3px solid ${C.borderHi}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:30,color:C.bg,marginBottom:12,boxShadow:`0 0 24px ${C.accent}28` }}>
+                {fan.avatar||"?"}
+              </div>
+              <div style={{ display:"flex",alignItems:"center",gap:7,marginBottom:dispName?3:0 }}>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:20 }}>{dispName||username}</p>
+                {isVip&&<span style={{ background:"rgba(255,215,0,0.14)",border:"1px solid rgba(255,215,0,0.38)",borderRadius:99,padding:"2px 8px",fontSize:9,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>⭐ VIP</span>}
+              </div>
+              {dispName&&<p style={{ fontSize:11,color:C.textMid,marginBottom:0 }}>{username}</p>}
+              {city&&<p style={{ fontSize:10.5,color:C.textDim,marginTop:4 }}>📍 {city}</p>}
+              {bio&&<p style={{ fontSize:11.5,color:C.textMid,fontStyle:"italic",lineHeight:1.5,marginTop:10,maxWidth:260,margin:"10px auto 0" }}>"{bio}"</p>}
             </div>
-          )}
 
-          {/* CTA */}
-          <button onClick={onBackToMessage} style={{ width:"100%",padding:"13px",borderRadius:14,background:`linear-gradient(140deg,${C.accent},${C.pink})`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer",marginTop:4 }}>
-            Back to Message
-          </button>
-        </div>
-      )}
+            {/* Fandoms */}
+            <div style={{ marginBottom:16 }}>
+              <p style={{ fontSize:9,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em",marginBottom:8 }}>Fandoms</p>
+              {fandoms.length>0
+                ? <div style={{ display:"flex",gap:7,flexWrap:"wrap" }}>
+                    {fandoms.slice(0,6).map(f=>(
+                      <span key={f} style={{ padding:"5px 12px",borderRadius:99,background:`${C.accent}18`,border:`1px solid ${C.accent}38`,fontSize:11,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{f}</span>
+                    ))}
+                  </div>
+                : <p style={{ fontSize:11,color:C.textDim,fontStyle:"italic" }}>No fandoms added yet</p>
+              }
+            </div>
+
+            {/* Bias */}
+            {bias&&(
+              <div style={{ marginBottom:16 }}>
+                <p style={{ fontSize:9,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em",marginBottom:8 }}>Bias</p>
+                <span style={{ display:"inline-block",padding:"5px 13px",borderRadius:99,background:`${C.pink}18`,border:`1px solid ${C.pink}38`,fontSize:11,color:C.pink,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{bias}</span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* CTA — always pinned to bottom regardless of content height */}
+      <div style={{ padding:"12px 20px",paddingBottom:"max(16px, calc(env(safe-area-inset-bottom) + 12px))",borderTop:`1px solid ${C.border}`,flexShrink:0,position:"relative",zIndex:1,background:C.bg }}>
+        <button onClick={onBackToMessage} style={{ width:"100%",padding:"13px",borderRadius:14,background:`linear-gradient(140deg,${C.accent},${C.pink})`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer" }}>
+          Back to Message
+        </button>
+      </div>
     </div>
   );
 }
@@ -17459,9 +17465,8 @@ function AppInner() {
             })}
           </div>
         )}
-      </div>
 
-      {/* ── PUBLIC USER PROFILE ── root-level, covers tabs + nav + modals */}
+      {/* ── PUBLIC USER PROFILE ── inside app-shell so it respects maxWidth:390 and position:relative */}
       {publicProfileFan&&(
         <div style={{ position:"absolute",inset:0,zIndex:600,display:"flex",flexDirection:"column" }}>
           <PublicProfilePreview
@@ -17471,6 +17476,7 @@ function AppInner() {
           />
         </div>
       )}
+      </div>{/* close app-shell */}
     </>
   );
 }
