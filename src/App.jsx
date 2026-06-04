@@ -12375,6 +12375,7 @@ function DirectMessages({ onBack, user, initialFan }) {
   const [kitPlaceholder, setKitPlaceholder]   = useState(null); // temp toast msg
   // Fan profile sheet — opened by tapping avatar/username in DM header
   const [viewProfileFan, setViewProfileFan] = useState(null);
+  const [viewFanPassport, setViewFanPassport] = useState(false);
   // Message reactions — which message row has the picker open (convoId + msgIdx)
   const [reactionPicker, setReactionPicker] = useState(null); // {convoId, msgIdx}
   const [msgDraft, setMsgDraft]       = useState("");
@@ -12833,7 +12834,75 @@ function DirectMessages({ onBack, user, initialFan }) {
               })()}
             </div>
             {/* Action */}
-            <button onClick={()=>setViewProfileFan(null)} style={{ width:"100%",padding:"13px",borderRadius:14,background:`linear-gradient(140deg,${viewProfileFan.color||C.accent}cc,${viewProfileFan.color||C.accent}88)`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer" }}>
+            <button onClick={()=>setViewFanPassport(true)} style={{ width:"100%",padding:"13px",borderRadius:14,background:`linear-gradient(140deg,${viewProfileFan.color||C.accent}cc,${viewProfileFan.color||C.accent}88)`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer",marginBottom:10 }}>
+              View Fan Passport →
+            </button>
+            <button onClick={()=>setViewProfileFan(null)} style={{ width:"100%",padding:"11px",borderRadius:14,background:"transparent",border:`1px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}>
+              Back to Message
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── FAN PASSPORT OVERLAY ── full profile, opened from profile sheet */}
+      {viewFanPassport&&viewProfileFan&&(
+        <div style={{ position:"absolute",inset:0,zIndex:400,background:C.bg,display:"flex",flexDirection:"column",animation:"in .2s ease",overflow:"hidden" }}>
+          {/* Header */}
+          <div style={{ padding:"14px 20px 12px",display:"flex",gap:10,alignItems:"center",flexShrink:0,borderBottom:`1px solid ${C.border}` }}>
+            <button onClick={()=>setViewFanPassport(false)} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer",lineHeight:1 }}>←</button>
+            <div style={{ flex:1 }}>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15 }}>Fan Passport</p>
+              <p style={{ fontSize:9.5,color:C.textMid }}>{viewProfileFan.name}</p>
+            </div>
+            <div style={{ background:`${C.accent}18`,border:`1px solid ${C.accent}33`,borderRadius:99,padding:"3px 10px",fontSize:9,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>✦ Backstage Fan</div>
+          </div>
+          <div style={{ flex:1,overflowY:"auto",padding:"0 20px calc(32px + env(safe-area-inset-bottom))" }}>
+            {/* Cinematic banner */}
+            <div style={{ background:`linear-gradient(135deg,${viewProfileFan.color||C.accent}33,${C.pink}18)`,borderRadius:26,padding:"22px 18px 18px",marginTop:16,marginBottom:20,position:"relative",minHeight:90,overflow:"hidden",border:`1px solid ${viewProfileFan.color||C.accent}22` }}>
+              <div style={{ position:"absolute",inset:0,backgroundImage:`radial-gradient(circle,rgba(255,255,255,0.35) 1px,transparent 1px)`,backgroundSize:"28px 28px",opacity:0.04,pointerEvents:"none" }} />
+              <div style={{ position:"absolute",inset:0,background:`radial-gradient(ellipse at 80% 20%,${viewProfileFan.color||C.accent}18,transparent 55%)`,pointerEvents:"none" }} />
+              {[{t:"12%",l:"72%",s:14,d:"0s"},{t:"68%",l:"86%",s:9,d:"1s"},{t:"28%",l:"8%",s:8,d:"1.5s"}].map((sp,i)=>(
+                <div key={i} style={{ position:"absolute",top:sp.t,left:sp.l,fontSize:sp.s,opacity:0.45,animation:`sparkleFloat 3.5s ease-in-out infinite`,animationDelay:sp.d,pointerEvents:"none",color:C.lavender }}>✦</div>
+              ))}
+              <p style={{ fontSize:8,color:"rgba(255,255,255,0.3)",fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.18em",marginBottom:6 }}>✦ fan passport</p>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:20,color:"rgba(255,255,255,0.9)" }}>{viewProfileFan.name}</p>
+              <p style={{ fontSize:11.5,color:"rgba(255,255,255,0.5)",marginTop:3 }}>Backstage fan</p>
+            </div>
+
+            {/* Avatar + identity */}
+            <div style={{ display:"flex",gap:14,alignItems:"center",marginBottom:20 }}>
+              <div style={{ width:72,height:72,borderRadius:"50%",background:`linear-gradient(135deg,${viewProfileFan.color||C.accent},${viewProfileFan.color||C.accent}66)`,border:`2.5px solid ${viewProfileFan.color||C.accent}66`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:26,color:C.bg,flexShrink:0,boxShadow:`0 0 22px ${viewProfileFan.color||C.accent}30` }}>{viewProfileFan.avatar||"?"}</div>
+              <div style={{ flex:1,minWidth:0 }}>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18,marginBottom:4 }}>{viewProfileFan.name}</p>
+                {(viewProfileFan.groups||viewProfileFan.fandoms||[]).length>0?(
+                  <div style={{ display:"flex",gap:5,flexWrap:"wrap" }}>
+                    {(viewProfileFan.groups||viewProfileFan.fandoms||[]).slice(0,4).map(g=>(
+                      <span key={g} style={{ padding:"3px 9px",borderRadius:99,background:`${C.accent}18`,border:`1px solid ${C.accent}33`,fontSize:10,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{g}</span>
+                    ))}
+                  </div>
+                ):(
+                  <p style={{ fontSize:11,color:C.textDim,fontStyle:"italic" }}>No fandoms shared yet</p>
+                )}
+              </div>
+            </div>
+
+            {/* Fan info placeholder rows */}
+            <div style={{ display:"flex",flexDirection:"column",gap:10,marginBottom:20 }}>
+              {[
+                { icon:"🎤", label:"Concerts attended", val:"Not added yet" },
+                { icon:"🃏", label:"Photocard collection", val:"Not added yet" },
+                { icon:"💜", label:"Fan since", val:"Not added yet" },
+              ].map(row=>(
+                <div key={row.label} style={{ display:"flex",alignItems:"center",gap:12,padding:"12px 14px",background:C.surface,borderRadius:13,border:`1px solid ${C.border}` }}>
+                  <span style={{ fontSize:18 }}>{row.icon}</span>
+                  <p style={{ flex:1,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:12.5 }}>{row.label}</p>
+                  <p style={{ fontSize:11,color:C.textDim }}>{row.val}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Back to DM CTA */}
+            <button onClick={()=>{ setViewFanPassport(false); setViewProfileFan(null); }} style={{ width:"100%",padding:"13px",borderRadius:14,background:`linear-gradient(140deg,${viewProfileFan.color||C.accent}cc,${viewProfileFan.color||C.accent}88)`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer" }}>
               Back to Message
             </button>
           </div>
@@ -17025,7 +17094,7 @@ function AppInner() {
                 concerts: <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M12 2C12 2 7 6 7 11C7 13.76 9.24 16 12 16C14.76 16 17 13.76 17 11C17 6 12 2 12 2Z" fill={active?"url(#navG2)":"none"} stroke={active?"url(#navG2)":C.textDim} strokeWidth="1.8"/><path d="M8 20H16M12 16V20" stroke={active?"url(#navG2)":C.textDim} strokeWidth="1.8" strokeLinecap="round"/><defs><linearGradient id="navG2" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent}/><stop offset="1" stopColor={C.pink}/></linearGradient></defs></svg>,
                 community: <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke={active?"url(#navG3)":C.textDim} strokeWidth="1.7"/><path d="M12 3C12 3 8 7 8 12C8 17 12 21 12 21" stroke={active?"url(#navG3)":C.textDim} strokeWidth="1.4"/><path d="M12 3C12 3 16 7 16 12C16 17 12 21 12 21" stroke={active?"url(#navG3)":C.textDim} strokeWidth="1.4"/><path d="M3 12H21" stroke={active?"url(#navG3)":C.textDim} strokeWidth="1.4"/><circle cx="12" cy="12" r="2" fill={active?"url(#navG3)":"none"} stroke={active?"url(#navG3)":C.textDim} strokeWidth="1.4"/><defs><linearGradient id="navG3" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent}/><stop offset="1" stopColor={C.pink}/></linearGradient></defs></svg>,
                 shelf: <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="4" height="16" rx="1" fill={active?"url(#navG4)":"none"} stroke={active?"url(#navG4)":C.textDim} strokeWidth="1.8"/><rect x="9" y="6" width="4" height="14" rx="1" fill={active?"url(#navG4)":"none"} stroke={active?"url(#navG4)":C.textDim} strokeWidth="1.8"/><path d="M15 9L19 7V21L15 22V9Z" fill={active?"url(#navG4)":"none"} stroke={active?"url(#navG4)":C.textDim} strokeWidth="1.8" strokeLinejoin="round"/><defs><linearGradient id="navG4" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent}/><stop offset="1" stopColor={C.pink}/></linearGradient></defs></svg>,
-                fanverse: <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="8" height="8" rx="2" fill={active?"url(#navG6)":"none"} stroke={active?"url(#navG6)":C.textDim} strokeWidth="1.7"/><rect x="13" y="3" width="8" height="8" rx="2" fill={active?"url(#navG6)":"none"} stroke={active?"url(#navG6)":C.textDim} strokeWidth="1.7"/><rect x="3" y="13" width="8" height="8" rx="2" fill={active?"url(#navG6)":"none"} stroke={active?"url(#navG6)":C.textDim} strokeWidth="1.7"/><rect x="13" y="13" width="8" height="8" rx="2" fill={active?"url(#navG6)":"none"} stroke={active?"url(#navG6)":C.textDim} strokeWidth="1.7"/><defs><linearGradient id="navG6" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent}/><stop offset="1" stopColor={C.mint}/></linearGradient></defs></svg>,
+                fanverse: <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke={active?"url(#navG6)":C.textDim} strokeWidth="1.7"/><ellipse cx="12" cy="12" rx="8.5" ry="3.4" stroke={active?"url(#navG6)":C.textDim} strokeWidth="1.4" transform="rotate(-30 12 12)"/><defs><linearGradient id="navG6" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent}/><stop offset="1" stopColor={C.mint}/></linearGradient></defs></svg>,
                 profile: <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4" fill={active?"url(#navG5)":"none"} stroke={active?"url(#navG5)":C.textDim} strokeWidth="1.8"/><path d="M4 20C4 16.69 7.58 14 12 14C16.42 14 20 16.69 20 20" stroke={active?"url(#navG5)":C.textDim} strokeWidth="1.8" strokeLinecap="round"/><defs><linearGradient id="navG5" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent}/><stop offset="1" stopColor={C.pink}/></linearGradient></defs></svg>,
               };
               return(
