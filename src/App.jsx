@@ -1,5 +1,4 @@
-import { useState, useRef, useEffect, useCallback, lazy, Suspense, createContext, useContext } from "react";
-import ReactDOM from "react-dom/client";
+import React, { useState, useRef, useEffect, useCallback, lazy, Suspense, createContext, useContext } from "react";
 import MapboxMap, { CITY_DENSITY_GEOJSON } from "./MapboxMap.jsx";
 import { createClient } from "@supabase/supabase-js";
 
@@ -16916,6 +16915,29 @@ function ProfilePublicPage({ username }) {
   );
 }
 
+// ─── APP ERROR BOUNDARY ───────────────────────────────────────────────────────
+// Prevents the React dev-mode flood caused by StrictMode double-mounting
+// AuthProvider's onAuthStateChange listener. In production it catches any
+// render crash and shows a recovery screen instead of a blank app.
+class AppErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) { console.error('[Backstage] render error:', error, info?.componentStack?.split('\n').slice(0,4).join(' ')); }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ minHeight:"100vh", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", background:"#07050f", color:"#ede8ff", fontFamily:"'Instrument Sans',sans-serif", padding:32, textAlign:"center" }}>
+          <p style={{ fontSize:32, marginBottom:12 }}>✦</p>
+          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:18, marginBottom:8 }}>Something went wrong</p>
+          <p style={{ fontSize:13, color:"#a090cc", marginBottom:24, maxWidth:260, lineHeight:1.6 }}>Backstage hit an unexpected error. Your data is safe.</p>
+          <button onClick={()=>this.setState({error:null})} style={{ padding:"10px 24px", borderRadius:99, background:"#b8a2ff", color:"#07050f", fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13, border:"none", cursor:"pointer" }}>Try again</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 // ─── ROOT APP ─────────────────────────────────────────────────────────────────
 export default function App() {
   const p = window.location.pathname;
@@ -16926,7 +16948,7 @@ export default function App() {
   // Shareable profile links: /u/:username or /@:username
   const uMatch = p.match(/^\/(?:u\/|@)(.+)$/);
   if (uMatch) return <ProfilePublicPage username={uMatch[1]} />;
-  return <AuthProvider><AppInner /></AuthProvider>;
+  return <AuthProvider><AppErrorBoundary><AppInner /></AppErrorBoundary></AuthProvider>;
 }
 
 const _IS_CAPSULE_PATH = typeof window!=="undefined" && (window.location.pathname==="/capsule"||window.location.pathname==="/capsule/");
@@ -17571,12 +17593,12 @@ function AppInner() {
             {NAV.map(n=>{
               const active = tab===n.id;
               const NAV_ICONS = {
-                home: <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M3 12L12 3L21 12V21H15V15H9V21H3V12Z" fill={active?"url(#navGrad)":"none"} stroke={active?"url(#navGrad)":C.textDim} strokeWidth="1.8" strokeLinejoin="round"/><defs><linearGradient id="navGrad" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent}/><stop offset="1" stopColor={C.pink}/></linearGradient></defs></svg>,
+                home: <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M7.15 19.55V8.45C7.15 7.88 7.43 7.35 7.9 7.03L11.05 4.9C11.62 4.52 12.38 4.52 12.95 4.9L16.1 7.03C16.57 7.35 16.85 7.88 16.85 8.45V19.55" stroke={active?"url(#navGrad)":C.textDim} strokeWidth="1.45" strokeLinecap="round" strokeLinejoin="round"/><path d="M5.25 19.55H18.75" stroke={active?"url(#navGrad)":C.textDim} strokeWidth="1.45" strokeLinecap="round"/><path d="M9.65 11.2C9.18 10.55 9.28 9.65 9.9 9.22C10.48 8.82 11.25 9.02 11.75 9.58L12 9.85L12.25 9.58C12.75 9.02 13.52 8.82 14.1 9.22C14.72 9.65 14.82 10.55 14.35 11.2C14.05 11.6 13.65 11.98 13.18 12.4L12 13.45L10.82 12.4C10.35 11.98 9.95 11.6 9.65 11.2Z" fill={active?"url(#navGrad)":C.textDim}/><path d="M12 15.15V16.85" stroke={active?"url(#navGrad)":C.textDim} strokeWidth="1.25" strokeLinecap="round" opacity="0.45"/><path d="M19.25 5.2L19.72 6.08L20.6 6.55L19.72 7.02L19.25 7.9L18.78 7.02L17.9 6.55L18.78 6.08L19.25 5.2Z" fill={active?"url(#navGrad)":C.textDim} opacity={active?0.72:0.45}/><defs><linearGradient id="navGrad" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent}/><stop offset="1" stopColor={C.pink}/></linearGradient></defs></svg>,
                 concerts: <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M12 2C12 2 7 6 7 11C7 13.76 9.24 16 12 16C14.76 16 17 13.76 17 11C17 6 12 2 12 2Z" fill={active?"url(#navG2)":"none"} stroke={active?"url(#navG2)":C.textDim} strokeWidth="1.8"/><path d="M8 20H16M12 16V20" stroke={active?"url(#navG2)":C.textDim} strokeWidth="1.8" strokeLinecap="round"/><defs><linearGradient id="navG2" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent}/><stop offset="1" stopColor={C.pink}/></linearGradient></defs></svg>,
                 community: <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke={active?"url(#navG3)":C.textDim} strokeWidth="1.7"/><path d="M12 3C12 3 8 7 8 12C8 17 12 21 12 21" stroke={active?"url(#navG3)":C.textDim} strokeWidth="1.4"/><path d="M12 3C12 3 16 7 16 12C16 17 12 21 12 21" stroke={active?"url(#navG3)":C.textDim} strokeWidth="1.4"/><path d="M3 12H21" stroke={active?"url(#navG3)":C.textDim} strokeWidth="1.4"/><circle cx="12" cy="12" r="2" fill={active?"url(#navG3)":"none"} stroke={active?"url(#navG3)":C.textDim} strokeWidth="1.4"/><defs><linearGradient id="navG3" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent}/><stop offset="1" stopColor={C.pink}/></linearGradient></defs></svg>,
                 shelf: <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M2.5 19.5H21.5" stroke={active?"url(#navG4)":C.textDim} strokeWidth="1.5" strokeLinecap="round"/><rect x="3" y="6" width="5" height="13.5" rx="1.3" fill={active?"url(#navG4Soft)":"none"} stroke={active?"url(#navG4)":C.textDim} strokeWidth="1.3"/><rect x="9.5" y="10.5" width="5" height="9" rx="1.3" fill={active?"url(#navG4Soft)":"none"} stroke={active?"url(#navG4)":C.textDim} strokeWidth="1.3"/><rect x="16" y="8" width="5" height="11.5" rx="1.3" fill={active?"url(#navG4Soft)":"none"} stroke={active?"url(#navG4)":C.textDim} strokeWidth="1.3"/><defs><linearGradient id="navG4" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent}/><stop offset="1" stopColor={C.pink}/></linearGradient><linearGradient id="navG4Soft" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent} stopOpacity="0.16"/><stop offset="1" stopColor={C.pink} stopOpacity="0.06"/></linearGradient></defs></svg>,
                 fanverse: <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M8.05 4.75H15.95C17.78 4.75 19.25 6.22 19.25 8.05V15.95C19.25 17.78 17.78 19.25 15.95 19.25H8.05C6.22 19.25 4.75 17.78 4.75 15.95V8.05C4.75 6.22 6.22 4.75 8.05 4.75Z" stroke={active?"url(#navG6)":C.textDim} strokeWidth="1.45" strokeLinejoin="round" fill={active?"url(#navG6Soft)":"none"}/><path d="M12 7.7L12.92 10.12L15.35 11.05L12.92 11.98L12 14.4L11.08 11.98L8.65 11.05L11.08 10.12L12 7.7Z" fill={active?"url(#navG6)":C.textDim}/><path d="M8.7 15.6H15.3" stroke={active?"url(#navG6)":C.textDim} strokeWidth="1.25" strokeLinecap="round" opacity="0.5"/><path d="M18.9 3.25L19.3 4L20.05 4.4L19.3 4.8L18.9 5.55L18.5 4.8L17.75 4.4L18.5 4L18.9 3.25Z" fill={active?"url(#navG6)":C.textDim} opacity={active?0.78:0.45}/><defs><linearGradient id="navG6" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent}/><stop offset="1" stopColor={C.mint}/></linearGradient><linearGradient id="navG6Soft" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent} stopOpacity="0.18"/><stop offset="1" stopColor={C.mint} stopOpacity="0.08"/></linearGradient></defs></svg>,
-                profile: <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4" fill={active?"url(#navG5)":"none"} stroke={active?"url(#navG5)":C.textDim} strokeWidth="1.8"/><path d="M4 20C4 16.69 7.58 14 12 14C16.42 14 20 16.69 20 20" stroke={active?"url(#navG5)":C.textDim} strokeWidth="1.8" strokeLinecap="round"/><defs><linearGradient id="navG5" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent}/><stop offset="1" stopColor={C.pink}/></linearGradient></defs></svg>,
+                profile: <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M5.25 12.15C5.25 8.42 8.27 5.4 12 5.4C15.73 5.4 18.75 8.42 18.75 12.15C18.75 15.88 15.73 18.9 12 18.9C8.27 18.9 5.25 15.88 5.25 12.15Z" stroke={active?"url(#navG5)":C.textDim} strokeWidth="1.45"/><path d="M8.25 11.2C7.72 10.3 7.9 9.25 8.65 8.72C9.38 8.2 10.35 8.42 11.05 9.15L12 10.15L12.95 9.15C13.65 8.42 14.62 8.2 15.35 8.72C16.1 9.25 16.28 10.3 15.75 11.2C15.42 11.78 14.88 12.32 14.25 12.9L12 14.95L9.75 12.9C9.12 12.32 8.58 11.78 8.25 11.2Z" fill={active?"url(#navG5)":C.textDim}/><path d="M12 2.9V4.1M12 20.2V21.1M2.9 12.15H4.1M19.9 12.15H21.1" stroke={active?"url(#navG5)":C.textDim} strokeWidth="1.25" strokeLinecap="round" opacity="0.48"/><path d="M17.95 4.25L18.48 5.25L19.48 5.78L18.48 6.31L17.95 7.31L17.42 6.31L16.42 5.78L17.42 5.25L17.95 4.25Z" fill={active?"url(#navG5)":C.textDim} opacity={active?0.78:0.45}/><defs><linearGradient id="navG5" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent}/><stop offset="1" stopColor={C.pink}/></linearGradient></defs></svg>,
               };
               return(
                 <button key={n.id} onClick={()=>setTab(n.id)} style={{ flex:1, background:"none", border:"none", padding:"10px 2px 8px", display:"flex", flexDirection:"column", alignItems:"center", gap:3, position:"relative", transition:"opacity .15s" }}>
@@ -17621,4 +17643,3 @@ function AppInner() {
     </>
   );
 }
-ReactDOM.createRoot(document.getElementById("root")).render(<App />);
