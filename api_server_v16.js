@@ -1402,7 +1402,13 @@ app.post('/api/events/attendance', requireAuth, async (req, res) => {
 // creates an announcement for each brand-new event (not previously in DB).
 // Requires auth. Ticketmaster key never reaches the browser.
 // Body: { keyword?: string, city?: string, size?: number }
-app.post('/api/events/sync-ticketmaster', requireAuth, async (req, res) => {
+app.post('/api/events/sync-ticketmaster', async (req, res, next) => {
+  // Allow admin secret bypass (for cron jobs / manual triggers without a user session).
+  // If the header is missing or wrong, fall through to normal requireAuth.
+  const adminSecret = process.env.SYNC_ADMIN_SECRET;
+  if (adminSecret && req.headers['x-admin-secret'] === adminSecret) return next();
+  return requireAuth(req, res, next);
+}, async (req, res) => {
   if (MOCK_MODE) {
     return res.json({ success: true, mock: true, synced: 0, message: 'Mock mode — Ticketmaster sync skipped.' });
   }
