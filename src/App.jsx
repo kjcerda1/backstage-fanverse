@@ -12188,7 +12188,9 @@ function PublicFanPassport({ fan, onBack, onBackToMessage }) {
   const isVip      = profile?.is_vip;
 
   return (
-    <div style={{ position:"absolute",inset:0,zIndex:400,background:skinGrad,display:"flex",flexDirection:"column",animation:"in .2s ease",overflow:"hidden" }}>
+    <div style={{ position:"absolute",inset:0,zIndex:400,background:C.bg,display:"flex",flexDirection:"column",animation:"in .2s ease",overflow:"hidden" }}>
+      {/* Skin gradient overlay — fully behind content, opaque base ensures nothing bleeds through */}
+      <div style={{ position:"absolute",inset:0,background:skinGrad,opacity:0.85,pointerEvents:"none",zIndex:0 }} />
       {/* Skin sparkles */}
       {skinChars.map((ch,i)=>(
         <div key={i} style={{ position:"absolute",top:`${SPOS[i]?.[0]??i*12}%`,left:`${SPOS[i]?.[1]??80}%`,fontSize:ch.length>1?15:10,opacity:0.11,animation:`sparkleFloat ${3.5+i*0.6}s ease-in-out infinite`,animationDelay:`${i*0.45}s`,color:"rgba(255,255,255,0.9)",pointerEvents:"none",zIndex:0 }}>{ch}</div>
@@ -12461,7 +12463,7 @@ const BACKSTAGE_CHARMS = [
   { id:"crown",      emoji:"👑", label:"Bias Wrecker"  },
 ];
 
-function DirectMessages({ onBack, user, initialFan }) {
+function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
   const { tokenReady } = useAuth();
   const KEY = "backstage_dms";
   // Read dm-target from localStorage if not explicitly passed (set by Message buttons)
@@ -12489,9 +12491,8 @@ function DirectMessages({ onBack, user, initialFan }) {
   const [kitOpen, setKitOpen]           = useState(false);
   const [charmPickerOpen, setCharmPickerOpen] = useState(false);
   const [kitPlaceholder, setKitPlaceholder]   = useState(null); // temp toast msg
-  // Fan profile sheet — opened by tapping avatar/username in DM header
+  // viewProfileFan — holds the fan object for the Shared Space sheet (ⓘ button)
   const [viewProfileFan, setViewProfileFan] = useState(null);
-  const [viewFanPassport, setViewFanPassport]   = useState(false); // full passport page
   const [viewSharedSpace, setViewSharedSpace]   = useState(false); // shared space quick sheet (ⓘ button)
   // Message reactions — which message row has the picker open (convoId + msgIdx)
   const [reactionPicker, setReactionPicker] = useState(null); // {convoId, msgIdx}
@@ -12499,6 +12500,17 @@ function DirectMessages({ onBack, user, initialFan }) {
   const [attachPreview, setAttachPreview] = useState(null); // base64 image for attachment
   const msgEndRef  = useRef(null);
   const attachRef  = useRef(null);
+
+  // ── GROUP CHATS ───────────────────────────────────────────────────────────────
+  const GROUP_KEY = "backstage_groups";
+  const [dmTab, setDmTab]           = useState("dms"); // "dms" | "groups"
+  const [groups, setGroups]         = useState(()=>ls.get(GROUP_KEY,[]));
+  const [activeGroup, setActiveGroup] = useState(null);
+  const [createGroupOpen, setCreateGroupOpen] = useState(false);
+  const [groupName, setGroupName]   = useState("");
+  const [groupEmoji, setGroupEmoji] = useState("👥");
+  const [selectedMembers, setSelectedMembers] = useState([]);
+  const [groupMsgDraft, setGroupMsgDraft] = useState("");
 
   const normalizeDmThread = (thread, messages = null) => {
     const member = thread.member || thread.fan || {};
@@ -12525,7 +12537,9 @@ function DirectMessages({ onBack, user, initialFan }) {
   };
 
   useEffect(()=>{ ls.set(KEY, convos); }, [convos]);
+  useEffect(()=>{ ls.set(GROUP_KEY, groups); }, [groups]);
   useEffect(()=>{ msgEndRef.current?.scrollIntoView({behavior:"smooth"}); }, [activeConvo?.messages?.length]);
+  useEffect(()=>{ msgEndRef.current?.scrollIntoView({behavior:"smooth"}); }, [activeGroup?.messages?.length]);
 
   useEffect(() => {
     if (!tokenReady) return;
@@ -12609,6 +12623,40 @@ function DirectMessages({ onBack, user, initialFan }) {
   };
   // Legacy alias — keeps old inline Freebie/Lightstick calls working
   const sendSticker = sendCharm;
+
+  // ── Group chat helpers ────────────────────────────────────────────────────
+  const createGroup = () => {
+    if(!groupName.trim()||selectedMembers.length===0) return;
+    const newGroup = {
+      id:`group-${Date.now()}`,
+      name:groupName.trim(),
+      emoji:groupEmoji,
+      members:selectedMembers,
+      messages:[],
+      unread:0,
+      lastTime:"now",
+    };
+    const next = [newGroup,...groups];
+    setGroups(next);
+    setGroupName(""); setGroupEmoji("👥"); setSelectedMembers([]); setCreateGroupOpen(false);
+    setActiveGroup(newGroup); setDmTab("groups");
+  };
+
+  const sendGroupMessage = () => {
+    if(!groupMsgDraft.trim()||!activeGroup) return;
+    const msg = { from:"me", type:"text", text:groupMsgDraft.trim(), time:"now" };
+    const updated = groups.map(g=>g.id===activeGroup.id ? {...g, messages:[...g.messages,msg], lastTime:"now"} : g);
+    setGroups(updated);
+    setActiveGroup(prev=>({...prev, messages:[...prev.messages,msg]}));
+    setGroupMsgDraft("");
+  };
+
+  const leaveGroup = (groupId) => {
+    setGroups(gs=>gs.filter(g=>g.id!==groupId));
+    setActiveGroup(null);
+  };
+
+  const circleMembers = ls.get("backstage_friends",[]).filter(f=>f.status==="accepted");
 
   // ── Message reactions ──────────────────────────────────────────────────────
   // Reaction emojis available for direct message reactions
@@ -12702,8 +12750,8 @@ function DirectMessages({ onBack, user, initialFan }) {
     <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden",background:C.bg,position:"relative" }}>
       <div style={{ padding:"14px 20px 12px",display:"flex",gap:10,alignItems:"center",flexShrink:0,borderBottom:`1px solid ${C.border}` }}>
         <button onClick={()=>setActiveConvo(null)} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
-        {/* Avatar + name — taps directly to Fan Passport */}
-        <button onClick={()=>{ setViewProfileFan(activeConvo.fan); setViewFanPassport(true); }} className="tap" style={{ display:"flex",gap:10,alignItems:"center",background:"none",border:"none",cursor:"pointer",flex:1,textAlign:"left",minWidth:0 }}>
+        {/* Avatar + name — navigates to full public profile at root level */}
+        <button onClick={()=>onViewProfile?.(activeConvo.fan)} className="tap" style={{ display:"flex",gap:10,alignItems:"center",background:"none",border:"none",cursor:"pointer",flex:1,textAlign:"left",minWidth:0 }}>
           <div style={{ width:38,height:38,borderRadius:"50%",background:`linear-gradient(135deg,${activeConvo.fan.color},${activeConvo.fan.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,color:C.bg,flexShrink:0 }}>{activeConvo.fan.avatar}</div>
           <div style={{ flex:1,minWidth:0 }}>
             <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:15,color:C.text }}>{activeConvo.fan.name}</p>
@@ -12946,7 +12994,7 @@ function DirectMessages({ onBack, user, initialFan }) {
               })()}
             </div>
             {/* View passport CTA */}
-            <button onClick={()=>{ setViewSharedSpace(false); setViewFanPassport(true); }} style={{ width:"100%",padding:"13px",borderRadius:14,background:`linear-gradient(140deg,${viewProfileFan.color||C.accent}cc,${viewProfileFan.color||C.accent}88)`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer",marginBottom:10 }}>
+            <button onClick={()=>{ setViewSharedSpace(false); onViewProfile?.(viewProfileFan); }} style={{ width:"100%",padding:"13px",borderRadius:14,background:`linear-gradient(140deg,${viewProfileFan.color||C.accent}cc,${viewProfileFan.color||C.accent}88)`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer",marginBottom:10 }}>
               View Fan Passport →
             </button>
             <button onClick={()=>setViewSharedSpace(false)} style={{ width:"100%",padding:"11px",borderRadius:14,background:"transparent",border:`1px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}>
@@ -12956,14 +13004,7 @@ function DirectMessages({ onBack, user, initialFan }) {
         </div>
       )}
 
-      {/* ── FAN PASSPORT OVERLAY ── delegates to reusable PublicFanPassport */}
-      {viewFanPassport&&viewProfileFan&&(
-        <PublicFanPassport
-          fan={viewProfileFan}
-          onBack={()=>setViewFanPassport(false)}
-          onBackToMessage={()=>{ setViewFanPassport(false); setViewSharedSpace(false); setViewProfileFan(null); }}
-        />
-      )}
+      {/* Fan passport is now handled at root level via onViewProfile → AppInner */}
     </div>
   );
 
@@ -12983,6 +13024,68 @@ function DirectMessages({ onBack, user, initialFan }) {
     </div>
   );
 
+  // ── GROUP CONVERSATION VIEW ──────────────────────────────────────────────────
+  if(activeGroup) return (
+    <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden",background:C.bg,position:"relative" }}>
+      {/* Header */}
+      <div style={{ padding:"14px 20px 12px",display:"flex",gap:10,alignItems:"center",flexShrink:0,borderBottom:`1px solid ${C.border}` }}>
+        <button onClick={()=>setActiveGroup(null)} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
+        {/* Stacked member avatars */}
+        <div style={{ position:"relative",width:40,height:38,flexShrink:0 }}>
+          {activeGroup.members.slice(0,3).map((m,i)=>(
+            <div key={i} style={{ position:"absolute",left:i*10,top:i===1?4:0,width:26,height:26,borderRadius:"50%",background:`linear-gradient(135deg,${m.color||C.accent},${m.color||C.accent}66)`,border:`2px solid ${C.bg}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:10,color:C.bg,zIndex:3-i }}>{m.avatar||m.name?.[1]||"?"}</div>
+          ))}
+        </div>
+        <div style={{ flex:1,minWidth:0 }}>
+          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:15 }}>{activeGroup.emoji} {activeGroup.name}</p>
+          <p style={{ fontSize:10,color:C.textMid }}>{activeGroup.members.length} member{activeGroup.members.length!==1?"s":""} · Group Chat</p>
+        </div>
+        <button onClick={()=>{ if(window.confirm(`Leave "${activeGroup.name}"?`)) leaveGroup(activeGroup.id); }} style={{ background:"none",border:"none",color:C.textDim,fontSize:11,cursor:"pointer",fontFamily:"'Epilogue',sans-serif" }}>Leave</button>
+      </div>
+
+      {/* Messages */}
+      <div style={{ flex:1,overflowY:"auto",padding:"14px 16px",display:"flex",flexDirection:"column",gap:10 }}>
+        {activeGroup.messages.length===0&&(
+          <div style={{ textAlign:"center",padding:"40px 20px" }}>
+            <p style={{ fontSize:32,marginBottom:12 }}>{activeGroup.emoji}</p>
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:15,marginBottom:6 }}>{activeGroup.name}</p>
+            <p style={{ fontSize:12,color:C.textMid,lineHeight:1.6,marginBottom:4 }}>{activeGroup.members.length} member{activeGroup.members.length!==1?"s":""}</p>
+            <p style={{ fontSize:11,color:C.textDim }}>Start the conversation.</p>
+          </div>
+        )}
+        {activeGroup.messages.map((msg,i)=>{
+          const isMe = msg.from==="me";
+          return (
+            <div key={i} style={{ display:"flex",flexDirection:"column",alignItems:isMe?"flex-end":"flex-start" }}>
+              <div style={{ maxWidth:"78%",padding:"10px 14px",borderRadius:isMe?"18px 18px 4px 18px":"18px 18px 18px 4px",background:isMe?`linear-gradient(140deg,${C.accent},${C.pink})`:`${C.surfaceHi}`,color:isMe?C.bg:C.text,fontSize:13,lineHeight:1.55,fontFamily:"'Instrument Sans',sans-serif",boxShadow:isMe?`0 2px 12px ${C.accent}28`:"none" }}>
+                {msg.text}
+              </div>
+              <p style={{ fontSize:9,color:C.textDim,marginTop:3,marginLeft:isMe?0:4,marginRight:isMe?4:0 }}>{msg.time}</p>
+            </div>
+          );
+        })}
+        <div ref={msgEndRef} />
+      </div>
+
+      {/* Input */}
+      <div style={{ padding:"10px 14px",paddingBottom:"max(14px, calc(env(safe-area-inset-bottom) + 10px))",display:"flex",gap:9,alignItems:"center",borderTop:`1px solid ${C.border}`,background:C.bg,flexShrink:0 }}>
+        <input
+          value={groupMsgDraft}
+          onChange={e=>setGroupMsgDraft(e.target.value)}
+          onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); sendGroupMessage(); }}}
+          placeholder="Message the group..."
+          style={{ flex:1,padding:"11px 14px",borderRadius:13,background:C.surfaceMid,border:`1.5px solid ${C.borderHi}`,color:C.text,fontSize:13,outline:"none" }}
+        />
+        <button
+          onClick={sendGroupMessage}
+          disabled={!groupMsgDraft.trim()}
+          style={{ width:40,height:40,borderRadius:12,background:groupMsgDraft.trim()?`linear-gradient(140deg,${C.accent},${C.pink})`:`${C.surfaceHi}`,border:groupMsgDraft.trim()?"none":`1.5px solid ${C.border}`,color:groupMsgDraft.trim()?C.bg:C.textMid,fontSize:15,fontWeight:700,cursor:groupMsgDraft.trim()?"pointer":"default",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all .2s" }}>
+          →
+        </button>
+      </div>
+    </div>
+  );
+
   // Conversation list
   return (
     <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden",background:C.bg }}>
@@ -12998,76 +13101,170 @@ function DirectMessages({ onBack, user, initialFan }) {
         <div style={{ height:1,background:`linear-gradient(90deg,transparent,${C.borderHi},transparent)`,marginBottom:0 }} />
       </div>
 
+      {/* ── DM / GROUPS SEGMENTED TABS ── */}
+      <div style={{ display:"flex",gap:0,padding:"10px 18px 0",flexShrink:0 }}>
+        {[["dms","DMs"],["groups","Groups"]].map(([id,label])=>(
+          <button key={id} onClick={()=>setDmTab(id)} style={{ flex:1,padding:"8px",borderRadius:0,borderBottom:`2px solid ${dmTab===id?C.accent:"transparent"}`,background:"none",border:"none",borderBottom:`2px solid ${dmTab===id?C.accent:"transparent"}`,color:dmTab===id?C.accent:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:dmTab===id?800:500,fontSize:12.5,cursor:"pointer",transition:"all .18s" }}>{label}{id==="groups"&&groups.length>0&&<span style={{ marginLeft:5,background:`${C.mint}22`,border:`1px solid ${C.mint}44`,borderRadius:99,padding:"1px 6px",fontSize:9,color:C.mint }}>{groups.length}</span>}</button>
+        ))}
+      </div>
+      <div style={{ height:1,background:`linear-gradient(90deg,transparent,${C.borderHi},transparent)`,flexShrink:0 }} />
+
       <Screen style={{ padding:"0 0 calc(120px + env(safe-area-inset-bottom))" }}>
         <div style={{ padding:"0 18px" }}>
-          <div style={{ padding:"14px 0 8px" }}>
-            <input
-              value={dmSearch}
-              onChange={e=>setDmSearch(e.target.value)}
-              placeholder="Search a Backstage username to message..."
-              style={{ width:"100%",boxSizing:"border-box",padding:"12px 14px",borderRadius:14,background:C.surfaceHi,border:`1.5px solid ${C.borderHi}`,color:C.text,fontSize:12.5,outline:"none" }}
-            />
-            {dmSearch.trim().length >= 2 && (
-              <div style={{ marginTop:8,background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,overflow:"hidden" }}>
-                {dmSearching && <p style={{ padding:"12px",fontSize:11,color:C.textMid }}>Searching Backstage profiles...</p>}
-                {!dmSearching && dmSearchResults.map(profile => (
-                  <button key={profile.id} onClick={()=>startThreadWithProfile(profile)} style={{ width:"100%",display:"flex",gap:10,alignItems:"center",padding:"10px 12px",background:"transparent",border:"none",borderBottom:`1px solid ${C.border}`,color:C.text,textAlign:"left",cursor:"pointer" }}>
-                    <span style={{ width:34,height:34,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.accent}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.bg }}>{(profile.display_name || profile.handle || "B").slice(0,1).toUpperCase()}</span>
-                    <span style={{ flex:1,minWidth:0 }}>
-                      <span style={{ display:"block",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5 }}>@{profile.handle || profile.username || "fan"}</span>
-                      <span style={{ display:"block",fontSize:10.5,color:C.textMid,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{profile.display_name || profile.backstage_name || "Backstage fan"}</span>
-                    </span>
-                    <span style={{ fontSize:11,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>Message</span>
-                  </button>
-                ))}
-                {!dmSearching && dmSearchResults.length === 0 && (
-                  dmSearchError ? (
-                    <div style={{ padding:"12px",display:"flex",gap:10,alignItems:"center" }}>
-                      <p style={{ flex:1,fontSize:11,color:C.textMid }}>Search unavailable — couldn't reach Backstage.</p>
-                      <button onClick={()=>{ setDmSearchError(false); setDmSearchRetry(r=>r+1); }} style={{ padding:"5px 12px",borderRadius:99,background:`${C.accent}18`,border:`1px solid ${C.accent}44`,color:C.accent,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",whiteSpace:"nowrap" }}>Try again</button>
-                    </div>
-                  ) : (
-                    <p style={{ padding:"12px",fontSize:11,color:C.textMid }}>No Backstage profile found for that search.</p>
-                  )
-                )}
+
+          {/* ── DMS TAB ── */}
+          {dmTab==="dms"&&(<>
+            <div style={{ padding:"14px 0 8px" }}>
+              <input
+                value={dmSearch}
+                onChange={e=>setDmSearch(e.target.value)}
+                placeholder="Search a Backstage username to message..."
+                style={{ width:"100%",boxSizing:"border-box",padding:"12px 14px",borderRadius:14,background:C.surfaceHi,border:`1.5px solid ${C.borderHi}`,color:C.text,fontSize:12.5,outline:"none" }}
+              />
+              {dmSearch.trim().length >= 2 && (
+                <div style={{ marginTop:8,background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,overflow:"hidden" }}>
+                  {dmSearching && <p style={{ padding:"12px",fontSize:11,color:C.textMid }}>Searching Backstage profiles...</p>}
+                  {!dmSearching && dmSearchResults.map(profile => (
+                    <button key={profile.id} onClick={()=>startThreadWithProfile(profile)} style={{ width:"100%",display:"flex",gap:10,alignItems:"center",padding:"10px 12px",background:"transparent",border:"none",borderBottom:`1px solid ${C.border}`,color:C.text,textAlign:"left",cursor:"pointer" }}>
+                      <span style={{ width:34,height:34,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.accent}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.bg }}>{(profile.display_name || profile.handle || "B").slice(0,1).toUpperCase()}</span>
+                      <span style={{ flex:1,minWidth:0 }}>
+                        <span style={{ display:"block",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5 }}>@{profile.handle || profile.username || "fan"}</span>
+                        <span style={{ display:"block",fontSize:10.5,color:C.textMid,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{profile.display_name || profile.backstage_name || "Backstage fan"}</span>
+                      </span>
+                      <span style={{ fontSize:11,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>Message</span>
+                    </button>
+                  ))}
+                  {!dmSearching && dmSearchResults.length === 0 && (
+                    dmSearchError ? (
+                      <div style={{ padding:"12px",display:"flex",gap:10,alignItems:"center" }}>
+                        <p style={{ flex:1,fontSize:11,color:C.textMid }}>Search unavailable — couldn't reach Backstage.</p>
+                        <button onClick={()=>{ setDmSearchError(false); setDmSearchRetry(r=>r+1); }} style={{ padding:"5px 12px",borderRadius:99,background:`${C.accent}18`,border:`1px solid ${C.accent}44`,color:C.accent,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",whiteSpace:"nowrap" }}>Try again</button>
+                      </div>
+                    ) : (
+                      <p style={{ padding:"12px",fontSize:11,color:C.textMid }}>No Backstage profile found for that search.</p>
+                    )
+                  )}
+                </div>
+              )}
+            </div>
+            {convos.map(convo=>(
+              <div key={convo.id} onClick={()=>openConvo(convo)} className="tap" style={{ display:"flex",gap:12,alignItems:"center",padding:"13px 0",borderBottom:`1px solid ${C.border}`,cursor:"pointer" }}>
+                <div style={{ position:"relative",flexShrink:0 }}>
+                  <div style={{ width:50,height:50,borderRadius:"50%",background:`linear-gradient(135deg,${convo.fan.color},${convo.fan.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19,color:C.bg,boxShadow:`0 0 12px ${convo.fan.color}28` }}>{convo.fan.avatar}</div>
+                  {convo.unread>0&&<div style={{ position:"absolute",top:-2,right:-2,width:18,height:18,borderRadius:"50%",background:`linear-gradient(135deg,${C.rose},${C.berry})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.bg }}>{convo.unread}</div>}
+                </div>
+                <div style={{ flex:1,minWidth:0 }}>
+                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3 }}>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:convo.unread>0?800:600,fontSize:13.5,color:convo.unread>0?C.text:C.textMid }}>{convo.fan.name}</p>
+                    <p style={{ fontSize:9.5,color:C.textDim }}>{convo.lastTime}</p>
+                  </div>
+                  {(()=>{
+                    const last = convo.messages[convo.messages.length-1];
+                    const isLastCharm = last?.type==="charm"||last?.type==="sticker";
+                    const preview = isLastCharm ? `${last?.charmEmoji||"✦"} ${last?.charmLabel||"charm"}` : last?.text||"Start a conversation 💜";
+                    return <p style={{ fontSize:11.5,color:convo.unread>0?C.textMid:C.textDim,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{preview}</p>;
+                  })()}
+                </div>
+                {convo.unread>0&&<div style={{ width:8,height:8,borderRadius:"50%",background:C.lavender,flexShrink:0 }} />}
+              </div>
+            ))}
+            {convos.length===0&&(
+              <div style={{ textAlign:"center",padding:"52px 20px" }}>
+                <div style={{ fontSize:38,marginBottom:14,animation:"float 3s ease-in-out infinite",display:"inline-block" }}>💬</div>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:15,marginBottom:8 }}>No messages yet</p>
+                <p style={{ fontSize:12.5,color:C.textMid,lineHeight:1.7,marginBottom:16 }}>Your backstage chats will show here once you message your Circle.</p>
+                <p style={{ fontSize:11,color:C.textDim,lineHeight:1.6 }}>Add fans to your Circle first, then tap Message to start a chat.</p>
               </div>
             )}
-          </div>
-          {convos.map(convo=>(
-            <div key={convo.id} onClick={()=>openConvo(convo)} className="tap" style={{ display:"flex",gap:12,alignItems:"center",padding:"13px 0",borderBottom:`1px solid ${C.border}`,cursor:"pointer" }}>
-              <div style={{ position:"relative",flexShrink:0 }}>
-                <div style={{ width:50,height:50,borderRadius:"50%",background:`linear-gradient(135deg,${convo.fan.color},${convo.fan.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19,color:C.bg,boxShadow:`0 0 12px ${convo.fan.color}28` }}>{convo.fan.avatar}</div>
-                {convo.unread>0&&<div style={{ position:"absolute",top:-2,right:-2,width:18,height:18,borderRadius:"50%",background:`linear-gradient(135deg,${C.rose},${C.berry})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.bg }}>{convo.unread}</div>}
-              </div>
-              <div style={{ flex:1,minWidth:0 }}>
-                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3 }}>
-                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:convo.unread>0?800:600,fontSize:13.5,color:convo.unread>0?C.text:C.textMid }}>{convo.fan.name}</p>
-                  <p style={{ fontSize:9.5,color:C.textDim }}>{convo.lastTime}</p>
+          </>)}
+
+          {/* ── GROUPS TAB ── */}
+          {dmTab==="groups"&&(<>
+            <div style={{ padding:"14px 0 12px",display:"flex",justifyContent:"flex-end" }}>
+              <button onClick={()=>setCreateGroupOpen(true)} style={{ padding:"9px 16px",borderRadius:12,background:`linear-gradient(140deg,${C.accent}22,${C.mint}12)`,border:`1.5px solid ${C.accent}44`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer" }}>+ New Group</button>
+            </div>
+            {groups.map(g=>(
+              <div key={g.id} onClick={()=>setActiveGroup(g)} className="tap" style={{ display:"flex",gap:12,alignItems:"center",padding:"13px 0",borderBottom:`1px solid ${C.border}`,cursor:"pointer" }}>
+                {/* Stacked member avatars */}
+                <div style={{ position:"relative",width:50,height:50,flexShrink:0 }}>
+                  <div style={{ position:"absolute",inset:0,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent}22,${C.mint}14)`,border:`2px solid ${C.accent}33`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22 }}>{g.emoji}</div>
+                  {g.members.slice(0,3).map((m,i)=>(
+                    <div key={i} style={{ position:"absolute",bottom:-4,right:-4+i*(-10),width:20,height:20,borderRadius:"50%",background:`linear-gradient(135deg,${m.color||C.accent},${m.color||C.accent}66)`,border:`2px solid ${C.bg}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:8,color:C.bg,zIndex:3-i }}>{m.avatar||"?"}</div>
+                  ))}
                 </div>
-                {(()=>{
-                  const last = convo.messages[convo.messages.length-1];
-                  const isLastCharm = last?.type==="charm"||last?.type==="sticker";
-                  const charmPreviewEmoji = last?.charmEmoji||last?.stickerEmoji||"✦";
-                  const charmPreviewLabel = last?.charmLabel||last?.stickerLabel||"charm";
-                  const preview = isLastCharm
-                    ? `${charmPreviewEmoji} ${charmPreviewLabel}`
-                    : last?.text||"Start a conversation 💜";
-                  return <p style={{ fontSize:11.5,color:convo.unread>0?C.textMid:C.textDim,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{preview}</p>;
-                })()}
+                <div style={{ flex:1,minWidth:0 }}>
+                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3 }}>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5 }}>{g.name}</p>
+                    <p style={{ fontSize:9.5,color:C.textDim }}>{g.lastTime}</p>
+                  </div>
+                  <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+                    <span style={{ fontSize:9,color:C.textDim,background:`${C.mint}16`,border:`1px solid ${C.mint}28`,borderRadius:99,padding:"1px 7px",fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>Group · {g.members.length} members</span>
+                  </div>
+                </div>
               </div>
-              {convo.unread>0&&<div style={{ width:8,height:8,borderRadius:"50%",background:C.lavender,flexShrink:0 }} />}
-            </div>
-          ))}
-          {convos.length===0&&(
-            <div style={{ textAlign:"center",padding:"52px 20px" }}>
-              <div style={{ fontSize:38,marginBottom:14,animation:"float 3s ease-in-out infinite",display:"inline-block" }}>💬</div>
-              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:15,marginBottom:8 }}>No messages yet</p>
-              <p style={{ fontSize:12.5,color:C.textMid,lineHeight:1.7,marginBottom:16 }}>Your backstage chats will show here once you message your Circle.</p>
-              <p style={{ fontSize:11,color:C.textDim,lineHeight:1.6 }}>Add fans to your Circle first, then tap Message to start a chat.</p>
-            </div>
-          )}
+            ))}
+            {groups.length===0&&(
+              <div style={{ textAlign:"center",padding:"52px 20px" }}>
+                <div style={{ fontSize:38,marginBottom:14,animation:"float 3s ease-in-out infinite",display:"inline-block" }}>👥</div>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:15,marginBottom:8 }}>No group chats yet</p>
+                <p style={{ fontSize:12.5,color:C.textMid,lineHeight:1.7,marginBottom:16 }}>Create a group for your concert crew, trade team, or moots.</p>
+                <button onClick={()=>setCreateGroupOpen(true)} style={{ padding:"10px 20px",borderRadius:13,background:`linear-gradient(140deg,${C.accent}22,${C.mint}12)`,border:`1.5px solid ${C.accent}44`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}>+ Create Group</button>
+              </div>
+            )}
+          </>)}
+
         </div>
       </Screen>
+
+      {/* ── CREATE GROUP SHEET ── */}
+      {createGroupOpen&&(
+        <>
+          <div onClick={()=>setCreateGroupOpen(false)} style={{ position:"absolute",inset:0,zIndex:400,background:"rgba(6,6,15,0.88)" }} />
+          <div style={{ position:"absolute",bottom:0,left:0,right:0,zIndex:401,background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:22,paddingBottom:"max(28px, calc(env(safe-area-inset-bottom) + 22px))",animation:"slideUp .25s ease",border:`1px solid ${C.borderHi}` }}>
+            <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 18px" }} />
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17,marginBottom:4 }}>New Group</p>
+            <p style={{ fontSize:11,color:C.textMid,marginBottom:16 }}>Concert crew, trade group, moots — name it what it is.</p>
+
+            {/* Emoji + Name */}
+            <div style={{ display:"flex",gap:10,marginBottom:14 }}>
+              <select value={groupEmoji} onChange={e=>setGroupEmoji(e.target.value)} style={{ padding:"10px 8px",borderRadius:12,background:C.surfaceMid,border:`1.5px solid ${C.borderHi}`,color:C.text,fontSize:18,cursor:"pointer",flexShrink:0 }}>
+                {["👥","🎤","✈️","🎁","🃏","🌙","💜","⭐","🔥","🎫"].map(e=><option key={e}>{e}</option>)}
+              </select>
+              <input
+                value={groupName}
+                onChange={e=>setGroupName(e.target.value)}
+                placeholder="Group name (e.g. Vegas ARMY Crew)"
+                style={{ flex:1,padding:"10px 14px",borderRadius:12,background:C.surfaceMid,border:`1.5px solid ${C.borderHi}`,color:C.text,fontSize:13,outline:"none" }}
+              />
+            </div>
+
+            {/* Member picker from My Circle */}
+            <p style={{ fontSize:11,color:C.textMid,marginBottom:8,fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>Add from My Circle</p>
+            {circleMembers.length===0
+              ? <p style={{ fontSize:11,color:C.textDim,marginBottom:14,fontStyle:"italic" }}>No Circle members yet — add fans to your Circle first.</p>
+              : <div style={{ display:"flex",gap:8,flexWrap:"wrap",marginBottom:16 }}>
+                  {circleMembers.map(m=>{
+                    const sel = selectedMembers.some(s=>s.id===m.id);
+                    return (
+                      <button key={m.id} onClick={()=>setSelectedMembers(sel ? selectedMembers.filter(s=>s.id!==m.id) : [...selectedMembers,m])} style={{ display:"flex",alignItems:"center",gap:7,padding:"7px 12px",borderRadius:99,background:sel?`${C.accent}22`:`${C.surfaceMid}`,border:`1.5px solid ${sel?C.accent:C.border}`,color:sel?C.accent:C.textMid,cursor:"pointer",fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:11,transition:"all .15s" }}>
+                        <span style={{ width:22,height:22,borderRadius:"50%",background:`linear-gradient(135deg,${m.color||C.accent},${m.color||C.accent}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800 }}>{m.avatar}</span>
+                        {m.name.replace("@","")}
+                        {sel&&<span style={{ fontSize:11 }}>✓</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+            }
+
+            <button
+              onClick={createGroup}
+              disabled={!groupName.trim()||selectedMembers.length===0}
+              style={{ width:"100%",padding:"13px",borderRadius:14,background:groupName.trim()&&selectedMembers.length>0?`linear-gradient(140deg,${C.accent},${C.mint})`:`${C.surfaceHi}`,border:"none",color:groupName.trim()&&selectedMembers.length>0?C.bg:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:groupName.trim()&&selectedMembers.length>0?"pointer":"default" }}>
+              Create Group {selectedMembers.length>0?`· ${selectedMembers.length} member${selectedMembers.length!==1?"s":""}`:""}
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -16568,6 +16765,8 @@ function AppInner() {
   const [showVipTour, setShowVipTour] = useState(false);
   const [showComingSoon, setShowComingSoon] = useState(false);
   const [comingSoonTool, setComingSoonTool] = useState(null);
+  // Public user profile — lifted to root so it covers tabs + nav (not a modal-internal overlay)
+  const [publicProfileFan, setPublicProfileFan] = useState(null);
 
   // Tools paused for polish — intercept before they open
   const COMING_SOON_TOOLS = ["outfits", "trip"];
@@ -17060,7 +17259,7 @@ function AppInner() {
         {modal==="scrapbook"&&<ModalWrapper><ScrapbookTab isVip={isVip} onUpgrade={openUpgrade} /></ModalWrapper>}
         {modal==="friends"&&<ModalWrapper><FriendsPage onBack={()=>setModal(null)} onNotif={showNotif} /></ModalWrapper>}
         {modal==="fanmap"&&<ModalWrapper><FanverseMap onBack={()=>setModal(null)} /></ModalWrapper>}
-        {modal==="chats"&&<ModalWrapper><DirectMessages onBack={()=>setModal(null)} user={user} /></ModalWrapper>}
+        {modal==="chats"&&<ModalWrapper><DirectMessages onBack={()=>setModal(null)} user={user} onViewProfile={setPublicProfileFan} /></ModalWrapper>}
         {modal==="qr"&&<ModalWrapper><QRPage onBack={()=>setModal(null)} user={user} onNotif={showNotif} /></ModalWrapper>}
         {modal==="safety"&&<ModalWrapper><SafetyCenter onBack={()=>setModal(null)} /></ModalWrapper>}
         {modal==="events"&&<ModalWrapper><EventDiscovery onBack={()=>setModal(null)} go={go} /></ModalWrapper>}
@@ -17171,6 +17370,17 @@ function AppInner() {
           </div>
         )}
       </div>
+
+      {/* ── PUBLIC USER PROFILE ── root-level render covers tabs + nav + modals */}
+      {publicProfileFan&&(
+        <div style={{ position:"absolute",inset:0,zIndex:600,display:"flex",flexDirection:"column" }}>
+          <PublicFanPassport
+            fan={publicProfileFan}
+            onBack={()=>setPublicProfileFan(null)}
+            onBackToMessage={()=>setPublicProfileFan(null)}
+          />
+        </div>
+      )}
     </>
   );
 }
