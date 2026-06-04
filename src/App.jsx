@@ -12491,7 +12491,8 @@ function DirectMessages({ onBack, user, initialFan }) {
   const [kitPlaceholder, setKitPlaceholder]   = useState(null); // temp toast msg
   // Fan profile sheet — opened by tapping avatar/username in DM header
   const [viewProfileFan, setViewProfileFan] = useState(null);
-  const [viewFanPassport, setViewFanPassport] = useState(false);
+  const [viewFanPassport, setViewFanPassport]   = useState(false); // full passport page
+  const [viewSharedSpace, setViewSharedSpace]   = useState(false); // shared space quick sheet (ⓘ button)
   // Message reactions — which message row has the picker open (convoId + msgIdx)
   const [reactionPicker, setReactionPicker] = useState(null); // {convoId, msgIdx}
   const [msgDraft, setMsgDraft]       = useState("");
@@ -12653,13 +12654,15 @@ function DirectMessages({ onBack, user, initialFan }) {
   };
 
   // Backstage Kit option definitions
+  // Each tile must either do something real OR honestly say "coming soon."
+  // No dead taps. No fake sends disguised as real.
   const KIT_OPTIONS = [
     { id:"photo",      emoji:"📸", label:"Photo / Video",      action:()=>{ setKitOpen(false); attachRef.current?.click(); } },
-    { id:"voice",      emoji:"🎤", label:"Voice Note",         action:()=>showKitPlaceholder("Voice notes are warming up backstage.") },
-    { id:"charms",     emoji:"✦",  label:"Charms",             action:()=>{ setCharmPickerOpen(true); setKitOpen(false); },  style:`background:linear-gradient(135deg,${C.accent}18,${C.berry}0e)` },
-    { id:"gif",        emoji:"✨", label:"GIF",                action:()=>showKitPlaceholder("GIF search coming soon.") },
-    { id:"freebie",    emoji:"🎁", label:"Freebie",            action:()=>sendCharm("freebie","🎁","Freebie Drop") },
-    { id:"lightstick", emoji:"🔦", label:"Lightstick Moment",  action:()=>sendCharm("lightstick","🔦","Lightstick Glow") },
+    { id:"voice",      emoji:"🎤", label:"Voice Note",         action:()=>showKitPlaceholder("Voice notes coming soon — you'll be able to record and send audio to this fan.") },
+    { id:"freebie",    emoji:"🎁", label:"Freebie Drop",       action:()=>{ setMsgDraft("🎁 Freebie Drop — I'm giving out fan-made freebies at the show! Reply if you want one."); setKitOpen(false); } },
+    { id:"lightstick", emoji:"🔦", label:"Lightstick Reaction",action:()=>sendCharm("lightstick","🔦","🔦 Lightstick Reaction") },
+    { id:"sharecard",  emoji:"🎫", label:"Share Card",         action:()=>showKitPlaceholder("Share Card coming soon — share concerts, profiles, and events.") },
+    { id:"scrapbook",  emoji:"📖", label:"Shared Scrapbook",   action:()=>showKitPlaceholder("Shared Scrapbook coming soon — build concert memories together.") },
   ];
 
   const openConvo = async (convo) => {
@@ -12699,8 +12702,8 @@ function DirectMessages({ onBack, user, initialFan }) {
     <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden",background:C.bg,position:"relative" }}>
       <div style={{ padding:"14px 20px 12px",display:"flex",gap:10,alignItems:"center",flexShrink:0,borderBottom:`1px solid ${C.border}` }}>
         <button onClick={()=>setActiveConvo(null)} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
-        {/* Avatar + name — tappable to open fan profile */}
-        <button onClick={()=>setViewProfileFan(activeConvo.fan)} className="tap" style={{ display:"flex",gap:10,alignItems:"center",background:"none",border:"none",cursor:"pointer",flex:1,textAlign:"left",minWidth:0 }}>
+        {/* Avatar + name — taps directly to Fan Passport */}
+        <button onClick={()=>{ setViewProfileFan(activeConvo.fan); setViewFanPassport(true); }} className="tap" style={{ display:"flex",gap:10,alignItems:"center",background:"none",border:"none",cursor:"pointer",flex:1,textAlign:"left",minWidth:0 }}>
           <div style={{ width:38,height:38,borderRadius:"50%",background:`linear-gradient(135deg,${activeConvo.fan.color},${activeConvo.fan.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,color:C.bg,flexShrink:0 }}>{activeConvo.fan.avatar}</div>
           <div style={{ flex:1,minWidth:0 }}>
             <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:15,color:C.text }}>{activeConvo.fan.name}</p>
@@ -12710,7 +12713,8 @@ function DirectMessages({ onBack, user, initialFan }) {
             </div>
           </div>
         </button>
-        <div style={{ ...VS.activePill(activeConvo.fan.color),fontSize:8.5,flexShrink:0 }}>Direct Message</div>
+        {/* ⓘ opens Shared Space quick sheet */}
+        <button onClick={()=>{ setViewProfileFan(activeConvo.fan); setViewSharedSpace(true); }} style={{ width:32,height:32,borderRadius:"50%",background:C.surfaceHi,border:`1.5px solid ${C.borderHi}`,color:C.textMid,fontSize:13,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>ⓘ</button>
       </div>
 
       {/* Messages scroll area */}
@@ -12860,7 +12864,7 @@ function DirectMessages({ onBack, user, initialFan }) {
               </div>
               {/* Header */}
               <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,marginBottom:2 }}>Backstage Kit</p>
-              <p style={{ fontSize:11,color:C.textMid,marginBottom:16 }}>Send a little concert magic.</p>
+              <p style={{ fontSize:11,color:C.textMid,marginBottom:16 }}>Fan-native actions for this conversation.</p>
               {/* Options grid */}
               <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10 }}>
                 {KIT_OPTIONS.map(opt=>(
@@ -12905,16 +12909,16 @@ function DirectMessages({ onBack, user, initialFan }) {
         </>
       )}
 
-      {/* ── FAN PROFILE SHEET ── tapped from DM header avatar/username */}
-      {viewProfileFan&&(
-        <div onClick={()=>setViewProfileFan(null)} style={{ position:"absolute",inset:0,zIndex:300,background:"rgba(6,6,15,0.88)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+      {/* ── SHARED SPACE SHEET ── opened by ⓘ button in DM header */}
+      {viewSharedSpace&&viewProfileFan&&(
+        <div onClick={()=>setViewSharedSpace(false)} style={{ position:"absolute",inset:0,zIndex:300,background:"rgba(6,6,15,0.88)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
           <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:24,paddingBottom:"max(28px, calc(env(safe-area-inset-bottom) + 28px))",width:"100%",animation:"slideUp .25s ease",border:`1px solid ${C.borderHi}` }}>
             {/* Handle + close */}
             <div style={{ display:"flex",alignItems:"center",marginBottom:20 }}>
               <div style={{ flex:1 }} />
               <div style={{ width:34,height:4,borderRadius:99,background:C.border }} />
               <div style={{ flex:1,display:"flex",justifyContent:"flex-end" }}>
-                <button onClick={()=>setViewProfileFan(null)} style={{ background:"none",border:"none",color:C.textMid,fontSize:18,cursor:"pointer",lineHeight:1 }}>✕</button>
+                <button onClick={()=>setViewSharedSpace(false)} style={{ background:"none",border:"none",color:C.textMid,fontSize:18,cursor:"pointer",lineHeight:1 }}>✕</button>
               </div>
             </div>
             {/* Fan identity */}
@@ -12923,20 +12927,12 @@ function DirectMessages({ onBack, user, initialFan }) {
               <div style={{ flex:1,minWidth:0 }}>
                 <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17,marginBottom:3 }}>{viewProfileFan.name||viewProfileFan.username}</p>
                 <p style={{ fontSize:11,color:C.textMid }}>Backstage fan</p>
-                {(viewProfileFan.groups||viewProfileFan.fandoms||[]).length>0&&(
-                  <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginTop:6 }}>
-                    {(viewProfileFan.groups||viewProfileFan.fandoms||[]).slice(0,3).map(g=>(
-                      <span key={g} style={{ padding:"2px 8px",borderRadius:99,background:`${C.accent}18`,border:`1px solid ${C.accent}33`,fontSize:9.5,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{g}</span>
-                    ))}
-                  </div>
-                )}
               </div>
             </div>
-            {/* Shared Space — honest empty state */}
+            {/* Shared Space */}
             <div style={{ background:C.surface,borderRadius:14,padding:"14px 16px",marginBottom:18,border:`1px solid ${C.border}` }}>
               <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,marginBottom:3 }}>Shared Space</p>
               <p style={{ fontSize:11,color:C.textMid,lineHeight:1.6 }}>Photos, charms, links, and memories you share will appear here.</p>
-              {/* Show charms already exchanged in this convo */}
               {(()=>{
                 const sharedCharms = activeConvo.messages.filter(m=>m.type==="charm"||m.type==="sticker");
                 if(!sharedCharms.length) return <p style={{ fontSize:10.5,color:C.textDim,marginTop:6,fontStyle:"italic" }}>No shared moments yet.</p>;
@@ -12949,11 +12945,11 @@ function DirectMessages({ onBack, user, initialFan }) {
                 );
               })()}
             </div>
-            {/* Action */}
-            <button onClick={()=>setViewFanPassport(true)} style={{ width:"100%",padding:"13px",borderRadius:14,background:`linear-gradient(140deg,${viewProfileFan.color||C.accent}cc,${viewProfileFan.color||C.accent}88)`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer",marginBottom:10 }}>
+            {/* View passport CTA */}
+            <button onClick={()=>{ setViewSharedSpace(false); setViewFanPassport(true); }} style={{ width:"100%",padding:"13px",borderRadius:14,background:`linear-gradient(140deg,${viewProfileFan.color||C.accent}cc,${viewProfileFan.color||C.accent}88)`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer",marginBottom:10 }}>
               View Fan Passport →
             </button>
-            <button onClick={()=>setViewProfileFan(null)} style={{ width:"100%",padding:"11px",borderRadius:14,background:"transparent",border:`1px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}>
+            <button onClick={()=>setViewSharedSpace(false)} style={{ width:"100%",padding:"11px",borderRadius:14,background:"transparent",border:`1px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}>
               Back to Message
             </button>
           </div>
@@ -12965,7 +12961,7 @@ function DirectMessages({ onBack, user, initialFan }) {
         <PublicFanPassport
           fan={viewProfileFan}
           onBack={()=>setViewFanPassport(false)}
-          onBackToMessage={()=>{ setViewFanPassport(false); setViewProfileFan(null); }}
+          onBackToMessage={()=>{ setViewFanPassport(false); setViewSharedSpace(false); setViewProfileFan(null); }}
         />
       )}
     </div>
