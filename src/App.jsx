@@ -12158,6 +12158,92 @@ function GroupDetailEditor({ group, initial={}, statusOptions=[], statusColors={
   );
 }
 
+// ─── PUBLIC PROFILE PREVIEW ──────────────────────────────────────────────────
+// Compact profile card opened from DM avatar/name taps.
+// Fetches real data from GET /api/profile/:id. Clean identity card — not a passport form.
+function PublicProfilePreview({ fan, onBack, onBackToMessage }) {
+  const [profile, setProfile] = useState(null);
+  const [loading, setLoading]  = useState(true);
+
+  useEffect(() => {
+    if (!fan?.id) { setLoading(false); return; }
+    api.get(`/api/profile/${fan.id}`).then(data => {
+      if (data && !data.error) setProfile(data);
+      setLoading(false);
+    });
+  }, [fan?.id]);
+
+  const username = profile?.username ? `@${profile.username}` : fan.name;
+  const dispName = profile?.display_name;
+  const fandoms  = profile?.fandoms || fan.groups || fan.fandoms || [];
+  const bias     = profile?.bias;
+  const city     = profile?.city;
+  const isVip    = profile?.is_vip;
+  const bio      = profile?.profile_style?.bannerText || profile?.bio;
+
+  return (
+    <div style={{ height:"100%",background:C.bg,display:"flex",flexDirection:"column",overflow:"hidden",position:"relative" }}>
+      {/* Subtle ambient tint */}
+      <div style={{ position:"absolute",inset:0,background:`radial-gradient(ellipse at 50% 0%,${C.accent}0d,transparent 55%)`,pointerEvents:"none",zIndex:0 }} />
+
+      {/* Header */}
+      <div style={{ padding:"14px 20px 12px",display:"flex",gap:10,alignItems:"center",flexShrink:0,borderBottom:`1px solid ${C.border}`,position:"relative",zIndex:1 }}>
+        <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer",lineHeight:1 }}>←</button>
+        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15 }}>Profile</p>
+      </div>
+
+      {loading ? (
+        <div style={{ flex:1,display:"flex",alignItems:"center",justifyContent:"center",position:"relative",zIndex:1 }}>
+          <p style={{ fontSize:12,color:C.textDim,fontFamily:"'Epilogue',sans-serif",animation:"pulse 1.5s ease infinite" }}>Loading…</p>
+        </div>
+      ) : (
+        <div style={{ flex:1,overflowY:"auto",position:"relative",zIndex:1,padding:"28px 20px calc(32px + env(safe-area-inset-bottom))" }}>
+
+          {/* Identity card */}
+          <div style={{ display:"flex",flexDirection:"column",alignItems:"center",textAlign:"center",marginBottom:28 }}>
+            <div style={{ width:82,height:82,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.pink})`,border:`3px solid ${C.borderHi}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:32,color:C.bg,marginBottom:14,boxShadow:`0 0 28px ${C.accent}28` }}>
+              {fan.avatar||"?"}
+            </div>
+            <div style={{ display:"flex",alignItems:"center",gap:7,marginBottom:4 }}>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:21 }}>{dispName||username}</p>
+              {isVip&&<span style={{ background:"rgba(255,215,0,0.14)",border:"1px solid rgba(255,215,0,0.38)",borderRadius:99,padding:"2px 8px",fontSize:9,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>⭐ VIP</span>}
+            </div>
+            {dispName&&<p style={{ fontSize:11.5,color:C.textMid,marginBottom:6 }}>{username}</p>}
+            {city&&<p style={{ fontSize:11,color:C.textDim,marginBottom:8 }}>📍 {city}</p>}
+            {bio&&<p style={{ fontSize:12,color:C.textMid,fontStyle:"italic",lineHeight:1.55,maxWidth:280,margin:"6px auto 0" }}>"{bio}"</p>}
+          </div>
+
+          {/* Fandoms */}
+          <div style={{ marginBottom:22 }}>
+            <p style={{ fontSize:9,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.14em",marginBottom:10 }}>Fandoms</p>
+            {fandoms.length>0
+              ? <div style={{ display:"flex",gap:7,flexWrap:"wrap" }}>
+                  {fandoms.slice(0,6).map(f=>(
+                    <span key={f} style={{ padding:"5px 13px",borderRadius:99,background:`${C.accent}18`,border:`1px solid ${C.accent}40`,fontSize:11,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{f}</span>
+                  ))}
+                </div>
+              : <p style={{ fontSize:11.5,color:C.textDim,fontStyle:"italic" }}>No fandoms added yet</p>
+            }
+          </div>
+
+          {/* Bias */}
+          {bias&&(
+            <div style={{ marginBottom:22 }}>
+              <p style={{ fontSize:9,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.14em",marginBottom:10 }}>Bias</p>
+              <span style={{ display:"inline-block",padding:"5px 14px",borderRadius:99,background:`${C.pink}18`,border:`1px solid ${C.pink}38`,fontSize:11,color:C.pink,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{bias}</span>
+            </div>
+          )}
+
+          {/* CTA */}
+          <button onClick={onBackToMessage} style={{ width:"100%",padding:"13px",borderRadius:14,background:`linear-gradient(140deg,${C.accent},${C.pink})`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer",marginTop:4 }}>
+            Back to Message
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── PUBLIC FAN PASSPORT ─────────────────────────────────────────────────────
 // Reusable full public profile view. Used from DM, My Circle, Fan Discovery.
 // Fetches real profile data from GET /api/profile/:id.
@@ -12769,8 +12855,10 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
       <div style={{ flex:1,overflowY:"auto",padding:"14px 16px",display:"flex",flexDirection:"column",gap:10,position:"relative" }}>
         {activeConvo.messages.length===0&&(
           <div style={{ textAlign:"center",padding:"40px 20px" }}>
-            <div style={{ width:64,height:64,borderRadius:"50%",background:`linear-gradient(135deg,${activeConvo.fan.color},${activeConvo.fan.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:24,color:C.bg,margin:"0 auto 14px" }}>{activeConvo.fan.avatar}</div>
-            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14,marginBottom:5 }}>{activeConvo.fan.name}</p>
+            {/* Avatar — tappable profile link */}
+            <div onClick={()=>onViewProfile?.(activeConvo.fan)} className="tap" style={{ width:64,height:64,borderRadius:"50%",background:`linear-gradient(135deg,${activeConvo.fan.color},${activeConvo.fan.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:24,color:C.bg,margin:"0 auto 14px",cursor:"pointer" }}>{activeConvo.fan.avatar}</div>
+            {/* Username — tappable profile link */}
+            <p onClick={()=>onViewProfile?.(activeConvo.fan)} className="tap" style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14,marginBottom:5,cursor:"pointer",display:"inline-block" }}>{activeConvo.fan.name}</p>
             <p style={{ fontSize:11.5,color:C.textMid }}>Start a conversation. Fan-to-fan, private and safe.</p>
           </div>
         )}
@@ -13148,14 +13236,16 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
               )}
             </div>
             {convos.map(convo=>(
-              <div key={convo.id} onClick={()=>openConvo(convo)} className="tap" style={{ display:"flex",gap:12,alignItems:"center",padding:"13px 0",borderBottom:`1px solid ${C.border}`,cursor:"pointer" }}>
-                <div style={{ position:"relative",flexShrink:0 }}>
+              <div key={convo.id} onClick={()=>openConvo(convo)} style={{ display:"flex",gap:12,alignItems:"center",padding:"13px 0",borderBottom:`1px solid ${C.border}`,cursor:"pointer" }}>
+                {/* Avatar — tapping opens profile, not convo */}
+                <div onClick={e=>{ e.stopPropagation(); onViewProfile?.(convo.fan); }} className="tap" style={{ position:"relative",flexShrink:0,cursor:"pointer" }}>
                   <div style={{ width:50,height:50,borderRadius:"50%",background:`linear-gradient(135deg,${convo.fan.color},${convo.fan.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19,color:C.bg,boxShadow:`0 0 12px ${convo.fan.color}28` }}>{convo.fan.avatar}</div>
                   {convo.unread>0&&<div style={{ position:"absolute",top:-2,right:-2,width:18,height:18,borderRadius:"50%",background:`linear-gradient(135deg,${C.rose},${C.berry})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.bg }}>{convo.unread}</div>}
                 </div>
                 <div style={{ flex:1,minWidth:0 }}>
                   <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3 }}>
-                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:convo.unread>0?800:600,fontSize:13.5,color:convo.unread>0?C.text:C.textMid }}>{convo.fan.name}</p>
+                    {/* Username — tapping opens profile */}
+                    <p onClick={e=>{ e.stopPropagation(); onViewProfile?.(convo.fan); }} className="tap" style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:convo.unread>0?800:600,fontSize:13.5,color:convo.unread>0?C.text:C.textMid,cursor:"pointer" }}>{convo.fan.name}</p>
                     <p style={{ fontSize:9.5,color:C.textDim }}>{convo.lastTime}</p>
                   </div>
                   {(()=>{
@@ -17371,10 +17461,10 @@ function AppInner() {
         )}
       </div>
 
-      {/* ── PUBLIC USER PROFILE ── root-level render covers tabs + nav + modals */}
+      {/* ── PUBLIC USER PROFILE ── root-level, covers tabs + nav + modals */}
       {publicProfileFan&&(
         <div style={{ position:"absolute",inset:0,zIndex:600,display:"flex",flexDirection:"column" }}>
-          <PublicFanPassport
+          <PublicProfilePreview
             fan={publicProfileFan}
             onBack={()=>setPublicProfileFan(null)}
             onBackToMessage={()=>setPublicProfileFan(null)}
