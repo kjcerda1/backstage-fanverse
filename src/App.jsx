@@ -4007,6 +4007,15 @@ function HomeFeed({ user, go, weather, isVip, onUpgrade, onSmartNotifs }) {
   const hour     = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const name     = user?.username || user?.name || "Moonlight";
+  const [bellUnread, setBellUnread] = useState(()=>{
+    try { const i=ls.get("backstage_notif_inbox",[]); return Array.isArray(i)?filterActiveNotifs(i).filter(n=>!n.read).length:0; } catch{return 0;}
+  });
+  useEffect(()=>{
+    const iv=setInterval(()=>{
+      try { const i=ls.get("backstage_notif_inbox",[]); setBellUnread(Array.isArray(i)?filterActiveNotifs(i).filter(n=>!n.read).length:0); } catch{}
+    },2000);
+    return ()=>clearInterval(iv);
+  },[]);
 
   return (
     <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
@@ -4038,7 +4047,7 @@ function HomeFeed({ user, go, weather, isVip, onUpgrade, onSmartNotifs }) {
             })()}
             {/* 3. Backstage Buzz bell — badge reflects unread alerts */}
             {(()=>{
-              const unreadCount = (()=>{ try { const i=JSON.parse(localStorage.getItem("backstage_notif_inbox")||"null"); return Array.isArray(i)?filterActiveNotifs(i).filter(n=>!n.read).length:4; } catch{return 4;} })();
+              const unreadCount = bellUnread;
               return (
                 <button onClick={()=>go("notifications")} title="Backstage Buzz" style={{ width:36,height:36,borderRadius:"50%",background:C.surfaceHi,border:`1.5px solid ${unreadCount>0?C.accent:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",position:"relative",boxShadow:unreadCount>0?`0 0 12px ${C.accent}28`:"none",transition:"all .2s" }}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M18 8A6 6 0 1 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" stroke={unreadCount>0?C.accent:C.text} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.73 21a2 2 0 0 1-3.46 0" stroke={unreadCount>0?C.accent:C.text} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -18067,11 +18076,12 @@ function AppInner() {
     }
   };
 
-  // Boot: load photocard collection from user_cards table
+  // Boot: load photocard collection from user_cards table.
+  // Depends on auth.tokenReady so it only fires after api._token is set.
   useEffect(()=>{
-    if(!user?.id || appState!=="main" || !API_URL) return;
+    if(!user?.id || !auth.tokenReady || appState!=="main" || !API_URL) return;
     api.get('/api/cards').then(d=>{ if(d?.cards?.length) setCards(d.cards); }).catch(()=>{});
-  },[user?.id, appState]);
+  },[user?.id, auth.tokenReady, appState]);
 
   const handleUpgrade = async (selectedPlan = "annual") => {
     // Guard: already VIP — nothing to upgrade
