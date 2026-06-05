@@ -7805,17 +7805,161 @@ function FanverseLeaders() {
   );
 }
 
+// ─── FAN DISCOVERY ────────────────────────────────────────────────────────────
+// Horizontal strip shown at top of Feed view
+function FansVibeStrip({ fans, onViewProfile }) {
+  if (!fans || fans.length === 0) return null;
+  const STRIP_COLORS = [C.accent, C.pink, C.mint, C.gold, C.rose, C.berry, C.lavender, C.teal];
+  const fanCol = (fan) => { const s=(fan.id||'').split('').reduce((a,c)=>a+c.charCodeAt(0),0); return STRIP_COLORS[s%STRIP_COLORS.length]; };
+  return (
+    <div style={{ padding:"10px 18px 2px", flexShrink:0, borderBottom:`1px solid ${C.border}` }}>
+      <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em",marginBottom:8 }}>Fans you might vibe with ✦</p>
+      <div style={{ display:"flex",gap:14,overflowX:"auto",scrollbarWidth:"none",paddingBottom:10 }}>
+        {fans.slice(0,6).map(fan=>{
+          const col = fanCol(fan);
+          return (
+            <div key={fan.id} onClick={()=>onViewProfile&&onViewProfile(fan)} className="tap" style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:4,cursor:"pointer",width:56 }}>
+              <div style={{ width:44,height:44,borderRadius:"50%",background:`linear-gradient(135deg,${col},${col}88)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17,color:C.bg,boxShadow:`0 0 10px ${col}40`,border:`1.5px solid ${col}55` }}>{fan.avatar}</div>
+              <p style={{ fontSize:8.5,color:C.text,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textAlign:"center",maxWidth:54,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{fan.display_name||fan.handle}</p>
+              {(fan.fandoms||[])[0]&&<p style={{ fontSize:7.5,color:col,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textAlign:"center",maxWidth:54,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{fan.fandoms[0]}</p>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Full fan discovery tab — "Fans" view inside FanverseTab
+function FanDiscoverySection({ user, fans, loading, onViewProfile }) {
+  const DISC_KEY = "backstage_discovery_on";
+  const AVATAR_COLORS = [C.accent, C.pink, C.mint, C.gold, C.rose, C.berry, C.lavender, C.teal];
+  const fanCol = (fan) => { const s=(fan.id||'').split('').reduce((a,c)=>a+c.charCodeAt(0),0); return AVATAR_COLORS[s%AVATAR_COLORS.length]; };
+
+  const [statuses,     setStatuses]     = useState(()=>ls.get("backstage_circle_statuses",{}));
+  const [discoverable, setDiscoverable] = useState(()=>ls.get(DISC_KEY, true));
+  const [togglingDisc, setTogglingDisc] = useState(false);
+
+  const addToCircle = async (fan) => {
+    const next = {...statuses, [fan.id]:"sent"};
+    setStatuses(next);
+    ls.set("backstage_circle_statuses", next);
+    api.post('/api/friends/request', { targetUserId: fan.id }).catch(()=>{});
+  };
+
+  const toggleDiscoverable = async () => {
+    if (togglingDisc) return;
+    const next = !discoverable;
+    setTogglingDisc(true);
+    setDiscoverable(next);
+    ls.set(DISC_KEY, next);
+    await api.post('/api/profile/update', { discoverable: next }).catch(()=>{});
+    setTogglingDisc(false);
+  };
+
+  const getReasons = (fan) => {
+    const reasons = [];
+    const myFandoms  = user?.favorite_groups || user?.fandoms || [];
+    const myBias     = user?.bias || "";
+    const myCity     = (user?.city || "").split(",")[0].trim().toLowerCase();
+    const myNpArtist = (user?.now_playing || ls.get(`backstage_now_playing_${user?.id||'anon'}`) || {})?.artist || "";
+    const shared = (fan.fandoms||[]).filter(f=>myFandoms.includes(f));
+    if (shared.length)  reasons.push(`🎵 Both stan ${shared[0]}`);
+    if (fan.city && myCity && fan.city.toLowerCase().includes(myCity)) reasons.push(`📍 ${fan.city}`);
+    if (myBias && fan.bias && fan.bias === myBias)  reasons.push(`🎤 Same bias: ${fan.bias}`);
+    if (myNpArtist && fan.now_playing?.artist === myNpArtist) reasons.push(`🎧 ${myNpArtist}`);
+    return reasons.slice(0, 2);
+  };
+
+  return (
+    <div style={{ flex:1, overflowY:"auto", overflowX:"hidden", padding:"14px 18px calc(120px + env(safe-area-inset-bottom))" }}>
+      {/* Discoverable toggle */}
+      <div style={{ background:discoverable?`${C.mint}12`:C.surface, border:`1.5px solid ${discoverable?C.mint:C.border}`, borderRadius:16, padding:"12px 14px", marginBottom:18, display:"flex", gap:12, alignItems:"center" }}>
+        <span style={{ fontSize:20 }}>{discoverable?"🟢":"🔒"}</span>
+        <div style={{ flex:1 }}>
+          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,color:C.text }}>{discoverable?"You're discoverable":"Hidden from discovery"}</p>
+          <p style={{ fontSize:10.5,color:C.textMid,lineHeight:1.5 }}>{discoverable?"Fans with your vibe can find you · opt out anytime":"Turn on to let fans with similar taste find you"}</p>
+        </div>
+        <button onClick={toggleDiscoverable} disabled={togglingDisc} style={{ padding:"8px 14px",borderRadius:11,background:discoverable?`${C.mint}22`:`linear-gradient(140deg,${C.mint}cc,${C.mintDim})`,border:discoverable?`1.5px solid ${C.mint}`:"none",color:discoverable?C.mint:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer",flexShrink:0 }}>
+          {discoverable?"Turn Off":"Turn On"}
+        </button>
+      </div>
+
+      <p style={{ ...VS.softSectionHeader, marginBottom:14 }}>Fans you might vibe with ✦</p>
+
+      {loading && <div style={{ textAlign:"center",padding:"32px 20px",color:C.textMid,fontSize:12 }}>Finding fans...</div>}
+
+      {!loading && fans.length===0 && (
+        <div style={{ textAlign:"center",padding:"32px 20px" }}>
+          <p style={{ fontSize:32,marginBottom:12 }}>👥</p>
+          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14,marginBottom:6 }}>No fan matches yet</p>
+          <p style={{ fontSize:12,color:C.textMid,lineHeight:1.6 }}>As more fans join your fandoms, they'll appear here. Make sure your fandoms and bias are set in your profile.</p>
+        </div>
+      )}
+
+      {!loading && fans.map(fan=>{
+        const col = fanCol(fan);
+        const status = statuses[fan.id];
+        const reasons = getReasons(fan);
+        return (
+          <div key={fan.id} style={{ ...VS.glowCard(col), padding:"13px 14px", marginBottom:12 }}>
+            <div style={{ position:"absolute",top:-8,right:-8,width:55,height:55,borderRadius:"50%",background:`radial-gradient(circle,${col}18,transparent 65%)`,pointerEvents:"none" }} />
+            <div onClick={()=>onViewProfile&&onViewProfile(fan)} style={{ display:"flex",gap:12,alignItems:"flex-start",marginBottom:10,position:"relative",cursor:"pointer" }}>
+              <div style={{ width:48,height:48,borderRadius:"50%",background:`linear-gradient(135deg,${col},${col}88)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19,color:C.bg,boxShadow:`0 0 14px ${col}40`,flexShrink:0 }}>
+                {fan.avatar}
+              </div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5,color:C.text,marginBottom:2 }}>{fan.display_name||fan.backstage_name}</p>
+                <p style={{ fontSize:10,color:C.textMid,marginBottom:6 }}>@{fan.handle||fan.username}{fan.city?` · 📍 ${fan.city}`:""}</p>
+                {fan.bio&&<p style={{ fontSize:11,color:C.textMid,lineHeight:1.5,marginBottom:6,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical" }}>{fan.bio}</p>}
+                <div style={{ display:"flex",gap:4,flexWrap:"wrap",marginBottom:reasons.length?6:0 }}>
+                  {(fan.fandoms||[]).slice(0,3).map(f=>(
+                    <div key={f} style={{ ...VS.activePill(col),fontSize:8,padding:"3px 8px" }}>{f}</div>
+                  ))}
+                  {fan.is_vip&&<div style={{ ...VS.activePill(C.gold),fontSize:8,padding:"3px 8px" }}>✦ VIP</div>}
+                </div>
+                {reasons.length>0&&(
+                  <div style={{ display:"flex",gap:4,flexWrap:"wrap" }}>
+                    {reasons.map((r,i)=>(
+                      <div key={i} style={{ display:"inline-flex",alignItems:"center",padding:"3px 9px",borderRadius:99,background:`${col}10`,border:`1px solid ${col}28`,color:C.textMid,fontSize:8.5,fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>{r}</div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div style={{ position:"relative",display:"flex",gap:8 }}>
+              <button
+                onClick={()=>{ if(!status) addToCircle(fan); }}
+                disabled={!!status}
+                style={{ flex:1,padding:"9px 12px",borderRadius:12,background:status?`${C.mint}18`:`linear-gradient(140deg,${col}cc,${col}88)`,border:status?`1.5px solid ${C.mint}`:"none",color:status?C.mint:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:status?"default":"pointer" }}
+              >
+                {status==="sent"?"✓ Requested":status==="accepted"?"In Circle ✦":"Add to Circle"}
+              </button>
+              <button
+                onClick={()=>onViewProfile&&onViewProfile(fan)}
+                style={{ padding:"9px 14px",borderRadius:12,background:`${col}18`,border:`1.5px solid ${col}33`,color:col,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer",flexShrink:0 }}
+              >
+                View →
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── FANVERSE TAB — MAP-FIRST LIVE FANDOM NETWORK ────────────────────────────
-// Priority: 1. Live Map  2. City Activity  3. Meetups  4. Feed
-function FanverseTab({ go, user, isVip, onUpgrade }) {
-  const [view, setView]   = useState("feed"); // feed | map | hubs | leaders
+// Priority: 1. Live Map  2. City Activity  3. Meetups  4. Feed  5. Fan Discovery
+function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
+  const { tokenReady } = useAuth();
+  const [view, setView]   = useState("feed"); // feed | map | hubs | fans | leaders
   const [joined, setJoined] = useState(["dallas"]);
   const [scrolled, setScrolled] = useState(false);
   const [ringFilter, setRingFilter] = useState(null); // "circle" | "local" | null
   const [showUserMoment, setShowUserMoment] = useState(null); // preview modal for user bubble tap
   const changeView = (v) => { setView(v); setScrolled(false); setRingFilter(null); };
 
-  const { tokenReady } = useAuth();
   const [discoverFans, setDiscoverFans] = useState([]);
   const [discoverLoading, setDiscoverLoading] = useState(false);
   const [discoverFilter, setDiscoverFilter] = useState("all");
@@ -7823,10 +7967,10 @@ function FanverseTab({ go, user, isVip, onUpgrade }) {
   const [discoverLoaded, setDiscoverLoaded] = useState(false);
 
   useEffect(() => {
-    if (view !== "fans" || discoverLoaded || !tokenReady) return;
+    if (discoverLoaded || !tokenReady) return;
     setDiscoverLoading(true);
-    api.get('/api/users/discover').then(d => {
-      const fans = d?.users?.length ? d.users : MOCK_FANVERSE_USERS;
+    api.get('/api/friends/suggested').then(d => {
+      const fans = d?.users || [];
       setDiscoverFans(fans);
       const stored = ls.get("backstage_circle_statuses", {});
       const init = {};
@@ -7835,11 +7979,10 @@ function FanverseTab({ go, user, isVip, onUpgrade }) {
       setDiscoverLoaded(true);
       setDiscoverLoading(false);
     }).catch(() => {
-      setDiscoverFans(MOCK_FANVERSE_USERS);
       setDiscoverLoaded(true);
       setDiscoverLoading(false);
     });
-  }, [view, discoverLoaded, tokenReady]);
+  }, [discoverLoaded, tokenReady]);
 
   const handleDiscoverAdd = async (fan) => {
     const next = { ...discoverStatuses, [fan.id]: "sent" };
@@ -8108,6 +8251,7 @@ function FanverseTab({ go, user, isVip, onUpgrade }) {
       {/* LIVE FEED */}
       {view==="feed" && (
         <div style={{ flex:1,overflow:"hidden",display:"flex",flexDirection:"column" }}>
+          <FansVibeStrip fans={discoverFans} onViewProfile={onViewProfile} />
           <LiveFeedTab user={user} go={go} hideStoryRail onScrollNotify={y=>setScrolled(y>48)} />
         </div>
       )}
@@ -8249,6 +8393,11 @@ function FanverseTab({ go, user, isVip, onUpgrade }) {
             });
           })()}
         </div>
+      )}
+
+      {/* FANS */}
+      {view==="fans" && (
+        <FanDiscoverySection user={user} fans={discoverFans} loading={discoverLoading} onViewProfile={onViewProfile} />
       )}
 
       {/* LEADERS */}
@@ -18588,7 +18737,7 @@ function AppInner() {
                   <>
               {tab==="home"&&<HomeFeed user={user} go={go} weather={weatherData} isVip={effectiveIsVip} onUpgrade={openUpgrade} onSmartNotifs={()=>setShowSmartNotifs(true)} />}
               {tab==="concerts"&&<ConcertsPage go={go} isVip={effectiveIsVip} onUpgrade={openUpgrade} user={user} />}
-              {tab==="community"&&<FanverseTab go={go} user={user} isVip={effectiveIsVip} onUpgrade={openUpgrade} />}
+              {tab==="community"&&<FanverseTab go={go} user={user} isVip={effectiveIsVip} onUpgrade={openUpgrade} onViewProfile={setPublicProfileFan} />}
               {tab==="collect"&&<LibraryTab cards={cards} setCards={setCards} isVip={effectiveIsVip} onUpgrade={openUpgrade} go={go} user={user} weather={weatherData} />}
               {tab==="fanverse"&&<ExploreTab user={user} weather={weatherData} isVip={effectiveIsVip} onUpgrade={openUpgrade} go={go} />}
               {tab==="profile"&&<ProfileTab user={user} cards={cards} go={go} isVip={effectiveIsVip} onUpgrade={openUpgrade} onReplayTour={()=>setShowVipTour(true)} onAccountRefresh={handleAccountRefresh} />}
