@@ -592,12 +592,32 @@ const RESERVED_USERNAMES = new Set([
   "help","moderator","mod","staff","team","bot","system","root",
 ]);
 
-// Returns true when the name is an exact reserved match (case-insensitive).
-// Fan-style names with extra chars (jungkookfilm, armyjoon, hongjoong1) are allowed.
+// Words that imply official/staff/verified identity when combined with a reserved name.
+// "officialhongjoong", "jungkook_verified", "real_karina" etc. are all blocked.
+// Fan combos like "hongjoong1", "atinyhongjoong", "btsarmy", "skzstay" remain allowed
+// because numbers and fandom words are not in this set.
+const IMPERSONATION_AFFIXES = new Set([
+  "official","real","verified","staff","mod","admin","hq","team",
+  "support","help","thereal","irl","iam","iamthe","im","vip",
+]);
+
+// Returns true when the normalized name is an exact reserved match OR follows an
+// impersonation pattern (affix + reserved, or reserved + affix, with optional _).
 const isReservedUsername = (name) => {
   if (!name) return false;
   const n = name.toLowerCase().replace(/[^a-z0-9_]/g,"");
-  return RESERVED_USERNAMES.has(n);
+  if (RESERVED_USERNAMES.has(n)) return true;
+  for (const affix of IMPERSONATION_AFFIXES) {
+    if (n.startsWith(affix)) {
+      const rest = n.slice(affix.length).replace(/^_+/, "");
+      if (rest && RESERVED_USERNAMES.has(rest)) return true;
+    }
+    if (n.endsWith(affix)) {
+      const rest = n.slice(0, n.length - affix.length).replace(/_+$/, "");
+      if (rest && RESERVED_USERNAMES.has(rest)) return true;
+    }
+  }
+  return false;
 };
 
 // ─── LS HELPERS ───────────────────────────────────────────────────────────────

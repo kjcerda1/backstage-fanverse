@@ -1999,9 +1999,25 @@ const BACKEND_RESERVED_USERNAMES = new Set([
   "backstage","backstagefanverse","fanverse","admin","support","official",
   "help","moderator","mod","staff","team","bot","system","root",
 ]);
+const BACKEND_IMPERSONATION_AFFIXES = new Set([
+  "official","real","verified","staff","mod","admin","hq","team",
+  "support","help","thereal","irl","iam","iamthe","im","vip",
+]);
 const isBackendReservedUsername = (name) => {
   if (!name || typeof name !== 'string') return false;
-  return BACKEND_RESERVED_USERNAMES.has(name.toLowerCase().replace(/[^a-z0-9_]/g,''));
+  const n = name.toLowerCase().replace(/[^a-z0-9_]/g,'');
+  if (BACKEND_RESERVED_USERNAMES.has(n)) return true;
+  for (const affix of BACKEND_IMPERSONATION_AFFIXES) {
+    if (n.startsWith(affix)) {
+      const rest = n.slice(affix.length).replace(/^_+/, '');
+      if (rest && BACKEND_RESERVED_USERNAMES.has(rest)) return true;
+    }
+    if (n.endsWith(affix)) {
+      const rest = n.slice(0, n.length - affix.length).replace(/_+$/, '');
+      if (rest && BACKEND_RESERVED_USERNAMES.has(rest)) return true;
+    }
+  }
+  return false;
 };
 
 function decorateCurrentUserProfile(profile = {}) {
