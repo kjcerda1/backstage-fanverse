@@ -5353,7 +5353,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
           <div style={{ display:"flex", gap:0 }}>
             {[
               { val:totalOwned, label:"Total", color:C.text },
-              { val:allCards.filter(c=>!c.dupe&&!c.tradeable).length, label:"Photocards", color:C.pink },
+              { val:allCards.filter(c=>c.status?c.status==='owned':!c.dupe&&!c.tradeable).length, label:"Photocards", color:C.pink },
               { val:binders.length, label:"Albums", color:C.accent },
             ].map((s,i)=>(
               <div key={s.label} style={{ flex:1, textAlign:"center", borderRight:i<2?`1px solid ${C.border}`:"none" }}>
