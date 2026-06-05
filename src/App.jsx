@@ -7815,6 +7815,42 @@ function FanverseTab({ go, user, isVip, onUpgrade }) {
   const [showUserMoment, setShowUserMoment] = useState(null); // preview modal for user bubble tap
   const changeView = (v) => { setView(v); setScrolled(false); setRingFilter(null); };
 
+  const { tokenReady } = useAuth();
+  const [discoverFans, setDiscoverFans] = useState([]);
+  const [discoverLoading, setDiscoverLoading] = useState(false);
+  const [discoverFilter, setDiscoverFilter] = useState("all");
+  const [discoverStatuses, setDiscoverStatuses] = useState({});
+  const [discoverLoaded, setDiscoverLoaded] = useState(false);
+
+  useEffect(() => {
+    if (view !== "fans" || discoverLoaded || !tokenReady) return;
+    setDiscoverLoading(true);
+    api.get('/api/users/discover').then(d => {
+      const fans = d?.users?.length ? d.users : MOCK_FANVERSE_USERS;
+      setDiscoverFans(fans);
+      const stored = ls.get("backstage_circle_statuses", {});
+      const init = {};
+      fans.forEach(u => { init[u.id] = stored[u.id] || "none"; });
+      setDiscoverStatuses(init);
+      setDiscoverLoaded(true);
+      setDiscoverLoading(false);
+    }).catch(() => {
+      setDiscoverFans(MOCK_FANVERSE_USERS);
+      setDiscoverLoaded(true);
+      setDiscoverLoading(false);
+    });
+  }, [view, discoverLoaded, tokenReady]);
+
+  const handleDiscoverAdd = async (fan) => {
+    const next = { ...discoverStatuses, [fan.id]: "sent" };
+    setDiscoverStatuses(next);
+    ls.set("backstage_circle_statuses", { ...ls.get("backstage_circle_statuses", {}), [fan.id]: "sent" });
+    const store = readFriendRequestStore();
+    const entry = { id:`req-${Date.now()}`, userId:fan.id, username:fan.username||fan.handle, displayName:fan.display_name||fan.displayName, avatar:fan.avatar, color:C.accent, fandoms:fan.fandoms||[], sentAt:Date.now() };
+    ls.set("backstage_friend_requests", { ...store, outgoing:[entry, ...store.outgoing.filter(r=>r.userId!==fan.id)] });
+    api.post('/api/friends/request', { targetUserId: fan.id }).catch(() => {});
+  };
+
   // Social story rail — personal/social bubbles, NOT pass categories (those live in Backstage Passes)
   // Order: Your Pass → My Circle → Local Fans → mock Circle users
   const SOCIAL_RINGS = [
@@ -8060,7 +8096,7 @@ function FanverseTab({ go, user, isVip, onUpgrade }) {
         {/* ── STICKY TABS — compress on scroll ── */}
         <div style={{ padding:`${scrolled?2:0}px 14px ${scrolled?5:8}px`,transition:"padding .28s ease" }}>
           <div style={{ display:"flex",gap:0,background:C.surfaceHi,borderRadius:scrolled?10:13,padding:scrolled?2:3,transition:"all .28s ease" }}>
-            {[["feed","🌐","Feed"],["map","🗺️","Map"],["hubs","🏙️","Hubs"],["leaders","🏆","Leaders"]].map(([id,icon,name])=>(
+            {[["feed","🌐","Feed"],["map","🗺️","Map"],["hubs","🏙️","Hubs"],["fans","👥","Fans"],["leaders","🏆","Leaders"]].map(([id,icon,name])=>(
               <span key={id} onClick={()=>changeView(id)} style={{ flex:1,textAlign:"center",padding:scrolled?"5px 2px":"7px 2px",borderRadius:scrolled?8:10,fontSize:scrolled?9:10,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:view===id?C.accent:"transparent",color:view===id?C.bg:C.textMid,transition:"all .18s",whiteSpace:"nowrap" }}>{scrolled?`${icon} ${name}`:`${icon} ${name}`}</span>
             ))}
           </div>
@@ -8127,6 +8163,91 @@ function FanverseTab({ go, user, isVip, onUpgrade }) {
               {joined.includes(hub.id)&&<Pill color={hub.color} active small>Joined</Pill>}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* FAN DISCOVERY */}
+      {view==="fans" && (
+        <div onScroll={e=>setScrolled(e.target.scrollTop>48)} style={{ flex:1, overflowY:"auto", overflowX:"hidden", padding:"14px 18px 100px" }}>
+          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:17, marginBottom:4 }}>Discover Fans</p>
+          <p style={{ fontSize:11, color:C.textMid, marginBottom:14, lineHeight:1.55 }}>K-pop fans you'd vibe with — same fandoms, bias, or city.</p>
+
+          {/* Filter chips */}
+          <div style={{ display:"flex", gap:8, overflowX:"auto", scrollbarWidth:"none", marginBottom:16, paddingBottom:2 }}>
+            {["all", ...(Array.isArray(user?.fandoms) ? user.fandoms.slice(0,4) : []), "nearby"].map(f => {
+              const label = f==="all" ? "All" : f==="nearby" ? "📍 Nearby" : f;
+              const active = discoverFilter===f;
+              return (
+                <span key={f} onClick={()=>setDiscoverFilter(f)} className="tap" style={{ flexShrink:0, padding:"6px 14px", borderRadius:99, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:active?C.accent:`${C.accent}14`, color:active?C.bg:C.accent, border:`1px solid ${active?C.accent:C.accent+'44'}`, transition:"all .18s" }}>{label}</span>
+              );
+            })}
+          </div>
+
+          {discoverLoading && (
+            <div style={{ textAlign:"center", padding:"40px 0" }}>
+              <div style={{ width:28,height:28,borderRadius:"50%",border:`3px solid ${C.accent}`,borderTopColor:"transparent",animation:"spin 0.8s linear infinite",margin:"0 auto 12px" }} />
+              <p style={{ fontSize:11,color:C.textMid }}>Finding fans for you…</p>
+            </div>
+          )}
+
+          {!discoverLoading && (() => {
+            const filtered = discoverFans.filter(fan => {
+              if (discoverFilter==="all") return true;
+              if (discoverFilter==="nearby") return user?.city && (fan.city||"").toLowerCase().includes((user.city||"").toLowerCase().split(",")[0].trim());
+              return (fan.fandoms||[]).includes(discoverFilter);
+            });
+            if (!filtered.length) return (
+              <div style={{ textAlign:"center", padding:"48px 0" }}>
+                <p style={{ fontSize:28, marginBottom:10 }}>👀</p>
+                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:14, marginBottom:6 }}>No fans found</p>
+                <p style={{ fontSize:11, color:C.textMid, lineHeight:1.6 }}>No discoverable fans match this filter yet.{"\n"}Check back after more fans join!</p>
+              </div>
+            );
+            return filtered.map(fan => {
+              const status = discoverStatuses[fan.id] || "none";
+              const npArtist = fan.now_playing?.artist;
+              const biases = Array.isArray(fan.bias) ? fan.bias : fan.bias ? [fan.bias] : [];
+              return (
+                <div key={fan.id} style={{ ...VS.elevatedCard(C.accent), padding:"14px 16px", marginBottom:12, display:"flex", gap:12, alignItems:"flex-start" }}>
+                  <div style={VS.innerGlow(C.accent)} />
+                  {/* Avatar */}
+                  <div style={{ width:44,height:44,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.berry})`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17,color:C.bg,flexShrink:0,position:"relative",boxShadow:`0 0 14px ${C.accent}30` }}>{fan.avatar||String(fan.display_name||"B").charAt(0).toUpperCase()}</div>
+                  <div style={{ flex:1, minWidth:0, position:"relative" }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
+                      <div style={{ minWidth:0 }}>
+                        <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:13.5, color:C.text, marginBottom:1 }}>{fan.display_name||fan.displayName||fan.handle}</p>
+                        <p style={{ fontSize:10, color:C.textMid }}>@{fan.username||fan.handle}</p>
+                      </div>
+                      <button
+                        disabled={status==="sent"||status==="friends"}
+                        onClick={()=>status==="none"&&handleDiscoverAdd(fan)}
+                        className={status==="none"?"tap":""}
+                        style={{ flexShrink:0, padding:"6px 13px", borderRadius:99, fontSize:10, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:status==="none"?"pointer":"default", border:"none", background:status==="friends"?`${C.mint}22`:status==="sent"?`${C.accent}22`:`linear-gradient(140deg,${C.accent},${C.berry})`, color:status==="friends"?C.mint:status==="sent"?C.accent:C.bg, boxShadow:status==="none"?`0 3px 10px ${C.accent}30`:"none", transition:"all .2s" }}>
+                        {status==="friends"?"✓ Friends":status==="sent"?"Requested":"+ Add"}
+                      </button>
+                    </div>
+                    {/* Fandoms */}
+                    {(fan.fandoms||[]).length>0 && (
+                      <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginTop:8 }}>
+                        {(fan.fandoms||[]).slice(0,3).map(f=>(
+                          <span key={f} style={{ padding:"3px 9px", borderRadius:99, fontSize:9.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, background:`${C.accent}18`, color:C.accent, border:`1px solid ${C.accent}33` }}>{f}</span>
+                        ))}
+                        {biases.length>0 && biases.slice(0,1).map(b=>(
+                          <span key={b} style={{ padding:"3px 9px", borderRadius:99, fontSize:9.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, background:`${C.rose}18`, color:C.rose, border:`1px solid ${C.rose}33` }}>★ {b}</span>
+                        ))}
+                      </div>
+                    )}
+                    {/* City + now playing */}
+                    <div style={{ display:"flex", gap:10, marginTop:6, flexWrap:"wrap" }}>
+                      {fan.city && <p style={{ fontSize:10, color:C.textMid }}>📍 {fan.city}</p>}
+                      {npArtist && <p style={{ fontSize:10, color:C.mint }}>🎵 {npArtist}</p>}
+                    </div>
+                    {fan.bio && <p style={{ fontSize:10.5, color:C.textMid, marginTop:5, lineHeight:1.55, overflow:"hidden", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical" }}>{fan.bio}</p>}
+                  </div>
+                </div>
+              );
+            });
+          })()}
         </div>
       )}
 
@@ -14640,7 +14761,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
   const npKey = `backstage_now_playing_${user?.id || 'anon'}`;
   const [nowPlaying, setNowPlaying] = useState(() => ls.get(npKey, {title:"Whiplash",artist:"aespa",source:"mock"}));
   const [top5, setTop5] = useState(ls.get("backstage_top5",["Stray Kids","BTS","aespa","NewJeans","BLACKPINK"]));
-  const [discoverable, setDiscoverable] = useState(false);
+  const [discoverable, setDiscoverable] = useState(() => user?.discoverable ?? false);
   const [soloMode, setSoloMode] = useState(false);
   const cityKey = `backstage_city_${user?.id || 'anon'}`;
   const [displayCity, setDisplayCity] = useState(user?.city || ls.get(`backstage_city_${user?.id || 'anon'}`, ''));

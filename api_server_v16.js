@@ -2242,6 +2242,10 @@ function toPublicCard(u) {
   const groups = Array.isArray(u.fandoms) ? u.fandoms : [];
   const handle = u.username || '';
   const displayName = u.display_name || handle || 'Backstage fan';
+  // Safe now_playing subset — strip tokens, embed URLs, private fields
+  const np = u.now_playing && typeof u.now_playing === 'object'
+    ? { title: u.now_playing.title || '', artist: u.now_playing.artist || '', source: u.now_playing.source || '' }
+    : null;
   return {
     id: u.id,
     handle,
@@ -2251,8 +2255,10 @@ function toPublicCard(u) {
     favorite_groups: groups,
     fandoms: groups,
     avatar: String(displayName || handle || 'B').trim().slice(0, 1).toUpperCase(),
-    city: u.city || '',
+    city: u.show_city === false ? '' : (u.city || ''),
     bio: u.bio || '',
+    bias: u.bias || '',
+    now_playing: np,
     proof_score: u.proof_score || null,
     is_vip: u.is_vip || false,
   };
@@ -2819,28 +2825,43 @@ app.get('/api/profile/by-username/:username', optionalAuth, async (req, res) => 
 app.get('/api/friends/suggested', requireAuth, async (req, res) => {
   if (MOCK_MODE) {
     return res.json({ users: [
-      { id:'mock_merci',  username:'mercilicious21', display_name:'Merci',       fandoms:['BTS'],        city:'San Antonio', bio:'ARMY since 2020' },
-      { id:'mock_stay2',  username:'stay.mia',      display_name:'Mia',         fandoms:['Stray Kids'], city:'Houston',     bio:'Felix wrecker' },
-      { id:'mock_twice1', username:'oncejisoo',     display_name:'Ji',          fandoms:['TWICE'],      city:'Austin',      bio:'Nayeon bias' },
+      { id:'mock_merci',  username:'mercilicious21', display_name:'Merci', fandoms:['BTS'],        city:'San Antonio', bio:'ARMY since 2020', bias:'Jimin',  show_city:true },
+      { id:'mock_stay2',  username:'stay.mia',      display_name:'Mia',   fandoms:['Stray Kids'], city:'Houston',     bio:'Felix wrecker',   bias:'Felix',  show_city:true },
+      { id:'mock_twice1', username:'oncejisoo',      display_name:'Ji',    fandoms:['TWICE'],      city:'Austin',      bio:'Nayeon bias',     bias:'Nayeon', show_city:true },
     ].map(toPublicCard) });
   }
   try {
-    // Fetch caller's fandoms + city
+    // Fetch caller's profile signals for scoring
     const { data: me } = await supabase
-      .from('users').select('fandoms, city').eq('id', req.userId).single();
-    const myFandoms = me?.fandoms || [];
-    const myCity   = (me?.city || '').toLowerCase();
+      .from('users').select('fandoms, city, bias, now_playing').eq('id', req.userId).single();
+    const myFandoms  = me?.fandoms || [];
+    const myCity     = (me?.city || '').toLowerCase();
+    const myBias     = me?.bias || '';
+    const myNpArtist = me?.now_playing?.artist || '';
 
-    // Fetch IDs already in circle so we can exclude them
+    // Fetch IDs already in circle (accepted)
     const { data: circleRows } = await supabase
       .from('friends').select('friend_id').eq('user_id', req.userId).eq('status', 'accepted');
-    const circleIds = (circleRows || []).map(r => r.friend_id);
+    const circleIds = new Set((circleRows || []).map(r => r.friend_id));
 
-    // Query candidates — shared fandoms first, fall back to recent signups
+    // Fetch IDs with existing friend requests in either direction (pending or declined)
+    const { data: reqRows } = await supabase
+      .from('friend_requests')
+      .select('sender_id, receiver_id')
+      .or(`sender_id.eq.${req.userId},receiver_id.eq.${req.userId}`)
+      .in('status', ['pending', 'declined']);
+    const pendingIds = new Set();
+    (reqRows || []).forEach(r => {
+      if (r.sender_id !== req.userId) pendingIds.add(r.sender_id);
+      if (r.receiver_id !== req.userId) pendingIds.add(r.receiver_id);
+    });
+
+    // Query candidates — only discoverable users (discoverable != false)
     let { data: candidates } = await supabase
       .from('users')
-      .select('id, username, display_name, fandoms, city, bio, proof_score, is_vip')
+      .select('id, username, display_name, fandoms, city, show_city, bio, bias, now_playing, proof_score, is_vip')
       .neq('id', req.userId)
+      .neq('discoverable', false)
       .order('created_at', { ascending: false })
       .limit(50);
 
@@ -2848,13 +2869,14 @@ app.get('/api/friends/suggested', requireAuth, async (req, res) => {
 
     // Score each candidate (higher = more relevant)
     const scored = candidates
-      .filter(u => !circleIds.includes(u.id))
+      .filter(u => !circleIds.has(u.id) && !pendingIds.has(u.id))
       .map(u => {
         let score = 0;
         const uFandoms = Array.isArray(u.fandoms) ? u.fandoms : [];
-        const sharedFandoms = uFandoms.filter(f => myFandoms.includes(f));
-        score += sharedFandoms.length * 3;
+        score += uFandoms.filter(f => myFandoms.includes(f)).length * 3;
         if (myCity && (u.city || '').toLowerCase().includes(myCity.split(',')[0].trim())) score += 2;
+        if (myBias && u.bias && u.bias === myBias) score += 2;
+        if (myNpArtist && u.now_playing?.artist === myNpArtist) score += 1;
         return { u, score };
       })
       .sort((a, b) => b.score - a.score)
@@ -2864,6 +2886,79 @@ app.get('/api/friends/suggested', requireAuth, async (req, res) => {
     res.json({ users: scored });
   } catch (err) {
     console.error('[GET /api/friends/suggested] Error:', err.message);
+    res.json({ users: [] });
+  }
+});
+
+// ─── FAN DISCOVERY ───────────────────────────────────────────────────────────
+// Returns up to 20 discoverable users, excluding existing friends + pending requests.
+// Optional query params: ?fandom=BTS&city=Dallas
+app.get('/api/users/discover', requireAuth, async (req, res) => {
+  const fandom = (req.query.fandom || '').trim();
+  const city   = (req.query.city   || '').trim();
+
+  if (MOCK_MODE) {
+    const mocks = [
+      { id:'mock_disc1', username:'armyjoon',    display_name:'Joon',  fandoms:['BTS'],                bias:['RM'],        city:'Las Vegas, NV',   bio:'Looking for concert buddies 💜', now_playing:{ artist:'BTS', title:'Spring Day' } },
+      { id:'mock_disc2', username:'staymia',     display_name:'Mia',   fandoms:['Stray Kids'],         bias:['Felix'],     city:'Chicago, IL',     bio:'Solo concert mode 🖤', now_playing:{ artist:'Stray Kids', title:'S-Class' } },
+      { id:'mock_disc3', username:'biaswrecker', display_name:'Seo',   fandoms:['Stray Kids','aespa'], bias:['Karina'],    city:'Los Angeles, CA', bio:'Bias wrecker every era 🫠', now_playing:{ artist:'aespa', title:'Whiplash' } },
+      { id:'mock_disc4', username:'purplehour',  display_name:'Hana',  fandoms:['BTS','ENHYPEN'],      bias:['Jungkook'],  city:'New York, NY',    bio:'Making freebies 💜', now_playing:{ artist:'ENHYPEN', title:'Future Perfect' } },
+    ];
+    let filtered = mocks;
+    if (fandom) filtered = filtered.filter(u => u.fandoms.includes(fandom));
+    if (city)   filtered = filtered.filter(u => (u.city || '').toLowerCase().includes(city.toLowerCase()));
+    return res.json({ users: filtered.map(u => ({ ...toPublicCard(u), bias: u.bias, now_playing: u.now_playing })) });
+  }
+
+  try {
+    const { data: me } = await supabase
+      .from('users').select('fandoms, city').eq('id', req.userId).single();
+    const myFandoms = me?.fandoms || [];
+    const myCity    = (me?.city || '').toLowerCase().split(',')[0].trim();
+
+    // Exclude accepted friends (both directions) and pending outgoing requests
+    const [{ data: friendsOut }, { data: reqRows }] = await Promise.all([
+      supabase.from('friends').select('friend_id').eq('user_id', req.userId).eq('status', 'accepted'),
+      supabase.from('friend_requests').select('receiver_id').eq('sender_id', req.userId).eq('status', 'pending'),
+    ]);
+    const excludeIds = new Set([
+      req.userId,
+      ...(friendsOut || []).map(r => r.friend_id),
+      ...(reqRows    || []).map(r => r.receiver_id),
+    ]);
+
+    let query = supabase
+      .from('users')
+      .select('id, username, display_name, fandoms, bias, city, bio, avatar_url, proof_score, is_vip, now_playing')
+      .eq('discoverable', true)
+      .neq('id', req.userId)
+      .limit(80);
+
+    if (fandom) query = query.contains('fandoms', [fandom]);
+    if (city)   query = query.ilike('city', `%${city}%`);
+
+    const { data: candidates } = await query;
+
+    const scored = (candidates || [])
+      .filter(u => !excludeIds.has(u.id))
+      .map(u => {
+        let score = 0;
+        const uFandoms = Array.isArray(u.fandoms) ? u.fandoms : [];
+        score += uFandoms.filter(f => myFandoms.includes(f)).length * 3;
+        if (myCity && (u.city || '').toLowerCase().includes(myCity)) score += 2;
+        return { u, score };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 20)
+      .map(({ u }) => ({
+        ...toPublicCard(u),
+        bias: Array.isArray(u.bias) ? u.bias : (u.bias ? [u.bias] : []),
+        now_playing: u.now_playing || null,
+      }));
+
+    res.json({ users: scored });
+  } catch (err) {
+    console.error('[GET /api/users/discover] Error:', err.message);
     res.json({ users: [] });
   }
 });
