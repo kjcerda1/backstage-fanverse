@@ -13984,19 +13984,32 @@ function FanAnniversaryWidget({ user }) {
 }
 
 function TopBiasesSection({ isVip, onUpgrade }) {
-  const IDOL_PRESETS = ["Felix","Jimin","Karina","Hyunjin","Winter","Han","Ningning","Haerin","Jungkook","IU","Giselle","RM","Seungmin","I.N","Suga"];
-  const [biases, setBiases] = useState(ls.get("backstage_top_biases", ["Felix","Karina","Haerin"]));
+  // Quick-add chips — NOT the username blocklist. This is discovery, not protection.
+  const QUICK_PRESETS = ["Felix","Jimin","Karina","Hyunjin","Winter","Han","Ningning","Haerin","Jungkook","Seonghwa","Hongjoong","Giselle","RM","Yeji","Sakura"];
+  const [biases, setBiases] = useState(() => {
+    const saved = ls.get("backstage_top_biases", null);
+    return Array.isArray(saved) ? saved : ["Felix","Karina","Haerin"];
+  });
   const [editing, setEditing] = useState(false);
   const [inputVal, setInputVal] = useState("");
   const COLORS = [C.accent, C.pink, C.mint, C.gold, C.silver];
 
   useEffect(()=>{ ls.set("backstage_top_biases", biases); }, [biases]);
 
+  const safeBiases = Array.isArray(biases) ? biases : [];
+
   const add = (name) => {
-    const n = name.trim(); if(!n||biases.includes(n)||biases.length>=5) return;
-    setBiases([...biases, n]); setInputVal("");
+    const n = name.trim();
+    if (!n || safeBiases.includes(n) || safeBiases.length >= 5) return;
+    setBiases([...safeBiases, n]);
+    setInputVal("");
   };
-  const remove = (name) => setBiases(biases.filter(b=>b!==name));
+  const remove = (name) => setBiases(safeBiases.filter(b => b !== name));
+
+  // Catalog search — uses KPOP_BIAS_CATALOG, NOT the reserved username list
+  const catalogResults = inputVal.trim() ? searchBiasCatalog(inputVal) : [];
+  const showCustomAdd = inputVal.trim() && catalogResults.length === 0 && !safeBiases.includes(inputVal.trim());
+  const quickChips = QUICK_PRESETS.filter(p => !safeBiases.includes(p)).slice(0, 8);
 
   return (
     <div style={{ marginBottom:18 }}>
@@ -14005,22 +14018,18 @@ function TopBiasesSection({ isVip, onUpgrade }) {
         <button onClick={()=>setEditing(!editing)} style={{ background:"none",border:`1px solid ${C.border}`,borderRadius:8,padding:"4px 10px",color:C.textMid,fontSize:11,fontFamily:"'Epilogue',sans-serif",fontWeight:600,cursor:"pointer" }}>{editing?"Done":"Edit"}</button>
       </div>
 
-      {/* Bias icon row — large, vivid, sparkly */}
+      {/* Bias icon row */}
       <div style={{ display:"flex", gap:8, alignItems:"flex-start", flexWrap:"wrap", marginBottom:editing?16:4 }}>
-        {biases.map((bias,i)=>{
+        {safeBiases.map((bias,i)=>{
           const col = COLORS[i%COLORS.length];
           return (
             <div key={bias} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:5, position:"relative" }}>
-              {/* Outer glow pulse */}
               <div style={{ position:"absolute",top:-4,left:-4,right:-4,bottom:-4,borderRadius:"50%",background:`radial-gradient(circle,${col}22,transparent 70%)`,animation:`pulse ${2+i*0.3}s ease infinite`,pointerEvents:"none" }} />
-              {/* Rank star for #1 */}
               {i===0&&<div style={{ position:"absolute",top:-8,left:"50%",transform:"translateX(-50%)",fontSize:12,animation:"float 2s ease-in-out infinite" }}>👑</div>}
-              {/* Avatar circle */}
               <div style={{ width:62, height:62, borderRadius:"50%", background:`linear-gradient(135deg,${col}44,${col}22,${C.surfaceHi})`, border:`2.5px solid ${col}`, display:"flex", alignItems:"center", justifyContent:"center", position:"relative", boxShadow:isVip?`0 0 20px ${col}66, 0 0 40px ${col}22`:`0 0 10px ${col}33`, animation:isVip?`shareGlow 3s ease infinite`:"none" }}>
                 <div style={{ position:"absolute",inset:0,borderRadius:"50%",background:`radial-gradient(circle at 35% 30%,rgba(255,255,255,0.15),transparent 55%)`,pointerEvents:"none" }} />
-                <span style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, color:col, position:"relative" }}>{bias[0].toUpperCase()}</span>
+                <span style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, color:col, position:"relative" }}>{(bias||"?")[0].toUpperCase()}</span>
               </div>
-              {/* Sparkle at top-right of circle */}
               <div style={{ position:"absolute",top:4,right:0,fontSize:8,color:col,opacity:0.8,animation:`sparkleFloat ${2.2+i*0.5}s ease-in-out infinite`,animationDelay:`${i*0.35}s` }}>✦</div>
               <p style={{ fontSize:9, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:col, textAlign:"center", maxWidth:62, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{bias}</p>
               {editing&&(
@@ -14029,7 +14038,7 @@ function TopBiasesSection({ isVip, onUpgrade }) {
             </div>
           );
         })}
-        {biases.length<5&&(
+        {safeBiases.length<5&&(
           <div onClick={()=>setEditing(true)} className="tap" style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:5 }}>
             <div style={{ width:62,height:62,borderRadius:"50%",background:C.surfaceHi,border:`2px dashed ${C.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer" }}>
               <span style={{ color:C.textDim,fontSize:22 }}>+</span>
@@ -14043,16 +14052,83 @@ function TopBiasesSection({ isVip, onUpgrade }) {
       {editing && (
         <div style={{ background:C.surface, border:`1.5px solid ${C.borderHi}`, borderRadius:16, padding:14, animation:"up .2s ease" }}>
           <p style={{ fontSize:10, color:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:10 }}>Add Bias (max 5)</p>
-          <div style={{ display:"flex", gap:8, marginBottom:12 }}>
-            <input value={inputVal} onChange={e=>setInputVal(e.target.value)} onKeyDown={e=>e.key==="Enter"&&add(inputVal)} placeholder="Type idol name..." style={{ flex:1, padding:"9px 12px", borderRadius:11, background:C.surfaceHi, border:`1.5px solid ${inputVal?C.accent:C.border}`, color:C.text, fontSize:12.5, outline:"none" }} />
-            <button onClick={()=>add(inputVal)} disabled={!inputVal.trim()||biases.length>=5} className="tap" style={{ padding:"9px 14px", borderRadius:11, background:inputVal.trim()&&biases.length<5?C.accent:`${C.accent}33`, border:"none", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, cursor:"pointer" }}>Add</button>
+
+          {/* Search input */}
+          <div style={{ display:"flex", gap:8, marginBottom:8 }}>
+            <input
+              value={inputVal}
+              onChange={e=>setInputVal(e.target.value)}
+              onKeyDown={e=>{ if(e.key==="Enter"){ if(catalogResults.length>0){add(catalogResults[0].displayName);}else{add(inputVal);} } }}
+              placeholder="Search idol or group..."
+              style={{ flex:1, padding:"9px 12px", borderRadius:11, background:C.surfaceHi, border:`1.5px solid ${inputVal?C.accent:C.border}`, color:C.text, fontSize:12.5, outline:"none" }}
+            />
+            {inputVal.trim()&&safeBiases.length<5&&(
+              <button
+                onClick={()=>{ if(catalogResults.length>0){add(catalogResults[0].displayName);}else{add(inputVal);} }}
+                className="tap"
+                style={{ padding:"9px 14px", borderRadius:11, background:C.accent, border:"none", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, cursor:"pointer" }}
+              >Add</button>
+            )}
           </div>
-          <p style={{ fontSize:10, color:C.textMid, marginBottom:8 }}>Quick add:</p>
-          <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
-            {IDOL_PRESETS.filter(p=>!biases.includes(p)).slice(0,8).map(p=>(
-              <span key={p} onClick={()=>add(p)} className="tap" style={{ padding:"5px 11px", borderRadius:99, fontSize:11, fontFamily:"'Epilogue',sans-serif", fontWeight:600, cursor:"pointer", background:C.surfaceHi, border:`1px solid ${C.border}`, color:C.text }}>{p}</span>
-            ))}
-          </div>
+
+          {/* Catalog search results */}
+          {catalogResults.length>0&&(
+            <div style={{ display:"flex", flexDirection:"column", gap:4, marginBottom:12, maxHeight:180, overflowY:"auto" }}>
+              {catalogResults.map(entry=>{
+                const already = safeBiases.includes(entry.displayName);
+                return (
+                  <div
+                    key={entry.id}
+                    onClick={()=>!already&&add(entry.displayName)}
+                    className={already?"":"tap"}
+                    style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 10px", borderRadius:10, background:already?`${C.surfaceHi}88`:C.surfaceHi, border:`1px solid ${already?C.border:C.borderHi}`, cursor:already?"default":"pointer", opacity:already?0.5:1 }}
+                  >
+                    <div style={{ flex:1 }}>
+                      <span style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13, color:C.text }}>{entry.displayName}</span>
+                      {entry.type==="idol"&&<span style={{ fontSize:10, color:C.textMid, marginLeft:6 }}>{entry.group}</span>}
+                      {entry.type==="group"&&<span style={{ fontSize:10, color:C.accent, marginLeft:6 }}>group</span>}
+                    </div>
+                    {already
+                      ? <span style={{ fontSize:10, color:C.textDim }}>added</span>
+                      : <span style={{ fontSize:16, color:C.accent }}>+</span>
+                    }
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Custom entry when no catalog match */}
+          {showCustomAdd&&(
+            <div
+              onClick={()=>add(inputVal)}
+              className="tap"
+              style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 10px", borderRadius:10, background:C.surfaceHi, border:`1px dashed ${C.border}`, cursor:"pointer", marginBottom:12 }}
+            >
+              <div style={{ flex:1 }}>
+                <span style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13, color:C.text }}>{inputVal.trim()}</span>
+                <span style={{ fontSize:10, color:C.textDim, marginLeft:6 }}>custom</span>
+              </div>
+              <span style={{ fontSize:16, color:C.accent }}>+</span>
+            </div>
+          )}
+
+          {/* Quick-add chips */}
+          {!inputVal&&(
+            <>
+              <p style={{ fontSize:10, color:C.textMid, marginBottom:8 }}>Quick add:</p>
+              <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+                {quickChips.map(p=>(
+                  <span key={p} onClick={()=>add(p)} className="tap" style={{ padding:"5px 11px", borderRadius:99, fontSize:11, fontFamily:"'Epilogue',sans-serif", fontWeight:600, cursor:"pointer", background:C.surfaceHi, border:`1px solid ${C.border}`, color:C.text }}>{p}</span>
+                ))}
+              </div>
+            </>
+          )}
+
+          {safeBiases.length>=5&&(
+            <p style={{ fontSize:11, color:C.textMid, textAlign:"center", marginTop:10 }}>Max 5. Remove one to add another.</p>
+          )}
+
           {!isVip&&(
             <div onClick={onUpgrade} style={{ marginTop:12, background:`${C.gold}0a`, border:`1px solid ${C.gold}22`, borderRadius:11, padding:"8px 12px", cursor:"pointer", display:"flex", gap:8, alignItems:"center" }}>
               <VipBadge small />
@@ -14389,6 +14465,88 @@ function AccountSettings({ user, isVip, go, onUpgrade, onBack, privacySettings, 
   );
 }
 
+// ─── TOP 5 SECTION — extracted component so hooks are never called conditionally ──
+function Top5Section({ top5: top5Prop, setTop5, onBack }) {
+  const top5 = Array.isArray(top5Prop) ? top5Prop : [];
+  const [addSearch, setAddSearch] = useState("");
+  const [groupDetails, setGroupDetails] = useState(() => ls.get("backstage_top_group_details", {}));
+  const [editingGroup, setEditingGroup] = useState(null);
+  const STATUS_OPTIONS = ["ult of ults","wrecking me","this week's order","casual","comeback era"];
+  const STATUS_COLORS = {"ult of ults":C.gold,"wrecking me":C.rose,"this week's order":C.accent,"casual":C.textMid,"comeback era":C.mint};
+  const filteredAdd = addSearch
+    ? ALL_GROUPS.filter(g=>g.toLowerCase().includes(addSearch.toLowerCase())&&!top5.includes(g))
+    : ALL_GROUPS.filter(g=>!top5.includes(g)).slice(0,8);
+
+  const saveDetails = (group, data) => {
+    const next = {...groupDetails, [group]: data};
+    setGroupDetails(next); ls.set("backstage_top_group_details", next);
+    setEditingGroup(null);
+  };
+
+  return (
+    <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
+      <div style={{ padding:"16px 20px", display:"flex", gap:10, alignItems:"center", flexShrink:0 }}>
+        <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
+        <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:19 }}>My Top 5 Groups 👑</h2>
+      </div>
+      <Screen>
+        <p style={{ fontSize:12,color:C.textMid,marginBottom:16 }}>Your current ranking. Reorder, add details, and keep it updated.</p>
+
+        {top5.length===0&&(
+          <div style={{ textAlign:"center", padding:"32px 0", color:C.textDim }}>
+            <p style={{ fontSize:14, marginBottom:8 }}>No groups yet.</p>
+            <p style={{ fontSize:12 }}>Add your favourites below.</p>
+          </div>
+        )}
+
+        {top5.map((group,i)=>{
+          const det = groupDetails[group]||{};
+          const statusColor = STATUS_COLORS[det.status] || C.textMid;
+          return(
+            <div key={group} style={{ background:C.surface, border:`1.5px solid ${i<3?[C.gold,C.silver,C.accent][i]:C.border}`, borderRadius:18, padding:14, marginBottom:10 }}>
+              <div style={{ display:"flex", gap:12, alignItems:"center" }}>
+                <div style={{ width:38,height:38,borderRadius:"50%",background:i<3?`${[C.gold,C.silver,C.accent][i]}18`:C.surfaceHi,border:`1.5px solid ${i<3?[C.gold,C.silver,C.accent][i]:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:i<3?[C.gold,C.silver,C.accent][i]:C.textMid,flexShrink:0 }}>
+                  {i===0?"👑":`#${i+1}`}
+                </div>
+                <div style={{ flex:1 }}>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:14.5 }}>{group}</p>
+                  {det.status&&<p style={{ fontSize:10, color:statusColor, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em" }}>{det.status}</p>}
+                  {det.bias&&<p style={{ fontSize:11, color:C.textMid }}>Bias: {det.bias}{det.biasWrecker?` · Wrecker: ${det.biasWrecker}`:""}</p>}
+                </div>
+                <div style={{ display:"flex", gap:3 }}>
+                  <button onClick={()=>setEditingGroup(editingGroup===group?null:group)} style={{ background:C.surfaceHi,border:"none",borderRadius:8,width:28,height:28,color:C.textMid,cursor:"pointer",fontSize:12 }}>✏️</button>
+                  <button onClick={()=>{ if(i>0){const n=[...top5];[n[i],n[i-1]]=[n[i-1],n[i]];setTop5(n);}}} style={{ background:C.surfaceHi,border:"none",borderRadius:8,width:28,height:28,color:C.textMid,cursor:"pointer",fontSize:14 }}>↑</button>
+                  <button onClick={()=>{ if(i<top5.length-1){const n=[...top5];[n[i],n[i+1]]=[n[i+1],n[i]];setTop5(n);}}} style={{ background:C.surfaceHi,border:"none",borderRadius:8,width:28,height:28,color:C.textMid,cursor:"pointer",fontSize:14 }}>↓</button>
+                  <button onClick={()=>setTop5(top5.filter(g=>g!==group))} style={{ background:`${C.rose}18`,border:"none",borderRadius:8,width:28,height:28,color:C.rose,cursor:"pointer",fontSize:12 }}>✕</button>
+                </div>
+              </div>
+              {editingGroup===group&&(
+                <GroupDetailEditor group={group} initial={det} statusOptions={STATUS_OPTIONS} statusColors={STATUS_COLORS} onSave={saveDetails} />
+              )}
+            </div>
+          );
+        })}
+
+        {top5.length<5&&(
+          <div style={{ marginTop:20 }}>
+            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13, marginBottom:10, color:C.accent }}>+ Add a group</p>
+            <Input value={addSearch} onChange={e=>setAddSearch(e.target.value)} placeholder="Search all K-pop groups..." style={{ marginBottom:10 }} />
+            <div style={{ display:"flex", flexWrap:"wrap", gap:7 }}>
+              {filteredAdd.map(g=>(
+                <span key={g} onClick={()=>{setTop5([...top5,g]);setAddSearch("");}} className="tap" style={{ padding:"7px 14px", borderRadius:99, fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:600, cursor:"pointer", background:C.surfaceHi, color:C.text, border:`1.5px solid ${C.border}`, transition:"all .18s" }}>{g}</span>
+              ))}
+              {addSearch&&filteredAdd.length===0&&(
+                <p style={{ fontSize:12, color:C.textDim, padding:"4px 0" }}>No match — try a different spelling.</p>
+              )}
+            </div>
+          </div>
+        )}
+        {top5.length===5&&<p style={{ fontSize:11, color:C.textMid, textAlign:"center", marginTop:12 }}>Max 5 groups. Remove one to add another.</p>}
+      </Screen>
+    </div>
+  );
+}
+
 function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccountRefresh }) {
   const { session } = useAuth();
   const [pfp, setPfp] = useState(null);
@@ -14474,74 +14632,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
   };
 
   // ── SECTION: TOP 5 ──
-  if(section==="top5") {
-    const [addSearch, setAddSearch] = useState("");
-    const [groupDetails, setGroupDetails] = useState(ls.get("backstage_top_group_details", {}));
-    const [editingGroup, setEditingGroup] = useState(null);
-    const STATUS_OPTIONS = ["ult of ults","wrecking me","this week's order","casual","comeback era"];
-    const STATUS_COLORS = {"ult of ults":C.gold,"wrecking me":C.rose,"this week's order":C.accent,"casual":C.textMid,"comeback era":C.mint};
-    const filteredAdd = addSearch ? ALL_GROUPS.filter(g=>g.toLowerCase().includes(addSearch.toLowerCase())&&!top5.includes(g)) : ALL_GROUPS.filter(g=>!top5.includes(g)).slice(0,8);
-
-    const saveDetails = (group, data) => {
-      const next = {...groupDetails, [group]: data};
-      setGroupDetails(next); ls.set("backstage_top_group_details", next);
-      setEditingGroup(null);
-    };
-
-    return(
-      <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
-        <div style={{ padding:"16px 20px", display:"flex", gap:10, alignItems:"center", flexShrink:0 }}>
-          <button onClick={()=>setSection("main")} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
-          <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:19 }}>My Top 5 Groups 👑</h2>
-        </div>
-        <Screen>
-          <p style={{ fontSize:12,color:C.textMid,marginBottom:16 }}>Your current ranking. Reorder, add details, and keep it updated.</p>
-
-          {top5.map((group,i)=>{
-            const det = groupDetails[group]||{};
-            const statusColor = STATUS_COLORS[det.status] || C.textMid;
-            return(
-              <div key={group} style={{ background:C.surface, border:`1.5px solid ${i<3?[C.gold,C.silver,C.accent][i]:C.border}`, borderRadius:18, padding:14, marginBottom:10 }}>
-                <div style={{ display:"flex", gap:12, alignItems:"center" }}>
-                  <div style={{ width:38,height:38,borderRadius:"50%",background:i<3?`${[C.gold,C.silver,C.accent][i]}18`:C.surfaceHi,border:`1.5px solid ${i<3?[C.gold,C.silver,C.accent][i]:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:i<3?[C.gold,C.silver,C.accent][i]:C.textMid,flexShrink:0 }}>
-                    {i===0?"👑":`#${i+1}`}
-                  </div>
-                  <div style={{ flex:1 }}>
-                    <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:14.5 }}>{group}</p>
-                    {det.status&&<p style={{ fontSize:10, color:statusColor, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em" }}>{det.status}</p>}
-                    {det.bias&&<p style={{ fontSize:11, color:C.textMid }}>Bias: {det.bias}{det.biasWrecker?` · Wrecker: ${det.biasWrecker}`:""}</p>}
-                  </div>
-                  <div style={{ display:"flex", gap:3 }}>
-                    <button onClick={()=>setEditingGroup(editingGroup===group?null:group)} style={{ background:C.surfaceHi,border:"none",borderRadius:8,width:28,height:28,color:C.textMid,cursor:"pointer",fontSize:12 }}>✏️</button>
-                    <button onClick={()=>{ if(i>0){const n=[...top5];[n[i],n[i-1]]=[n[i-1],n[i]];setTop5(n);}}} style={{ background:C.surfaceHi,border:"none",borderRadius:8,width:28,height:28,color:C.textMid,cursor:"pointer",fontSize:14 }}>↑</button>
-                    <button onClick={()=>{ if(i<top5.length-1){const n=[...top5];[n[i],n[i+1]]=[n[i+1],n[i]];setTop5(n);}}} style={{ background:C.surfaceHi,border:"none",borderRadius:8,width:28,height:28,color:C.textMid,cursor:"pointer",fontSize:14 }}>↓</button>
-                    <button onClick={()=>setTop5(top5.filter(g=>g!==group))} style={{ background:`${C.rose}18`,border:"none",borderRadius:8,width:28,height:28,color:C.rose,cursor:"pointer",fontSize:12 }}>✕</button>
-                  </div>
-                </div>
-
-                {editingGroup===group&&(
-                  <GroupDetailEditor group={group} initial={det} statusOptions={STATUS_OPTIONS} statusColors={STATUS_COLORS} onSave={saveDetails} />
-                )}
-              </div>
-            );
-          })}
-
-          {top5.length<5&&(
-            <div style={{ marginTop:20 }}>
-              <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13, marginBottom:10, color:C.accent }}>+ Add a group</p>
-              <Input value={addSearch} onChange={e=>setAddSearch(e.target.value)} placeholder="Search all K-pop groups..." style={{ marginBottom:10 }} />
-              <div style={{ display:"flex", flexWrap:"wrap", gap:7 }}>
-                {filteredAdd.map(g=>(
-                  <span key={g} onClick={()=>{setTop5([...top5,g]);setAddSearch("");}} className="tap" style={{ padding:"7px 14px", borderRadius:99, fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:600, cursor:"pointer", background:C.surfaceHi, color:C.text, border:`1.5px solid ${C.border}`, transition:"all .18s" }}>{g}</span>
-                ))}
-              </div>
-            </div>
-          )}
-          {top5.length===5&&<p style={{ fontSize:11, color:C.textMid, textAlign:"center", marginTop:12 }}>Max 5 groups. Remove one to add another.</p>}
-        </Screen>
-      </div>
-    );
-  }
+  if(section==="top5") return <Top5Section top5={top5} setTop5={setTop5} onBack={()=>setSection("main")} />;
 
   // ── SECTION: MY SHOWS ──
   if(section==="myshows") return <MyShowsPage onBack={()=>setSection("main")} isVip={isVip} onUpgrade={onUpgrade} />;
@@ -14803,7 +14894,8 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
               <p style={{ fontSize:13.5 }}>{g}</p>
             </div>
           ))}
-          <p style={{ fontSize:10.5, color:C.textDim, marginTop:4 }}>+{top5.length-3} more — tap to edit ranking</p>
+          {top5.length>3&&<p style={{ fontSize:10.5, color:C.textDim, marginTop:4 }}>+{top5.length-3} more — tap to edit ranking</p>}
+          {top5.length<=3&&<p style={{ fontSize:10.5, color:C.textDim, marginTop:4 }}>tap to edit ranking</p>}
         </div>
 
         {/* FANIVERSARIES */}
