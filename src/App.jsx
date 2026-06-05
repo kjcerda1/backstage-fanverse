@@ -549,7 +549,7 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 /* 100dvh = dynamic viewport height (excludes browser chrome on mobile)    */
 /* -webkit-fill-available fills the visible viewport on older iOS Safari    */
 #root{height:100%;height:-webkit-fill-available;overflow:hidden}
-.app-shell{min-height:-webkit-fill-available;height:100vh;height:100dvh}
+.app-shell{min-height:-webkit-fill-available;height:100vh;height:100dvh;box-sizing:border-box;padding-top:calc(env(safe-area-inset-top,0px) + 12px)}
 .tap{transition:transform .12s,opacity .12s}
 .tap:active{transform:scale(.94);opacity:.8}
 /* ── Collectible card hover lift ─────────────────────────────────────────── */
@@ -2465,7 +2465,7 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go }) {
   const StatusBtn = ({fu}) => {
     const st = getStatus(fu);
     if(st==="accepted") return <div style={{ display:"flex",alignItems:"center",gap:4,padding:"5px 12px",borderRadius:99,background:`${C.mint}18`,border:`1px solid ${C.mint}44`,fontSize:10,color:C.mint,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap" }}>In Your Circle ✦</div>;
-    if(st==="sent")     return <div style={{ padding:"5px 12px",borderRadius:99,background:`${C.accent}12`,border:`1px solid ${C.accent}33`,fontSize:10,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap" }}>Request Sent</div>;
+    if(st==="sent")     return <div style={{ padding:"5px 12px",borderRadius:99,background:`${C.accent}12`,border:`1px solid ${C.accent}33`,fontSize:10,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap" }}>Requested</div>;
     if(st==="declined") return <div style={{ padding:"5px 12px",borderRadius:99,background:`${C.textDim}22`,border:`1px solid ${C.border}`,fontSize:10,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:600,whiteSpace:"nowrap" }}>Declined</div>;
     return (
       <button onClick={()=>sendRequest(fu)} className="tap" style={{ padding:"6px 14px",borderRadius:99,background:`linear-gradient(135deg,${C.accent},${C.berry})`,border:"none",fontSize:10.5,color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",boxShadow:`0 0 12px ${C.accent}30` }}>Add to Circle</button>
@@ -10306,8 +10306,12 @@ function FriendsPage({ onBack, onNotif }) {
 
       {/* Nearby / All Fans tabs */}
       <div style={{ display:"flex", gap:0, padding:"12px 20px", flexShrink:0, background:C.surfaceHi, borderRadius:14, margin:"12px 20px 0" }}>
-        {[["requests",`Requests${incoming.length?` (${incoming.length})`:""}`],["nearby","Nearby"],["all","Friends"]].map(([id,label])=>(
-          <span key={id} onClick={()=>setView(id)} style={{ flex:1, textAlign:"center", padding:"8px", borderRadius:11, fontSize:12.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:view===id?C.accent:"transparent", color:view===id?C.bg:C.textMid, transition:"all .18s" }}>{label}</span>
+        {[
+          ["requests", <span style={{display:"inline-flex",alignItems:"center",gap:4,justifyContent:"center"}}>Requests{incoming.length>0&&<span style={{background:C.rose,color:"#fff",borderRadius:99,padding:"1px 5px",fontSize:8.5,fontFamily:"'Epilogue',sans-serif",fontWeight:800,lineHeight:"1.4",display:"inline-block",minWidth:14,textAlign:"center"}}>{incoming.length>9?"9+":incoming.length}</span>}</span>],
+          ["nearby","Nearby"],
+          ["all","Friends"],
+        ].map(([id,label])=>(
+          <span key={id} onClick={()=>setView(id)} style={{ flex:1, textAlign:"center", padding:"8px", borderRadius:11, fontSize:12.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:view===id?C.accent:"transparent", color:view===id?C.bg:C.textMid, transition:"all .18s", display:"flex", alignItems:"center", justifyContent:"center" }}>{label}</span>
         ))}
       </div>
 
@@ -10358,12 +10362,6 @@ function FriendsPage({ onBack, onNotif }) {
             })}
           </div>
         )}
-        {/* Concert context */}
-        <div style={{ marginTop:16, marginBottom:14 }}>
-          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:15 }}>Fans going to ATEEZ in Dallas</p>
-          <p style={{ fontSize:11, color:C.textMid, marginTop:2 }}>May 22 · Globe Life Field</p>
-        </div>
-
         {view==="all" && (
           <div style={{ position:"relative", marginBottom:14 }}>
             <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search fans..." style={{ width:"100%", padding:"10px 14px 10px 34px", borderRadius:11, background:C.surfaceHi, border:`1.5px solid ${C.border}`, color:C.text, fontSize:12.5 }} />
@@ -14236,6 +14234,11 @@ function MyCircleSection({ go, user }) {
   const [searchError, setSearchError] = useState(false);
   const [searchRetryCircle, setSearchRetryCircle] = useState(0);
   const [copied, setCopied] = useState(false);
+  const [incomingReqCount, setIncomingReqCount] = useState(()=>readFriendRequestStore().incoming.length);
+  useEffect(()=>{
+    const iv=setInterval(()=>setIncomingReqCount(readFriendRequestStore().incoming.length),2000);
+    return ()=>clearInterval(iv);
+  },[]);
 
   const accepted = friends.filter(f=>f.status==="accepted");
   const query = form.name.replace(/^@/, "").trim();
@@ -14289,7 +14292,9 @@ function MyCircleSection({ go, user }) {
     <div style={{ marginBottom:18 }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
         <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13.5 }}>My Circle 💜</p>
-        <button onClick={()=>go("friends")} style={{ background:"none",border:`1px solid ${C.border}`,borderRadius:8,padding:"4px 10px",color:C.textMid,fontSize:11,fontFamily:"'Epilogue',sans-serif",fontWeight:600,cursor:"pointer" }}>See All</button>
+        <button onClick={()=>go("friends")} style={{ background:"none",border:`1px solid ${incomingReqCount>0?C.rose:C.border}`,borderRadius:8,padding:"4px 10px",color:incomingReqCount>0?C.rose:C.textMid,fontSize:11,fontFamily:"'Epilogue',sans-serif",fontWeight:600,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:5,transition:"all .2s" }}>
+          See All{incomingReqCount>0&&<span style={{background:C.rose,color:"#fff",borderRadius:99,padding:"1px 5px",fontSize:8,fontFamily:"'Epilogue',sans-serif",fontWeight:800,lineHeight:"1.4",display:"inline-block",minWidth:13,textAlign:"center"}}>{incomingReqCount>9?"9+":incomingReqCount}</span>}
+        </button>
       </div>
 
       {accepted.length === 0 ? (
