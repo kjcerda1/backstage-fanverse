@@ -13,9 +13,12 @@ CREATE TABLE IF NOT EXISTS friend_requests (
   status        TEXT NOT NULL DEFAULT 'pending'
                   CHECK (status IN ('pending','accepted','declined','cancelled')),
   created_at    TIMESTAMPTZ DEFAULT NOW(),
+  responded_at  TIMESTAMPTZ,
   -- One open request per pair in each direction
   UNIQUE (sender_id, receiver_id)
 );
+
+ALTER TABLE friend_requests ADD COLUMN IF NOT EXISTS responded_at TIMESTAMPTZ;
 
 -- Indexes for the two query patterns used by the API
 CREATE INDEX IF NOT EXISTS idx_friend_requests_receiver
@@ -51,14 +54,43 @@ CREATE INDEX IF NOT EXISTS idx_users_phone_normalized
 CREATE TABLE IF NOT EXISTS friends (
   user_id    UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   friend_id  UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  status     TEXT NOT NULL DEFAULT 'accepted',
   created_at TIMESTAMPTZ DEFAULT NOW(),
   PRIMARY KEY (user_id, friend_id)
 );
+
+ALTER TABLE friends ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'accepted';
 
 CREATE INDEX IF NOT EXISTS idx_friends_user_id   ON friends (user_id);
 CREATE INDEX IF NOT EXISTS idx_friends_friend_id ON friends (friend_id);
 
 ALTER TABLE friends ENABLE ROW LEVEL SECURITY;
+
+-- Persistent bell inbox. Friend-request events write here first, then optional
+-- push/email hooks can fan out from the same event without losing the in-app item.
+CREATE TABLE IF NOT EXISTS notifications (
+  id            UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id       UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  type          TEXT NOT NULL,
+  title         TEXT NOT NULL,
+  body          TEXT,
+  actor_id      UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  entity_id     UUID,
+  entity_type   TEXT,
+  target_modal  TEXT,
+  target_tab    TEXT,
+  read          BOOLEAN NOT NULL DEFAULT false,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  read_at       TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_notifications_user_read
+  ON notifications (user_id, read, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_notifications_entity
+  ON notifications (entity_type, entity_id);
+
+ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 
 -- Clean up any stale friend_requests rows when a friend_requests record
 -- is accepted (accepted status in friend_requests is a snapshot — the

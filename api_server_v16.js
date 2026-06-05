@@ -2258,6 +2258,110 @@ function toPublicCard(u) {
   };
 }
 
+async function getPublicUser(userId) {
+  if (!userId || MOCK_MODE) return null;
+  const { data } = await supabase
+    .from('users')
+    .select('id, username, display_name, fandoms, city, bio, avatar_url, proof_score, is_vip')
+    .eq('id', userId)
+    .single();
+  return data ? toPublicCard(data) : null;
+}
+
+async function getPublicUsersByIds(ids = []) {
+  const unique = [...new Set(ids.filter(Boolean))];
+  if (!unique.length || MOCK_MODE) return new Map();
+  const { data } = await supabase
+    .from('users')
+    .select('id, username, display_name, fandoms, city, bio, avatar_url, proof_score, is_vip')
+    .in('id', unique);
+  return new Map((data || []).map(u => [u.id, toPublicCard(u)]));
+}
+
+function toClientNotification(n) {
+  const actor = n.actor || {};
+  return {
+    id: n.id,
+    type: n.type,
+    icon: n.type === 'friend_request_accepted' ? 'star' : 'friend',
+    title: n.title,
+    body: n.body,
+    read: !!n.read,
+    time: n.created_at ? new Date(n.created_at).toLocaleString() : 'Just now',
+    createdAt: n.created_at,
+    fromUserId: n.actor_id || '',
+    fromUsername: actor.username || actor.handle || '',
+    fromDisplayName: actor.display_name || actor.backstage_name || '',
+    fromAvatar: actor.avatar || String(actor.display_name || actor.username || 'B').slice(0, 1).toUpperCase(),
+    fromColor: '#b993ff',
+    entityId: n.entity_id || '',
+    entityType: n.entity_type || '',
+    targetModal: n.target_modal || '',
+    targetTab: n.target_tab || '',
+  };
+}
+
+async function deliverNotification({ userId, type, title, body, actorId = null, entityId = null, entityType = null, targetModal = 'friends', targetTab = null, channels = ['in_app', 'push'] }) {
+  if (!userId) return { ok: false, reason: 'no_user' };
+  if (MOCK_MODE) return { ok: true, mock: true };
+
+  const insert = {
+    user_id: userId,
+    type,
+    title,
+    body,
+    actor_id: actorId,
+    entity_id: entityId,
+    entity_type: entityType,
+    target_modal: targetModal,
+    target_tab: targetTab,
+    read: false,
+  };
+  const { data: notification, error } = await supabase
+    .from('notifications')
+    .insert(insert)
+    .select('*')
+    .single();
+  if (error) {
+    console.warn('[deliverNotification] persistent insert failed:', error.message);
+  }
+
+  if (channels.includes('push') && HAS_FIREBASE && admin.apps.length) {
+    try {
+      const { data: rows } = await supabase.from('fcm_tokens').select('token').eq('user_id', userId);
+      await Promise.allSettled((rows || []).map(({ token }) => admin.messaging().send({
+        token,
+        notification: { title, body },
+        data: {
+          targetModal: targetModal || '',
+          targetTab: targetTab || '',
+          targetId: entityId || '',
+          entityType: entityType || '',
+        },
+        webpush: { fcmOptions: { link: process.env.FRONTEND_URL || '/' } },
+      })));
+    } catch (err) {
+      console.warn('[deliverNotification] push failed:', err.message);
+    }
+  }
+
+  if (channels.includes('email')) {
+    try {
+      const { data: authUser } = await supabase.auth.admin.getUserById(userId);
+      await sendBackstageEmail({
+        to: authUser?.user?.email,
+        subject: title,
+        text: body,
+        html: `<p>${body}</p><p><a href="${process.env.FRONTEND_URL || 'https://backstagefanverse.com'}">Open Backstage</a></p>`,
+      });
+    } catch (err) {
+      console.warn('[deliverNotification] email failed:', err.message);
+    }
+  }
+
+  return { ok: true, notification };
+}
+
 app.get('/api/users/search', requireAuth, async (req, res) => {
   const raw = String(req.query.q || '').trim();
   // Normalize: strip leading @, lowercase, collapse whitespace
@@ -2795,6 +2899,19 @@ app.get('/api/friends', requireAuth, async (req, res) => {
 });
 
 // ─── FRIEND REQUESTS ──────────────────────────────────────────────────────────
+function mapFriendRequest(row, profile, direction) {
+  return {
+    id: row.id,
+    status: row.status,
+    direction,
+    created_at: row.created_at,
+    responded_at: row.responded_at || null,
+    sender_id: row.sender_id,
+    receiver_id: row.receiver_id,
+    user: profile || null,
+  };
+}
+
 // Send a friend request
 app.post('/api/friends/request', requireAuth, async (req, res) => {
   const { targetUserId } = req.body;
@@ -2802,35 +2919,78 @@ app.post('/api/friends/request', requireAuth, async (req, res) => {
   if (targetUserId === req.userId) return res.status(400).json({ error: 'Cannot add yourself' });
   if (MOCK_MODE) return res.json({ success: true, mock: true });
   try {
-    const { error } = await supabase.from('friend_requests').upsert({
-      sender_id: req.userId,
-      receiver_id: targetUserId,
-      status: 'pending',
-    }, { onConflict: 'sender_id,receiver_id', ignoreDuplicates: false });
-    if (error) {
-      console.error('[POST /api/friends/request] DB error:', error.message);
-      return res.status(500).json({ error: error.message });
+    const { data: existingFriend } = await supabase
+      .from('friends')
+      .select('friend_id')
+      .eq('user_id', req.userId)
+      .eq('friend_id', targetUserId)
+      .eq('status', 'accepted')
+      .maybeSingle();
+    if (existingFriend) return res.status(409).json({ error: 'Already friends', relationship: 'friends' });
+
+    const { data: existingReq } = await supabase
+      .from('friend_requests')
+      .select('*')
+      .or(`and(sender_id.eq.${req.userId},receiver_id.eq.${targetUserId}),and(sender_id.eq.${targetUserId},receiver_id.eq.${req.userId})`)
+      .eq('status', 'pending')
+      .maybeSingle();
+    if (existingReq) {
+      const outgoing = existingReq.sender_id === req.userId;
+      return res.json({ success: true, duplicate: true, relationship: outgoing ? 'requested' : 'incoming_request', request: existingReq });
     }
-    res.json({ success: true });
+
+    const { data: requestRow, error } = await supabase
+      .from('friend_requests')
+      .insert({ sender_id: req.userId, receiver_id: targetUserId, status: 'pending' })
+      .select('*')
+      .single();
+    if (error) throw error;
+
+    const actor = await getPublicUser(req.userId);
+    const actorName = actor?.username || 'A Backstage fan';
+    await deliverNotification({
+      userId: targetUserId,
+      type: 'friend_request_received',
+      title: `${actorName} sent you a friend request`,
+      body: 'Tap to review it in My Circle.',
+      actorId: req.userId,
+      entityId: requestRow.id,
+      entityType: 'friend_request',
+      targetModal: 'friends',
+      channels: ['in_app', 'push', 'email'],
+    });
+
+    res.json({ success: true, relationship: 'requested', request: requestRow });
   } catch (err) {
     console.error('[POST /api/friends/request] Exception:', err.message);
     res.status(500).json({ error: 'Could not send request' });
   }
 });
 
-// Get incoming friend requests
+// Get incoming and outgoing friend requests
 app.get('/api/friends/requests', requireAuth, async (req, res) => {
-  if (MOCK_MODE) return res.json({ requests: [] });
+  if (MOCK_MODE) return res.json({ incoming: [], outgoing: [], requests: [] });
   try {
     const { data, error } = await supabase
       .from('friend_requests')
-      .select('id, sender_id, status, created_at')
-      .eq('receiver_id', req.userId)
-      .eq('status', 'pending');
+      .select('id, sender_id, receiver_id, status, created_at, responded_at')
+      .or(`sender_id.eq.${req.userId},receiver_id.eq.${req.userId}`)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false });
     if (error) return res.status(500).json({ error: error.message });
-    res.json({ requests: data || [] });
+
+    const rows = data || [];
+    const profiles = await getPublicUsersByIds(rows.map(r => r.sender_id === req.userId ? r.receiver_id : r.sender_id));
+    const incoming = rows
+      .filter(r => r.receiver_id === req.userId)
+      .map(r => mapFriendRequest(r, profiles.get(r.sender_id), 'incoming'));
+    const outgoing = rows
+      .filter(r => r.sender_id === req.userId)
+      .map(r => mapFriendRequest(r, profiles.get(r.receiver_id), 'outgoing'));
+    res.json({ incoming, outgoing, requests: incoming });
   } catch (err) {
-    res.json({ requests: [] });
+    console.error('[GET /api/friends/requests] Error:', err.message);
+    res.json({ incoming: [], outgoing: [], requests: [] });
   }
 });
 
@@ -2865,11 +3025,24 @@ app.patch('/api/friends/request/:requestId', requireAuth, async (req, res) => {
         { user_id: reqRow.sender_id, friend_id: req.userId,        status: 'accepted' },
         { onConflict: 'user_id,friend_id' }
       );
+      const actor = await getPublicUser(req.userId);
+      const actorName = actor?.username || 'A Backstage fan';
+      await deliverNotification({
+        userId: reqRow.sender_id,
+        type: 'friend_request_accepted',
+        title: `${actorName} accepted your friend request`,
+        body: 'You are now connected in My Circle.',
+        actorId: req.userId,
+        entityId: reqRow.id,
+        entityType: 'friend_request',
+        targetModal: 'friends',
+        channels: ['in_app', 'push', 'email'],
+      });
     }
 
     await supabase
       .from('friend_requests')
-      .update({ status: action === 'accept' ? 'accepted' : action === 'cancel' ? 'cancelled' : 'declined' })
+      .update({ status: action === 'accept' ? 'accepted' : action === 'cancel' ? 'cancelled' : 'declined', responded_at: new Date().toISOString() })
       .eq('id', req.params.requestId);
 
     res.json({ success: true });
@@ -2878,6 +3051,59 @@ app.patch('/api/friends/request/:requestId', requireAuth, async (req, res) => {
     res.status(500).json({ error: 'Could not update request' });
   }
 });
+
+async function handleFriendRequestAction(req, res, requestId, action) {
+  if (!requestId) return res.status(400).json({ error: 'requestId required' });
+  if (!['accept', 'decline', 'cancel'].includes(action)) return res.status(400).json({ error: 'Invalid action' });
+  if (MOCK_MODE) return res.json({ success: true, mock: true });
+  try {
+    const { data: reqRow, error: fetchErr } = await supabase
+      .from('friend_requests')
+      .select('*')
+      .eq('id', requestId)
+      .single();
+    if (fetchErr || !reqRow) return res.status(404).json({ error: 'Request not found' });
+    if (action === 'cancel' && reqRow.sender_id !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+    if (action !== 'cancel' && reqRow.receiver_id !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+
+    if (action === 'accept') {
+      await supabase.from('friends').upsert(
+        { user_id: req.userId, friend_id: reqRow.sender_id, status: 'accepted' },
+        { onConflict: 'user_id,friend_id' }
+      );
+      await supabase.from('friends').upsert(
+        { user_id: reqRow.sender_id, friend_id: req.userId, status: 'accepted' },
+        { onConflict: 'user_id,friend_id' }
+      );
+      const actor = await getPublicUser(req.userId);
+      const actorName = actor?.username || 'A Backstage fan';
+      await deliverNotification({
+        userId: reqRow.sender_id,
+        type: 'friend_request_accepted',
+        title: `${actorName} accepted your friend request`,
+        body: 'You are now connected in My Circle.',
+        actorId: req.userId,
+        entityId: reqRow.id,
+        entityType: 'friend_request',
+        targetModal: 'friends',
+        channels: ['in_app', 'push', 'email'],
+      });
+    }
+
+    await supabase
+      .from('friend_requests')
+      .update({ status: action === 'accept' ? 'accepted' : action === 'cancel' ? 'cancelled' : 'declined', responded_at: new Date().toISOString() })
+      .eq('id', requestId);
+    res.json({ success: true });
+  } catch (err) {
+    console.error(`[POST /api/friends/${action}] Error:`, err.message);
+    res.status(500).json({ error: 'Could not update request' });
+  }
+}
+
+app.post('/api/friends/accept', requireAuth, async (req, res) => handleFriendRequestAction(req, res, req.body?.requestId, 'accept'));
+app.post('/api/friends/decline', requireAuth, async (req, res) => handleFriendRequestAction(req, res, req.body?.requestId, 'decline'));
+app.post('/api/friends/cancel', requireAuth, async (req, res) => handleFriendRequestAction(req, res, req.body?.requestId, 'cancel'));
 
 // Remove someone from My Circle (bidirectional)
 app.delete('/api/friends/:friendId', requireAuth, async (req, res) => {
@@ -3047,6 +3273,41 @@ app.post('/api/send-notification', requireAuth, async (req, res) => {
 // Uses Resend REST API (no new dependency — native fetch).
 // Set RESEND_API_KEY + optional EMAIL_FROM on Render to enable real delivery.
 // Without the key, every call is logged as a mock and returns ok:true.
+app.get('/api/notifications', requireAuth, async (req, res) => {
+  if (MOCK_MODE) return res.json({ notifications: [], unread: 0, mock: true });
+  try {
+    const { data, error } = await supabase
+      .from('notifications')
+      .select('id, user_id, type, title, body, actor_id, entity_id, entity_type, read, target_modal, target_tab, created_at')
+      .eq('user_id', req.userId)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    if (error) throw error;
+    const actors = await getPublicUsersByIds((data || []).map(n => n.actor_id));
+    const notifications = (data || []).map(n => toClientNotification({ ...n, actor: actors.get(n.actor_id) }));
+    res.json({ notifications, unread: notifications.filter(n => !n.read).length });
+  } catch (err) {
+    console.error('[GET /api/notifications] Error:', err.message);
+    res.status(500).json({ error: 'Could not load notifications', notifications: [] });
+  }
+});
+
+app.patch('/api/notifications/:id/read', requireAuth, async (req, res) => {
+  if (MOCK_MODE) return res.json({ success: true, mock: true });
+  try {
+    const { error } = await supabase
+      .from('notifications')
+      .update({ read: true, read_at: new Date().toISOString() })
+      .eq('id', req.params.id)
+      .eq('user_id', req.userId);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[PATCH /api/notifications/read] Error:', err.message);
+    res.status(500).json({ error: 'Could not mark notification read' });
+  }
+});
+
 async function sendBackstageEmail({ to, subject, html, text }) {
   if (!to) return { ok: false, reason: 'no_email' };
   if (!HAS_EMAIL) {
