@@ -568,9 +568,9 @@ const RESERVED_USERNAMES = new Set([
   "bts","bangtan","rm","namjoon","jin","seokjin","suga","yoongi","agust_d",
   "jhope","hoseok","jimin","taehyung","v","jungkook",
   // ATEEZ members
-  "ateez","hongjoong","seonghwa","yunho","yeosang","san","mingi","wooyoung","jongho",
+  "ateez","hongjoong","hongjoon","seonghwa","yunho","yeosang","san","mingi","wooyoung","jongho",
   // Stray Kids members
-  "straykids","stray_kids","bang_chan","bangchan","leeknoow","leeknow","changbin",
+  "straykids","stray_kids","skz","bang_chan","bangchan","leeknoow","leeknow","changbin",
   "hyunjin","han","felix","seungmin","i_n","i.n",
   // Girl groups
   "blackpink","jennie","jisoo","rose","rosé","lisa",
@@ -1941,6 +1941,17 @@ async function deliverNotification({ notif, pushEnabled = false, emailBackup = t
   }
 }
 
+// Reads delivery preferences from localStorage for the given user.
+// Call at notification-fire time, not on mount, so prefs are always current.
+function getDeliveryPrefs(user) {
+  const key = user?.id || user?.email || "anon";
+  const s = ls.get('backstage_notification_settings', DEFAULT_NOTIF_SETTINGS);
+  const pushEnabled = s.phonePush === true
+    && ls.get(`backstage_push_enabled_${key}`, false) === true
+    && window.Notification?.permission === 'granted';
+  return { pushEnabled, emailBackup: s.emailBackup !== false };
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // PHASE 5 — VIRALITY ENGINE COMPONENTS
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -2117,9 +2128,9 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go }) {
     // Also persist to backstage_friends so MyCircleSection picks it up
     const friends = ls.get("backstage_friends", MOCK_FRIENDS);
     if(!friends.find(f=>f.id===fu.id)) ls.set("backstage_friends", [member,...friends]);
-    // Add accepted notification
-    const inbox = ls.get("backstage_notif_inbox", []);
-    ls.set("backstage_notif_inbox", [{ id:`nf-acc-${Date.now()}`, type:"accepted", icon:"🌟", title:"Circle accepted", body:`@${fu.username} is now in your Circle ✦`, color:C.mint, time:"Just now", read:false },...inbox]);
+    // Deliver circle-accepted notification through unified delivery helper
+    const prefs = getDeliveryPrefs(user);
+    deliverNotification({ notif:{ id:`nf-acc-${Date.now()}`, type:"accepted", icon:"🌟", title:"Circle accepted", body:`@${fu.username} is now in your Circle ✦`, color:C.mint }, pushEnabled:prefs.pushEnabled, emailBackup:prefs.emailBackup, priority:'normal' });
     onNotif({title:`@${fu.username} joined your Circle ✦`,body:"In Your Circle now.",icon:"✦",color:C.mint});
   };
 
@@ -3058,7 +3069,7 @@ function HomeIdentity({ user, go }) {
   const name       = user?.username || user?.name || "Moonlight";
   const bias       = user?.bias || null;
   const fandoms    = user?.fandoms?.length ? user.fandoms : [];
-  const nowPlaying = user?.now_playing || ls.get("backstage_now_playing") || null;
+  const nowPlaying = user?.now_playing || ls.get(`backstage_now_playing_${user?.id || 'anon'}`) || null;
   const status     = ls.get("backstage_status") || null;
 
   return (
@@ -3098,13 +3109,19 @@ function HomeIdentity({ user, go }) {
           {/* Now Playing — only renders when user has set a song */}
           {nowPlaying ? (
             <div style={{ display:"flex",gap:10,alignItems:"center",background:`${C.pink}0a`,border:`1px solid ${C.pink}22`,borderRadius:12,padding:"8px 11px" }}>
-              <div style={{ width:30,height:30,borderRadius:9,background:`linear-gradient(135deg,${C.pink}44,${C.accent}22)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,flexShrink:0 }}>🎵</div>
+              {nowPlaying.albumArt
+                ? <img src={nowPlaying.albumArt} alt="" style={{ width:30,height:30,borderRadius:9,objectFit:"cover",flexShrink:0 }} />
+                : <div style={{ width:30,height:30,borderRadius:9,background:`linear-gradient(135deg,${C.pink}44,${C.accent}22)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,flexShrink:0 }}>🎵</div>
+              }
               <div style={{ flex:1, minWidth:0 }}>
                 <p style={{ fontSize:8.5,color:C.pink,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:1 }}>♫ My Music</p>
-                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{nowPlaying.song}</p>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{nowPlaying.title||nowPlaying.song}</p>
                 <p style={{ fontSize:10,color:C.textMid }}>{nowPlaying.artist}</p>
               </div>
-              {bias && <div style={{ ...VS.activePill(C.gold),fontSize:9,flexShrink:0 }}>Bias: {bias}</div>}
+              {(nowPlaying.spotifyUrl||nowPlaying.appleMusicUrl)
+                ? <a href={nowPlaying.spotifyUrl||nowPlaying.appleMusicUrl} target="_blank" rel="noopener noreferrer" style={{ background:`${C.mint}18`,border:`1px solid ${C.mint}33`,borderRadius:7,padding:"3px 7px",color:C.mint,fontSize:8.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textDecoration:"none",flexShrink:0 }}>Listen</a>
+                : bias && <div style={{ ...VS.activePill(C.gold),fontSize:9,flexShrink:0 }}>Bias: {bias}</div>
+              }
             </div>
           ) : (
             <div onClick={()=>go("profile")} style={{ display:"flex",gap:10,alignItems:"center",background:`${C.pink}06`,border:`1px dashed ${C.border}`,borderRadius:12,padding:"8px 11px",cursor:"pointer" }}>
@@ -12545,7 +12562,7 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack, o
     ? (overrideFan.profile_style?.bannerText || overrideFan.bio || "Backstage fan 💜")
     : (profileStyle?.bannerText || "currently in my concert era 🎤");
   const COLORS  = [C.accent,C.pink,C.mint,C.gold,C.silver];
-  const nowPlaying = isPublic ? null : ls.get("backstage_now_playing",{song:"Whiplash",artist:"aespa"});
+  const nowPlaying = isPublic ? null : ls.get(`backstage_now_playing_${user?.id || 'anon'}`, {title:"Whiplash",artist:"aespa"});
   const friends = isPublic ? [] : ls.get("backstage_friends",[]).filter(f=>f.status==="accepted").slice(0,4);
   const publicTop5 = isPublic ? fandoms : top5;
   const publicBiases = isPublic ? (bias ? [bias] : []) : biases;
@@ -12635,15 +12652,21 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack, o
         {/* Now Playing — own profile only */}
         {!isPublic&&nowPlaying&&(
         <div style={{ background:`linear-gradient(140deg,${C.surface},${C.surfaceHi})`,border:`1.5px solid ${C.borderHi}`,borderRadius:16,padding:"10px 14px",marginBottom:16,display:"flex",gap:11,alignItems:"center" }}>
-          <div style={{ width:36,height:36,borderRadius:11,background:`linear-gradient(135deg,${C.pink}40,${C.accent}20)`,border:`1.5px solid ${C.pink}30`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,flexShrink:0 }}>🎵</div>
+          {nowPlaying.albumArt
+            ? <img src={nowPlaying.albumArt} alt="" style={{ width:36,height:36,borderRadius:11,objectFit:"cover",flexShrink:0 }} />
+            : <div style={{ width:36,height:36,borderRadius:11,background:`linear-gradient(135deg,${C.pink}40,${C.accent}20)`,border:`1.5px solid ${C.pink}30`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,flexShrink:0 }}>🎵</div>
+          }
           <div style={{ flex:1,minWidth:0 }}>
             <p style={{ fontSize:8.5,color:C.pink,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2 }}>♫ Now Playing</p>
-            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{nowPlaying.song}</p>
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{nowPlaying.title||nowPlaying.song}</p>
             <p style={{ fontSize:10.5,color:C.textMid }}>{nowPlaying.artist}</p>
           </div>
-          <div style={{ display:"flex",gap:2,alignItems:"flex-end",height:14,flexShrink:0 }}>
-            {[1,2,3,4].map(i=>(<div key={i} style={{ width:2.5,borderRadius:2,background:C.pink,animation:`eqBar ${0.4+i*0.18}s ease-in-out infinite`,animationDelay:`${i*0.1}s`,transformOrigin:"bottom",height:`${8+i*2}px` }} />))}
-          </div>
+          {(nowPlaying.spotifyUrl||nowPlaying.appleMusicUrl)
+            ? <a href={nowPlaying.spotifyUrl||nowPlaying.appleMusicUrl} target="_blank" rel="noopener noreferrer" style={{ background:`${C.mint}18`,border:`1px solid ${C.mint}33`,borderRadius:8,padding:"4px 8px",color:C.mint,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textDecoration:"none",flexShrink:0 }}>Listen →</a>
+            : <div style={{ display:"flex",gap:2,alignItems:"flex-end",height:14,flexShrink:0 }}>
+                {[1,2,3,4].map(i=>(<div key={i} style={{ width:2.5,borderRadius:2,background:C.pink,animation:`eqBar ${0.4+i*0.18}s ease-in-out infinite`,animationDelay:`${i*0.1}s`,transformOrigin:"bottom",height:`${8+i*2}px` }} />))}
+              </div>
+          }
         </div>
         )}
 
@@ -14032,8 +14055,8 @@ function AccountSettings({ user, isVip, go, onUpgrade, onBack, privacySettings, 
 function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccountRefresh }) {
   const { session } = useAuth();
   const [pfp, setPfp] = useState(null);
-  const [nowPlaying, setNowPlaying] = useState({song:"Whiplash",artist:"aespa",editing:false,source:"manual"});
-  const [npDraft, setNpDraft] = useState({song:"Whiplash",artist:"aespa"});
+  const npKey = `backstage_now_playing_${user?.id || 'anon'}`;
+  const [nowPlaying, setNowPlaying] = useState(() => ls.get(npKey, {title:"Whiplash",artist:"aespa",source:"mock"}));
   const [top5, setTop5] = useState(ls.get("backstage_top5",["Stray Kids","BTS","aespa","NewJeans","BLACKPINK"]));
   const [discoverable, setDiscoverable] = useState(false);
   const [soloMode, setSoloMode] = useState(false);
@@ -14369,7 +14392,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
         )}
 
         {/* NOW PLAYING / MUSIC CONNECT */}
-        <MusicConnect nowPlaying={nowPlaying} setNowPlaying={setNowPlaying} npDraft={npDraft} setNpDraft={setNpDraft} />
+        <MusicConnect nowPlaying={nowPlaying} setNowPlaying={setNowPlaying} userId={user?.id} />
 
         {/* TOP 5 */}
         <div onClick={()=>setSection("top5")} className="tap" style={{ background:C.surface, border:`1.5px solid ${C.gold}33`, borderRadius:18, padding:16, marginBottom:18, cursor:"pointer" }}>
@@ -14558,49 +14581,80 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
 }
 
 // ─── MUSIC CONNECT ────────────────────────────────────────────────────────────
-// POST /api/music/connect/apple | POST /api/music/connect/spotify | GET /api/music/now-playing | POST /api/music/profile-song
-function MusicConnect({ nowPlaying, setNowPlaying, npDraft, setNpDraft }) {
-  const [musicView, setMusicView] = useState("display"); // display | edit | connect
-  const [connected, setConnected] = useState(()=>ls.get("backstage_music_connected", null)); // null | "spotify" | "apple"
+// GET /api/music/search — Spotify catalog search (no VIP required)
+// POST /api/music/connect/spotify | /apple — OAuth auto-sync (VIP phase)
+function MusicConnect({ nowPlaying, setNowPlaying, userId }) {
+  const [musicView, setMusicView] = useState("display"); // display | search | connect
+  const [connected, setConnected] = useState(()=>ls.get("backstage_music_connected", null));
   const [connecting, setConnecting] = useState(null);
   const [mockSongIdx, setMockSongIdx] = useState(0);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [manualMode, setManualMode] = useState(false);
+  const [manualDraft, setManualDraft] = useState({title:"",artist:""});
 
-  // On mount: pick up Spotify OAuth return (localStorage set by AppInner URL-param effect)
-  // and fetch real Now Playing from backend
+  const persistNp = (np) => {
+    const key = `backstage_now_playing_${userId || 'anon'}`;
+    ls.set(key, np);
+    setNowPlaying(np);
+    if (API_URL) api.post('/api/profile/update', { nowPlaying: np }).catch(()=>{});
+  };
+
+  // On mount: pick up Spotify OAuth return and pull live now-playing
   useEffect(()=>{
     const storedConnected = ls.get("backstage_music_connected", null);
-    if (storedConnected && !connected) {
-      setConnected(storedConnected);
-    }
+    if (storedConnected && !connected) setConnected(storedConnected);
     if ((storedConnected === 'spotify' || connected === 'spotify') && API_URL) {
       api.get('/api/music/now-playing').then(d=>{
-        if(d?.song) setNowPlaying({ song:d.song, artist:d.artist, album:d.album, albumArt:d.albumArt, source:'spotify', editing:false });
+        if(d?.song||d?.title) persistNp({ title:d.title||d.song, artist:d.artist, album:d.album, albumArt:d.albumArt, spotifyUrl:null, appleMusicUrl:null, previewUrl:null, source:'spotify', savedAt:Date.now() });
       }).catch(()=>{});
     }
   },[]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Poll real Now Playing every 30s when Spotify is connected; mock rotation otherwise
+  // Poll Spotify every 30s when connected; mock rotation otherwise
   useEffect(()=>{
     if(!connected) return;
     if(connected==='spotify' && API_URL) {
       const t = setInterval(()=>{
         api.get('/api/music/now-playing').then(d=>{
-          if(d?.song) setNowPlaying({ song:d.song, artist:d.artist, album:d.album, albumArt:d.albumArt, source:'spotify', editing:false });
+          if(d?.song||d?.title) persistNp({ title:d.title||d.song, artist:d.artist, album:d.album, albumArt:d.albumArt, source:'spotify', savedAt:Date.now() });
         }).catch(()=>{});
       }, 30000);
       return ()=>clearInterval(t);
     }
-    // Mock rotation for Apple or when no backend
     const t = setInterval(()=>{
       setMockSongIdx(i=>{
         const next = (i+1) % MOCK_SPOTIFY_SONGS.length;
         const s = MOCK_SPOTIFY_SONGS[next];
-        setNowPlaying({ song:s.song, artist:s.artist, album:s.album, source:connected, editing:false });
+        persistNp({ title:s.song, artist:s.artist, album:s.album, source:connected, savedAt:Date.now() });
         return next;
       });
     }, 30000);
     return ()=>clearInterval(t);
-  },[connected]);
+  },[connected]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Debounced search
+  useEffect(()=>{
+    if(!searchQuery.trim()) { setSearchResults([]); return; }
+    const t = setTimeout(async ()=>{
+      setSearching(true);
+      try {
+        const data = await api.get(`/api/music/search?q=${encodeURIComponent(searchQuery.trim())}`);
+        setSearchResults(data?.results || []);
+      } catch { setSearchResults([]); }
+      finally { setSearching(false); }
+    }, 300);
+    return ()=>clearTimeout(t);
+  },[searchQuery]);
+
+  const handleSaveSong = (song) => {
+    persistNp({ ...song, savedAt: Date.now() });
+    setMusicView("display");
+    setSearchQuery("");
+    setSearchResults([]);
+    setManualMode(false);
+  };
 
   const handleConnect = async (service) => {
     setConnecting(service);
@@ -14610,10 +14664,9 @@ function MusicConnect({ nowPlaying, setNowPlaying, npDraft, setNpDraft }) {
         if (data?.auth_url) { window.location.href = data.auth_url; return; }
       } catch { /* fall through to mock */ }
     }
-    // Mock flow (no backend or Apple Music)
     await new Promise(r=>setTimeout(r,1200));
     const s = MOCK_SPOTIFY_SONGS[0];
-    setNowPlaying({ song:s.song, artist:s.artist, album:s.album, source:service, editing:false });
+    persistNp({ title:s.song, artist:s.artist, album:s.album, source:service, savedAt:Date.now() });
     setConnected(service);
     ls.set("backstage_music_connected", service);
     setConnecting(null);
@@ -14623,105 +14676,135 @@ function MusicConnect({ nowPlaying, setNowPlaying, npDraft, setNpDraft }) {
   const handleDisconnect = () => {
     setConnected(null);
     ls.del("backstage_music_connected");
-    // TODO: DELETE /api/auth/music-token — revoke access
   };
 
-  const RECENT = MOCK_SPOTIFY_SONGS.slice(0,3).map(s=>({...s, source:"manual"}));
+  const sourceBadge = (source) => {
+    if(source==='spotify') return <div style={{ ...VS.activePill(C.mint),fontSize:7,padding:"1px 5px",flexShrink:0 }}>Spotify</div>;
+    if(source==='apple')   return <div style={{ ...VS.activePill(C.rose),fontSize:7,padding:"1px 5px",flexShrink:0 }}>Apple</div>;
+    if(source==='mock')    return <div style={{ fontSize:7,padding:"1px 5px",background:`${C.textDim}18`,border:`1px solid ${C.textDim}33`,borderRadius:99,color:C.textDim,flexShrink:0 }}>Sample</div>;
+    return null;
+  };
 
-  // Connection screen
+  // Connect screen
   if(musicView==="connect") return (
     <div style={{ background:`linear-gradient(140deg,${C.surface},${C.surfaceHi})`, border:`1.5px solid ${C.borderHi}`, borderRadius:18, padding:16, marginBottom:18, animation:"up .2s ease" }}>
       <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14 }}>
         <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14 }}>Connect Music</p>
         <button onClick={()=>setMusicView("display")} style={{ background:"none",border:"none",color:C.textMid,cursor:"pointer",fontSize:16 }}>✕</button>
       </div>
-      {/* Spotify */}
       <div style={{ ...VS.glowCard(C.mint), padding:"13px 14px", marginBottom:10, cursor:"pointer" }} onClick={()=>!connecting&&handleConnect("spotify")}>
         <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.mint}55,transparent)` }} />
         <div style={{ position:"relative",display:"flex",gap:12,alignItems:"center" }}>
           <div style={{ width:40,height:40,borderRadius:12,background:"#1DB954",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0 }}>🎵</div>
           <div style={{ flex:1 }}>
             <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5 }}>Spotify</p>
-            <p style={{ fontSize:10.5,color:C.textMid }}>
-              {/* TODO: Spotify OAuth — PKCE flow via /api/auth/spotify */}
-              Connect to sync your Now Playing automatically
-            </p>
+            <p style={{ fontSize:10.5,color:C.textMid }}>Connect to auto-sync your Now Playing</p>
           </div>
           {connecting==="spotify" ? <div style={{ width:18,height:18,borderRadius:"50%",border:`2px solid ${C.mint}`,borderTop:`2px solid transparent`,animation:"rotate 0.8s linear infinite" }} /> : <span style={{ color:C.mint,fontSize:14 }}>→</span>}
         </div>
       </div>
-      {/* Apple Music */}
       <div style={{ ...VS.glowCard(C.rose), padding:"13px 14px", marginBottom:14, cursor:"pointer" }} onClick={()=>!connecting&&handleConnect("apple")}>
         <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.rose}55,transparent)` }} />
         <div style={{ position:"relative",display:"flex",gap:12,alignItems:"center" }}>
           <div style={{ width:40,height:40,borderRadius:12,background:"linear-gradient(135deg,#ff3b5c,#fc3c44)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0 }}>🎵</div>
           <div style={{ flex:1 }}>
             <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5 }}>Apple Music</p>
-            <p style={{ fontSize:10.5,color:C.textMid }}>
-              {/* TODO: Apple Music API — MusicKit JS with developer token */}
-              Sync from your Apple Music library
-            </p>
+            <p style={{ fontSize:10.5,color:C.textMid }}>Sync from your Apple Music library</p>
           </div>
           {connecting==="apple" ? <div style={{ width:18,height:18,borderRadius:"50%",border:`2px solid ${C.rose}`,borderTop:`2px solid transparent`,animation:"rotate 0.8s linear infinite" }} /> : <span style={{ color:C.rose,fontSize:14 }}>→</span>}
         </div>
       </div>
-      <p style={{ fontSize:9.5,color:C.textDim,textAlign:"center",lineHeight:1.5 }}>Or set it manually — tap ✏️ on your Now Playing card</p>
+      <p style={{ fontSize:9.5,color:C.textDim,textAlign:"center",lineHeight:1.5 }}>Or search and save any song — tap ✏️ on your Now Playing card</p>
     </div>
   );
 
-  // Edit screen
-  if(musicView==="edit") return (
+  // Search screen
+  if(musicView==="search") return (
     <div style={{ background:`linear-gradient(140deg,${C.surface},${C.surfaceHi})`, border:`1.5px solid ${C.borderHi}`, borderRadius:18, padding:16, marginBottom:18, animation:"up .2s ease" }}>
-      <p style={{ fontSize:9.5,color:C.textMid,marginBottom:10,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em" }}>Now Playing</p>
-      <Input value={npDraft.song} onChange={e=>setNpDraft({...npDraft,song:e.target.value})} placeholder="Song title" style={{ marginBottom:9 }} />
-      <Input value={npDraft.artist} onChange={e=>setNpDraft({...npDraft,artist:e.target.value})} placeholder="Artist" style={{ marginBottom:12 }} />
-      <div style={{ display:"flex", gap:9, marginBottom:14 }}>
-        <Btn onClick={()=>{setNowPlaying({...npDraft,editing:false,source:"manual"});setMusicView("display");}} small style={{ flex:1 }}>Save</Btn>
-        <Btn ghost color={C.textMid} onClick={()=>setMusicView("display")} small style={{ width:78,flex:"none" }}>Cancel</Btn>
+      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12 }}>
+        <p style={{ fontSize:9.5,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em" }}>Set Your Song</p>
+        <button onClick={()=>{setMusicView("display");setSearchQuery("");setSearchResults([]);setManualMode(false);}} style={{ background:"none",border:"none",color:C.textMid,cursor:"pointer",fontSize:16 }}>✕</button>
       </div>
-      <div style={{ height:1,background:C.border,marginBottom:12 }} />
-      <button onClick={()=>setMusicView("connect")} style={{ width:"100%",padding:"10px",borderRadius:12,background:`${C.mint}12`,border:`1.5px solid ${C.mint}33`,color:C.mint,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}>🎵 Connect Spotify or Apple Music →</button>
-      <div style={{ marginTop:12 }}>
-        <p style={{ fontSize:10,color:C.textDim,marginBottom:6,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em" }}>Quick Pick</p>
-        {RECENT.map((r,i)=>(
-          <div key={i} onClick={()=>{setNpDraft({song:r.song,artist:r.artist});setNowPlaying({...r,editing:false});setMusicView("display");}} className="tap" style={{ display:"flex",gap:8,alignItems:"center",padding:"7px 0",borderBottom:i<RECENT.length-1?`1px solid ${C.border}`:"none",cursor:"pointer" }}>
-            <div style={{ fontSize:16 }}>🎵</div>
-            <div style={{ flex:1 }}>
-              <p style={{ fontSize:12.5,fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>{r.song}</p>
-              <p style={{ fontSize:10.5,color:C.textMid }}>{r.artist}</p>
+      <div style={{ position:"relative",marginBottom:10 }}>
+        <Input
+          value={searchQuery}
+          onChange={e=>setSearchQuery(e.target.value)}
+          placeholder="Search a song or artist..."
+          style={{ paddingLeft:32 }}
+          autoFocus
+        />
+        <span style={{ position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:13,color:C.textDim,pointerEvents:"none" }}>🔍</span>
+        {searching&&<div style={{ position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",width:14,height:14,borderRadius:"50%",border:`2px solid ${C.mint}`,borderTop:`2px solid transparent`,animation:"rotate 0.8s linear infinite" }} />}
+      </div>
+
+      {searchResults.length>0&&(
+        <div style={{ maxHeight:224,overflowY:"auto",marginBottom:10 }}>
+          {searchResults.map((r,i)=>(
+            <div key={r.id||i} onClick={()=>handleSaveSong(r)} className="tap" style={{ display:"flex",gap:9,alignItems:"center",padding:"8px 0",borderBottom:i<searchResults.length-1?`1px solid ${C.border}`:"none",cursor:"pointer" }}>
+              {r.albumArt
+                ? <img src={r.albumArt} alt="" style={{ width:34,height:34,borderRadius:8,objectFit:"cover",flexShrink:0 }} />
+                : <div style={{ width:34,height:34,borderRadius:8,background:`linear-gradient(135deg,${C.pink}40,${C.accent}20)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0 }}>🎵</div>
+              }
+              <div style={{ flex:1,minWidth:0 }}>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{r.title}</p>
+                <p style={{ fontSize:10.5,color:C.textMid,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{r.artist}{r.album?` · ${r.album}`:""}</p>
+              </div>
+              {sourceBadge(r.source)}
             </div>
-            <span style={{ fontSize:11,color:C.accentDim }}>→</span>
+          ))}
+        </div>
+      )}
+
+      {searchQuery.trim()&&!searching&&searchResults.length===0&&(
+        <p style={{ fontSize:10.5,color:C.textDim,textAlign:"center",padding:"12px 0" }}>No results — try a different search</p>
+      )}
+
+      <div style={{ borderTop:`1px solid ${C.border}`,paddingTop:10,marginTop:4 }}>
+        {!manualMode ? (
+          <button onClick={()=>setManualMode(true)} style={{ width:"100%",padding:"8px",borderRadius:10,background:"none",border:`1px dashed ${C.border}`,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontSize:11,cursor:"pointer" }}>
+            Can't find it? Save as custom status →
+          </button>
+        ) : (
+          <div>
+            <Input value={manualDraft.title} onChange={e=>setManualDraft({...manualDraft,title:e.target.value})} placeholder="Song title" style={{ marginBottom:8 }} />
+            <Input value={manualDraft.artist} onChange={e=>setManualDraft({...manualDraft,artist:e.target.value})} placeholder="Artist" style={{ marginBottom:10 }} />
+            <div style={{ display:"flex",gap:8 }}>
+              <Btn onClick={()=>{ if(manualDraft.title.trim()) handleSaveSong({id:`manual-${Date.now()}`,title:manualDraft.title.trim(),artist:manualDraft.artist.trim(),album:null,albumArt:null,spotifyUrl:null,appleMusicUrl:null,previewUrl:null,source:"manual"}); }} small style={{ flex:1 }}>Save</Btn>
+              <Btn ghost color={C.textMid} onClick={()=>setManualMode(false)} small style={{ width:78,flex:"none" }}>Cancel</Btn>
+            </div>
           </div>
-        ))}
+        )}
       </div>
     </div>
   );
 
   // Display card
+  const listenUrl = nowPlaying?.spotifyUrl || nowPlaying?.appleMusicUrl;
   return (
     <div style={{ background:`linear-gradient(140deg,${C.surface},${C.surfaceHi})`, border:`1.5px solid ${C.borderHi}`, borderRadius:16, padding:"10px 14px", marginBottom:16, display:"flex", gap:12, alignItems:"center" }}>
-      {/* Album art / icon */}
-      <div style={{ width:38,height:38,borderRadius:11,background:`linear-gradient(135deg,${C.pink}40,${C.accent}20)`,border:`1.5px solid ${C.pink}30`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0,position:"relative" }}>
-        🎵
-        {connected&&<div style={{ position:"absolute",bottom:-3,right:-3,width:12,height:12,borderRadius:"50%",background:connected==="spotify"?"#1DB954":"#fc3c44",border:`1.5px solid ${C.bg}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:7 }} />}
-      </div>
-      {/* Song info */}
+      {nowPlaying?.albumArt
+        ? <img src={nowPlaying.albumArt} alt="" style={{ width:38,height:38,borderRadius:11,objectFit:"cover",flexShrink:0 }} />
+        : <div style={{ width:38,height:38,borderRadius:11,background:`linear-gradient(135deg,${C.pink}40,${C.accent}20)`,border:`1.5px solid ${C.pink}30`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0,position:"relative" }}>
+            🎵
+            {connected&&<div style={{ position:"absolute",bottom:-3,right:-3,width:12,height:12,borderRadius:"50%",background:connected==="spotify"?"#1DB954":"#fc3c44",border:`1.5px solid ${C.bg}` }} />}
+          </div>
+      }
       <div style={{ flex:1,minWidth:0 }}>
         <div style={{ display:"flex",gap:5,alignItems:"center",marginBottom:1 }}>
           <p style={{ fontSize:8,color:C.pink,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em" }}>♫ Now Playing</p>
-          {connected&&<div style={{ ...VS.activePill(connected==="spotify"?C.mint:C.rose),fontSize:7,padding:"1px 5px" }}>{connected==="spotify"?"Spotify":"Apple"}</div>}
+          {nowPlaying?.source&&sourceBadge(nowPlaying.source)}
         </div>
-        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{nowPlaying.song}</p>
-        <p style={{ fontSize:10.5,color:C.textMid }}>{nowPlaying.artist}</p>
+        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{nowPlaying?.title||nowPlaying?.song||"Set a song"}</p>
+        <p style={{ fontSize:10.5,color:C.textMid }}>{nowPlaying?.artist}</p>
       </div>
-      {/* EQ bars */}
       <div style={{ display:"flex",gap:2,alignItems:"flex-end",height:14,flexShrink:0 }}>
         {[1,2,3,4].map(i=>(<div key={i} style={{ width:2.5,borderRadius:2,background:C.pink,animation:`eqBar ${0.4+i*0.18}s ease-in-out infinite`,animationDelay:`${i*0.1}s`,transformOrigin:"bottom",height:`${8+i*2}px` }} />))}
       </div>
-      <div style={{ display:"flex",gap:4,flexShrink:0 }}>
+      <div style={{ display:"flex",gap:4,flexShrink:0,alignItems:"center" }}>
+        {listenUrl&&<a href={listenUrl} target="_blank" rel="noopener noreferrer" style={{ background:`${C.mint}18`,border:`1px solid ${C.mint}33`,borderRadius:8,padding:"4px 8px",color:C.mint,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textDecoration:"none" }}>Listen →</a>}
         {!connected&&<button onClick={()=>setMusicView("connect")} style={{ background:`${C.mint}18`,border:`1px solid ${C.mint}33`,borderRadius:8,padding:"4px 8px",color:C.mint,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>Connect</button>}
         {connected&&<button onClick={handleDisconnect} style={{ background:"none",border:"none",color:C.textDim,fontSize:10,cursor:"pointer",fontFamily:"'Epilogue',sans-serif" }}>✕</button>}
-        <button onClick={()=>{setNpDraft({song:nowPlaying.song,artist:nowPlaying.artist});setMusicView("edit");}} style={{ background:"none",border:"none",color:C.textDim,fontSize:14,cursor:"pointer" }}>✏️</button>
+        <button onClick={()=>setMusicView("search")} style={{ background:"none",border:"none",color:C.textDim,fontSize:14,cursor:"pointer" }}>✏️</button>
       </div>
     </div>
   );
@@ -17346,6 +17429,7 @@ function AppInner() {
           icon:"✦",
           color:C.gold,
         });
+        { const p=getDeliveryPrefs(user); deliverNotification({ notif:{ type:"payment", icon:"✦", title:"Founder Pass Sold Out ✦", body:"The first 500 Backstagers claimed this drop. Monthly and Annual VIP are still available.", color:C.gold }, pushEnabled:p.pushEnabled, emailBackup:p.emailBackup, priority:'high' }); }
         return;
       }
     } catch {
@@ -17454,9 +17538,11 @@ function AppInner() {
             setTimeout(() => activateVip(attempt + 1), 4000 * attempt);
           } else {
             setNotif({ title:"Founder Pass received ✦", body:"Access is activating — reopen Backstage in a moment to complete.", icon:"✦", color:C.gold });
+            { const p=getDeliveryPrefs(user); deliverNotification({ notif:{ type:"vip", icon:"✦", title:"Founder Pass received ✦", body:"Access is activating — reopen Backstage to complete.", color:C.gold }, pushEnabled:p.pushEnabled, emailBackup:p.emailBackup, priority:'critical' }); }
           }
         }).catch(() => {
           setNotif({ title:"Payment received ✦", body:"Sign in to finish activating your Founder Pass.", icon:"✦", color:C.gold });
+          { const p=getDeliveryPrefs(user); deliverNotification({ notif:{ type:"vip", icon:"✦", title:"Payment received ✦", body:"Sign in to finish activating your Founder Pass.", color:C.gold }, pushEnabled:p.pushEnabled, emailBackup:p.emailBackup, priority:'critical' }); }
         });
       };
       activateVip();

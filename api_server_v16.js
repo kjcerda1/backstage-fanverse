@@ -1153,6 +1153,107 @@ app.get('/api/music/now-playing', requireAuth, async (req, res) => {
   }
 });
 
+// ─── MUSIC CATALOG SEARCH ────────────────────────────────────────────────────
+// GET /api/music/search?q= — No VIP required. Uses Spotify client credentials
+// (not user OAuth) for catalog search. Falls back to Apple Music or mock K-pop.
+
+let _spotifyClientToken = null;
+let _spotifyClientTokenExpiry = 0;
+
+async function getSpotifyClientToken() {
+  if (_spotifyClientToken && Date.now() < _spotifyClientTokenExpiry) return _spotifyClientToken;
+  const res = await fetch('https://accounts.spotify.com/api/token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Authorization: `Basic ${Buffer.from(`${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`).toString('base64')}`,
+    },
+    body: 'grant_type=client_credentials',
+  });
+  const data = await res.json();
+  if (!data.access_token) throw new Error(`Spotify token error: ${data.error}`);
+  _spotifyClientToken = data.access_token;
+  _spotifyClientTokenExpiry = Date.now() + (data.expires_in - 60) * 1000;
+  return _spotifyClientToken;
+}
+
+const MOCK_KPOP_CATALOG = [
+  { id:'mock-1',  title:'Whiplash',   artist:'aespa',      album:'Whiplash',     albumArt:null, spotifyUrl:null, appleMusicUrl:null, previewUrl:null, source:'mock' },
+  { id:'mock-2',  title:'Dynamite',   artist:'BTS',        album:'Dynamite',     albumArt:null, spotifyUrl:null, appleMusicUrl:null, previewUrl:null, source:'mock' },
+  { id:'mock-3',  title:'Supernova',  artist:'aespa',      album:'Armageddon',   albumArt:null, spotifyUrl:null, appleMusicUrl:null, previewUrl:null, source:'mock' },
+  { id:'mock-4',  title:'How Sweet',  artist:'NewJeans',   album:'How Sweet',    albumArt:null, spotifyUrl:null, appleMusicUrl:null, previewUrl:null, source:'mock' },
+  { id:'mock-5',  title:'Miroh',      artist:'Stray Kids', album:'CLE 1: MIROH', albumArt:null, spotifyUrl:null, appleMusicUrl:null, previewUrl:null, source:'mock' },
+  { id:'mock-6',  title:'Pink Venom', artist:'BLACKPINK',  album:'BORN PINK',    albumArt:null, spotifyUrl:null, appleMusicUrl:null, previewUrl:null, source:'mock' },
+  { id:'mock-7',  title:'Ditto',      artist:'NewJeans',   album:'OMG',          albumArt:null, spotifyUrl:null, appleMusicUrl:null, previewUrl:null, source:'mock' },
+  { id:'mock-8',  title:'After Like', artist:'IVE',        album:'After Like',   albumArt:null, spotifyUrl:null, appleMusicUrl:null, previewUrl:null, source:'mock' },
+  { id:'mock-9',  title:'Spicy',      artist:'aespa',      album:'MY WORLD',     albumArt:null, spotifyUrl:null, appleMusicUrl:null, previewUrl:null, source:'mock' },
+  { id:'mock-10', title:'Love Dive',  artist:'IVE',        album:'LOVE DIVE',    albumArt:null, spotifyUrl:null, appleMusicUrl:null, previewUrl:null, source:'mock' },
+];
+
+app.get('/api/music/search', requireAuth, async (req, res) => {
+  const q = (req.query.q || '').trim();
+  if (!q) return res.json({ results: [], mock: false });
+
+  if (HAS_SPOTIFY) {
+    try {
+      const token = await getSpotifyClientToken();
+      const searchRes = await fetch(
+        `https://api.spotify.com/v1/search?q=${encodeURIComponent(q)}&type=track&limit=10&market=US`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const data = await searchRes.json();
+      const results = (data.tracks?.items || []).map(track => ({
+        id:            track.id,
+        title:         track.name,
+        artist:        track.artists.map(a => a.name).join(', '),
+        album:         track.album.name,
+        albumArt:      track.album.images?.[0]?.url || null,
+        spotifyUrl:    track.external_urls?.spotify || null,
+        appleMusicUrl: null,
+        previewUrl:    track.preview_url || null,
+        source:        'spotify',
+      }));
+      return res.json({ results, mock: false });
+    } catch (err) {
+      console.error('[Music Search] Spotify error:', err.message);
+    }
+  }
+
+  const appleDeveloperToken = process.env.APPLE_MUSIC_DEVELOPER_TOKEN;
+  if (appleDeveloperToken) {
+    try {
+      const searchRes = await fetch(
+        `https://api.music.apple.com/v1/catalog/us/search?term=${encodeURIComponent(q)}&types=songs&limit=10`,
+        { headers: { Authorization: `Bearer ${appleDeveloperToken}` } }
+      );
+      const data = await searchRes.json();
+      const songs = data.results?.songs?.data || [];
+      const results = songs.map(song => ({
+        id:            song.id,
+        title:         song.attributes.name,
+        artist:        song.attributes.artistName,
+        album:         song.attributes.albumName,
+        albumArt:      song.attributes.artwork
+          ? song.attributes.artwork.url.replace('{w}', '300').replace('{h}', '300')
+          : null,
+        spotifyUrl:    null,
+        appleMusicUrl: song.attributes.url || null,
+        previewUrl:    song.attributes.previews?.[0]?.url || null,
+        source:        'apple',
+      }));
+      return res.json({ results, mock: false });
+    } catch (err) {
+      console.error('[Music Search] Apple Music error:', err.message);
+    }
+  }
+
+  const lower = q.toLowerCase();
+  const results = MOCK_KPOP_CATALOG.filter(
+    s => s.title.toLowerCase().includes(lower) || s.artist.toLowerCase().includes(lower)
+  );
+  res.json({ results: results.length ? results : MOCK_KPOP_CATALOG.slice(0, 5), mock: true });
+});
+
 
 // ═════════════════════════════════════════════════════════════════════════════
 // OUTFIT INSPO — /api/outfits/* (Pinterest-ready)
@@ -1881,8 +1982,8 @@ app.get('/api/users/me', requireAuth, async (req, res) => {
 const BACKEND_RESERVED_USERNAMES = new Set([
   "bts","bangtan","rm","namjoon","jin","seokjin","suga","yoongi","agust_d",
   "jhope","hoseok","jimin","taehyung","v","jungkook",
-  "ateez","hongjoong","seonghwa","yunho","yeosang","san","mingi","wooyoung","jongho",
-  "straykids","stray_kids","bang_chan","bangchan","leeknoow","leeknow","changbin",
+  "ateez","hongjoong","hongjoon","seonghwa","yunho","yeosang","san","mingi","wooyoung","jongho",
+  "straykids","stray_kids","skz","bang_chan","bangchan","leeknoow","leeknow","changbin",
   "hyunjin","han","felix","seungmin","i_n","i.n",
   "blackpink","jennie","jisoo","rose","lisa",
   "newjeans","minji","hanni","danielle","haerin","hyein",
