@@ -2669,7 +2669,7 @@ app.get('/api/profile/:id', optionalAuth, async (req, res) => {
   }
   const fields = req.userId === req.params.id
     ? '*'
-    : 'id, username, bio, fandoms, bias, avatar_url, proof_score, is_vip, profile_style';
+    : 'id, username, display_name, bio, fandoms, bias, city, avatar_url, proof_score, is_vip, profile_style';
   const { data, error } = await supabase.from('users').select(fields).eq('id', req.params.id).single();
   if (error) return res.status(404).json({ error: 'User not found' });
   res.json(data);

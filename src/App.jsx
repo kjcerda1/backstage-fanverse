@@ -1828,7 +1828,7 @@ const HIGH_PRIORITY_NOTIF_TYPES = new Set([
 
 // PRIVACY SETTINGS
 const DEFAULT_PRIVACY = {
-  discoveryMode: "off", showCity: false, hideDistance: true,
+  discoveryMode: "off", showCity: true, hideDistance: true,
   showOnline: false, showConcerts: false, tradeDiscovery: false,
   buddyDiscovery: false, qrQuickAdd: false, temporaryUntil: null,
 };
@@ -4373,6 +4373,8 @@ function Onboarding({ onDone }) {
           <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:24, marginBottom:6 }}>Who's your bias?</p>
           <p style={{ color:C.textMid, fontSize:13, marginBottom:22 }}>Just one. We know how hard that is.</p>
           <Input value={data.bias} onChange={e=>setData({...data,bias:e.target.value})} placeholder="e.g. Felix, Jimin, Karina..." autoFocus style={{ marginBottom:20 }} />
+          <p style={{ fontSize:11, color:C.textMid, marginBottom:8 }}>Your City <span style={{ color:C.textDim }}>— optional</span></p>
+          <Input value={data.city} onChange={e=>setData({...data,city:e.target.value})} placeholder="e.g. Dallas, TX" style={{ marginBottom:20 }} />
           <Btn onClick={handleProfileDone} disabled={loading}>
             {loading?"Setting up...":"Enter Backstage ✦"}
           </Btn>
@@ -12593,6 +12595,9 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack, o
   const skinGrad = SKIN_GRADIENTS[SKIN_ID_TO_GRAD[skinId]||"purple haze"];
   const skinChars = (OVERLAY_CHARS[skinOv]||[]).slice(0,8);
   const PREVIEW_SPARKLE_POS = [[5,78],[20,90],[35,10],[50,68],[65,85],[78,22],[88,55],[14,42]];
+  const city = isPublic
+    ? (overrideFan?.city || '')
+    : (user?.city || ls.get(`backstage_city_${user?.id || 'anon'}`, ''));
 
   return (
     <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden",position:"relative",background:skinGrad }}>
@@ -12639,7 +12644,10 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack, o
           </div>
           <div style={{ flex:1,minWidth:0 }}>
             <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18,marginBottom:3 }}>@{name}</p>
-            {!isPublic&&<p style={{ fontSize:10.5,color:C.textMid,marginBottom:6 }}>Multi-fan · she/her · Seoul → LA</p>}
+            {city
+              ? <p style={{ fontSize:10.5,color:C.textDim,marginBottom:6 }}>📍 {city}</p>
+              : !isPublic && <p style={{ fontSize:10.5,color:C.textMid,marginBottom:6 }}>Multi-fan · she/her</p>
+            }
             <div style={{ display:"flex",gap:5,flexWrap:"wrap" }}>
               {fandoms.slice(0,3).map(f=><Pill key={f} color={C.lavender} small>{f}</Pill>)}
               {isPublic&&fandoms.length===0&&<p style={{ fontSize:10,color:"rgba(255,255,255,0.3)",fontStyle:"italic" }}>No fandoms added yet</p>}
@@ -14080,6 +14088,10 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
   const [top5, setTop5] = useState(ls.get("backstage_top5",["Stray Kids","BTS","aespa","NewJeans","BLACKPINK"]));
   const [discoverable, setDiscoverable] = useState(false);
   const [soloMode, setSoloMode] = useState(false);
+  const cityKey = `backstage_city_${user?.id || 'anon'}`;
+  const [displayCity, setDisplayCity] = useState(user?.city || ls.get(`backstage_city_${user?.id || 'anon'}`, ''));
+  const [editingCity, setEditingCity] = useState(false);
+  const [cityDraft, setCityDraft] = useState(user?.city || ls.get(`backstage_city_${user?.id || 'anon'}`, ''));
   const pushUserKey = user?.id || user?.email || "anon";
   const [notifOn, setNotifOn] = useState(()=>{
     const key = user?.id || user?.email || "anon";
@@ -14134,6 +14146,17 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
       setNotifSettings(prev => ({ ...prev, phonePush: false }));
       ls.set(`backstage_push_enabled_${pushUserKey}`, false);
     }
+  };
+
+  const saveCity = () => {
+    const trimmed = cityDraft.trim();
+    setDisplayCity(trimmed);
+    setCityDraft(trimmed);
+    setEditingCity(false);
+    ls.set(cityKey, trimmed);
+    const sess = ls.get('backstage_session');
+    if (sess?.user) ls.set('backstage_session', {...sess, user:{...sess.user, city:trimmed}});
+    if (API_URL) api.post('/api/profile/update', { city: trimmed }).catch(()=>{});
   };
 
   // ── SECTION: TOP 5 ──
@@ -14338,6 +14361,43 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
               {soloMode&&<div style={{ background:`${C.gold}18`,border:`1px solid ${C.gold}33`,borderRadius:99,padding:"3px 9px",fontSize:8.5,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>SOLO MODE</div>}
               <div style={{ background:`${C.mint}14`,border:`1px solid ${C.mint}28`,borderRadius:99,padding:"3px 9px",fontSize:8.5,color:C.mint,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>● glow up</div>
             </div>
+          </div>
+        </div>
+
+        {/* ── DISPLAY CITY ───────────────────────────────────────────────────── */}
+        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:14, padding:"11px 14px", marginBottom:16 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+            <div style={{ flex:1, minWidth:0 }}>
+              <p style={{ fontSize:8.5, color:C.textDim, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.12em", marginBottom:4 }}>📍 Display City</p>
+              {editingCity ? (
+                <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                  <input
+                    value={cityDraft}
+                    onChange={e=>setCityDraft(e.target.value)}
+                    onKeyDown={e=>e.key==="Enter"&&saveCity()}
+                    placeholder="e.g. Dallas, TX"
+                    maxLength={40}
+                    autoFocus
+                    style={{ flex:1, background:"transparent", border:`1px solid ${C.accent}`, borderRadius:7, padding:"5px 9px", color:C.text, fontSize:12.5, outline:"none" }}
+                  />
+                  <button onClick={saveCity} style={{ background:C.accent, border:"none", borderRadius:7, padding:"5px 12px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer", flexShrink:0 }}>Save</button>
+                  <button onClick={()=>{ setCityDraft(displayCity); setEditingCity(false); }} style={{ background:"none", border:"none", color:C.textMid, fontSize:14, cursor:"pointer", flexShrink:0, lineHeight:1 }}>✕</button>
+                </div>
+              ) : (
+                <p style={{ fontSize:13, color:displayCity?C.text:C.textDim, fontStyle:displayCity?"normal":"italic" }}>
+                  {displayCity || "Add your city"}
+                </p>
+              )}
+            </div>
+            {!editingCity && (
+              <button onClick={()=>{ setCityDraft(displayCity); setEditingCity(true); }} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:7, padding:"3px 9px", color:C.textMid, fontSize:10, cursor:"pointer", fontFamily:"'Epilogue',sans-serif", fontWeight:600, flexShrink:0, marginLeft:10 }}>Edit</button>
+            )}
+          </div>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:9, paddingTop:9, borderTop:`1px solid ${C.border}` }}>
+            <p style={{ fontSize:10, color:C.textDim }}>
+              {privacySettings.showCity ? "Shown on public profile" : "Hidden from public profile"}
+            </p>
+            <Toggle on={!!privacySettings.showCity} onChange={v=>setPrivacySettings({...privacySettings, showCity:v})} />
           </div>
         </div>
 
