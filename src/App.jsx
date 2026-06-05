@@ -13989,7 +13989,13 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
   const [top5, setTop5] = useState(ls.get("backstage_top5",["Stray Kids","BTS","aespa","NewJeans","BLACKPINK"]));
   const [discoverable, setDiscoverable] = useState(false);
   const [soloMode, setSoloMode] = useState(false);
-  const [notifOn, setNotifOn] = useState(false);
+  const pushUserKey = user?.id || user?.email || "anon";
+  const [notifOn, setNotifOn] = useState(()=>{
+    const key = user?.id || user?.email || "anon";
+    const saved = ls.get(`backstage_push_enabled_${key}`, false);
+    const perm = window.Notification?.permission;
+    return saved === true && perm === "granted";
+  });
   const [section, setSection] = useState("main");
   const [profileStyle, setProfileStyle] = useState(ls.get("backstage_profile_style", DEFAULT_PROFILE_STYLE));
   const [privacySettings, setPrivacySettings] = useState(ls.get("backstage_privacy_settings", DEFAULT_PRIVACY));
@@ -14025,8 +14031,18 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
   useEffect(()=>{ ls.set("backstage_notification_settings", notifSettings); }, [notifSettings]);
 
   const requestNotif = async () => {
-    const token = await requestNotificationPermission(user?.name||"user");
-    if(token){ setNotifOn(true); }
+    ls.set(`backstage_push_prompted_${pushUserKey}`, true);
+    const token = await requestNotificationPermission(user?.id || user?.name || "user");
+    if (token) {
+      setNotifOn(true);
+      setNotifSettings(prev => ({ ...prev, phonePush: true }));
+      ls.set(`backstage_push_enabled_${pushUserKey}`, true);
+      ls.set(`backstage_push_token_${pushUserKey}`, token);
+    } else {
+      setNotifOn(false);
+      setNotifSettings(prev => ({ ...prev, phonePush: false }));
+      ls.set(`backstage_push_enabled_${pushUserKey}`, false);
+    }
   };
 
   // ── SECTION: TOP 5 ──
@@ -14375,7 +14391,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
           <SectionHeader title="Settings" />
           <Card>
             {[
-              {label:"🔔 Push Notifications",sub:"Concert alerts, trade updates",val:notifOn,set:notifOn?()=>setNotifOn(false):requestNotif,color:C.accent,action:()=>setSection("notifications")},
+              {label:"🔔 Push Notifications",sub:"Concert alerts, trade updates",val:notifOn,set:notifOn?()=>{ setNotifOn(false); setNotifSettings(prev=>({...prev,phonePush:false})); ls.set(`backstage_push_enabled_${pushUserKey}`,false); }:requestNotif,color:C.accent,action:()=>setSection("notifications")},
               {label:"🔍 Fan Discovery",sub:"Show me in fan suggestions & concert discovery",val:discoverable,set:setDiscoverable,color:C.mint,action:null},
               {label:"🎯 Solo Mode",sub:"Prioritize solo fans & safer meetups",val:soloMode,set:setSoloMode,color:C.gold,action:null},
               {label:"☀️ Light Mode",sub:"Softer purple-tinted light theme",val:ls.get("backstage_light_mode",false),set:(v)=>{
@@ -15590,13 +15606,29 @@ function PrivacySettings({ settings, setSettings, onBack }) {
 // Used by NotificationBell → setModal("notifications") path.
 // Owns its own settings/notifOn state so it works outside ProfileTab.
 // onNavigate({modal?, tab?}) — called when a notification card is tapped.
-function StandaloneNotifCenter({ onBack, onNavigate }) {
+function StandaloneNotifCenter({ onBack, onNavigate, user }) {
+  const pushUserKey = user?.id || user?.email || "anon";
   const [settings, setSettings] = useState(()=>ls.get("backstage_notification_settings", DEFAULT_NOTIF_SETTINGS));
-  const [notifOn, setNotifOn]   = useState(false);
+  const [notifOn, setNotifOn] = useState(()=>{
+    const key = user?.id || user?.email || "anon";
+    const saved = ls.get(`backstage_push_enabled_${key}`, false);
+    const perm = window.Notification?.permission;
+    return saved === true && perm === "granted";
+  });
   const saveSettings = (v) => { setSettings(v); ls.set("backstage_notification_settings", v); };
   const requestNotif = async () => {
-    const token = await requestNotificationPermission("user");
-    if (token) setNotifOn(true);
+    ls.set(`backstage_push_prompted_${pushUserKey}`, true);
+    const token = await requestNotificationPermission(user?.id || user?.name || "user");
+    if (token) {
+      setNotifOn(true);
+      saveSettings({ ...settings, phonePush: true });
+      ls.set(`backstage_push_enabled_${pushUserKey}`, true);
+      ls.set(`backstage_push_token_${pushUserKey}`, token);
+    } else {
+      setNotifOn(false);
+      saveSettings({ ...settings, phonePush: false });
+      ls.set(`backstage_push_enabled_${pushUserKey}`, false);
+    }
   };
   return <NotificationCenter settings={settings} setSettings={saveSettings} onBack={onBack} notifOn={notifOn} requestNotif={requestNotif} onNavigate={onNavigate} />;
 }
@@ -15771,9 +15803,9 @@ function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNot
         <div style={{ background:notifOn?`${C.mint}12`:C.surface, border:`1.5px solid ${notifOn?C.mint:C.border}`, borderRadius:16, padding:"14px 16px", marginBottom:18, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
           <div>
             <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:14 }}>🔔 Push Notifications</p>
-            <p style={{ fontSize:11, color:C.textMid }}>{notifOn?"Active on this device":"Tap to enable"}</p>
+            <p style={{ fontSize:11, color:C.textMid }}>{notifOn?"Push alerts on":window.Notification?.permission==="denied"?"Blocked in browser settings":window.Notification?.permission==="granted"?"Push alerts off":"Tap to enable push alerts"}</p>
           </div>
-          {notifOn ? <Pill color={C.mint} active small>Enabled</Pill> : <Btn small onClick={requestNotif} style={{ width:110 }}>Enable</Btn>}
+          {notifOn ? <Pill color={C.mint} active small>ON</Pill> : window.Notification?.permission==="denied" ? <Pill color={C.rose} small>Blocked</Pill> : <Btn small onClick={requestNotif} style={{ width:110 }}>Enable</Btn>}
         </div>
 
         {/* Channels */}
@@ -17318,8 +17350,13 @@ function AppInner() {
   };
 
   useEffect(()=>{
-    if(appState==="main"&&!notif&&!ls.get("backstage_notif_prompt_dismissed",false)){ const t=setTimeout(()=>setShowNotifPrompt(true),4000); return ()=>clearTimeout(t); }
-  },[appState]);
+    if(appState==="main"&&!notif){
+      const pushUserKey = user?.id||user?.email||"anon";
+      const perm = window.Notification?.permission;
+      const alreadyPrompted = ls.get(`backstage_push_prompted_${pushUserKey}`,false)||ls.get("backstage_notif_prompt_dismissed",false);
+      if(!alreadyPrompted&&perm==="default"){ const t=setTimeout(()=>setShowNotifPrompt(true),4000); return ()=>clearTimeout(t); }
+    }
+  },[appState,user]);
 
   // Handle push notification deep-links, OAuth callbacks, and Stripe checkout returns
   useEffect(()=>{
@@ -17523,9 +17560,9 @@ function AppInner() {
                   </div>
                 ))}
               </div>
-              <Btn onClick={async()=>{ const t=await requestNotificationPermission(user?.name); if(t)setNotif({title:"Notifications enabled! 🔔",body:"You'll get concert alerts, trade updates, and more.",icon:"🔔",color:C.accent}); setShowNotifPrompt(false); }}>Enable Notifications</Btn>
+              <Btn onClick={async()=>{ const pushUserKey=user?.id||user?.email||"anon"; ls.set(`backstage_push_prompted_${pushUserKey}`,true); const t=await requestNotificationPermission(user?.id||user?.name||"user"); if(t){ ls.set(`backstage_push_enabled_${pushUserKey}`,true); ls.set(`backstage_push_token_${pushUserKey}`,t); setNotif({title:"Notifications enabled! 🔔",body:"You'll get concert alerts, trade updates, and more.",icon:"🔔",color:C.accent}); }else{ ls.set(`backstage_push_enabled_${pushUserKey}`,false); } setShowNotifPrompt(false); }}>Enable Notifications</Btn>
               <div style={{ height:10 }} />
-              <Btn ghost color={C.textMid} onClick={()=>{ setShowNotifPrompt(false); ls.set("backstage_notif_prompt_dismissed",true); }}>Not now</Btn>
+              <Btn ghost color={C.textMid} onClick={()=>{ const pushUserKey=user?.id||user?.email||"anon"; ls.set(`backstage_push_prompted_${pushUserKey}`,true); ls.set("backstage_notif_prompt_dismissed",true); setShowNotifPrompt(false); }}>Not now</Btn>
             </div>
           </div>
         )}
@@ -17560,6 +17597,7 @@ function AppInner() {
         {modal==="livefeed"&&<ModalWrapper><LiveFeedTab user={user} go={go} onBack={()=>setModal(null)} /></ModalWrapper>}
         {/* PHASE 5 MODALS */}
         {modal==="notifications"&&<ModalWrapper><StandaloneNotifCenter
+          user={user}
           onBack={()=>setModal(null)}
           onNavigate={(dest)=>{
             // Close notifications, then open the target modal or tab
