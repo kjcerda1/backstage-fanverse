@@ -4083,6 +4083,8 @@ function Onboarding({ onDone }) {
       bias:data.bias,
       bias_wrecker:data.bias_wrecker || "",
       city:data.city,
+      show_city:true,
+      showCity:true,
       is_vip:false,
       onboarding_skipped:data.skippedRequiredProfile === true,
       onboarding_complete:true,
@@ -4096,7 +4098,7 @@ function Onboarding({ onDone }) {
         await fetch(`${API_URL}/api/users/me`, {
           method:'PATCH',
           headers:{ 'Content-Type':'application/json', 'Authorization':`Bearer ${token||''}` },
-          body: JSON.stringify({ username:data.name, handle:data.name, backstage_name:data.name, display_name:data.name, fandoms:data.groups, favorite_groups:data.groups, bias:data.bias, bias_wrecker:data.bias_wrecker || "", city:data.city, onboarding_complete:true, profile_complete:true }),
+          body: JSON.stringify({ username:data.name, handle:data.name, backstage_name:data.name, display_name:data.name, fandoms:data.groups, favorite_groups:data.groups, bias:data.bias, bias_wrecker:data.bias_wrecker || "", city:data.city, show_city:true, onboarding_complete:true, profile_complete:true }),
         });
       } catch(e) {
         // API unavailable in this deployment — profile is saved locally, continue
@@ -12585,9 +12587,12 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack, o
   const skinGrad = SKIN_GRADIENTS[SKIN_ID_TO_GRAD[skinId]||"purple haze"];
   const skinChars = (OVERLAY_CHARS[skinOv]||[]).slice(0,8);
   const PREVIEW_SPARKLE_POS = [[5,78],[20,90],[35,10],[50,68],[65,85],[78,22],[88,55],[14,42]];
+  // For public view: city comes from API — already stripped server-side if show_city=false.
+  // For own preview ("how others see you"): respect showCity so preview matches public reality.
+  const _ownShowCity = isPublic ? true : (ls.get('backstage_privacy_settings', DEFAULT_PRIVACY)?.showCity !== false);
   const city = isPublic
     ? (overrideFan?.city || '')
-    : (user?.city || ls.get(`backstage_city_${user?.id || 'anon'}`, ''));
+    : (_ownShowCity ? (user?.city || ls.get(`backstage_city_${user?.id || 'anon'}`, '')) : '');
 
   return (
     <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden",position:"relative",background:skinGrad }}>

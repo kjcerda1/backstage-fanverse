@@ -2660,20 +2660,11 @@ app.post('/api/profile/top-groups', requireAuth, async (req, res) => {
   res.json({ success: true });
 });
 
-// ─── PRODUCTION PRIVACY MIGRATION NEEDED ──────────────────────────────────────
-// TODO: Add show_city boolean column to Supabase public.users table:
-//   ALTER TABLE public.users ADD COLUMN show_city boolean NOT NULL DEFAULT true;
-//
-// Once the column exists:
-//   1. POST /api/profile/update should accept show_city and persist it:
-//        if (showCity !== undefined) updates.show_city = showCity;
-//   2. GET /api/profile/:id should strip city from the public response when opted out:
-//        if (data.show_city === false) delete data.city;
-//        delete data.show_city; // never expose preference in public response
-//   3. GET /api/profile/by-username/:username — same treatment.
-//
-// Until the migration runs, show_city is localStorage-only (frontend label only).
-// City is returned for any user who has it set. Server-side enforcement is deferred.
+// ─── CITY PRIVACY — show_city column ─────────────────────────────────────────
+// Migration shipped: ALTER TABLE public.users ADD COLUMN IF NOT EXISTS show_city boolean DEFAULT true;
+// ✅ POST /api/profile/update  — accepts showCity (camelCase), persists as show_city
+// ✅ GET  /api/profile/:id     — strips city from public response when show_city=false
+// ⚠️  GET  /api/profile/by-username/:username — city privacy not yet enforced (future)
 // City is always city-level only (e.g. "Dallas, TX") — never coordinates or street address.
 // ─────────────────────────────────────────────────────────────────────────────────
 app.get('/api/profile/:id', optionalAuth, async (req, res) => {
