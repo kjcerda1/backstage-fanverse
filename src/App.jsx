@@ -5139,25 +5139,38 @@ function ShowDetail({ concert, onBack, going, setGoing, go, isVip, onUpgrade, rs
 // ─── LIBRARY TAB — rich collection shell ─────────────────────────────────────
 // ─── PHOTOCARD GRID — visual, photo-upload, AI-identify placeholder ───────────
 function PhotocardGrid({ cards, groups, groupFilter, setGroupFilter, go, rarityColors, rarityGlow, rarityBg, rarityBadge }) {
+  const CONDITION_TO_RAR = { mint:'UR', near_mint:'SR', good:'R', played:'N' };
   const [cardPhotos, setCardPhotos] = useState(()=>ls.get("backstage_card_photos",{}));
   const [aiResult, setAiResult]     = useState(null);
   const [aiLoading, setAiLoading]   = useState(null);
   const [expanded, setExpanded]     = useState(null);
+  const [uploading, setUploading]   = useState(null);
   const fileRefs = useRef({});
 
-  const savePhoto = (cardId, dataUrl) => {
-    const next = {...cardPhotos, [cardId]: dataUrl};
+  const savePhoto = (cardId, url) => {
+    const next = {...cardPhotos, [cardId]: url};
     setCardPhotos(next);
-    ls.set("backstage_card_photos", next); // TODO: In production upload to Supabase Storage
+    ls.set("backstage_card_photos", next);
   };
 
-  const handleFileChange = (e, cardId) => {
+  const handleFileChange = async (e, card) => {
     const f = e.target.files[0]; if(!f) return;
-    // Warn if image is large (>500KB)
-    if(f.size > 500000) console.warn("Large image — consider compressing before storing locally");
     const r = new FileReader();
-    r.onload = ev => savePhoto(cardId, ev.target.result);
+    r.onload = ev => savePhoto(card.id, ev.target.result);
     r.readAsDataURL(f);
+    // Upload to Supabase for real DB cards (UUID string ids)
+    if (typeof card.id === 'string') {
+      setUploading(card.id);
+      try {
+        const urlRes = await api.post('/api/cards/upload-url', { filename: f.name, content_type: f.type });
+        if (urlRes?.signed_url) {
+          await fetch(urlRes.signed_url, { method:'PUT', body:f, headers:{'Content-Type':f.type} });
+          await api.patch(`/api/cards/${card.id}`, { image_url: urlRes.public_url });
+          savePhoto(card.id, urlRes.public_url);
+        }
+      } catch { /* keep localStorage preview as fallback */ }
+      setUploading(null);
+    }
   };
 
   const handleAiIdentify = async (cardId) => {
@@ -5196,18 +5209,23 @@ function PhotocardGrid({ cards, groups, groupFilter, setGroupFilter, go, rarityC
       {/* Photocard grid */}
       <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:9 }}>
         {cards.map(c=>{
-          const rar  = c.rarity||"R";
+          const cardName  = c.member || c.name;
+          const cardGroup = c.group_name || c.group;
+          const isDupe    = c.status==='duplicate' || c.dupe;
+          const isForTrade= c.status==='for_trade'  || c.tradeable;
+          const rar  = c.rarity || CONDITION_TO_RAR[c.condition] || 'R';
           const rc   = (rarityColors||{})[rar]||C.accent;
-          const photo = cardPhotos[c.id];
-          const isExpanded = expanded===c.id;
+          const photo = c.image_url || cardPhotos[c.id];
+          const isExpanded  = expanded===c.id;
+          const isUploading = uploading===c.id;
           return (
             <div key={c.id} style={{ position:"relative" }}>
               {/* Status badges */}
               <div style={{ position:"absolute",top:4,left:4,zIndex:3,display:"flex",flexDirection:"column",gap:2 }}>
-                {c.dupe&&<div style={{ background:C.gold,borderRadius:4,padding:"1px 5px",fontSize:7,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.bg }}>DUPE</div>}
-                {c.tradeable&&<div style={{ background:C.rose,borderRadius:4,padding:"1px 5px",fontSize:7,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.bg }}>TRADE</div>}
+                {isDupe&&<div style={{ background:C.gold,borderRadius:4,padding:"1px 5px",fontSize:7,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.bg }}>DUPE</div>}
+                {isForTrade&&<div style={{ background:C.rose,borderRadius:4,padding:"1px 5px",fontSize:7,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.bg }}>TRADE</div>}
               </div>
-              {/* Rarity badge — HOLO / RARE / 1/1 */}
+              {/* Rarity/condition badge */}
               <div style={{ position:"absolute",top:5,right:5,zIndex:3 }}>
                 <div style={{ background:rar==="UR"?`linear-gradient(135deg,${C.gold}ee,${C.coral}cc)`:rar==="SR"?`${C.berry}dd`:`${rc}cc`,borderRadius:4,padding:"2px 6px",fontSize:6.5,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:rar==="UR"?C.bg:C.white,letterSpacing:"0.04em" }}>{(rarityBadge||{})[rar]||rar}</div>
               </div>
@@ -5216,25 +5234,25 @@ function PhotocardGrid({ cards, groups, groupFilter, setGroupFilter, go, rarityC
                 {/* Holo shimmer overlay for UR */}
                 {rar==="UR"&&!photo&&<div style={{ position:"absolute",inset:0,background:"linear-gradient(135deg,transparent 0%,rgba(255,255,255,0.04) 40%,rgba(255,255,255,0.08) 50%,rgba(255,255,255,0.04) 60%,transparent 100%)",backgroundSize:"200% 200%",animation:"holoShift 4s ease infinite",borderRadius:12,zIndex:1,pointerEvents:"none" }} />}
                 {photo ? (
-                  <img src={photo} alt={c.name} style={{ position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",borderRadius:12 }} />
+                  <img src={photo} alt={cardName} style={{ position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",borderRadius:12 }} />
                 ) : (
                   <div style={{ position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,opacity:0.15 }}>
-                    <span style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:36,color:rc,opacity:0.25 }}>{c.name?.[0]||"K"}</span>
+                    <span style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:36,color:rc,opacity:0.25 }}>{cardName?.[0]||"K"}</span>
                   </div>
                 )}
                 {/* Inner glow border effect */}
                 <div style={{ position:"absolute",inset:0,borderRadius:12,boxShadow:`inset 0 0 16px ${rc}22`,pointerEvents:"none" }} />
                 <div style={{ position:"relative",zIndex:2,background:photo?"rgba(6,6,15,0.7)":"transparent",borderRadius:"0 0 10px 10px",padding:"4px 5px" }}>
-                  <p style={{ fontSize:7.5,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.white,lineHeight:1.2 }}>{c.name}</p>
-                  <p style={{ fontSize:6.5,color:rc }}>{c.group||c.rarity}</p>
+                  <p style={{ fontSize:7.5,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.white,lineHeight:1.2 }}>{cardName}</p>
+                  <p style={{ fontSize:6.5,color:rc }}>{cardGroup||c.era}</p>
                 </div>
               </div>
               {/* Expanded actions */}
               {isExpanded && (
                 <div style={{ position:"absolute",bottom:-82,left:0,right:0,zIndex:10,background:C.surfaceHi,border:`1.5px solid ${rc}44`,borderRadius:12,padding:8,animation:"up .15s ease",display:"flex",flexDirection:"column",gap:5 }}>
-                  <button onClick={()=>fileRefs.current[c.id]?.click()} style={{ padding:"6px 8px",borderRadius:8,background:`${rc}18`,border:`1px solid ${rc}33`,color:rc,fontSize:9.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>{photo?"📷 Replace Photo":"📷 Add Photo"}</button>
+                  <button onClick={()=>fileRefs.current[c.id]?.click()} disabled={isUploading} style={{ padding:"6px 8px",borderRadius:8,background:`${rc}18`,border:`1px solid ${rc}33`,color:rc,fontSize:9.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>{isUploading?"⏳ Uploading...":(photo?"📷 Replace Photo":"📷 Add Photo")}</button>
                   <button onClick={()=>handleAiIdentify(c.id)} disabled={!!aiLoading} style={{ padding:"6px 8px",borderRadius:8,background:`${C.mint}18`,border:`1px solid ${C.mint}33`,color:C.mint,fontSize:9.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>{aiLoading===c.id?"🤖 Scanning...":"🤖 AI Identify"}</button>
-                  <input ref={el=>fileRefs.current[c.id]=el} type="file" accept="image/*" onChange={e=>handleFileChange(e,c.id)} style={{ display:"none" }} />
+                  <input ref={el=>fileRefs.current[c.id]=el} type="file" accept="image/*" onChange={e=>handleFileChange(e,c)} style={{ display:"none" }} />
                 </div>
               )}
             </div>
@@ -5256,16 +5274,18 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
   const [groupFilter, setGroupFilter] = useState("all");
 
   const { binders } = useBinders();
-  const wishlist  = MOCK_WISHLIST;
+  const [isoCards, setIsoCards] = useState([]);
+  useEffect(()=>{ api.get('/api/cards?status=iso').then(d=>{ if(d?.cards) setIsoCards(d.cards); }).catch(()=>{}); },[]);
+  const wishlist  = isoCards;
   const allCards  = cards || MOCK_CARDS;
-  const dupes     = allCards.filter(c=>c.dupe);
-  const tradeable = allCards.filter(c=>c.tradeable);
+  const dupes     = allCards.filter(c=>c.status==='duplicate'||c.dupe);
+  const tradeable = allCards.filter(c=>c.status==='for_trade'||c.tradeable);
   const totalOwned = allCards.length;
   const completion = Math.round((totalOwned / Math.max(totalOwned + wishlist.length, 1)) * 100);
 
-  const GROUPS = ["all", ...new Set(allCards.map(c=>c.group).filter(Boolean))].slice(0,6);
+  const GROUPS = ["all", ...new Set(allCards.map(c=>c.group_name||c.group).filter(Boolean))].slice(0,6);
 
-  const filteredCards = groupFilter==="all" ? allCards : allCards.filter(c=>c.group===groupFilter);
+  const filteredCards = groupFilter==="all" ? allCards : allCards.filter(c=>(c.group_name||c.group)===groupFilter);
 
   const RARITY_COLORS  = { UR:C.gold, SR:C.berry, R:C.lavender, N:C.silver };
   const RARITY_GLOW    = { UR:`0 0 18px ${C.gold}66, 0 0 36px ${C.gold}22`, SR:`0 0 14px ${C.berry}55`, R:`0 0 10px ${C.lavender}44`, N:"none" };
@@ -5409,13 +5429,21 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
 
         {section==="wishlist" && (
           <div style={{ paddingTop:4 }}>
-            {wishlist.map((w,i)=>(
-              <div key={i} className="tap" style={{ ...VS.glowCard(C.gold), padding:14, marginBottom:10, cursor:"pointer", display:"flex", gap:12, alignItems:"center" }}>
-                <div style={{ width:48, height:64, borderRadius:10, background:`linear-gradient(160deg,${C.gold}44,${C.gold}18)`, border:`1.5px solid ${C.gold}55`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0, boxShadow:`0 0 12px ${C.gold}33` }}>🃏</div>
+            {wishlist.length===0 ? (
+              <div style={{ textAlign:"center",padding:"32px 16px",background:`${C.gold}08`,border:`1.5px dashed ${C.gold}33`,borderRadius:20,marginBottom:14 }}>
+                <p style={{ fontSize:30,marginBottom:10 }}>♡</p>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14,marginBottom:5 }}>No wishlist cards yet</p>
+                <p style={{ fontSize:12,color:C.textMid,lineHeight:1.6 }}>Open a binder and set cards to ISO to track what you're looking for.</p>
+              </div>
+            ) : wishlist.map((w,i)=>(
+              <div key={w.id||i} className="tap" style={{ ...VS.glowCard(C.gold), padding:14, marginBottom:10, cursor:"pointer", display:"flex", gap:12, alignItems:"center" }}>
+                <div style={{ width:48,height:64,borderRadius:10,background:`linear-gradient(160deg,${C.gold}44,${C.gold}18)`,border:`1.5px solid ${C.gold}55`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0,boxShadow:`0 0 12px ${C.gold}33`,overflow:"hidden" }}>
+                  {w.image_url ? <img src={w.image_url} alt="" style={{ width:"100%",height:"100%",objectFit:"cover" }} /> : "🃏"}
+                </div>
                 <div style={{ flex:1 }}>
-                  <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:14, color:C.text, marginBottom:3 }}>{w.name}</p>
-                  <p style={{ fontSize:11, color:C.textMid, marginBottom:6 }}>{w.group} · {w.rarity}</p>
-                  <div style={{ ...VS.activePill(C.gold), fontSize:8.5 }}>♡ Wishlist</div>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:14, color:C.text, marginBottom:3 }}>{w.member||w.name}</p>
+                  <p style={{ fontSize:11, color:C.textMid, marginBottom:6 }}>{w.group_name||w.group}{(w.album||w.era)&&` · ${w.album||w.era}`}</p>
+                  <div style={{ ...VS.activePill(C.gold), fontSize:8.5 }}>♡ ISO</div>
                 </div>
                 <button onClick={()=>go("collect")} style={{ background:`${C.gold}18`, border:`1.5px solid ${C.gold}44`, borderRadius:10, padding:"7px 12px", color:C.gold, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10, cursor:"pointer" }}>Find →</button>
               </div>
@@ -5794,17 +5822,38 @@ function AddCardForm({ binder, onBack, onSaved }) {
   const STATUS_COLORS = {owned:C.mint,missing:C.textDim,iso:C.accent,duplicate:C.gold,for_trade:C.rose};
 
   const [form, setForm] = useState({ group_name:binder?.group_name||"", member:"", album:binder?.name||"", era:"", version:"", condition:"mint", status:"owned", notes:"" });
+  const [photoFile, setPhotoFile] = useState(null);
+  const [photoPreview, setPhotoPreview] = useState(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
+  const photoRef = useRef(null);
 
   const update = k => e => setForm(f=>({...f,[k]:e.target.value}));
+
+  const handlePhoto = (e) => {
+    const f = e.target.files[0]; if(!f) return;
+    setPhotoFile(f);
+    const r = new FileReader();
+    r.onload = ev => setPhotoPreview(ev.target.result);
+    r.readAsDataURL(f);
+  };
 
   const save = async () => {
     if (!form.group_name.trim()||!form.member.trim()) { setErr("Group and member name are required."); return; }
     setSaving(true); setErr("");
-    const d = await api.post('/api/cards', { ...form, binder_id: binder?.id });
-    if (d?.card) onSaved(d.card);
-    else { setErr("Failed to save. Try again."); setSaving(false); }
+    try {
+      let image_url = null;
+      if (photoFile) {
+        const urlRes = await api.post('/api/cards/upload-url', { filename: photoFile.name, content_type: photoFile.type });
+        if (urlRes?.signed_url) {
+          await fetch(urlRes.signed_url, { method:'PUT', body:photoFile, headers:{'Content-Type':photoFile.type} });
+          image_url = urlRes.public_url;
+        }
+      }
+      const d = await api.post('/api/cards', { ...form, binder_id: binder?.id, image_url });
+      if (d?.card) onSaved(d.card);
+      else { setErr("Failed to save. Try again."); setSaving(false); }
+    } catch { setErr("Failed to save. Try again."); setSaving(false); }
   };
 
   return (
@@ -5815,6 +5864,21 @@ function AddCardForm({ binder, onBack, onSaved }) {
       </div>
       <Screen style={{ padding:"0 20px calc(140px + env(safe-area-inset-bottom))" }}>
         <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
+          <div>
+            <p style={{ fontSize:10,color:C.textMid,marginBottom:8,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em" }}>Photo (optional)</p>
+            {photoPreview ? (
+              <div style={{ display:"inline-block",position:"relative" }}>
+                <img src={photoPreview} alt="card" style={{ width:80,height:110,objectFit:"cover",borderRadius:12,border:`2px solid ${C.accent}66` }} />
+                <button onClick={()=>{setPhotoFile(null);setPhotoPreview(null);}} style={{ position:"absolute",top:-8,right:-8,width:20,height:20,borderRadius:"50%",background:C.rose,border:"none",color:C.bg,fontSize:10,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800 }}>×</button>
+              </div>
+            ) : (
+              <button onClick={()=>photoRef.current?.click()} style={{ width:80,height:110,borderRadius:12,background:`${C.accent}10`,border:`2px dashed ${C.accent}44`,color:C.accent,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4 }}>
+                <span style={{ fontSize:22 }}>📸</span><span>Add Photo</span>
+              </button>
+            )}
+            <input ref={photoRef} type="file" accept="image/*" onChange={handlePhoto} style={{ display:"none" }} />
+          </div>
+
           <Input label="Group *" value={form.group_name} onChange={update("group_name")} placeholder="e.g. Stray Kids" />
           <Input label="Member / Card Name *" value={form.member} onChange={update("member")} placeholder="e.g. Felix (Standard)" />
           <Input label="Album / Era" value={form.album} onChange={update("album")} placeholder="e.g. 5-STAR" />
@@ -5972,6 +6036,11 @@ function BinderDetail({ binder, onBack }) {
     api.patch(`/api/cards/${card.id}`, { status:next });
   };
 
+  const deleteCard = (cardId) => {
+    setCards(cs => cs.filter(c => c.id !== cardId));
+    api.del(`/api/cards/${cardId}`).catch(()=>{});
+  };
+
   if (showAddCard) return <AddCardForm binder={binder} onBack={()=>setShowAddCard(false)} onSaved={card=>{ setCards(cs=>[card,...cs]); setShowAddCard(false); }} />;
   if (tradingCard) return <TradeListingForm card={tradingCard} onBack={()=>setTradingCard(null)} onSaved={()=>{ setTradingCard(null); setCards(cs=>cs.map(c=>c.id===tradingCard.id?{...c,status:'for_trade'}:c)); }} />;
 
@@ -6038,6 +6107,7 @@ function BinderDetail({ binder, onBack }) {
                     {card.status==="for_trade"&&(
                       <button onClick={()=>setTradingCard(card)} style={{ position:"absolute",bottom:6,right:6,background:C.rose,border:"none",borderRadius:7,padding:"3px 7px",color:C.bg,fontSize:8.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>List →</button>
                     )}
+                    <button onClick={e=>{e.stopPropagation();deleteCard(card.id);}} style={{ position:"absolute",top:-5,right:-5,width:18,height:18,borderRadius:"50%",background:C.surfaceMid,border:`1.5px solid ${C.border}`,color:C.textDim,fontSize:9,cursor:"pointer",zIndex:5,display:"flex",alignItems:"center",justifyContent:"center",padding:0 }}>✕</button>
                   </div>
                 );
               })}
@@ -6965,7 +7035,8 @@ function CollectTab({ cards, setCards, isVip, onUpgrade, user }) {
   const [view, setView] = useState("shelf");
   const [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState(null);
-  const [wishlist] = useState(MOCK_WISHLIST);
+  const [wishlist, setWishlist] = useState([]);
+  useEffect(()=>{ api.get('/api/cards?status=iso').then(d=>{ if(d?.cards) setWishlist(d.cards); }).catch(()=>{}); },[]);
   const [tradeable] = useState(MOCK_CARDS.filter(c=>c.tradeable));
   const [tracking, setTracking] = useState(null);
   const [trackNum, setTrackNum] = useState("");
@@ -7108,18 +7179,20 @@ function CollectTab({ cards, setCards, isVip, onUpgrade, user }) {
           <div>
             <Card style={{ background:`${C.pink}0a`, border:`1px solid ${C.pink}22`, marginBottom:14 }}>
               <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13, marginBottom:4 }}>💜 Wishlist Matching</p>
-              <p style={{ fontSize:11.5, color:C.textMid }}>3 fans nearby have cards on your list!</p>
-              <Pill color={C.mint} active small style={{ marginTop:8, cursor:"pointer" }}>See Matches →</Pill>
+              <p style={{ fontSize:11.5, color:C.textMid }}>Cards marked ISO show up here. Mark them in your binders to track what you're looking for.</p>
             </Card>
-            {wishlist.map(card=>(
-              <div key={card.id} style={{ background:C.surface, border:`1.5px solid ${card.priority?card.color:C.border}`, borderRadius:16, padding:12, display:"flex", gap:10, alignItems:"center", marginBottom:10 }}>
-                <div style={{ width:46,height:64,borderRadius:9,background:`${card.color}18`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0 }}>🃏</div>
-                <div style={{ flex:1 }}>
-                  <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13.5 }}>{card.name}</p>
-                  <p style={{ fontSize:11, color:C.textMid }}>{card.group} · {card.era}</p>
-                  <Pill color={card.color} xs style={{ marginTop:5 }}>{card.rarity}</Pill>
+            {wishlist.length===0 ? (
+              <div style={{ textAlign:"center",padding:"24px 16px",color:C.textMid,fontSize:12 }}>No ISO cards yet — open a binder and mark cards as ♡ ISO.</div>
+            ) : wishlist.map(card=>(
+              <div key={card.id} style={{ background:C.surface, border:`1.5px solid ${C.border}`, borderRadius:16, padding:12, display:"flex", gap:10, alignItems:"center", marginBottom:10 }}>
+                <div style={{ width:46,height:64,borderRadius:9,background:`${C.accent}18`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0,overflow:"hidden" }}>
+                  {card.image_url ? <img src={card.image_url} alt="" style={{ width:"100%",height:"100%",objectFit:"cover" }} /> : "🃏"}
                 </div>
-                {card.priority&&<Pill color={C.gold} active small>Priority</Pill>}
+                <div style={{ flex:1 }}>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13.5 }}>{card.member||card.name}</p>
+                  <p style={{ fontSize:11, color:C.textMid }}>{card.group_name||card.group}{(card.album||card.era)&&` · ${card.album||card.era}`}</p>
+                  <Pill color={C.accent} xs style={{ marginTop:5 }}>♡ ISO</Pill>
+                </div>
               </div>
             ))}
           </div>
@@ -17994,10 +18067,10 @@ function AppInner() {
     }
   };
 
-  // Boot: load photocard collection from backend (replaces MOCK_CARDS when user has real data)
+  // Boot: load photocard collection from user_cards table
   useEffect(()=>{
     if(!user?.id || appState!=="main" || !API_URL) return;
-    api.get('/api/collection?type=cards').then(d=>{ if(d?.items?.length) setCards(d.items); }).catch(()=>{});
+    api.get('/api/cards').then(d=>{ if(d?.cards?.length) setCards(d.cards); }).catch(()=>{});
   },[user?.id, appState]);
 
   const handleUpgrade = async (selectedPlan = "annual") => {
