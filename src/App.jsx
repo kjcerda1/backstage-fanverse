@@ -342,56 +342,77 @@ function AuthProvider({ children }) {
       return;
     }
 
-    // Real Supabase session
-    if (_supabase) {
-      _supabase.auth.getSession().then(({ data }) => {
-        setSession(data.session || null);
-        if (data.session) {
-          const u = data.session.user;
-          const fallback = { id:u.id, email:u.email, username:u.email.split('@')[0], fandoms:[], bias:'', is_vip:false };
-          api._setToken(data.session.access_token);
-          setTokenReady(true);
-          api.get('/api/users/me').then(remote=>{
-            const profile = mergeStoredProfile(ls.get(`backstage_profile_${u.id}`), remote?.id ? remote : null, fallback);
-            setUser(profile);
-            ls.set('backstage_session', { user: profile });
-            if (profile?.id) ls.set(`backstage_profile_${profile.id}`, profile);
-          }).catch(()=>{
-            const profile = mergeStoredProfile(ls.get(`backstage_profile_${u.id}`), null, fallback);
-            setUser(profile);
-            ls.set('backstage_session', { user: profile });
-            if (profile?.id) ls.set(`backstage_profile_${profile.id}`, profile);
-          }).finally(()=>setLoading(false));
-          return;
-        }
-        setLoading(false);
-      });
+    if (!_supabase) return;
 
-      const { data: { subscription } } = _supabase.auth.onAuthStateChange(async (event, session) => {
-        setSession(session || null);
-        if (session) {
-          api._setToken(session.access_token);
-          setTokenReady(true);
-          const fallback = { id:session.user.id, email:session.user.email, username:session.user.email.split('@')[0], fandoms:[], bias:'', is_vip:false };
-          const profile = await api.get('/api/users/me').catch(() => null);
-          const u = mergeStoredProfile(ls.get(`backstage_profile_${session.user.id}`), profile?.id ? profile : null, fallback);
-          setUser(u);
-          ls.set('backstage_session', { user: u });
-          if (u.id) ls.set(`backstage_profile_${u.id}`, u);
-        } else if (event === 'SIGNED_OUT') {
-          // Only clear state on an explicit sign-out — not on transient null sessions
-          // that Supabase emits during INITIAL_SESSION (before storage resolves) or
-          // during the TOKEN_REFRESHED cycle. Clearing the token during those brief
-          // windows causes search and other API calls to fail even though the user
-          // is still authenticated.
-          api._setToken(null);
-          setTokenReady(false);
-          setUser(null);
-          ls.del('backstage_session');
-        }
-      });
-      return () => subscription.unsubscribe();
-    }
+    // Guard against StrictMode double-mount: onAuthStateChange fires INITIAL_SESSION
+    // immediately on subscribe, which overlaps with getSession()'s async path and
+    // causes two concurrent /api/users/me fetches + two setUser calls. The listener
+    // handles the authoritative session state; getSession() is only used for the
+    // very first paint (cold boot with no cached session). If the listener fires
+    // first, skip the getSession() setState calls.
+    let listenerFired = false;
+    let mounted = true;
+
+    _supabase.auth.getSession().then(({ data }) => {
+      if (!mounted || listenerFired) return; // listener already handled it
+      setSession(data.session || null);
+      if (data.session) {
+        const u = data.session.user;
+        const fallback = { id:u.id, email:u.email, username:(u.email||'').split('@')[0]||'fan', fandoms:[], bias:'', is_vip:false };
+        api._setToken(data.session.access_token);
+        setTokenReady(true);
+        api.get('/api/users/me').then(remote=>{
+          if (!mounted) return;
+          const profile = mergeStoredProfile(ls.get(`backstage_profile_${u.id}`), remote?.id ? remote : null, fallback);
+          setUser(profile);
+          ls.set('backstage_session', { user: profile });
+          if (profile?.id) ls.set(`backstage_profile_${profile.id}`, profile);
+        }).catch(()=>{
+          if (!mounted) return;
+          const profile = mergeStoredProfile(ls.get(`backstage_profile_${u.id}`), null, fallback);
+          setUser(profile);
+          ls.set('backstage_session', { user: profile });
+          if (profile?.id) ls.set(`backstage_profile_${profile.id}`, profile);
+        }).finally(()=>{ if (mounted) setLoading(false); });
+        return;
+      }
+      setLoading(false);
+    }).catch(err => {
+      // getSession() failed (network, bad token, etc.) — don't crash, just clear loading
+      if (mounted) { console.warn('[AuthProvider] getSession error:', err?.message); setLoading(false); }
+    });
+
+    const { data: { subscription } } = _supabase.auth.onAuthStateChange(async (event, session) => {
+      listenerFired = true;
+      setSession(session || null);
+      if (session) {
+        api._setToken(session.access_token);
+        setTokenReady(true);
+        const fallback = { id:session.user.id, email:session.user.email, username:(session.user.email||'').split('@')[0]||'fan', fandoms:[], bias:'', is_vip:false };
+        const profile = await api.get('/api/users/me').catch(() => null);
+        if (!mounted) return;
+        const u = mergeStoredProfile(ls.get(`backstage_profile_${session.user.id}`), profile?.id ? profile : null, fallback);
+        setUser(u);
+        ls.set('backstage_session', { user: u });
+        if (u.id) ls.set(`backstage_profile_${u.id}`, u);
+        setLoading(false);
+      } else if (event === 'SIGNED_OUT') {
+        // Only clear state on an explicit sign-out — not on transient null sessions
+        // that Supabase emits during INITIAL_SESSION (before storage resolves) or
+        // during the TOKEN_REFRESHED cycle. Clearing the token during those brief
+        // windows causes search and other API calls to fail even though the user
+        // is still authenticated.
+        api._setToken(null);
+        setTokenReady(false);
+        setUser(null);
+        ls.del('backstage_session');
+      }
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signOut = async () => {
@@ -16916,13 +16937,23 @@ function ProfilePublicPage({ username }) {
 }
 
 // ─── APP ERROR BOUNDARY ───────────────────────────────────────────────────────
-// Prevents the React dev-mode flood caused by StrictMode double-mounting
-// AuthProvider's onAuthStateChange listener. In production it catches any
-// render crash and shows a recovery screen instead of a blank app.
+// Wraps AuthProvider so it catches errors thrown in AuthProvider itself, not
+// just its children. Root cause: StrictMode double-mount + duplicate createRoot
+// (now removed) caused a render loop. This boundary stops it cleanly and logs
+// the real error so we can diagnose any recurrence.
 class AppErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { error: null }; }
   static getDerivedStateFromError(error) { return { error }; }
-  componentDidCatch(error, info) { console.error('[Backstage] render error:', error, info?.componentStack?.split('\n').slice(0,4).join(' ')); }
+  componentDidCatch(error, info) {
+    // Log the real error — this is what was missing when the loop was firing.
+    // componentStack shows exactly where in the tree the throw happened.
+    console.error(
+      '[Backstage] render error caught by AppErrorBoundary\n',
+      'Error:', error?.message || error,
+      '\nStack:', error?.stack?.split('\n').slice(0,6).join('\n'),
+      '\nComponent stack:', info?.componentStack?.split('\n').slice(0,8).join('\n')
+    );
+  }
   render() {
     if (this.state.error) {
       return (
@@ -16948,7 +16979,7 @@ export default function App() {
   // Shareable profile links: /u/:username or /@:username
   const uMatch = p.match(/^\/(?:u\/|@)(.+)$/);
   if (uMatch) return <ProfilePublicPage username={uMatch[1]} />;
-  return <AuthProvider><AppErrorBoundary><AppInner /></AppErrorBoundary></AuthProvider>;
+  return <AppErrorBoundary><AuthProvider><AppInner /></AuthProvider></AppErrorBoundary>;
 }
 
 const _IS_CAPSULE_PATH = typeof window!=="undefined" && (window.location.pathname==="/capsule"||window.location.pathname==="/capsule/");
