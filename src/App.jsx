@@ -155,6 +155,7 @@ function normalizeProfile(user) {
     bias_wrecker:user.bias_wrecker || user.biasWrecker || "",
     onboarding_complete:user.onboarding_complete === true || complete,
     profile_complete:user.profile_complete === true || complete,
+    showCity: user.show_city ?? user.showCity ?? true,
   };
 }
 
@@ -3126,31 +3127,16 @@ function HomeIdentity({ user, go }) {
             <button onClick={()=>go("profile")} style={{ flexShrink:0,background:`${C.accent}18`,border:`1px solid ${C.accent}38`,borderRadius:10,padding:"5px 10px",color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10,cursor:"pointer" }}>Edit</button>
           </div>
 
-          {/* Now Playing — only renders when user has set a song */}
-          {nowPlaying ? (
-            <div style={{ display:"flex",gap:10,alignItems:"center",background:`${C.pink}0a`,border:`1px solid ${C.pink}22`,borderRadius:12,padding:"8px 11px" }}>
-              {nowPlaying.albumArt
-                ? <img src={nowPlaying.albumArt} alt="" style={{ width:30,height:30,borderRadius:9,objectFit:"cover",flexShrink:0 }} />
-                : <div style={{ width:30,height:30,borderRadius:9,background:`linear-gradient(135deg,${C.pink}44,${C.accent}22)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,flexShrink:0 }}>🎵</div>
-              }
-              <div style={{ flex:1, minWidth:0 }}>
-                <p style={{ fontSize:8.5,color:C.pink,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:1 }}>♫ My Music</p>
-                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{nowPlaying.title||nowPlaying.song}</p>
-                <p style={{ fontSize:10,color:C.textMid }}>{nowPlaying.artist}</p>
+          {/* Now Playing — expandable card */}
+          {nowPlaying
+            ? <NowPlayingCard nowPlaying={nowPlaying} isVip={!!user?.is_vip} isPublicView={false} onUpgrade={()=>go("profile")} />
+            : <div onClick={()=>go("profile")} style={{ display:"flex",gap:10,alignItems:"center",background:`${C.pink}06`,border:`1px dashed ${C.border}`,borderRadius:12,padding:"8px 11px",cursor:"pointer",marginBottom:0 }}>
+                <div style={{ width:30,height:30,borderRadius:9,background:C.surfaceHi,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,flexShrink:0 }}>🎵</div>
+                <div style={{ flex:1 }}>
+                  <p style={{ fontSize:11,color:C.textDim,fontFamily:"'Epilogue',sans-serif" }}>Set your now playing in Studio →</p>
+                </div>
               </div>
-              {(nowPlaying.spotifyUrl||nowPlaying.appleMusicUrl)
-                ? <a href={nowPlaying.spotifyUrl||nowPlaying.appleMusicUrl} target="_blank" rel="noopener noreferrer" style={{ background:`${C.mint}18`,border:`1px solid ${C.mint}33`,borderRadius:7,padding:"3px 7px",color:C.mint,fontSize:8.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textDecoration:"none",flexShrink:0 }}>Listen</a>
-                : bias && <div style={{ ...VS.activePill(C.gold),fontSize:9,flexShrink:0 }}>Bias: {bias}</div>
-              }
-            </div>
-          ) : (
-            <div onClick={()=>go("profile")} style={{ display:"flex",gap:10,alignItems:"center",background:`${C.pink}06`,border:`1px dashed ${C.border}`,borderRadius:12,padding:"8px 11px",cursor:"pointer" }}>
-              <div style={{ width:30,height:30,borderRadius:9,background:C.surfaceHi,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,flexShrink:0 }}>🎵</div>
-              <div style={{ flex:1 }}>
-                <p style={{ fontSize:11,color:C.textDim,fontFamily:"'Epilogue',sans-serif" }}>Set your now playing in Studio →</p>
-              </div>
-            </div>
-          )}
+          }
         </div>
       </div>
     </div>
@@ -12424,6 +12410,7 @@ function PublicProfileFull({ fan, onBack, onBackToMessage }) {
     bias: apiData?.bias || null,
     city: apiData?.city || null,
     is_vip: apiData?.is_vip || false,
+    now_playing: apiData?.now_playing || null,
     bio: apiData?.bio || null,
     profile_style: apiData?.profile_style || {},
   };
@@ -12568,7 +12555,7 @@ function PublicFanPassport({ fan, onBack, onBackToMessage }) {
 // ─── TOP BIASES ───────────────────────────────────────────────────────────────
 // GET /api/profile/biases | POST /api/profile/biases/update
 // ─── PROFILE PREVIEW — read-only view as other fans see you ──────────────────
-function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack, overrideFan, onBackToMessage }) {
+function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack, overrideFan, onBackToMessage, isVip, onUpgrade }) {
   // overrideFan: when set, renders another user's public profile instead of the current user's preview
   const isPublic = !!overrideFan;
   const name    = isPublic
@@ -12584,7 +12571,10 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack, o
     ? (overrideFan.profile_style?.bannerText || overrideFan.bio || "Backstage fan 💜")
     : (profileStyle?.bannerText || "currently in my concert era 🎤");
   const COLORS  = [C.accent,C.pink,C.mint,C.gold,C.silver];
-  const nowPlaying = isPublic ? null : ls.get(`backstage_now_playing_${user?.id || 'anon'}`, {title:"Whiplash",artist:"aespa"});
+  const profileOwnerIsVip = isPublic ? !!overrideFan.is_vip : !!isVip;
+  const nowPlaying = isPublic
+    ? (overrideFan.now_playing || null)
+    : ls.get(`backstage_now_playing_${user?.id || 'anon'}`, null);
   const friends = isPublic ? [] : ls.get("backstage_friends",[]).filter(f=>f.status==="accepted").slice(0,4);
   const publicTop5 = isPublic ? fandoms : top5;
   const publicBiases = isPublic ? (bias ? [bias] : []) : biases;
@@ -12677,26 +12667,13 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack, o
           }
         </div>
 
-        {/* Now Playing — own profile only */}
-        {!isPublic&&nowPlaying&&(
-        <div style={{ background:`linear-gradient(140deg,${C.surface},${C.surfaceHi})`,border:`1.5px solid ${C.borderHi}`,borderRadius:16,padding:"10px 14px",marginBottom:16,display:"flex",gap:11,alignItems:"center" }}>
-          {nowPlaying.albumArt
-            ? <img src={nowPlaying.albumArt} alt="" style={{ width:36,height:36,borderRadius:11,objectFit:"cover",flexShrink:0 }} />
-            : <div style={{ width:36,height:36,borderRadius:11,background:`linear-gradient(135deg,${C.pink}40,${C.accent}20)`,border:`1.5px solid ${C.pink}30`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,flexShrink:0 }}>🎵</div>
-          }
-          <div style={{ flex:1,minWidth:0 }}>
-            <p style={{ fontSize:8.5,color:C.pink,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2 }}>♫ Now Playing</p>
-            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{nowPlaying.title||nowPlaying.song}</p>
-            <p style={{ fontSize:10.5,color:C.textMid }}>{nowPlaying.artist}</p>
-          </div>
-          {(nowPlaying.spotifyUrl||nowPlaying.appleMusicUrl)
-            ? <a href={nowPlaying.spotifyUrl||nowPlaying.appleMusicUrl} target="_blank" rel="noopener noreferrer" style={{ background:`${C.mint}18`,border:`1px solid ${C.mint}33`,borderRadius:8,padding:"4px 8px",color:C.mint,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textDecoration:"none",flexShrink:0 }}>Listen →</a>
-            : <div style={{ display:"flex",gap:2,alignItems:"flex-end",height:14,flexShrink:0 }}>
-                {[1,2,3,4].map(i=>(<div key={i} style={{ width:2.5,borderRadius:2,background:C.pink,animation:`eqBar ${0.4+i*0.18}s ease-in-out infinite`,animationDelay:`${i*0.1}s`,transformOrigin:"bottom",height:`${8+i*2}px` }} />))}
-              </div>
-          }
-        </div>
-        )}
+        {/* Now Playing — VIP-gated expandable card */}
+        <NowPlayingCard
+          nowPlaying={nowPlaying}
+          isVip={profileOwnerIsVip}
+          isPublicView={isPublic}
+          onUpgrade={!isPublic ? onUpgrade : null}
+        />
 
         {/* Top 5 / Top Groups */}
         {publicTop5.length>0&&(
@@ -14101,7 +14078,12 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
   });
   const [section, setSection] = useState("main");
   const [profileStyle, setProfileStyle] = useState(ls.get("backstage_profile_style", DEFAULT_PROFILE_STYLE));
-  const [privacySettings, setPrivacySettings] = useState(ls.get("backstage_privacy_settings", DEFAULT_PRIVACY));
+  const [privacySettings, setPrivacySettings] = useState(()=>{
+    const cached = ls.get("backstage_privacy_settings", DEFAULT_PRIVACY);
+    // Backend is authoritative for showCity — hydrate from user profile if available
+    const backendShowCity = user?.showCity;
+    return backendShowCity !== undefined ? { ...cached, showCity: backendShowCity } : cached;
+  });
   const [notifSettings, setNotifSettings] = useState(ls.get("backstage_notification_settings", DEFAULT_NOTIF_SETTINGS));
   // Account deletion
   const [showDeleteModal, setShowDeleteModal]   = useState(false);
@@ -14236,7 +14218,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
   if(section==="studio") return <ProfileStudio profileStyle={profileStyle} setProfileStyle={setProfileStyle} isVip={isVip} onUpgrade={onUpgrade} onBack={()=>setSection("main")} user={user} />;
 
   // ── SECTION: PROFILE PREVIEW ──
-  if(section==="preview") return <ProfilePreview user={user} profileStyle={profileStyle} cards={cards} top5={ls.get("backstage_top5",[])} biases={ls.get("backstage_top_biases",[])} go={go} onBack={()=>setSection("main")} />;
+  if(section==="preview") return <ProfilePreview user={user} profileStyle={profileStyle} cards={cards} top5={ls.get("backstage_top5",[])} biases={ls.get("backstage_top_biases",[])} go={go} onBack={()=>setSection("main")} isVip={isVip} onUpgrade={onUpgrade} />;
 
   // ── SECTION: PRIVACY ──
   if(section==="privacy") return <PrivacySettings settings={privacySettings} setSettings={setPrivacySettings} onBack={()=>setSection("main")} />;
@@ -14397,7 +14379,10 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
             <p style={{ fontSize:10, color:C.textDim }}>
               {privacySettings.showCity ? "Shown on public profile" : "Hidden from public profile"}
             </p>
-            <Toggle on={!!privacySettings.showCity} onChange={v=>setPrivacySettings({...privacySettings, showCity:v})} />
+            <Toggle on={!!privacySettings.showCity} onChange={v=>{
+              setPrivacySettings({...privacySettings, showCity:v});
+              if (API_URL) api.post('/api/profile/update', { showCity: v }).catch(()=>{});
+            }} />
           </div>
         </div>
 
@@ -14472,7 +14457,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
         )}
 
         {/* NOW PLAYING / MUSIC CONNECT */}
-        <MusicConnect nowPlaying={nowPlaying} setNowPlaying={setNowPlaying} userId={user?.id} />
+        <MusicConnect nowPlaying={nowPlaying} setNowPlaying={setNowPlaying} userId={user?.id} isVip={isVip} onUpgrade={onUpgrade} />
 
         {/* TOP 5 */}
         <div onClick={()=>setSection("top5")} className="tap" style={{ background:C.surface, border:`1.5px solid ${C.gold}33`, borderRadius:18, padding:16, marginBottom:18, cursor:"pointer" }}>
@@ -14660,10 +14645,115 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
   );
 }
 
+// ─── MUSIC HELPERS ────────────────────────────────────────────────────────────
+
+function getEmbedUrl(np) {
+  if (!np) return null;
+  if (np.source === 'spotify' || np.spotifyUrl) {
+    let tid = (np.id && !np.id.startsWith('mock-') && !np.id.startsWith('manual-') && np.id.length > 10) ? np.id : null;
+    if (!tid && np.spotifyUrl) { const m = np.spotifyUrl.match(/track\/([A-Za-z0-9]+)/); tid = m?.[1]; }
+    if (tid) return `https://open.spotify.com/embed/track/${tid}?utm_source=generator`;
+  }
+  if (np.source === 'apple' && np.appleMusicUrl) {
+    const m = np.appleMusicUrl.match(/\/(\d+)\?i=(\d+)/);
+    if (m) return `https://embed.music.apple.com/us/album/${m[1]}/${m[2]}`;
+  }
+  return null;
+}
+
+function NpSourceBadge({ source }) {
+  if(source==='spotify') return <div style={{ ...VS.activePill(C.mint),fontSize:7,padding:"1px 5px",flexShrink:0 }}>Spotify</div>;
+  if(source==='apple')   return <div style={{ ...VS.activePill(C.rose),fontSize:7,padding:"1px 5px",flexShrink:0 }}>Apple</div>;
+  if(source==='mock')    return <div style={{ fontSize:7,padding:"1px 5px",background:`${C.textDim}18`,border:`1px solid ${C.textDim}33`,borderRadius:99,color:C.textDim,flexShrink:0 }}>Sample</div>;
+  return null;
+}
+
+// Expandable Now Playing card — used in HomeIdentity, ProfilePreview, and MusicConnect display.
+// isVip: whether the profile OWNER is VIP (controls public display + embed unlock).
+// isPublicView: true when a visitor is viewing someone else's profile.
+//   → if isPublicView && !isVip: renders nothing (non-VIP profiles don't show music publicly).
+//   → if !isPublicView && !isVip: renders card + VIP upsell panel (studio / home view).
+function NowPlayingCard({ nowPlaying, isVip, isPublicView, onUpgrade, showEdit, onEdit }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!nowPlaying) return null;
+  if (isPublicView && !isVip) return null;
+  const isLocked = !isVip && !isPublicView;
+  const embedUrl = getEmbedUrl(nowPlaying);
+  const listenUrl = nowPlaying.spotifyUrl || nowPlaying.appleMusicUrl;
+  const srcName = nowPlaying.source === 'spotify' ? 'Spotify' : nowPlaying.source === 'apple' ? 'Apple Music' : null;
+  const canExpand = !!embedUrl && !isLocked;
+  return (
+    <div style={{ marginBottom:16 }}>
+      {/* Collapsed card */}
+      <div
+        onClick={()=>canExpand&&setExpanded(e=>!e)}
+        style={{ background:`linear-gradient(140deg,${C.surface},${C.surfaceHi})`,border:`1.5px solid ${C.borderHi}`,borderRadius:expanded?"16px 16px 0 0":16,padding:"10px 14px",display:"flex",gap:12,alignItems:"center",cursor:canExpand?"pointer":"default" }}
+      >
+        {nowPlaying.albumArt
+          ? <img src={nowPlaying.albumArt} alt="" style={{ width:38,height:38,borderRadius:11,objectFit:"cover",flexShrink:0 }} />
+          : <div style={{ width:38,height:38,borderRadius:11,background:`linear-gradient(135deg,${C.pink}40,${C.accent}20)`,border:`1.5px solid ${C.pink}30`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0 }}>🎵</div>
+        }
+        <div style={{ flex:1,minWidth:0 }}>
+          <div style={{ display:"flex",gap:5,alignItems:"center",marginBottom:1 }}>
+            <p style={{ fontSize:8,color:C.pink,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em" }}>♫ Now Playing</p>
+            <NpSourceBadge source={nowPlaying.source} />
+          </div>
+          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{nowPlaying.title||nowPlaying.song||"Set a song"}</p>
+          <p style={{ fontSize:10.5,color:C.textMid }}>{nowPlaying.artist}</p>
+        </div>
+        <div style={{ display:"flex",gap:4,flexShrink:0,alignItems:"center" }}>
+          {isLocked
+            ? <span style={{ fontSize:11,color:C.gold }}>🔒</span>
+            : canExpand
+              ? expanded
+                ? <span style={{ fontSize:10,color:C.textDim,lineHeight:1 }}>▼</span>
+                : <div style={{ display:"flex",gap:2,alignItems:"flex-end",height:14 }}>{[1,2,3,4].map(i=>(<div key={i} style={{ width:2.5,borderRadius:2,background:C.pink,animation:`eqBar ${0.4+i*0.18}s ease-in-out infinite`,animationDelay:`${i*0.1}s`,transformOrigin:"bottom",height:`${8+i*2}px` }} />))}</div>
+              : listenUrl
+                ? <a href={listenUrl} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} style={{ background:`${C.mint}18`,border:`1px solid ${C.mint}33`,borderRadius:8,padding:"4px 8px",color:C.mint,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textDecoration:"none" }}>Listen →</a>
+                : <div style={{ display:"flex",gap:2,alignItems:"flex-end",height:14 }}>{[1,2,3,4].map(i=>(<div key={i} style={{ width:2.5,borderRadius:2,background:C.pink,animation:`eqBar ${0.4+i*0.18}s ease-in-out infinite`,animationDelay:`${i*0.1}s`,transformOrigin:"bottom",height:`${8+i*2}px` }} />))}</div>
+          }
+          {showEdit&&<button onClick={e=>{e.stopPropagation();onEdit&&onEdit();}} style={{ background:"none",border:"none",color:C.textDim,fontSize:14,cursor:"pointer",marginLeft:2 }}>✏️</button>}
+        </div>
+      </div>
+      {/* VIP upsell panel — shown for non-VIP in own profile contexts */}
+      {isLocked&&(
+        <div style={{ background:`${C.gold}09`,border:`1.5px solid ${C.gold}22`,borderTop:"none",borderRadius:"0 0 14px 14px",padding:"8px 14px",display:"flex",alignItems:"center",gap:10 }}>
+          <div style={{ flex:1 }}>
+            <p style={{ fontSize:10.5,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:700,marginBottom:1 }}>Profile music display is VIP</p>
+            <p style={{ fontSize:9.5,color:C.textDim,lineHeight:1.4 }}>Upgrade to show your era soundtrack + embedded player publicly.</p>
+          </div>
+          {onUpgrade&&<button onClick={onUpgrade} style={{ background:`linear-gradient(140deg,${C.gold}cc,${C.goldDim})`,border:"none",borderRadius:10,padding:"6px 11px",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10,cursor:"pointer",flexShrink:0 }}>Go VIP →</button>}
+        </div>
+      )}
+      {/* Inline embedded player — expands on tap */}
+      {expanded&&embedUrl&&!isLocked&&(
+        <div style={{ border:`1.5px solid ${C.borderHi}`,borderTop:"none",borderRadius:"0 0 16px 16px",overflow:"hidden",background:C.bg }}>
+          <iframe
+            src={embedUrl}
+            width="100%"
+            height="152"
+            frameBorder="0"
+            allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+            loading="lazy"
+            style={{ display:"block" }}
+          />
+          <div style={{ padding:"6px 14px 8px",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+            {listenUrl
+              ? <a href={listenUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize:10.5,color:C.textDim,textDecoration:"none",fontFamily:"'Epilogue',sans-serif" }}>Open in {srcName} →</a>
+              : <span/>
+            }
+            <button onClick={()=>setExpanded(false)} style={{ background:"none",border:"none",color:C.textDim,fontSize:10.5,cursor:"pointer",fontFamily:"'Epilogue',sans-serif" }}>✕ Close</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── MUSIC CONNECT ────────────────────────────────────────────────────────────
 // GET /api/music/search — Spotify catalog search (no VIP required)
 // POST /api/music/connect/spotify | /apple — OAuth auto-sync (VIP phase)
-function MusicConnect({ nowPlaying, setNowPlaying, userId }) {
+function MusicConnect({ nowPlaying, setNowPlaying, userId, isVip, onUpgrade }) {
   const [musicView, setMusicView] = useState("display"); // display | search | connect
   const [connected, setConnected] = useState(()=>ls.get("backstage_music_connected", null));
   const [connecting, setConnecting] = useState(null);
@@ -14758,13 +14848,6 @@ function MusicConnect({ nowPlaying, setNowPlaying, userId }) {
     ls.del("backstage_music_connected");
   };
 
-  const sourceBadge = (source) => {
-    if(source==='spotify') return <div style={{ ...VS.activePill(C.mint),fontSize:7,padding:"1px 5px",flexShrink:0 }}>Spotify</div>;
-    if(source==='apple')   return <div style={{ ...VS.activePill(C.rose),fontSize:7,padding:"1px 5px",flexShrink:0 }}>Apple</div>;
-    if(source==='mock')    return <div style={{ fontSize:7,padding:"1px 5px",background:`${C.textDim}18`,border:`1px solid ${C.textDim}33`,borderRadius:99,color:C.textDim,flexShrink:0 }}>Sample</div>;
-    return null;
-  };
-
   // Connect screen
   if(musicView==="connect") return (
     <div style={{ background:`linear-gradient(140deg,${C.surface},${C.surfaceHi})`, border:`1.5px solid ${C.borderHi}`, borderRadius:18, padding:16, marginBottom:18, animation:"up .2s ease" }}>
@@ -14829,7 +14912,7 @@ function MusicConnect({ nowPlaying, setNowPlaying, userId }) {
                 <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{r.title}</p>
                 <p style={{ fontSize:10.5,color:C.textMid,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{r.artist}{r.album?` · ${r.album}`:""}</p>
               </div>
-              {sourceBadge(r.source)}
+              <NpSourceBadge source={r.source} />
             </div>
           ))}
         </div>
@@ -14859,32 +14942,21 @@ function MusicConnect({ nowPlaying, setNowPlaying, userId }) {
   );
 
   // Display card
-  const listenUrl = nowPlaying?.spotifyUrl || nowPlaying?.appleMusicUrl;
   return (
-    <div style={{ background:`linear-gradient(140deg,${C.surface},${C.surfaceHi})`, border:`1.5px solid ${C.borderHi}`, borderRadius:16, padding:"10px 14px", marginBottom:16, display:"flex", gap:12, alignItems:"center" }}>
-      {nowPlaying?.albumArt
-        ? <img src={nowPlaying.albumArt} alt="" style={{ width:38,height:38,borderRadius:11,objectFit:"cover",flexShrink:0 }} />
-        : <div style={{ width:38,height:38,borderRadius:11,background:`linear-gradient(135deg,${C.pink}40,${C.accent}20)`,border:`1.5px solid ${C.pink}30`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0,position:"relative" }}>
-            🎵
-            {connected&&<div style={{ position:"absolute",bottom:-3,right:-3,width:12,height:12,borderRadius:"50%",background:connected==="spotify"?"#1DB954":"#fc3c44",border:`1.5px solid ${C.bg}` }} />}
-          </div>
-      }
-      <div style={{ flex:1,minWidth:0 }}>
-        <div style={{ display:"flex",gap:5,alignItems:"center",marginBottom:1 }}>
-          <p style={{ fontSize:8,color:C.pink,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em" }}>♫ Now Playing</p>
-          {nowPlaying?.source&&sourceBadge(nowPlaying.source)}
-        </div>
-        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{nowPlaying?.title||nowPlaying?.song||"Set a song"}</p>
-        <p style={{ fontSize:10.5,color:C.textMid }}>{nowPlaying?.artist}</p>
-      </div>
-      <div style={{ display:"flex",gap:2,alignItems:"flex-end",height:14,flexShrink:0 }}>
-        {[1,2,3,4].map(i=>(<div key={i} style={{ width:2.5,borderRadius:2,background:C.pink,animation:`eqBar ${0.4+i*0.18}s ease-in-out infinite`,animationDelay:`${i*0.1}s`,transformOrigin:"bottom",height:`${8+i*2}px` }} />))}
-      </div>
-      <div style={{ display:"flex",gap:4,flexShrink:0,alignItems:"center" }}>
-        {listenUrl&&<a href={listenUrl} target="_blank" rel="noopener noreferrer" style={{ background:`${C.mint}18`,border:`1px solid ${C.mint}33`,borderRadius:8,padding:"4px 8px",color:C.mint,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textDecoration:"none" }}>Listen →</a>}
-        {!connected&&<button onClick={()=>setMusicView("connect")} style={{ background:`${C.mint}18`,border:`1px solid ${C.mint}33`,borderRadius:8,padding:"4px 8px",color:C.mint,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>Connect</button>}
-        {connected&&<button onClick={handleDisconnect} style={{ background:"none",border:"none",color:C.textDim,fontSize:10,cursor:"pointer",fontFamily:"'Epilogue',sans-serif" }}>✕</button>}
-        <button onClick={()=>setMusicView("search")} style={{ background:"none",border:"none",color:C.textDim,fontSize:14,cursor:"pointer" }}>✏️</button>
+    <div>
+      <NowPlayingCard
+        nowPlaying={nowPlaying}
+        isVip={!!isVip}
+        isPublicView={false}
+        onUpgrade={onUpgrade}
+        showEdit={true}
+        onEdit={()=>setMusicView("search")}
+      />
+      <div style={{ display:"flex",gap:8,justifyContent:"flex-end",marginTop:-10,marginBottom:16 }}>
+        {!connected
+          ? <button onClick={()=>setMusicView("connect")} style={{ background:"none",border:`1px solid ${C.mint}44`,borderRadius:8,padding:"4px 9px",color:C.mint,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>⚡ Auto-sync</button>
+          : <button onClick={handleDisconnect} style={{ background:"none",border:"none",color:C.textDim,fontSize:9,cursor:"pointer",fontFamily:"'Epilogue',sans-serif" }}>✕ Disconnect {connected}</button>
+        }
       </div>
     </div>
   );

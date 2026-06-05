@@ -1924,7 +1924,7 @@ app.get('/api/users/me', requireAuth, async (req, res) => {
     return res.json({
       id: 'mock_user_1', email: 'fan@backstage.app', username: 'kacy.stays',
       bio: 'STAY since 2018 💜', city: 'Dallas', fandoms: ['Stray Kids', 'aespa'],
-      bias: 'Felix', is_vip: false, proof_score: 4.8, mock: true,
+      bias: 'Felix', is_vip: false, proof_score: 4.8, show_city: true, showCity: true, mock: true,
     });
   }
   try {
@@ -2030,6 +2030,7 @@ function decorateCurrentUserProfile(profile = {}) {
     is_vip: vip.active,
     vip_active: vip.active,
     plan: vip.plan,
+    showCity: profile.show_city ?? true,
   };
 }
 
@@ -2625,7 +2626,7 @@ app.post('/api/messages/thread/:id/send', requireAuth, async (req, res) => {
 });
 
 app.post('/api/profile/update', requireAuth, async (req, res) => {
-  const { username, bio, city, fandoms, bias, nowPlaying, profileStyle, discoverable } = req.body;
+  const { username, bio, city, showCity, fandoms, bias, nowPlaying, profileStyle, discoverable } = req.body;
   // Reserved username check
   if (username !== undefined && isBackendReservedUsername(username)) {
     return res.status(400).json({
@@ -2640,6 +2641,7 @@ app.post('/api/profile/update', requireAuth, async (req, res) => {
   if (username      !== undefined) updates.username       = username;
   if (bio           !== undefined) updates.bio            = bio;
   if (city          !== undefined) updates.city           = city;
+  if (showCity      !== undefined) updates.show_city      = showCity;
   if (fandoms       !== undefined) updates.fandoms        = fandoms;
   if (bias          !== undefined) updates.bias           = bias;
   if (nowPlaying    !== undefined) updates.now_playing    = nowPlaying;
@@ -2685,10 +2687,14 @@ app.get('/api/profile/:id', optionalAuth, async (req, res) => {
   }
   const fields = req.userId === req.params.id
     ? '*'
-    : 'id, username, display_name, bio, fandoms, bias, city, avatar_url, proof_score, is_vip, profile_style';
+    : 'id, username, display_name, bio, fandoms, bias, city, show_city, avatar_url, proof_score, is_vip, profile_style, now_playing';
   const { data, error } = await supabase.from('users').select(fields).eq('id', req.params.id).single();
   if (error) return res.status(404).json({ error: 'User not found' });
-  res.json(data);
+  // Enforce city privacy — strip city if user opted out, never expose show_city
+  const result = { ...data };
+  if (req.userId !== req.params.id && result.show_city === false) delete result.city;
+  delete result.show_city;
+  res.json(result);
 });
 
 // ─── PUBLIC PROFILE BY USERNAME ──────────────────────────────────────────────
