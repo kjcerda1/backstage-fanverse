@@ -1792,13 +1792,19 @@ const MOCK_INVENTORY = [
 
 // NOTIFICATION SETTINGS
 const DEFAULT_NOTIF_SETTINGS = {
-  phonePush: true, watchAlerts: false, emailDigest: false,
+  phonePush: true, watchAlerts: false, emailDigest: false, emailBackup: true,
   concertCountdown: true, dayBefore: true, venueWeather: true,
   meetupRsvp: true, friendNearby: false, tradeMatch: true,
   wishlistMatch: true, shipping: true, chantReminder: false,
   afterglowReminder: true, hubActivity: false, kdramaReminder: false,
   quietHoursStart: "22:00", quietHoursEnd: "08:00", concertDayMode: true,
 };
+
+// Notification types that trigger email backup when push is unavailable
+const HIGH_PRIORITY_NOTIF_TYPES = new Set([
+  'dm','message','group_mention','trade','meetup_rsvp',
+  'concert_reminder','event','ticket','account','security','payment','vip',
+]);
 
 // PRIVACY SETTINGS
 const DEFAULT_PRIVACY = {
@@ -1891,6 +1897,48 @@ async function requestNotificationPermission(userId) {
   const mockToken = `mock-fcm-${userId}-${Date.now()}`;
   await api.post('/api/save-token', { token: mockToken, userId }).catch(()=>{});
   return mockToken;
+}
+
+// ─── NOTIFICATION DELIVERY HELPER ────────────────────────────────────────────
+// Coordinates all delivery channels for a single notification event.
+//
+// params:
+//   notif       — { id?, type, icon, title, body, color, targetModal?, targetTab? }
+//   pushEnabled — user's app-level push preference (notifSettings.phonePush)
+//   emailBackup — user's email backup preference (notifSettings.emailBackup)
+//   priority    — 'low' | 'normal' | 'high' | 'critical'
+//
+// Channel rules:
+//   in_app  — always written to localStorage inbox
+//   push    — attempted if pushEnabled AND browser permission === 'granted'
+//   email   — attempted if push is unavailable AND priority >= high AND emailBackup
+async function deliverNotification({ notif, pushEnabled = false, emailBackup = true, priority = 'normal' }) {
+  // 1. In-app (always)
+  const entry = { ...notif, id: notif.id || `n-${Date.now()}`, read: false, time: 'Just now' };
+  const inbox = ls.get('backstage_notif_inbox', []);
+  ls.set('backstage_notif_inbox', [entry, ...inbox].slice(0, 50));
+
+  const browserGranted = window.Notification?.permission === 'granted';
+
+  // 2. Push (best-effort, fire-and-forget)
+  if (pushEnabled && browserGranted) {
+    api.post('/api/send-notification', {
+      title: notif.title,
+      body:  notif.body,
+      data:  { targetModal: notif.targetModal || '', targetTab: notif.targetTab || '' },
+    }).catch(() => {});
+  }
+
+  // 3. Email backup for high/critical when push is unavailable
+  const pushUnavailable = !pushEnabled || !browserGranted || window.Notification?.permission === 'denied';
+  const isHighPriority  = priority === 'high' || priority === 'critical';
+  if (pushUnavailable && isHighPriority && emailBackup) {
+    api.post('/api/notifications/email-backup', {
+      title:    notif.title,
+      body:     notif.body,
+      priority,
+    }).catch(() => {});
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -15814,7 +15862,8 @@ function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNot
           {[
             {key:"phonePush",label:"📱 Phone Push",sub:"Standard push notifications"},
             {key:"watchAlerts",label:"⌚ Watch Alerts",sub:"Short alerts optimized for Apple Watch"},
-            {key:"emailDigest",label:"📧 Email Digest",sub:"Weekly summary (coming soon)"},
+            {key:"emailBackup",label:"📧 Email backup",sub:"Important alerts when push is off"},
+            {key:"emailDigest",label:"📰 Email Digest",sub:"Weekly summary (coming soon)"},
           ].map((item,i)=>(
             <div key={item.key}>
               {i>0&&<div style={{ height:1,background:C.border,margin:"12px 0" }} />}

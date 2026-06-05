@@ -82,6 +82,8 @@ const HAS_FIREBASE       = !!(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || proce
 const HAS_SPOTIFY        = !!process.env.SPOTIFY_CLIENT_ID && !!process.env.SPOTIFY_CLIENT_SECRET;
 const HAS_MAPBOX         = !!process.env.MAPBOX_ACCESS_TOKEN;
 const HAS_TICKETMASTER   = !!process.env.TICKETMASTER_API_KEY;
+const HAS_EMAIL          = !!process.env.RESEND_API_KEY;
+const EMAIL_FROM         = process.env.EMAIL_FROM || 'Backstage <notifications@backstagefanverse.com>';
 // Render sets RENDER_EXTERNAL_URL automatically; fallback to explicit BACKEND_URL env var
 const BACKEND_URL        = process.env.BACKEND_URL || process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || 3001}`;
 
@@ -2910,6 +2912,70 @@ app.post('/api/send-notification', requireAuth, async (req, res) => {
   }
 });
 
+
+// ─── EMAIL HELPER ─────────────────────────────────────────────────────────────
+// Uses Resend REST API (no new dependency — native fetch).
+// Set RESEND_API_KEY + optional EMAIL_FROM on Render to enable real delivery.
+// Without the key, every call is logged as a mock and returns ok:true.
+async function sendBackstageEmail({ to, subject, html, text }) {
+  if (!to) return { ok: false, reason: 'no_email' };
+  if (!HAS_EMAIL) {
+    console.log(`[Email Mock] To: ${to} | Subject: ${subject} | ${text || ''}`);
+    return { ok: true, mock: true };
+  }
+  try {
+    const r = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ from: EMAIL_FROM, to, subject, html, text }),
+    });
+    if (!r.ok) {
+      const err = await r.text();
+      console.warn('[Email] Resend error:', err);
+      return { ok: false, reason: err };
+    }
+    return { ok: true };
+  } catch (err) {
+    console.warn('[Email] Send failed:', err.message);
+    return { ok: false, reason: err.message };
+  }
+}
+
+// ─── EMAIL BACKUP FOR HIGH-PRIORITY NOTIFICATIONS ─────────────────────────────
+// Called by the frontend when push is unavailable/disabled and the notification
+// is high or critical priority. Sends a simple transactional email to the
+// authenticated user's address.
+app.post('/api/notifications/email-backup', requireAuth, async (req, res) => {
+  const { title, body, priority } = req.body;
+  const userEmail = req.userEmail;
+  if (!userEmail) return res.json({ ok: false, reason: 'no_email' });
+  if (priority !== 'high' && priority !== 'critical') return res.json({ ok: false, reason: 'low_priority' });
+
+  const subject = title || 'You have a new notification from Backstage';
+  const text    = body  || '';
+  const appUrl  = process.env.FRONTEND_URL || 'https://backstagefanverse.com';
+  const html = `
+<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px;background:#0d0d1a;color:#f0eaff;border-radius:12px">
+  <div style="text-align:center;margin-bottom:20px">
+    <span style="font-size:28px">🔔</span>
+    <h2 style="color:#b993ff;margin:8px 0 4px;font-size:18px">${subject}</h2>
+  </div>
+  <p style="color:#c0b8d4;font-size:14px;line-height:1.6;text-align:center">${text}</p>
+  <div style="text-align:center;margin-top:24px">
+    <a href="${appUrl}" style="background:#7c3aed;color:#fff;text-decoration:none;padding:12px 28px;border-radius:24px;font-size:14px;font-weight:600">Open Backstage</a>
+  </div>
+  <p style="text-align:center;margin-top:20px;font-size:11px;color:#6e6a7c">
+    You're receiving this because push notifications are off on your device.<br>
+    <a href="${appUrl}?settings=notifications" style="color:#b993ff">Manage notification settings</a>
+  </p>
+</div>`;
+
+  const result = await sendBackstageEmail({ to: userEmail, subject, html, text });
+  res.json(result);
+});
 
 // ═════════════════════════════════════════════════════════════════════════════
 // MARKETPLACE & FAN PROJECTS
