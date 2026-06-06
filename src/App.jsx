@@ -407,6 +407,15 @@ function AuthProvider({ children }) {
         setTokenReady(false);
         setUser(null);
         ls.del('backstage_session');
+      } else if (event === 'TOKEN_REFRESH_FAILED') {
+        // Stale/invalid refresh token — clear everything so the user lands back
+        // on the auth screen instead of hanging in a broken authenticated state.
+        api._setToken(null);
+        setTokenReady(false);
+        setUser(null);
+        setSession(null);
+        clearAuthStorage();
+        if (mounted) setLoading(false);
       }
     });
 
@@ -420,8 +429,7 @@ function AuthProvider({ children }) {
     setUser(null);
     setSession(null);
     setTokenReady(false);
-    ls.del('backstage_session');
-    ls.del('backstage_is_vip');
+    clearAuthStorage();
     if (_supabase) await _supabase.auth.signOut();
   };
 
@@ -627,6 +635,21 @@ const ls = {
   set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
   del: (k)   => { try { localStorage.removeItem(k); } catch {} },
 };
+
+// Wipes every auth-related key from localStorage:
+//   - backstage_session, backstage_is_vip, backstage_pending_uid (our keys)
+//   - sb-<project>-auth-token (Supabase v2 key, known project ref)
+//   - any remaining sb-* keys (Supabase internal — scanned so future SDK changes are covered)
+//   - legacy supabase.auth.token (Supabase v1)
+function clearAuthStorage() {
+  try {
+    ['backstage_session','backstage_is_vip','backstage_pending_uid','backstage_supabase_auth','supabase.auth.token'].forEach(k => localStorage.removeItem(k));
+    // Supabase v2 known key
+    localStorage.removeItem('sb-wshqjxsbwqijodlskrbx-auth-token');
+    // Belt-and-suspenders: wipe any remaining sb-* keys this SDK version wrote
+    Object.keys(localStorage).filter(k => k.startsWith('sb-')).forEach(k => localStorage.removeItem(k));
+  } catch(e) {}
+}
 
 const normalizeFriendProfile = (profile = {}) => {
   const handle = profile.handle || profile.username || profile.name?.replace(/^@/, "") || "fan";
@@ -4308,14 +4331,34 @@ function Onboarding({ onDone }) {
   // ── SIGN UP ──
   const handleSignUp = async () => {
     if (!email.trim() || pass.length < 6) { setErr("Password must be at least 6 characters."); return; }
+    if (loading) return; // prevent double-tap
     setLoading(true); setErr("");
     if (MOCK_AUTH) { setMode("profile"); setLoading(false); return; }
     try {
       const { data: d, error } = await _supabase.auth.signUp({ email, password: pass });
-      if (error) { setErr(error.message); setLoading(false); return; }
+      if (error) {
+        const msg = error.message || '';
+        if (error.status === 429 || msg.toLowerCase().includes('security purposes') || msg.toLowerCase().includes('rate limit')) {
+          setErr('Too many attempts. Please wait about 1 minute, then try again.');
+        } else {
+          setErr(msg);
+        }
+        setLoading(false);
+        return;
+      }
       if (d.user) { ls.set('backstage_pending_uid', d.user.id); setMode("profile"); }
     } catch(e) { setErr('Connection error. Try again.'); }
     setLoading(false);
+  };
+
+  // ── CLEAR STALE SESSION ──
+  const clearSession = async () => {
+    try { if (_supabase) await _supabase.auth.signOut(); } catch(e) {}
+    clearAuthStorage();
+    setErr('');
+    setEmail('');
+    setPass('');
+    setMode('landing');
   };
 
   // ── COMPLETE PROFILE ──
@@ -4435,6 +4478,10 @@ function Onboarding({ onDone }) {
         <Btn ghost color={C.textMid} onClick={()=>setMode(mode==="login"?"signup":"login")} small>
           {mode==="login"?"Don't have an account? Sign up":"Already have an account? Sign in"}
         </Btn>
+        <div style={{ height:20 }} />
+        <button onClick={clearSession} style={{ background:"none",border:"none",color:C.textMid,fontSize:11,cursor:"pointer",opacity:0.55,textDecoration:"underline",display:"block",margin:"0 auto" }}>
+          Having trouble? Clear session and try again
+        </button>
       </div>
     </div>
   );
