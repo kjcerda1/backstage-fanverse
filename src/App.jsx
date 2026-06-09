@@ -2670,7 +2670,7 @@ async function deliverNotification({ notif, pushEnabled = false, emailBackup = t
 // Call at notification-fire time, not on mount, so prefs are always current.
 function getDeliveryPrefs(user) {
   const key = user?.id || user?.email || "anon";
-  const s = ls.get('backstage_notification_settings', DEFAULT_NOTIF_SETTINGS);
+  const s = ls.get(`backstage_notification_settings_${key}`, DEFAULT_NOTIF_SETTINGS);
   const pushEnabled = s.phonePush === true
     && ls.get(`backstage_push_enabled_${key}`, false) === true
     && window.Notification?.permission === 'granted';
@@ -17318,12 +17318,20 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
   const [cityDraft, setCityDraft] = useState(user?.city || ls.get(`backstage_city_${user?.id || 'anon'}`, ''));
   const [citySuggestions, setCitySuggestions] = useState([]);
   const pushUserKey = user?.id || user?.email || "anon";
+  const notifSettingsKey = `backstage_notification_settings_${pushUserKey}`;
   const [notifOn, setNotifOn] = useState(()=>{
     const key = user?.id || user?.email || "anon";
     const saved = ls.get(`backstage_push_enabled_${key}`, false);
     const perm = window.Notification?.permission;
     return saved === true && perm === "granted";
   });
+  // Re-sync notifOn when user changes (login/logout without full remount)
+  useEffect(()=>{
+    const key = user?.id || user?.email || "anon";
+    const saved = ls.get(`backstage_push_enabled_${key}`, false);
+    const perm = window.Notification?.permission;
+    setNotifOn(saved === true && perm === "granted");
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const [section, setSection] = useState(()=>{ if(ls.get("backstage_open_studio",false)){ ls.set("backstage_open_studio",false); return "studio"; } return "main"; });
   const [profileStyle, setProfileStyle] = useState(ls.get("backstage_profile_style", DEFAULT_PROFILE_STYLE));
   const [privacySettings, setPrivacySettings] = useState(()=>{
@@ -17332,7 +17340,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
     const backendShowCity = user?.showCity;
     return backendShowCity !== undefined ? { ...cached, showCity: backendShowCity } : cached;
   });
-  const [notifSettings, setNotifSettings] = useState(ls.get("backstage_notification_settings", DEFAULT_NOTIF_SETTINGS));
+  const [notifSettings, setNotifSettings] = useState(()=>ls.get(notifSettingsKey, DEFAULT_NOTIF_SETTINGS));
   // Account deletion
   const [showDeleteModal, setShowDeleteModal]   = useState(false);
   const [deleteConfirm,   setDeleteConfirm]     = useState("");
@@ -17376,7 +17384,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
   }, [top5]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(()=>{ ls.set("backstage_profile_style", profileStyle); }, [profileStyle]);
   useEffect(()=>{ ls.set("backstage_privacy_settings", privacySettings); }, [privacySettings]);
-  useEffect(()=>{ ls.set("backstage_notification_settings", notifSettings); }, [notifSettings]);
+  useEffect(()=>{ ls.set(notifSettingsKey, notifSettings); }, [notifSettingsKey, notifSettings]);
 
   const requestNotif = async () => {
     ls.set(`backstage_push_prompted_${pushUserKey}`, true);
@@ -19489,14 +19497,22 @@ function PrivacySettings({ settings, setSettings, onBack }) {
 // onNavigate({modal?, tab?}) — called when a notification card is tapped.
 function StandaloneNotifCenter({ onBack, onNavigate, user }) {
   const pushUserKey = user?.id || user?.email || "anon";
-  const [settings, setSettings] = useState(()=>ls.get("backstage_notification_settings", DEFAULT_NOTIF_SETTINGS));
+  const notifSettingsKey = `backstage_notification_settings_${pushUserKey}`;
+  const [settings, setSettings] = useState(()=>ls.get(notifSettingsKey, DEFAULT_NOTIF_SETTINGS));
   const [notifOn, setNotifOn] = useState(()=>{
     const key = user?.id || user?.email || "anon";
     const saved = ls.get(`backstage_push_enabled_${key}`, false);
     const perm = window.Notification?.permission;
     return saved === true && perm === "granted";
   });
-  const saveSettings = (v) => { setSettings(v); ls.set("backstage_notification_settings", v); };
+  // Re-sync notifOn when user changes (login/logout without full remount)
+  useEffect(()=>{
+    const key = user?.id || user?.email || "anon";
+    const saved = ls.get(`backstage_push_enabled_${key}`, false);
+    const perm = window.Notification?.permission;
+    setNotifOn(saved === true && perm === "granted");
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const saveSettings = (v) => { setSettings(v); ls.set(notifSettingsKey, v); };
   const requestNotif = async () => {
     ls.set(`backstage_push_prompted_${pushUserKey}`, true);
     const token = await requestNotificationPermission(user?.id || user?.name || "user");
@@ -21269,14 +21285,8 @@ function AppInner() {
     setTab(dest);
   };
 
-  useEffect(()=>{
-    if(appState==="main"&&!notif){
-      const pushUserKey = user?.id||user?.email||"anon";
-      const perm = window.Notification?.permission;
-      const alreadyPrompted = ls.get(`backstage_push_prompted_${pushUserKey}`,false)||ls.get("backstage_notif_prompt_dismissed",false);
-      if(!alreadyPrompted&&perm==="default"){ const t=setTimeout(()=>setShowNotifPrompt(true),4000); return ()=>clearTimeout(t); }
-    }
-  },[appState,user]);
+  // Auto-prompt disabled — push is opt-in via Settings only.
+  // showNotifPrompt state + UI kept for future opt-in flows; never triggered automatically.
 
   // Handle push notification deep-links, OAuth callbacks, and Stripe checkout returns
   useEffect(()=>{
