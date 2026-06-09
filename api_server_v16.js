@@ -1256,6 +1256,143 @@ app.get('/api/music/search', requireAuth, async (req, res) => {
 
 
 // ═════════════════════════════════════════════════════════════════════════════
+// GIFS / REACTIONS — /api/gifs/* (provider-agnostic: tenor | giphy | mock)
+// Keys never reach the frontend — this proxy normalizes results to a single shape:
+// { id, title, previewUrl, fullUrl, source, width?, height? }
+// ═════════════════════════════════════════════════════════════════════════════
+
+const GIF_PROVIDER  = (process.env.GIF_PROVIDER || 'mock').toLowerCase();
+const TENOR_API_KEY = process.env.TENOR_API_KEY || '';
+const GIPHY_API_KEY = process.env.GIPHY_API_KEY || '';
+
+const MOCK_GIF_MOODS = ['excited', 'crying', 'cheering', 'dancing', 'heart', 'lightstick'];
+const MOCK_GIF_GRADIENTS = [
+  ['#7c4dff', '#f0a8cc'], ['#5b3df6', '#8eefd4'], ['#b8a2ff', '#ff7ab8'],
+  ['#3d1060', '#b8a2ff'], ['#f0a8cc', '#7c4dff'], ['#8eefd4', '#5b3df6'],
+];
+
+function buildMockGifs(seed = 'vibe', limit = 24) {
+  const out = [];
+  for (let i = 0; i < limit; i++) {
+    const mood = MOCK_GIF_MOODS[i % MOCK_GIF_MOODS.length];
+    const [a, b] = MOCK_GIF_GRADIENTS[i % MOCK_GIF_GRADIENTS.length];
+    out.push({
+      id:         `mock-${seed}-${i}`,
+      title:      `${mood} concert mood`,
+      previewUrl: null,
+      fullUrl:    null,
+      source:     'mock',
+      width:      320,
+      height:     320,
+      mood,
+      gradient:   [a, b],
+    });
+  }
+  return out;
+}
+
+async function searchGifs(q, limit) {
+  if (GIF_PROVIDER === 'tenor' && TENOR_API_KEY) {
+    const r = await fetch(`https://tenor.googleapis.com/v2/search?q=${encodeURIComponent(q)}&key=${TENOR_API_KEY}&limit=${limit}&contentfilter=high&media_filter=gif,tinygif`);
+    const data = await r.json();
+    return (data.results || []).map(g => ({
+      id:         g.id,
+      title:      g.content_description || g.title || q,
+      previewUrl: g.media_formats?.tinygif?.url || g.media_formats?.gif?.url || null,
+      fullUrl:    g.media_formats?.gif?.url || null,
+      source:     'tenor',
+      width:      g.media_formats?.gif?.dims?.[0] || null,
+      height:     g.media_formats?.gif?.dims?.[1] || null,
+    }));
+  }
+  if (GIF_PROVIDER === 'giphy' && GIPHY_API_KEY) {
+    const r = await fetch(`https://api.giphy.com/v1/gifs/search?api_key=${GIPHY_API_KEY}&q=${encodeURIComponent(q)}&limit=${limit}&rating=pg-13`);
+    const data = await r.json();
+    return (data.data || []).map(g => ({
+      id:         g.id,
+      title:      g.title || q,
+      previewUrl: g.images?.fixed_width_small?.url || g.images?.preview_gif?.url || null,
+      fullUrl:    g.images?.original?.url || null,
+      source:     'giphy',
+      width:      g.images?.original?.width ? Number(g.images.original.width) : null,
+      height:     g.images?.original?.height ? Number(g.images.original.height) : null,
+    }));
+  }
+  return buildMockGifs(q || 'search', limit);
+}
+
+async function trendingGifs(limit) {
+  if (GIF_PROVIDER === 'tenor' && TENOR_API_KEY) {
+    const r = await fetch(`https://tenor.googleapis.com/v2/featured?key=${TENOR_API_KEY}&limit=${limit}&contentfilter=high&media_filter=gif,tinygif`);
+    const data = await r.json();
+    return (data.results || []).map(g => ({
+      id:         g.id,
+      title:      g.content_description || g.title || 'trending',
+      previewUrl: g.media_formats?.tinygif?.url || g.media_formats?.gif?.url || null,
+      fullUrl:    g.media_formats?.gif?.url || null,
+      source:     'tenor',
+      width:      g.media_formats?.gif?.dims?.[0] || null,
+      height:     g.media_formats?.gif?.dims?.[1] || null,
+    }));
+  }
+  if (GIF_PROVIDER === 'giphy' && GIPHY_API_KEY) {
+    const r = await fetch(`https://api.giphy.com/v1/gifs/trending?api_key=${GIPHY_API_KEY}&limit=${limit}&rating=pg-13`);
+    const data = await r.json();
+    return (data.data || []).map(g => ({
+      id:         g.id,
+      title:      g.title || 'trending',
+      previewUrl: g.images?.fixed_width_small?.url || g.images?.preview_gif?.url || null,
+      fullUrl:    g.images?.original?.url || null,
+      source:     'giphy',
+      width:      g.images?.original?.width ? Number(g.images.original.width) : null,
+      height:     g.images?.original?.height ? Number(g.images.original.height) : null,
+    }));
+  }
+  return buildMockGifs('trending', limit);
+}
+
+app.get('/api/gifs/search', requireAuth, async (req, res) => {
+  const q = String(req.query.q || '').trim();
+  const limit = Math.min(parseInt(req.query.limit) || 24, 50);
+  if (!q) return res.json({ results: buildMockGifs('trending', limit), provider: GIF_PROVIDER, mock: true });
+  try {
+    const results = await searchGifs(q, limit);
+    res.json({ results, provider: GIF_PROVIDER, mock: GIF_PROVIDER === 'mock' });
+  } catch (err) {
+    console.error('[GIF Search] Error:', err.message);
+    res.json({ results: buildMockGifs(q, limit), provider: GIF_PROVIDER, mock: true });
+  }
+});
+
+app.get('/api/gifs/trending', requireAuth, async (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 24, 50);
+  try {
+    const results = await trendingGifs(limit);
+    res.json({ results, provider: GIF_PROVIDER, mock: GIF_PROVIDER === 'mock' });
+  } catch (err) {
+    console.error('[GIF Trending] Error:', err.message);
+    res.json({ results: buildMockGifs('trending', limit), provider: GIF_PROVIDER, mock: true });
+  }
+});
+
+// Tenor/GIPHY both ask clients to ping a "share registered" endpoint so the
+// GIF can rank correctly in their own trending — purely best-effort, never blocks the UI.
+app.post('/api/gifs/register-share', requireAuth, async (req, res) => {
+  const { id, q } = req.body || {};
+  if (!id) return res.status(400).json({ error: 'id required' });
+  try {
+    if (GIF_PROVIDER === 'tenor' && TENOR_API_KEY) {
+      await fetch(`https://tenor.googleapis.com/v2/registershare?id=${encodeURIComponent(id)}&key=${TENOR_API_KEY}&q=${encodeURIComponent(q || '')}`);
+    }
+    // GIPHY has no public registershare endpoint for search API keys — no-op.
+    res.json({ success: true });
+  } catch (err) {
+    res.json({ success: true }); // best-effort; never fail the send flow over analytics
+  }
+});
+
+
+// ═════════════════════════════════════════════════════════════════════════════
 // OUTFIT INSPO — /api/outfits/* (Pinterest-ready)
 // NEW in V16. Returns curated inspo pins. Pinterest API wires in here.
 // ═════════════════════════════════════════════════════════════════════════════
@@ -1799,7 +1936,13 @@ app.get('/api/feed', optionalAuth, async (req, res) => {
   if (fandom) query = query.eq('tag', fandom);
   const { data, error } = await query;
   if (error) return res.status(500).json({ error: error.message });
-  res.json({ posts: data, page: parseInt(page), hasMore: data.length === parseInt(limit) });
+  // Hide posts to/from blocked relationships in either direction
+  let posts = data;
+  if (req.userId) {
+    const blocked = await getBlockedUserIdSet(req.userId);
+    if (blocked.size) posts = posts.filter(p => !blocked.has(p.user_id));
+  }
+  res.json({ posts, page: parseInt(page), hasMore: data.length === parseInt(limit) });
 });
 
 app.post('/api/feed/post', requireAuth, async (req, res) => {
@@ -1931,7 +2074,10 @@ app.get('/api/users/me', requireAuth, async (req, res) => {
     const { data, error } = await makeUserClient(req).from('users').select('*').eq('id', req.userId).single();
 
     // Row exists — return it
-    if (data && !error) return res.json(decorateCurrentUserProfile(data));
+    if (data && !error) {
+      touchLastActive(req.userId); // fire-and-forget, throttled 15 min
+      return res.json(decorateCurrentUserProfile(data));
+    }
 
     // Row missing (new user / trigger didn't fire) — create it from Supabase Auth data
     if (!data || error?.code === 'PGRST116') {
@@ -2034,6 +2180,25 @@ function decorateCurrentUserProfile(profile = {}) {
   };
 }
 
+// ─── ACTIVITY TOUCH — throttled last_active_at update ────────────────────────
+// Writes at most once per 15 minutes per user (conditional WHERE in SQL).
+// Fire-and-forget — never awaited in the response path; errors are swallowed.
+// Purpose: city hub scoring (active_7d, active_30d). NEVER exposed as an exact
+// "last seen" / "online now" timestamp in any public-facing UI.
+const LAST_ACTIVE_THROTTLE_MS = 15 * 60 * 1000; // 15 minutes
+function touchLastActive(userId) {
+  if (!supabase || !userId) return;
+  const fifteenMinsAgo = new Date(Date.now() - LAST_ACTIVE_THROTTLE_MS).toISOString();
+  supabase
+    .from('users')
+    .update({ last_active_at: new Date().toISOString() })
+    .eq('id', userId)
+    .or(`last_active_at.is.null,last_active_at.lt.${fifteenMinsAgo}`)
+    .then(({ error }) => {
+      if (error) console.warn('[touchLastActive] update failed:', error.message);
+    });
+}
+
 // ─── PATCH /api/users/me ──────────────────────────────────────────────────────
 // Updates user profile fields — fandoms is the canonical selected-groups field.
 // Called by: Onboarding (handleProfileDone), future Profile edit UI.
@@ -2044,7 +2209,13 @@ function decorateCurrentUserProfile(profile = {}) {
 //   Do not rename this field — fandoms is the stable contract.
 // ─────────────────────────────────────────────────────────────────────────────
 app.patch('/api/users/me', requireAuth, async (req, res) => {
-  const { username, handle, displayName, display_name, backstage_name, favorite_groups, fandoms, bias, city, bio } = req.body;
+  const {
+    username, handle, displayName, display_name, backstage_name,
+    favorite_groups, fandoms, bias, city, bio,
+    // normalized location fields
+    city_display, city_key, region, region_code,
+    country, country_code, continent, city_lat, city_lng, timezone,
+  } = req.body;
   const usernameValue = username ?? handle;
   const displayNameValue = displayName ?? display_name ?? backstage_name ?? usernameValue;
   const groupsInput = Array.isArray(favorite_groups) ? favorite_groups : fandoms;
@@ -2069,7 +2240,11 @@ app.patch('/api/users/me', requireAuth, async (req, res) => {
       display_name: displayNameValue  ?? 'kacy.stays',
       fandoms:      fandomsClean ?? ['Stray Kids', 'aespa'],
       bias:         bias         ?? 'Felix',
-      city:         city         ?? 'Dallas',
+      city:         city         ?? 'Dallas, TX',
+      city_display: city_display ?? 'Dallas, TX, USA',
+      city_key:     city_key     ?? 'dallas_tx_us',
+      country_code: country_code ?? 'US',
+      continent:    continent    ?? 'North America',
       bio:          bio          ?? 'STAY since 2018 💜',
       is_vip:       false,
       mock:         true,
@@ -2081,17 +2256,28 @@ app.patch('/api/users/me', requireAuth, async (req, res) => {
   try {
     // Build sparse update — only include defined fields
     const updates = { id: req.userId, email: req.userEmail || '' };
-    if (usernameValue     !== undefined) updates.username      = usernameValue;
-    if (displayNameValue  !== undefined) updates.display_name  = displayNameValue;
-    if (fandomsClean !== undefined) updates.fandoms        = fandomsClean;
-    if (bias         !== undefined) updates.bias           = bias;
-    if (city         !== undefined) updates.city           = city;
-    if (bio          !== undefined) updates.bio            = bio;
+    if (usernameValue    !== undefined) updates.username      = usernameValue;
+    if (displayNameValue !== undefined) updates.display_name  = displayNameValue;
+    if (fandomsClean     !== undefined) updates.fandoms       = fandomsClean;
+    if (bias             !== undefined) updates.bias          = bias;
+    if (bio              !== undefined) updates.bio           = bio;
+    // location fields — all optional, sparse update only
+    if (city         !== undefined) updates.city         = city;
+    if (city_display !== undefined) updates.city_display = city_display;
+    if (city_key     !== undefined) updates.city_key     = city_key;
+    if (region       !== undefined) updates.region       = region;
+    if (region_code  !== undefined) updates.region_code  = region_code;
+    if (country      !== undefined) updates.country      = country;
+    if (country_code !== undefined) updates.country_code = country_code;
+    if (continent    !== undefined) updates.continent    = continent;
+    if (city_lat     !== undefined) updates.city_lat     = city_lat;
+    if (city_lng     !== undefined) updates.city_lng     = city_lng;
+    if (timezone     !== undefined) updates.timezone     = timezone;
 
     const { data, error } = await supabase
       .from('users')
       .upsert(updates, { onConflict: 'id' })
-      .select('id, username, display_name, fandoms, bias, city, bio, is_vip, vip_source, vip_since, vip_expires_at, stripe_customer_id')
+      .select('id, username, display_name, fandoms, bias, city, city_display, city_key, region, region_code, country, country_code, continent, city_lat, city_lng, timezone, bio, is_vip, vip_source, vip_since, vip_expires_at, stripe_customer_id, show_city')
       .single();
 
     if (error) {
@@ -2100,13 +2286,14 @@ app.patch('/api/users/me', requireAuth, async (req, res) => {
     }
 
     await convertPendingReferralForUser(req.userId);
-    console.log('[PATCH /api/users/me] updated fandoms for', req.userId, ':', data.fandoms);
+    touchLastActive(req.userId); // fire-and-forget, throttled 15 min
+    console.log('[PATCH /api/users/me] updated for', req.userId, '— fandoms:', data.fandoms, 'city_key:', data.city_key);
     res.json({ ...decorateCurrentUserProfile(data), onboarding_complete:true, profile_complete:true });
   } catch (err) {
     console.error('[PATCH /api/users/me] Exception:', err.message);
     // Never crash the frontend — return a safe partial response so
     // localStorage fallback can still proceed with the onboarding profile.
-    res.json({ id: req.userId, fandoms: fandomsClean, favorite_groups:fandomsClean, bias, city, username:usernameValue, handle:usernameValue, display_name:displayNameValue, backstage_name:displayNameValue, onboarding_complete:true, profile_complete:true, patched: true });
+    res.json({ id: req.userId, fandoms: fandomsClean, favorite_groups:fandomsClean, bias, city, city_key, country_code, continent, username:usernameValue, handle:usernameValue, display_name:displayNameValue, backstage_name:displayNameValue, onboarding_complete:true, profile_complete:true, patched: true });
   }
 });
 
@@ -2128,22 +2315,54 @@ app.delete('/api/users/me', requireAuth, async (req, res) => {
     await supabase.from('event_rsvps').delete().eq('user_id', userId);
     await supabase.from('meetup_rsvps').delete().eq('user_id', userId);
     await supabase.from('event_attendance').delete().eq('user_id', userId);
-    // Friends table — remove both directions (user_id and friend_id)
+    await supabase.from('meetups').delete().eq('host_id', userId);
+    // Friends / requests / blocks — remove both directions
     await supabase.from('friends').delete().eq('user_id', userId);
     await supabase.from('friends').delete().eq('friend_id', userId);
-    // 2. Remove user-created content
+    await supabase.from('friend_requests').delete().eq('sender_id', userId);
+    await supabase.from('friend_requests').delete().eq('receiver_id', userId);
+    await supabase.from('user_blocks').delete().eq('user_id', userId);
+    await supabase.from('user_blocks').delete().eq('blocked_user_id', userId);
+    // Notifications, referrals, rewards
+    await supabase.from('notifications').delete().eq('user_id', userId);
+    await supabase.from('referral_codes').delete().eq('user_id', userId);
+    await supabase.from('referrals').delete().eq('referrer_user_id', userId);
+    await supabase.from('referrals').delete().eq('referred_user_id', userId);
+    await supabase.from('user_rewards').delete().eq('user_id', userId);
+    // 2. Direct Messages — remove membership + authored messages
+    await supabase.from('messages').delete().eq('sender_user_id', userId);
+    await supabase.from('message_thread_members').delete().eq('user_id', userId);
+    // 3. Remove user-created content
     await supabase.from('concert_memories').delete().eq('user_id', userId);
     await supabase.from('scrapbooks').delete().eq('user_id', userId);
     await supabase.from('collections').delete().eq('user_id', userId);
     await supabase.from('posts').delete().eq('user_id', userId);
-    // 3. Trades — delete offers and reviews; trades themselves may be retained
+    // 4. Photocard system — binders, cards, trade listings/offers/messages
+    await supabase.from('listing_messages').delete().eq('sender_id', userId);
+    await supabase.from('listing_offers').delete().eq('sender_id', userId);
+    await supabase.from('trade_listings').delete().eq('user_id', userId);
+    await supabase.from('user_cards').delete().eq('user_id', userId);
+    await supabase.from('binders').delete().eq('user_id', userId);
+    // 5. Trades (legacy) — delete offers and reviews; trades themselves may be retained
     //    for platform integrity (anonymized — no user ID reference after user row gone)
     await supabase.from('trade_offers').delete().eq('user_id', userId);
     await supabase.from('trade_reviews').delete().eq('reviewer_id', userId);
     await supabase.from('trade_reviews').delete().eq('reviewee_id', userId);
-    // 4. Delete the main user record
+    // 6. Remove uploaded files from Storage (avatars, banners, feed media,
+    //    trade proof, concert memories, photocards — all stored under {userId}/ prefix)
+    for (const bucket of ['avatars', 'banners', 'feed-media', 'trade-proof', 'memories', 'card-images']) {
+      try {
+        const { data: files } = await supabase.storage.from(bucket).list(userId);
+        if (files?.length) {
+          await supabase.storage.from(bucket).remove(files.map(f => `${userId}/${f.name}`));
+        }
+      } catch (storageErr) {
+        console.warn(`[Delete Account] Storage cleanup non-fatal for bucket=${bucket}: ${storageErr.message}`);
+      }
+    }
+    // 7. Delete the main user record
     await supabase.from('users').delete().eq('id', userId);
-    // 5. Delete the Supabase auth user (requires service role key)
+    // 8. Delete the Supabase auth user (requires service role key)
     //    Non-fatal if it fails — the user row is already gone so login is impossible.
     try {
       await supabase.auth.admin.deleteUser(userId);
@@ -2236,6 +2455,205 @@ app.get('/api/moderation/blocks', requireAuth, async (req, res) => {
   }
 });
 
+// ─── ADMIN ACCESS CONTROL ────────────────────────────────────────────────────
+// Admins are identified by email allowlist (ADMIN_EMAILS env var, comma-separated).
+// This is intentionally simple and explicit — no role column to misconfigure,
+// no privilege to accidentally grant via a stray DB update.
+//   ADMIN_EMAILS=kjcerda1@gmail.com,kjcerda1@outlook.com
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '')
+  .split(',')
+  .map(e => e.trim().toLowerCase())
+  .filter(Boolean);
+
+function isAdminEmail(email) {
+  return !!email && ADMIN_EMAILS.includes(String(email).toLowerCase());
+}
+
+function requireAdmin(req, res, next) {
+  if (!isAdminEmail(req.userEmail)) {
+    return res.status(403).json({ error: 'forbidden', message: 'Admin access required' });
+  }
+  next();
+}
+
+// ─── ADMIN MODERATION QUEUE ──────────────────────────────────────────────────
+// GET    /api/admin/moderation/reports          — list reports (pending first)
+// PATCH  /api/admin/moderation/reports/:id      — update status / resolution_notes
+// POST   /api/admin/moderation/reports/:id/action — log a moderation action
+//
+// IMPORTANT: warn/suspend/ban/remove-content are PLACEHOLDER actions only.
+// They write an audit-log row to moderation_actions and (for user-targeted
+// actions) set moderation_reports.action_taken — they do NOT yet enforce
+// anything (no account suspension, no content deletion). Building real
+// enforcement requires careful design (appeals, reversibility, notifications)
+// and is intentionally deferred. Logging the *decision* now is what matters
+// for App Store review — reviewers want to see that reports are triaged.
+const MODERATION_ACTION_TYPES = ['dismiss', 'mark_reviewed', 'warn_user', 'suspend_user', 'ban_user', 'remove_content'];
+
+// Lets the frontend conditionally show admin-only UI without ever shipping
+// the admin email allowlist to the client bundle.
+app.get('/api/admin/check', requireAuth, async (req, res) => {
+  res.json({ isAdmin: isAdminEmail(req.userEmail) });
+});
+
+app.get('/api/admin/moderation/reports', requireAuth, requireAdmin, async (req, res) => {
+  if (MOCK_MODE) return res.json({ reports: [], mock: true });
+  try {
+    const { status } = req.query;
+    let query = supabase
+      .from('moderation_reports')
+      .select('id, reporter_id, type, target_id, target_handle, reason, detail, status, created_at, reviewed_at, reviewed_by, resolution_notes, action_taken')
+      .order('status', { ascending: true })   // 'pending' sorts before 'reviewed'/'dismissed'/'actioned' alphabetically — good enough for a minimal queue
+      .order('created_at', { ascending: false });
+    if (status) query = query.eq('status', status);
+    const { data, error } = await query;
+    if (error) throw error;
+
+    // Hydrate reporter + reviewer identities (best-effort — never block the queue on this)
+    const ids = [...new Set((data || []).flatMap(r => [r.reporter_id, r.reviewed_by].filter(Boolean)))];
+    let usersById = {};
+    if (ids.length) {
+      const { data: users } = await supabase.from('users').select('id, username, email').in('id', ids);
+      usersById = Object.fromEntries((users || []).map(u => [u.id, u]));
+    }
+
+    const reports = (data || []).map(r => ({
+      ...r,
+      reporter: usersById[r.reporter_id] ? { id: r.reporter_id, username: usersById[r.reporter_id].username, email: usersById[r.reporter_id].email } : null,
+      reviewer: usersById[r.reviewed_by] ? { id: r.reviewed_by, username: usersById[r.reviewed_by].username, email: usersById[r.reviewed_by].email } : null,
+    }));
+    res.json({ reports });
+  } catch (err) {
+    console.error('[Admin Moderation] List error:', err.message);
+    res.status(503).json({ error: 'Could not load reports' });
+  }
+});
+
+app.patch('/api/admin/moderation/reports/:id', requireAuth, requireAdmin, async (req, res) => {
+  const { status, resolution_notes } = req.body || {};
+  const VALID_STATUSES = ['pending', 'reviewed', 'dismissed', 'action_taken'];
+  if (status && !VALID_STATUSES.includes(status)) {
+    return res.status(400).json({ error: 'invalid_status', valid: VALID_STATUSES });
+  }
+  if (MOCK_MODE) return res.json({ updated: true, mock: true });
+  try {
+    const patch = { reviewed_at: new Date().toISOString(), reviewed_by: req.userId };
+    if (status !== undefined) patch.status = status;
+    if (resolution_notes !== undefined) patch.resolution_notes = String(resolution_notes).slice(0, 1000);
+
+    const { data, error } = await supabase
+      .from('moderation_reports')
+      .update(patch)
+      .eq('id', req.params.id)
+      .select('id, status, resolution_notes, reviewed_at, reviewed_by')
+      .single();
+    if (error) throw error;
+    res.json({ updated: true, report: data });
+  } catch (err) {
+    console.error('[Admin Moderation] Update error:', err.message);
+    res.status(503).json({ error: 'Could not update report' });
+  }
+});
+
+app.post('/api/admin/moderation/reports/:id/action', requireAuth, requireAdmin, async (req, res) => {
+  const { action_type, notes } = req.body || {};
+  if (!MODERATION_ACTION_TYPES.includes(action_type)) {
+    return res.status(400).json({ error: 'invalid_action_type', valid: MODERATION_ACTION_TYPES });
+  }
+  if (MOCK_MODE) return res.json({ logged: true, mock: true });
+  try {
+    const { data: report, error: reportErr } = await supabase
+      .from('moderation_reports')
+      .select('id, type, target_id, target_handle')
+      .eq('id', req.params.id)
+      .single();
+    if (reportErr || !report) return res.status(404).json({ error: 'Report not found' });
+
+    // Only user-type reports have a meaningful target_user_id; posts/trades log target_id as-is.
+    const targetUserId = report.type === 'user' ? report.target_id : null;
+
+    const actionRow = {
+      report_id: report.id,
+      action_type,
+      target_user_id: targetUserId,
+      target_type: report.type,
+      target_id: report.target_id,
+      notes: notes ? String(notes).slice(0, 1000) : null,
+      created_by: req.userId,
+      created_at: new Date().toISOString(),
+    };
+    const { data: logged, error: logErr } = await supabase
+      .from('moderation_actions')
+      .insert(actionRow)
+      .select()
+      .single();
+    if (logErr) throw logErr;
+
+    // Reflect the decision on the report itself — status + action_taken summary.
+    // NOTE: warn/suspend/ban/remove are PLACEHOLDERS — this updates records only,
+    // it does not suspend accounts, ban users, or delete content.
+    const STATUS_BY_ACTION = {
+      dismiss: 'dismissed',
+      mark_reviewed: 'reviewed',
+      warn_user: 'action_taken',
+      suspend_user: 'action_taken',
+      ban_user: 'action_taken',
+      remove_content: 'action_taken',
+    };
+    await supabase.from('moderation_reports').update({
+      status: STATUS_BY_ACTION[action_type],
+      action_taken: action_type,
+      reviewed_at: new Date().toISOString(),
+      reviewed_by: req.userId,
+    }).eq('id', report.id);
+
+    console.log(`[Admin Moderation] action=${action_type} report=${report.id} by=${req.userId} (placeholder — no enforcement executed)`);
+    res.json({ logged: true, action: logged });
+  } catch (err) {
+    console.error('[Admin Moderation] Action error:', err.message);
+    res.status(503).json({ error: 'Could not log action' });
+  }
+});
+
+// ─── BLOCK ENFORCEMENT HELPER ────────────────────────────────────────────────
+// Returns true if either user has blocked the other. Used to gate DMs, friend
+// requests, profile views, and feed visibility — blocking must actually prevent
+// interaction, not just appear in a list (App Store / Play Store requirement).
+async function isBlockedEitherWay(userIdA, userIdB) {
+  if (!supabase || !userIdA || !userIdB || userIdA === userIdB) return false;
+  try {
+    const { data } = await supabase
+      .from('user_blocks')
+      .select('user_id, blocked_user_id')
+      .or(`and(user_id.eq.${userIdA},blocked_user_id.eq.${userIdB}),and(user_id.eq.${userIdB},blocked_user_id.eq.${userIdA})`)
+      .limit(1);
+    return !!(data && data.length);
+  } catch (err) {
+    console.warn('[Moderation] Block check failed (non-fatal, allowing):', err.message);
+    return false;
+  }
+}
+
+// Returns the set of user IDs blocked by — or who have blocked — the given user.
+// Used to filter feeds/lists in bulk without an N+1 query per item.
+async function getBlockedUserIdSet(userId) {
+  if (!supabase || !userId) return new Set();
+  try {
+    const { data } = await supabase
+      .from('user_blocks')
+      .select('user_id, blocked_user_id')
+      .or(`user_id.eq.${userId},blocked_user_id.eq.${userId}`);
+    const set = new Set();
+    for (const row of data || []) {
+      set.add(row.user_id === userId ? row.blocked_user_id : row.user_id);
+    }
+    return set;
+  } catch (err) {
+    console.warn('[Moderation] Blocked-set lookup failed (non-fatal):', err.message);
+    return new Set();
+  }
+}
+
 // ─── PUBLIC CARD HELPER ──────────────────────────────────────────────────────
 // Returns only safe public fields — never exposes email or phone.
 function toPublicCard(u) {
@@ -2304,10 +2722,11 @@ function toClientNotification(n) {
     entityType: n.entity_type || '',
     targetModal: n.target_modal || '',
     targetTab: n.target_tab || '',
+    gif: n.gif || null, // { id, title, previewUrl, fullUrl, source } — rendered as a small thumbnail
   };
 }
 
-async function deliverNotification({ userId, type, title, body, actorId = null, entityId = null, entityType = null, targetModal = 'friends', targetTab = null, channels = ['in_app', 'push'] }) {
+async function deliverNotification({ userId, type, title, body, actorId = null, entityId = null, entityType = null, targetModal = 'friends', targetTab = null, channels = ['in_app', 'push'], gif = null }) {
   if (!userId) return { ok: false, reason: 'no_user' };
   if (MOCK_MODE) return { ok: true, mock: true };
 
@@ -2323,6 +2742,9 @@ async function deliverNotification({ userId, type, title, body, actorId = null, 
     target_tab: targetTab,
     read: false,
   };
+  // Only attach gif when present — keeps inserts working on DBs that haven't run
+  // the notifications.gif migration yet (supabase-notifications-gif-migration.sql)
+  if (gif) insert.gif = gif;
   const { data: notification, error } = await supabase
     .from('notifications')
     .insert(insert)
@@ -2367,6 +2789,24 @@ async function deliverNotification({ userId, type, title, body, actorId = null, 
 
   return { ok: true, notification };
 }
+
+app.get('/api/users/check-username', requireAuth, async (req, res) => {
+  const username = String(req.query.username || '').trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+  if (!username || username.length < 2) return res.json({ available: false, reason: 'too_short' });
+  if (isBackendReservedUsername(username)) return res.json({ available: false, reason: 'reserved' });
+  if (MOCK_MODE) return res.json({ available: true });
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('id')
+      .ilike('username', username)
+      .limit(1);
+    if (error) return res.status(500).json({ available: false, reason: 'error' });
+    return res.json({ available: !data || data.length === 0 });
+  } catch(e) {
+    return res.status(500).json({ available: false, reason: 'error' });
+  }
+});
 
 app.get('/api/users/search', requireAuth, async (req, res) => {
   const raw = String(req.query.q || '').trim();
@@ -2658,6 +3098,9 @@ app.post('/api/messages/thread', requireAuth, async (req, res) => {
   if (!targetUserId) return res.status(400).json({ error: 'targetUserId required' });
   if (targetUserId === req.userId) return res.status(400).json({ error: 'Cannot message yourself' });
   if (MOCK_MODE) return res.json({ thread: { id: `mock-thread-${targetUserId}`, messages: [] }, mock: true });
+  if (await isBlockedEitherWay(req.userId, targetUserId)) {
+    return res.status(403).json({ error: 'blocked', message: 'You cannot message this user.' });
+  }
   try {
     let threadId = await getThreadForUsers(req.userId, targetUserId);
     if (!threadId) {
@@ -2721,6 +3164,16 @@ app.post('/api/messages/thread/:id/send', requireAuth, async (req, res) => {
       .eq('user_id', req.userId)
       .single();
     if (!membership) return res.status(403).json({ error: 'Forbidden' });
+    const { data: otherMembers } = await supabase
+      .from('message_thread_members')
+      .select('user_id')
+      .eq('thread_id', req.params.id)
+      .neq('user_id', req.userId);
+    for (const m of otherMembers || []) {
+      if (await isBlockedEitherWay(req.userId, m.user_id)) {
+        return res.status(403).json({ error: 'blocked', message: 'You cannot message this user.' });
+      }
+    }
     const { data, error } = await supabase
       .from('messages')
       .insert({ thread_id: req.params.id, sender_user_id: req.userId, body })
@@ -2736,7 +3189,12 @@ app.post('/api/messages/thread/:id/send', requireAuth, async (req, res) => {
 });
 
 app.post('/api/profile/update', requireAuth, async (req, res) => {
-  const { username, bio, city, showCity, fandoms, bias, nowPlaying, profileStyle, discoverable } = req.body;
+  const {
+    username, bio, city, showCity, fandoms, bias, nowPlaying, profileStyle, discoverable,
+    // normalized location fields (sent by saveCity when user picks from autocomplete)
+    city_display, city_key, region, region_code,
+    country, country_code, continent, city_lat, city_lng, timezone,
+  } = req.body;
   // Reserved username check
   if (username !== undefined && isBackendReservedUsername(username)) {
     return res.status(400).json({
@@ -2750,15 +3208,27 @@ app.post('/api/profile/update', requireAuth, async (req, res) => {
   const updates = { id: req.userId, email: req.userEmail || '' };
   if (username      !== undefined) updates.username       = username;
   if (bio           !== undefined) updates.bio            = bio;
-  if (city          !== undefined) updates.city           = city;
   if (showCity      !== undefined) updates.show_city      = showCity;
   if (fandoms       !== undefined) updates.fandoms        = fandoms;
   if (bias          !== undefined) updates.bias           = bias;
   if (nowPlaying    !== undefined) updates.now_playing    = nowPlaying;
   if (profileStyle  !== undefined) updates.profile_style  = profileStyle;
   if (discoverable  !== undefined) updates.discoverable   = discoverable;
+  // location — sparse, all optional
+  if (city         !== undefined) updates.city         = city;
+  if (city_display !== undefined) updates.city_display = city_display;
+  if (city_key     !== undefined) updates.city_key     = city_key;
+  if (region       !== undefined) updates.region       = region;
+  if (region_code  !== undefined) updates.region_code  = region_code;
+  if (country      !== undefined) updates.country      = country;
+  if (country_code !== undefined) updates.country_code = country_code;
+  if (continent    !== undefined) updates.continent    = continent;
+  if (city_lat     !== undefined) updates.city_lat     = city_lat;
+  if (city_lng     !== undefined) updates.city_lng     = city_lng;
+  if (timezone     !== undefined) updates.timezone     = timezone;
   const { error } = await supabase.from('users').upsert(updates, { onConflict: 'id' });
   if (error) return res.status(500).json({ error: error.message });
+  touchLastActive(req.userId); // fire-and-forget, throttled 15 min
   res.json({ success: true });
 });
 
@@ -2785,6 +3255,9 @@ app.get('/api/profile/:id', optionalAuth, async (req, res) => {
       city: 'Los Angeles', fandoms: ['Stray Kids', 'ATEEZ', 'TWICE'],
       bias: 'Felix', avatar_url: null, proof_score: 4.8, is_vip: true, mock: true,
     });
+  }
+  if (req.userId && req.userId !== req.params.id && await isBlockedEitherWay(req.userId, req.params.id)) {
+    return res.status(404).json({ error: 'User not found' });
   }
   const fields = req.userId === req.params.id
     ? '*'
@@ -2817,6 +3290,171 @@ app.get('/api/profile/by-username/:username', optionalAuth, async (req, res) => 
     .single();
   if (error || !data) return res.status(404).json({ error: 'User not found' });
   res.json(data);
+});
+
+// ─── CITY HUBS ────────────────────────────────────────────────────────────────
+// GET /api/hubs/cities
+//
+// Returns city hub cards scored by fan energy (not just head count).
+// Only counts users with show_city=true AND discoverable=true — privacy-safe.
+// last_active_at is used for active_7d/active_30d counts, never exposed directly.
+//
+// Hub tiers:
+//   Seed     ≥ 1  discoverable fans with city_key
+//   Forming  ≥ 5  fans
+//   Official ≥ 10 fans  AND  ≥ 3  active in last 30d
+//   Featured ≥ 25 fans  AND  ≥ 10 active in last 30d
+//
+// Hub Score (MVP — expands as posts/events/rsvps come online):
+//   active_7d * 5  +  active_30d * 2  +  new_fans_7d * 4  +  trades_open * 2
+//
+// Query params:
+//   ?continent=   filter to continent name (e.g. "North America")
+//   ?country_code= filter by ISO-2 (e.g. "US")
+//   ?sort=         hub_score (default) | total_fans | active_7d
+//   ?limit=        max cities returned (default 20, max 50)
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/api/hubs/cities', optionalAuth, async (req, res) => {
+  const { continent, country_code, sort = 'hub_score', limit: lim = 20 } = req.query;
+  const maxLimit = Math.min(Number(lim) || 20, 50);
+
+  if (MOCK_MODE) {
+    return res.json({
+      cities: [
+        { city_key:'seoul_kr', city_display:'Seoul, South Korea', country_code:'KR', continent:'Asia',
+          hub_status:'featured', total_fans:42, active_7d:18, active_30d:31, new_fans_7d:5, trades_open:12, hub_score:248, next_milestone:null },
+        { city_key:'los_angeles_ca_us', city_display:'Los Angeles, CA, USA', country_code:'US', continent:'North America',
+          hub_status:'official', total_fans:16, active_7d:7, active_30d:11, new_fans_7d:3, trades_open:4, hub_score:107, next_milestone:'9 more fans to unlock Featured Hub' },
+        { city_key:'san_antonio_tx_us', city_display:'San Antonio, TX, USA', country_code:'US', continent:'North America',
+          hub_status:'forming', total_fans:7, active_7d:3, active_30d:5, new_fans_7d:2, trades_open:1, hub_score:41, next_milestone:'3 more fans to unlock Official Hub' },
+      ],
+      generated_at: new Date().toISOString(),
+      mock: true,
+    });
+  }
+
+  if (!supabase) return res.status(503).json({ error: 'Database not available' });
+
+  try {
+    // 1. Fetch all hub-eligible users (city known + privacy opts satisfied)
+    let userQuery = supabase
+      .from('users')
+      .select('id, city_key, city_display, country_code, continent, last_active_at, created_at')
+      .eq('show_city', true)
+      .eq('discoverable', true)
+      .not('city_key', 'is', null);
+    if (continent)    userQuery = userQuery.eq('continent', continent);
+    if (country_code) userQuery = userQuery.eq('country_code', country_code);
+
+    // 2. Fetch active trade listing user_ids (for trades_open per city)
+    const tradeQuery = supabase
+      .from('trade_listings')
+      .select('user_id')
+      .eq('status', 'active');
+
+    const [{ data: users, error: userErr }, { data: trades, error: tradeErr }] = await Promise.all([userQuery, tradeQuery]);
+
+    if (userErr) throw userErr;
+    if (tradeErr) console.warn('[GET /api/hubs/cities] trades query failed:', tradeErr.message);
+
+    const now = Date.now();
+    const ms7d  = 7  * 24 * 60 * 60 * 1000;
+    const ms30d = 30 * 24 * 60 * 60 * 1000;
+
+    // Map userId → city_key for trade aggregation
+    const userCityMap = {};
+    for (const u of (users || [])) userCityMap[u.id] = u.city_key;
+
+    // Aggregate trades_open per city_key
+    const tradesPerCity = {};
+    for (const t of (trades || [])) {
+      const ck = userCityMap[t.user_id];
+      if (ck) tradesPerCity[ck] = (tradesPerCity[ck] || 0) + 1;
+    }
+
+    // Aggregate user signals per city_key
+    const cityMap = {};
+    for (const u of (users || [])) {
+      const ck = u.city_key;
+      if (!ck) continue;
+      if (!cityMap[ck]) {
+        cityMap[ck] = {
+          city_key:     ck,
+          city_display: u.city_display || ck,
+          country_code: u.country_code || '',
+          continent:    u.continent    || '',
+          total_fans:   0,
+          active_7d:    0,
+          active_30d:   0,
+          new_fans_7d:  0,
+        };
+      }
+      const c = cityMap[ck];
+      c.total_fans++;
+      if (u.last_active_at) {
+        const age = now - new Date(u.last_active_at).getTime();
+        if (age <= ms7d)  c.active_7d++;
+        if (age <= ms30d) c.active_30d++;
+      }
+      if (u.created_at && (now - new Date(u.created_at).getTime()) <= ms7d) {
+        c.new_fans_7d++;
+      }
+    }
+
+    // Score, classify, and build response
+    const cities = Object.values(cityMap).map(c => {
+      const trades_open = tradesPerCity[c.city_key] || 0;
+
+      // Hub tier
+      let hub_status;
+      if      (c.total_fans >= 25 && c.active_30d >= 10) hub_status = 'featured';
+      else if (c.total_fans >= 10 && c.active_30d >= 3)  hub_status = 'official';
+      else if (c.total_fans >= 5)                         hub_status = 'forming';
+      else                                                hub_status = 'seed';
+
+      // Next milestone message
+      let next_milestone = null;
+      if (hub_status === 'seed') {
+        const need = 5 - c.total_fans;
+        next_milestone = `${need} more fan${need===1?'':'s'} to unlock Forming Hub`;
+      } else if (hub_status === 'forming') {
+        const needFans    = Math.max(0, 10 - c.total_fans);
+        const needActive  = Math.max(0, 3  - c.active_30d);
+        if (needFans > 0 && needActive > 0)
+          next_milestone = `${needFans} more fan${needFans===1?'':'s'} + ${needActive} more active this month to unlock Official Hub`;
+        else if (needFans > 0)
+          next_milestone = `${needFans} more fan${needFans===1?'':'s'} to unlock Official Hub`;
+        else
+          next_milestone = `${needActive} more active fan${needActive===1?'':'s'} this month to unlock Official Hub`;
+      } else if (hub_status === 'official') {
+        const needFans   = Math.max(0, 25 - c.total_fans);
+        const needActive = Math.max(0, 10 - c.active_30d);
+        if (needFans > 0 && needActive > 0)
+          next_milestone = `${needFans} more fan${needFans===1?'':'s'} + ${needActive} more active this month to unlock Featured Hub`;
+        else if (needFans > 0)
+          next_milestone = `${needFans} more fan${needFans===1?'':'s'} to unlock Featured Hub`;
+        else
+          next_milestone = `${needActive} more active fan${needActive===1?'':'s'} this month to unlock Featured Hub`;
+      }
+
+      // Hub Score (MVP formula — posts_7d / event_rsvps / upcoming_events = 0 until those ship)
+      const hub_score = c.active_7d * 5 + c.active_30d * 2 + c.new_fans_7d * 4 + trades_open * 2;
+
+      return { ...c, trades_open, hub_status, hub_score, next_milestone };
+    });
+
+    // Sort
+    const sortKey = ['hub_score','total_fans','active_7d'].includes(sort) ? sort : 'hub_score';
+    cities.sort((a, b) => b[sortKey] - a[sortKey]);
+
+    res.json({
+      cities: cities.slice(0, maxLimit),
+      generated_at: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error('[GET /api/hubs/cities] Exception:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ─── FRIEND SUGGESTIONS ───────────────────────────────────────────────────────
@@ -2892,10 +3530,12 @@ app.get('/api/friends/suggested', requireAuth, async (req, res) => {
 
 // ─── FAN DISCOVERY ───────────────────────────────────────────────────────────
 // Returns up to 20 discoverable users, excluding existing friends + pending requests.
-// Optional query params: ?fandom=BTS&city=Dallas
+// Optional query params: ?fandom=BTS&city=Dallas&city_key=san_antonio_tx_us
+// city_key takes precedence over city when both are provided (exact normalized match).
 app.get('/api/users/discover', requireAuth, async (req, res) => {
-  const fandom = (req.query.fandom || '').trim();
-  const city   = (req.query.city   || '').trim();
+  const fandom   = (req.query.fandom    || '').trim();
+  const city     = (req.query.city      || '').trim();
+  const city_key = (req.query.city_key  || '').trim();
 
   if (MOCK_MODE) {
     const mocks = [
@@ -2905,8 +3545,9 @@ app.get('/api/users/discover', requireAuth, async (req, res) => {
       { id:'mock_disc4', username:'purplehour',  display_name:'Hana',  fandoms:['BTS','ENHYPEN'],      bias:['Jungkook'],  city:'New York, NY',    bio:'Making freebies 💜', now_playing:{ artist:'ENHYPEN', title:'Future Perfect' } },
     ];
     let filtered = mocks;
-    if (fandom) filtered = filtered.filter(u => u.fandoms.includes(fandom));
-    if (city)   filtered = filtered.filter(u => (u.city || '').toLowerCase().includes(city.toLowerCase()));
+    if (fandom)   filtered = filtered.filter(u => u.fandoms.includes(fandom));
+    if (city)     filtered = filtered.filter(u => (u.city || '').toLowerCase().includes(city.toLowerCase()));
+    // city_key not filterable in mock (no city_key field) — return all mock fans
     return res.json({ users: filtered.map(u => ({ ...toPublicCard(u), bias: u.bias, now_playing: u.now_playing })) });
   }
 
@@ -2934,8 +3575,9 @@ app.get('/api/users/discover', requireAuth, async (req, res) => {
       .neq('id', req.userId)
       .limit(80);
 
+    if (city_key) query = query.eq('city_key', city_key);  // exact normalized match (Hub detail)
+    else if (city) query = query.ilike('city', `%${city}%`);
     if (fandom) query = query.contains('fandoms', [fandom]);
-    if (city)   query = query.ilike('city', `%${city}%`);
 
     const { data: candidates } = await query;
 
@@ -3013,6 +3655,9 @@ app.post('/api/friends/request', requireAuth, async (req, res) => {
   if (!targetUserId) return res.status(400).json({ error: 'targetUserId required' });
   if (targetUserId === req.userId) return res.status(400).json({ error: 'Cannot add yourself' });
   if (MOCK_MODE) return res.json({ success: true, mock: true });
+  if (await isBlockedEitherWay(req.userId, targetUserId)) {
+    return res.status(403).json({ error: 'blocked', message: 'You cannot send a request to this user.' });
+  }
   try {
     const { data: existingFriend } = await supabase
       .from('friends')
@@ -3147,7 +3792,7 @@ app.patch('/api/friends/request/:requestId', requireAuth, async (req, res) => {
   }
 });
 
-async function handleFriendRequestAction(req, res, requestId, action) {
+async function handleFriendRequestAction(req, res, requestId, action, gif = null) {
   if (!requestId) return res.status(400).json({ error: 'requestId required' });
   if (!['accept', 'decline', 'cancel'].includes(action)) return res.status(400).json({ error: 'Invalid action' });
   if (MOCK_MODE) return res.json({ success: true, mock: true });
@@ -3175,13 +3820,14 @@ async function handleFriendRequestAction(req, res, requestId, action) {
       await deliverNotification({
         userId: reqRow.sender_id,
         type: 'friend_request_accepted',
-        title: `${actorName} accepted your friend request`,
+        title: `${actorName} accepted your friend request ✨`,
         body: 'You are now connected in My Circle.',
         actorId: req.userId,
         entityId: reqRow.id,
         entityType: 'friend_request',
         targetModal: 'friends',
         channels: ['in_app', 'push', 'email'],
+        gif,
       });
     }
 
@@ -3196,7 +3842,7 @@ async function handleFriendRequestAction(req, res, requestId, action) {
   }
 }
 
-app.post('/api/friends/accept', requireAuth, async (req, res) => handleFriendRequestAction(req, res, req.body?.requestId, 'accept'));
+app.post('/api/friends/accept', requireAuth, async (req, res) => handleFriendRequestAction(req, res, req.body?.requestId, 'accept', req.body?.gif || null));
 app.post('/api/friends/decline', requireAuth, async (req, res) => handleFriendRequestAction(req, res, req.body?.requestId, 'decline'));
 app.post('/api/friends/cancel', requireAuth, async (req, res) => handleFriendRequestAction(req, res, req.body?.requestId, 'cancel'));
 
@@ -3733,10 +4379,21 @@ app.delete('/api/cards/:id', requireAuth, async (req, res) => {
 
 // ── Trade Listings ────────────────────────────────────────────────────────────
 // Public feed — active listings from anyone
+// Optional query params: ?group_name=BTS&trade_type=&city_key=san_antonio_tx_us&limit=50
+// city_key: filters to listings from users in that normalized city (Hub detail use).
 app.get('/api/trade-listings', async (req, res) => {
   if (!supabase) return res.json({ listings: [], mock: true });
-  const { group_name, trade_type, limit: lim = 50 } = req.query;
+  const { group_name, trade_type, city_key, limit: lim = 50 } = req.query;
   try {
+    // When city_key provided: first resolve user IDs in that city (discoverable only)
+    let cityUserIds = null;
+    if (city_key) {
+      const { data: cityUsers } = await supabase
+        .from('users').select('id').eq('city_key', city_key).eq('discoverable', true);
+      cityUserIds = (cityUsers || []).map(u => u.id);
+      if (!cityUserIds.length) return res.json({ listings: [] });
+    }
+
     let q = supabase
       .from('trade_listings')
       .select(`
@@ -3747,8 +4404,9 @@ app.get('/api/trade-listings', async (req, res) => {
       .eq('status', 'active')
       .order('created_at', { ascending: false })
       .limit(Math.min(Number(lim), 100));
-    if (trade_type) q = q.eq('trade_type', trade_type);
-    if (group_name) q = q.eq('user_cards.group_name', group_name);
+    if (trade_type)   q = q.eq('trade_type', trade_type);
+    if (group_name)   q = q.eq('user_cards.group_name', group_name);
+    if (cityUserIds)  q = q.in('user_id', cityUserIds);
     const { data, error } = await q;
     if (error) throw error;
     res.json({ listings: data || [] });
@@ -4256,15 +4914,33 @@ app.post('/api/listing-offers/:id/messages', requireAuth, async (req, res) => {
 });
 
 // ── Reports ───────────────────────────────────────────────────────────────────
+// Compatibility alias — Trade Hub UI still posts here. Internally routed into
+// moderation_reports (type:'trade') so trade reports surface in the admin
+// Moderation Queue alongside user/post reports instead of a separate, invisible table.
 app.post('/api/listing-reports', requireAuth, async (req, res) => {
   if (!supabase) return res.json({ ok: true, mock: true });
-  const { listing_id, offer_id, reported_user_id, reason, notes } = req.body;
+  const { listing_id, offer_id, reported_user_id, reason, notes } = req.body || {};
   if (!reason) return res.status(400).json({ error: 'reason required' });
   try {
-    const { error } = await supabase.from('listing_reports')
-      .insert({ reporter_id: req.userId, listing_id, offer_id, reported_user_id, reason, notes });
+    let targetHandle = null;
+    if (listing_id) {
+      const { data: listing } = await supabase.from('trade_listings')
+        .select('user_id, users(username)').eq('id', listing_id).maybeSingle();
+      targetHandle = listing?.users?.username ? `@${listing.users.username}` : null;
+    }
+    const entry = {
+      reporter_id: req.userId,
+      type: 'trade',
+      target_id: listing_id ? String(listing_id).slice(0, 64) : (offer_id ? String(offer_id).slice(0, 64) : null),
+      target_handle: targetHandle,
+      reason: String(reason).slice(0, 120),
+      detail: notes ? String(notes).slice(0, 500) : null,
+      created_at: new Date().toISOString(),
+      status: 'pending',
+    };
+    const { error } = await supabase.from('moderation_reports').insert(entry);
     if (error) throw error;
-    res.json({ ok: true });
+    res.json({ ok: true, reported: true });
   } catch (err) {
     console.error('[Reports POST]', err.message);
     res.status(500).json({ error: 'Failed to submit report' });

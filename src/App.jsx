@@ -46,7 +46,7 @@ const api = {
 };
 
 // ─── AUTH CONTEXT ─────────────────────────────────────────────────────────────
-const AuthCtx = createContext({ user: null, session: null, loading: true, tokenReady: false, signOut: ()=>{} });
+const AuthCtx = createContext({ user: null, session: null, loading: true, tokenReady: false, signOut: ()=>{}, passwordRecovery: false, setPasswordRecovery: ()=>{} });
 const useAuth = () => useContext(AuthCtx);
 
 // ─── DATA HOOKS ───────────────────────────────────────────────────────────────
@@ -185,6 +185,21 @@ function isFounderVip(user) {
   return user?.vip_source === "founder" || user?.plan === "founder";
 }
 
+// ─── FREE TIER LIMITS ────────────────────────────────────────────────────────
+// Central source of truth for free vs VIP feature limits.
+// VIP users bypass all limits. Reference FREE_LIMITS.* in components.
+const FREE_LIMITS = {
+  stageFonts: 3,                 // first 3 font moods free (classic, softpop, poster)
+  stageEffects: 3,               // none + sparkles + hearts free
+  savedCapsules: 2,              // capsules saved to My World
+  capsulePostsPerConcert: 3,     // enforced in ConcertCapsule via FREE_CAP
+  fanCirclesCreated: 1,          // user-created circles (id starts "uc-")
+  scrapbookMemories: 5,          // per scrapbook book (enforced in ScrapbookTab)
+  outfitAI: 3,                   // per month (enforced in OutfitGenerator)
+  tripPlanner: 1,                // per month
+  activeTradeListings: 3,        // active listings at once
+};
+
 const onboardingCompleteKey = userId => `backstage_onboarding_complete_${userId}`;
 const vipCacheKey = userId => `backstage_is_vip_${userId}`;
 
@@ -249,6 +264,25 @@ function mergeStoredProfile(localProfile, remoteProfile, fallbackProfile = null)
     return local;
   }
   const merged = normalizeProfile({ ...(fallback || {}), ...(local || {}), ...(remote || {}) });
+  // Fandoms rescue: remote spread wins on all fields, but an empty DB fandoms array
+  // must not erase real local fandoms. This happens when the onboarding PATCH fires
+  // without a session token (email confirmation pending) — the 401 is silently
+  // discarded by fetch(), local keeps the selection, DB stays at default [].
+  if (!merged.fandoms?.length && local?.fandoms?.length > 0) {
+    merged.fandoms = [...local.fandoms];
+    merged.favorite_groups = [...local.fandoms];
+  }
+  // Bias rescue: normalizeProfile converts undefined bias to "", so remote's empty
+  // string would erase a real local bias if the onboarding PATCH didn't reach the DB.
+  if (!merged.bias && local?.bias) {
+    merged.bias = local.bias;
+  }
+  // City rescue: don't let null/empty DB location fields erase values the user
+  // already set locally. Covers the window between saveCity() and the next DB sync.
+  if (!merged.city       && local?.city)       merged.city       = local.city;
+  if (!merged.city_key   && local?.city_key)   merged.city_key   = local.city_key;
+  if (!merged.country_code && local?.country_code) merged.country_code = local.country_code;
+  if (!merged.continent  && local?.continent)  merged.continent  = local.continent;
   if (canEnterApp(local) && !canEnterApp(merged)) return local;
   return merged;
 }
@@ -330,6 +364,7 @@ function AuthProvider({ children }) {
   const [session, setSession]     = useState(null);
   const [loading, setLoading]     = useState(true);
   const [tokenReady, setTokenReady] = useState(false);
+  const [passwordRecovery, setPasswordRecovery] = useState(false);
 
   useEffect(() => {
     // Boot: check cached session first
@@ -386,10 +421,24 @@ function AuthProvider({ children }) {
     const { data: { subscription } } = _supabase.auth.onAuthStateChange(async (event, session) => {
       listenerFired = true;
       setSession(session || null);
+      if (event === 'PASSWORD_RECOVERY') setPasswordRecovery(true);
       if (session) {
         api._setToken(session.access_token);
         setTokenReady(true);
         const fallback = { id:session.user.id, email:session.user.email, username:(session.user.email||'').split('@')[0]||'fan', fandoms:[], bias:'', is_vip:false };
+        // Replay any pending onboarding PATCH — covers the email-verify-link flow
+        // where SIGNED_IN fires but handleSignIn is never called (no sign-in screen).
+        const pendingPatch = ls.get(`backstage_pending_patch_${session.user.id}`);
+        if (pendingPatch) {
+          try {
+            const pr = await fetch(`${API_URL}/api/users/me`, {
+              method:'PATCH',
+              headers:{ 'Content-Type':'application/json', 'Authorization':`Bearer ${session.access_token}` },
+              body: JSON.stringify(pendingPatch),
+            });
+            if (pr.ok) { ls.del(`backstage_pending_patch_${session.user.id}`); console.log('[AuthProvider] pending onboarding patch replayed'); }
+          } catch(e) { console.warn('[AuthProvider] pending patch replay failed:', e?.message); }
+        }
         const profile = await api.get('/api/users/me').catch(() => null);
         if (!mounted) return;
         const u = mergeStoredProfile(ls.get(`backstage_profile_${session.user.id}`), profile?.id ? profile : null, fallback);
@@ -434,7 +483,7 @@ function AuthProvider({ children }) {
   };
 
   return (
-    <AuthCtx.Provider value={{ user, session, loading, tokenReady, signOut }}>
+    <AuthCtx.Provider value={{ user, session, loading, tokenReady, signOut, passwordRecovery, setPasswordRecovery }}>
       {children}
     </AuthCtx.Provider>
   );
@@ -477,8 +526,8 @@ const C = {
   holo:     "#e8d5ff",   // holographic white-lavender (new)
   // ── Text ───────────────────────────────────────────────────────────────────
   text:     "#ede8ff",   // slightly warmer white
-  textMid:  "#a090cc",   // plum-toned mid — brightened for readability
-  textDim:  "#2e1e52",   // deep dim
+  textMid:  "#a090cc",   // plum-toned mid — readable secondary
+  textDim:  "#7a6aaa",   // muted lavender — readable tertiary (was near-invisible #2e1e52)
   white:    "#ffffff",
   // ── Era-inspired accents ───────────────────────────────────────────────────
   plum:     "#3b0764",   // deep plum (new)
@@ -825,6 +874,25 @@ const SKIN_GRADIENTS = {
   "mootmagnet":     `linear-gradient(140deg,#0a0422,#160836,#0e062a,#08041c)`,
   "tradequeen":     `linear-gradient(140deg,#100c00,#241800,#1c1000,#0e0c00)`,
   "projlead":       `linear-gradient(140deg,#04001a,#08002e,#040014,#030010)`,
+  // ── Concert Energy ───────────────────────────────────────────────────────
+  "arenaglow":      `linear-gradient(140deg,#0a0020,#1a0048,#301060,#0a0030)`,
+  "encorenight":    `linear-gradient(140deg,#000308,#010815,#04061a,#000208)`,
+  "vipsound":       `linear-gradient(140deg,#0a0600,#1e1200,#2a1800,#140c00)`,
+  // ── OG Internet ──────────────────────────────────────────────────────────
+  "myspaceglitter": `linear-gradient(140deg,#1a0020,#380030,#28006a,#100018)`,
+  "pixelfanclub":   `linear-gradient(140deg,#000028,#00001a,#080018,#000010)`,
+  "stickerbomb":    `linear-gradient(140deg,#200a00,#3a1a00,#1a1000,#2a0a0a)`,
+  "diarypage":      `linear-gradient(140deg,#0e0820,#1a1030,#0c0818,#140e28)`,
+  // ── Collector Core ───────────────────────────────────────────────────────
+  "bindersleeve":   `linear-gradient(140deg,#050018,#0a0030,#040010,#080020)`,
+  "photocardhole":  `linear-gradient(140deg,#001428,#002040,#001830,#003050)`,
+  "tradingdesk":    `linear-gradient(140deg,#080014,#100020,#0a001a,#06000e)`,
+  "biasshrineSkin": `linear-gradient(140deg,#150020,#280040,#1a0030,#200038)`,
+  // ── Emotional / Soft ─────────────────────────────────────────────────────
+  "afterglowskin":  `linear-gradient(140deg,#1a0830,#2a1040,#1a0828,#200e38)`,
+  "rainyseoul":     `linear-gradient(140deg,#08101c,#0c1830,#040c18,#081424)`,
+  "lavenderroom":   `linear-gradient(140deg,#120828,#1e1040,#0e0820,#180c34)`,
+  "moonlightfan":   `linear-gradient(140deg,#08080e,#10101a,#060608,#0c0c16)`,
 };
 const OVERLAY_CHARS = {
   sparkles: ["✦","✦","✦","✦","✦","✦","✦","✦"],
@@ -863,7 +931,69 @@ const SKIN_ID_TO_GRAD = {
   cardcollect:"cardcollect", traveler:"traveler",  freebiemaker:"freebiemaker",
   chantmstr:"chantmstr",     soloconcert:"soloconcert", mootmagnet:"mootmagnet",
   tradequeen:"tradequeen",   projlead:"projlead",
+  // Concert Energy
+  arenaglow:"arenaglow", encorenight:"encorenight", vipsound:"vipsound",
+  // OG Internet
+  myspaceglitter:"myspaceglitter", pixelfanclub:"pixelfanclub", stickerbomb:"stickerbomb", diarypage:"diarypage",
+  // Collector Core
+  bindersleeve:"bindersleeve", photocardhole:"photocardhole", tradingdesk:"tradingdesk", biasshrineSkin:"biasshrineSkin",
+  // Emotional/Soft
+  afterglowskin:"afterglowskin", rainyseoul:"rainyseoul", lavenderroom:"lavenderroom", moonlightfan:"moonlightfan",
 };
+
+// ─── STAGE FONT MOODS ──────────────────────────────────────────────────────────
+const STAGE_FONTS = [
+  { id:"classic",  label:"Classic Backstage", emoji:"✦",  font:"'Epilogue', sans-serif",                      desc:"Bold editorial" },
+  { id:"softpop",  label:"Soft Pop",          emoji:"🌸", font:"'Instrument Sans', sans-serif",               desc:"Clean & friendly" },
+  { id:"poster",   label:"Concert Poster",    emoji:"🎤", font:"Impact, 'Arial Black', sans-serif",           desc:"Big & dramatic" },
+  { id:"diary",    label:"Diary",             emoji:"📓", font:"Georgia, 'Times New Roman', serif",           desc:"Personal & warm" },
+  { id:"cyber",    label:"Cyber Idol",        emoji:"🤖", font:"'Courier New', Courier, monospace",           desc:"Digital & sharp" },
+  { id:"magazine", label:"Magazine",          emoji:"📰", font:"'Arial Black', 'Helvetica Neue', sans-serif", desc:"Clean authority" },
+  { id:"y2k",      label:"Y2K Bubble",        emoji:"🦋", font:"'Comic Sans MS', 'Chalkboard SE', cursive",   desc:"Retro playful" },
+  { id:"serif",    label:"Elegant Serif",     emoji:"🌙", font:"Georgia, 'Palatino Linotype', serif",         desc:"Refined & classic" },
+  { id:"written",  label:"Handwritten Note",  emoji:"✍️", font:"'Brush Script MT', 'Bradley Hand', cursive", desc:"Personal touch" },
+  { id:"pixel",    label:"Pixel Fanclub",     emoji:"🕹️", font:"'Courier New', monospace",                   desc:"Retro digital" },
+];
+const STAGE_FONT_MAP = Object.fromEntries(STAGE_FONTS.map(f=>[f.id, f.font]));
+
+// ─── STAGE EFFECTS ─────────────────────────────────────────────────────────────
+const STAGE_EFFECTS = [
+  { id:"none",     label:"None",            emoji:"⬜", chars:[], animation:"none",         desc:"Clean stage" },
+  { id:"sparkles", label:"Sparkles",        emoji:"✦",  chars:["✦","✦","✦","✦","✦","✦"],  animation:"sparkleFloat", desc:"Floating ✦" },
+  { id:"hearts",   label:"Hearts",          emoji:"♡",  chars:["♡","♡","♡","♡","♡"],      animation:"float",        desc:"Floating hearts" },
+  { id:"stardust", label:"Star Dust",       emoji:"🌟", chars:["★","·","✦","·","★","·"],   animation:"cosmicDrift",  desc:"Cosmic drift" },
+  { id:"holo",     label:"Holo Shimmer",    emoji:"💿", chars:["◈","◈","◈","◈","◈"],      animation:"shimmer",      desc:"Iridescent glow" },
+  { id:"blossom",  label:"Cherry Blossoms", emoji:"🌸", chars:["🌸","🌸","🌸","🌸"],       animation:"float",        desc:"Soft petals" },
+  { id:"glitter",  label:"Glitter",         emoji:"✨", chars:["★","✦","★","✦","★"],      animation:"sparkleFloat", desc:"Golden sparkle" },
+  { id:"angel",    label:"Angel Aura",      emoji:"🪬", chars:["◌","◌","◌","◌","◌"],      animation:"ambientGlow",  desc:"Ethereal light" },
+  { id:"glitch",   label:"Glitch Glow",     emoji:"⚡", chars:["╱","╱","╱","╱"],          animation:"shimmer",      desc:"Cyber edge" },
+];
+const STAGE_EFFECT_MAP = Object.fromEntries(STAGE_EFFECTS.map(e=>[e.id, e]));
+
+// ─── SECTION STYLE OPTIONS ─────────────────────────────────────────────────────
+const SHRINE_LAYOUTS = [
+  { id:"center",   label:"Center Bias",      emoji:"⭕", desc:"ULT centered, wreckers below" },
+  { id:"trio",     label:"Trio Shrine",      emoji:"🔱", desc:"Three in a row — equal reverence" },
+  { id:"orbit",    label:"Orbit",            emoji:"🌀", desc:"Center bias with orbiting ring" },
+  { id:"polaroid", label:"Polaroid Stack",   emoji:"📷", desc:"Stacked photo aesthetic" },
+  { id:"lstick",   label:"Lightstick Circle",emoji:"🪄", desc:"Circle of light" },
+];
+const CARD_STYLES = [
+  { id:"default",  label:"Standard",         emoji:"🎴", desc:"Classic fan card" },
+  { id:"holo",     label:"Holo Card",        emoji:"💿", desc:"Holographic shimmer" },
+  { id:"sleeve",   label:"Photocard Sleeve", emoji:"📦", desc:"Collector sleeve look" },
+  { id:"pass",     label:"Concert Pass",     emoji:"🎟️", desc:"Live show credential" },
+  { id:"trading",  label:"Trading Card",     emoji:"♟️", desc:"Serialized card feel" },
+  { id:"magazine", label:"Magazine Cover",   emoji:"📰", desc:"Editorial cover" },
+];
+const SECTION_EFFECTS = [
+  { id:"none",    label:"None",            emoji:"⬜" },
+  { id:"holo",    label:"Holo Shimmer",    emoji:"💿" },
+  { id:"hearts",  label:"Floating Hearts", emoji:"♡"  },
+  { id:"sparkles",label:"Sparkles",        emoji:"✦"  },
+  { id:"glow",    label:"Soft Glow",       emoji:"🌟" },
+  { id:"angel",   label:"Angel Aura",      emoji:"🪬" },
+];
 
 // ─── PRIMITIVES ────────────────────────────────────────────────────────────────
 
@@ -906,6 +1036,183 @@ function ComingSoonModal({ tool, onClose }) {
         <p style={{ fontSize:13.5,color:C.textMid,lineHeight:1.7,marginBottom:6 }}>We're polishing this tool before it goes live.</p>
         <p style={{ fontSize:12,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:600,marginBottom:26,fontStyle:"italic" }}>{copy.sub}</p>
         <button onClick={onClose} className="tap" style={{ width:"100%",padding:"13px",borderRadius:13,background:`linear-gradient(140deg,${C.accent}ee,${C.accentDim}88)`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer" }}>Got it</button>
+      </div>
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// GIF / REACTION SYSTEM — provider-agnostic (backend proxies tenor/giphy/mock)
+// Used in: DM composer, friend request accept, Notification Center, Concert Capsules.
+// ═════════════════════════════════════════════════════════════════════════════
+const GIF_LS_RECENT_SEARCHES  = "backstage_gif_recent_searches";
+const GIF_LS_RECENT_REACTIONS = "backstage_gif_recent_reactions";
+const GIF_LS_MESSAGE_GIFS     = "backstage_message_gifs";
+
+// Gradient fallback used whenever a GIF result has no previewUrl (mock provider, or load failure)
+const GIF_MOOD_GRADIENTS = {
+  excited:   [C.accent, C.pink],
+  crying:    [C.lavender, C.berry],
+  cheering:  [C.mint, C.accent],
+  dancing:   [C.pink, C.accentDim],
+  heart:     [C.pink, C.lavender],
+  lightstick:[C.mint, C.lavender],
+};
+const GIF_MOOD_EMOJI = { excited:"✨", crying:"😭", cheering:"📣", dancing:"💃", heart:"💖", lightstick:"🔦" };
+
+function GifPreviewBubble({ gif, size = 120, rounded = 14, onClick }) {
+  if (!gif) return null;
+  const grad = gif.gradient || GIF_MOOD_GRADIENTS[gif.mood] || [C.accent, C.lavender];
+  return (
+    <div
+      onClick={onClick}
+      className={onClick ? "tap" : ""}
+      style={{
+        width:size, height:size, borderRadius:rounded, overflow:"hidden", position:"relative",
+        background: gif.previewUrl ? C.surfaceHi : `linear-gradient(135deg,${grad[0]},${grad[1]})`,
+        border:`1px solid ${C.borderHi}`, cursor:onClick?"pointer":"default", flexShrink:0,
+      }}>
+      {gif.previewUrl ? (
+        <img src={gif.previewUrl} alt={gif.title || "GIF reaction"} style={{ width:"100%",height:"100%",objectFit:"cover",display:"block" }} />
+      ) : (
+        <div style={{ position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4 }}>
+          <span style={{ fontSize:size*0.28 }}>{GIF_MOOD_EMOJI[gif.mood] || "✦"}</span>
+          <span style={{ fontSize:9.5,color:"rgba(255,255,255,0.85)",fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"capitalize" }}>{gif.mood || "vibe"}</span>
+        </div>
+      )}
+      <div style={{ position:"absolute",bottom:5,left:5,background:"rgba(6,6,15,0.55)",borderRadius:6,padding:"1.5px 6px",fontSize:8,fontFamily:"'Epilogue',sans-serif",fontWeight:800,letterSpacing:0.5,color:C.text }}>GIF</div>
+    </div>
+  );
+}
+
+// Small chip/button that opens the GIF picker — drop into any composer or action row
+function ReactionButton({ onClick, active, label = "GIF", compact }) {
+  return (
+    <button
+      onClick={onClick}
+      title="Send a reaction"
+      className="tap"
+      style={{
+        height:compact?32:40, padding:compact?"0 12px":"0 14px", borderRadius:compact?10:12,
+        background:active?`linear-gradient(135deg,${C.accent}33,${C.berry}22)`:C.surfaceHi,
+        border:`1.5px solid ${active?C.accent:C.borderHi}`, color:active?C.accent:C.silver,
+        display:"flex",alignItems:"center",justifyContent:"center",gap:5,cursor:"pointer",flexShrink:0,
+        fontSize:compact?11:12.5, fontFamily:"'Epilogue',sans-serif",fontWeight:800,
+        boxShadow:active?`0 0 14px ${C.accent}28`:"none", transition:"all .2s",
+      }}>
+      <span style={{ fontSize:compact?12:14 }}>🎬</span>{label}
+    </button>
+  );
+}
+
+// GifPicker — mobile bottom sheet: search + trending grid. Caches recent searches/reactions locally.
+function GifPicker({ onSelect, onClose, title = "Send the vibe", subtitle = "Find the perfect concert mood" }) {
+  const [query, setQuery]       = useState("");
+  const [results, setResults]   = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [recentSearches, setRecentSearches] = useState(()=>ls.get(GIF_LS_RECENT_SEARCHES, []));
+  const [cols, setCols] = useState(()=> (typeof window!=="undefined" && window.innerWidth < 380 ? 2 : 3));
+
+  // Trending on open
+  useEffect(()=>{
+    let alive = true;
+    setLoading(true);
+    api.get('/api/gifs/trending?limit=24').then(d=>{
+      if(!alive) return;
+      setResults(Array.isArray(d?.results) ? d.results : []);
+      setLoading(false);
+    }).catch(()=>{ if(alive){ setResults([]); setLoading(false); } });
+    return ()=>{ alive = false; };
+  },[]);
+
+  // Debounced search ~300ms
+  useEffect(()=>{
+    const q = query.trim();
+    if(!q) return; // empty query keeps showing trending
+    let alive = true;
+    setLoading(true);
+    const t = setTimeout(()=>{
+      api.get(`/api/gifs/search?q=${encodeURIComponent(q)}&limit=24`).then(d=>{
+        if(!alive) return;
+        setResults(Array.isArray(d?.results) ? d.results : []);
+        setLoading(false);
+      }).catch(()=>{ if(alive){ setResults([]); setLoading(false); } });
+    }, 300);
+    return ()=>{ alive = false; clearTimeout(t); };
+  },[query]);
+
+  const commitSearch = (q) => {
+    const trimmed = q.trim();
+    if(!trimmed) return;
+    const next = [trimmed, ...recentSearches.filter(s=>s.toLowerCase()!==trimmed.toLowerCase())].slice(0,8);
+    setRecentSearches(next);
+    ls.set(GIF_LS_RECENT_SEARCHES, next);
+  };
+
+  const pick = (gif) => {
+    commitSearch(query);
+    const recentReactions = ls.get(GIF_LS_RECENT_REACTIONS, []);
+    const nextReactions = [gif, ...recentReactions.filter(g=>g.id!==gif.id)].slice(0,16);
+    ls.set(GIF_LS_RECENT_REACTIONS, nextReactions);
+    api.post('/api/gifs/register-share', { id:gif.id, q:query.trim() }).catch(()=>{});
+    onSelect?.(gif);
+    onClose?.();
+  };
+
+  return (
+    <div onClick={onClose} style={{ position:"fixed",inset:0,zIndex:900,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+      <div onClick={e=>e.stopPropagation()} style={{ width:"100%",maxHeight:"82vh",display:"flex",flexDirection:"column",background:`linear-gradient(170deg,${C.surfaceMid},${C.cosmic})`,borderRadius:"24px 24px 0 0",border:`1.5px solid ${C.borderHi}`,borderBottom:"none",animation:"slideUp .26s ease",position:"relative",overflow:"hidden",boxShadow:`0 -10px 50px ${C.accent}22` }}>
+        <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.lavender}55,transparent)` }} />
+        <div style={{ width:36,height:4,borderRadius:99,background:C.border,margin:"14px auto 10px",flexShrink:0 }} />
+
+        <div style={{ padding:"0 18px 12px",flexShrink:0 }}>
+          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:17,marginBottom:2,background:`linear-gradient(135deg,${C.lavender},${C.blush})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent" }}>{title}</p>
+          <p style={{ fontSize:11.5,color:C.textMid }}>{subtitle}</p>
+
+          <div style={{ marginTop:12,position:"relative" }}>
+            <span style={{ position:"absolute",left:14,top:"50%",transform:"translateY(-50%)",fontSize:13,color:C.textMid }}>🔍</span>
+            <input
+              autoFocus
+              value={query}
+              onChange={e=>setQuery(e.target.value)}
+              onKeyDown={e=>{ if(e.key==="Enter") commitSearch(query); }}
+              placeholder="Search reactions… try “excited” or “lightstick”"
+              style={{ width:"100%",padding:"11px 14px 11px 36px",borderRadius:13,background:C.surfaceHi,border:`1.5px solid ${C.borderHi}`,color:C.text,fontSize:12.5,outline:"none",fontFamily:"'Instrument Sans',sans-serif",boxSizing:"border-box" }}
+            />
+          </div>
+
+          {!query.trim() && recentSearches.length>0 && (
+            <div style={{ display:"flex",gap:6,flexWrap:"wrap",marginTop:10 }}>
+              {recentSearches.slice(0,6).map(s=>(
+                <button key={s} onClick={()=>setQuery(s)} className="tap" style={{ padding:"5px 11px",borderRadius:99,background:C.surfaceHi,border:`1px solid ${C.border}`,color:C.textMid,fontSize:10.5,fontFamily:"'Epilogue',sans-serif",fontWeight:600,cursor:"pointer" }}>{s}</button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div style={{ flex:1,overflowY:"auto",padding:"4px 14px 28px" }}>
+          {loading ? (
+            <div style={{ display:"grid",gridTemplateColumns:`repeat(${cols},1fr)`,gap:8 }}>
+              {Array.from({length:cols*4}).map((_,i)=>(
+                <div key={i} style={{ aspectRatio:"1",borderRadius:14,background:C.surfaceHi,border:`1px solid ${C.border}`,animation:"shimmer 1.4s ease-in-out infinite",opacity:0.5 }} />
+              ))}
+            </div>
+          ) : results.length === 0 ? (
+            <div style={{ textAlign:"center",padding:"50px 20px" }}>
+              <p style={{ fontSize:30,marginBottom:10 }}>🪐</p>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,marginBottom:4 }}>No reactions found</p>
+              <p style={{ fontSize:11.5,color:C.textMid }}>Try a different mood — “cheering,” “heart,” “dancing”…</p>
+            </div>
+          ) : (
+            <div style={{ display:"grid",gridTemplateColumns:`repeat(${cols},1fr)`,gap:8 }}>
+              {results.map(gif=>(
+                <div key={gif.id} onClick={()=>pick(gif)} className="tap" style={{ aspectRatio:"1",cursor:"pointer" }}>
+                  <GifPreviewBubble gif={gif} size="100%" rounded={14} />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -1082,6 +1389,49 @@ const FounderBadge = ({ inline, showAura }) => (
   </div>
 );
 
+function FounderPrestigeCard() {
+  if(!ls.get("backstage_founder_profile",null)){
+    const num=Math.floor(Math.random()*800)+1;
+    ls.set("backstage_founder_profile",{number:num,joinedDate:"May 2026",message:"I was here before launch."});
+  }
+  const [fp, setFp] = useState(()=>ls.get("backstage_founder_profile",{number:128,joinedDate:"May 2026",message:"I was here before launch."}));
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(fp.message||"I was here before launch.");
+  const saveMessage = () => {
+    const updated = {...fp, message:draft};
+    ls.set("backstage_founder_profile", updated);
+    setFp(updated);
+    setEditing(false);
+  };
+  return (
+    <div style={{ position:"relative" }}>
+      <div style={{ display:"flex",gap:10,alignItems:"center",marginBottom:8 }}>
+        <FounderBadge inline />
+        <span style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,color:C.gold }}>Founder #{fp.number}</span>
+        <span style={{ fontSize:9,color:"rgba(240,204,136,0.5)",marginLeft:"auto" }}>Joined {fp.joinedDate}</span>
+      </div>
+      {editing ? (
+        <div style={{ marginBottom:6 }}>
+          <textarea value={draft} onChange={e=>setDraft(e.target.value)} maxLength={120} rows={3}
+            style={{ width:"100%",background:"rgba(240,204,136,0.06)",border:"1.5px solid rgba(240,204,136,0.4)",borderRadius:10,color:"rgba(240,204,136,0.9)",fontFamily:"'Epilogue',sans-serif",fontSize:12,fontStyle:"italic",padding:"8px 10px",resize:"none",boxSizing:"border-box",outline:"none" }} />
+          <div style={{ display:"flex",gap:8,marginTop:6 }}>
+            <button onClick={saveMessage} style={{ flex:1,padding:"7px",borderRadius:9,background:"rgba(240,204,136,0.15)",border:"1px solid rgba(240,204,136,0.35)",color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>Save Message</button>
+            <button onClick={()=>{setDraft(fp.message);setEditing(false);}} style={{ padding:"7px 12px",borderRadius:9,background:"transparent",border:"1px solid rgba(240,204,136,0.2)",color:"rgba(240,204,136,0.5)",fontFamily:"'Epilogue',sans-serif",fontSize:11,cursor:"pointer" }}>Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <p style={{ fontSize:12,color:"rgba(240,204,136,0.85)",fontStyle:"italic",lineHeight:1.55,marginBottom:6 }}>"{fp.message}"</p>
+          <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+            <p style={{ fontSize:9.5,color:"rgba(240,204,136,0.5)" }}>Full VIP active · Early access to all new features</p>
+            <button onClick={()=>setEditing(true)} style={{ background:"transparent",border:"1px solid rgba(240,204,136,0.28)",color:"rgba(240,204,136,0.6)",fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:9,padding:"3px 8px",borderRadius:8,cursor:"pointer",flexShrink:0,marginLeft:8,whiteSpace:"nowrap" }}>Edit Message</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function VipGate({ isVip, onUpgrade, children, feature="this feature" }) {
   if (isVip) return children;
   return (
@@ -1143,15 +1493,14 @@ function UpgradeModal({ onClose, onUpgrade }) {
   ];
 
   const FEATURES = [
-    { text:"Advanced Fan Heatmap — crowd density, merch waits, GA fill rates", emoji:"🔥", vipOnly:true  },
-    { text:"Early access to meetup RSVPs before public release",               emoji:"⚡", vipOnly:true  },
-    { text:"Verified Trader Badge — priority matching + trusted status",        emoji:"✦",  vipOnly:true  },
-    { text:"Unlimited trade matches per week (free = 3/week)",                  emoji:"🃏", vipOnly:true  },
-    { text:"Priority Fan Buddy Matching — appear first in discovery",           emoji:"👑", vipOnly:true  },
-    { text:"AI Concert Day Itinerary Builder — full personalized day",          emoji:"✨", vipOnly:true  },
-    { text:"Unlimited scrapbook memories (free = 5 per scrapbook)",             emoji:"📸", vipOnly:false },
-    { text:"Merch drop alerts before they sell out",                            emoji:"🛍️", vipOnly:false },
-    { text:"Animated glow rings on your Top Biases",                            emoji:"💫", vipOnly:false },
+    { text:"Unlimited concert memories — save every moment, every show",       emoji:"💜", vipOnly:true  },
+    { text:"Full Stage Studio — all skins, fonts, effects, premium layouts",   emoji:"✦",  vipOnly:true  },
+    { text:"Verified Trader Badge — priority matching + trusted status",       emoji:"🃏", vipOnly:true  },
+    { text:"AI Concert Day Itinerary — your full fan day, planned for you",    emoji:"✨", vipOnly:true  },
+    { text:"Advanced Fanverse — more fans nearby, filters, priority discovery",emoji:"🌐", vipOnly:true  },
+    { text:"Holo, Glitter & Angel Aura Stage Effects (free = 3 basics)",       emoji:"💫", vipOnly:false },
+    { text:"Premium Bias Shrine layouts — Trio, Orbit, Polaroid, Lightstick",  emoji:"🛕", vipOnly:false },
+    { text:"Unlimited scrapbook memories — never lose a show memory again",    emoji:"📸", vipOnly:false },
   ];
 
   return (
@@ -1481,6 +1830,122 @@ function VipTutorialModal({ onDone, onNavigate }) {
 
 // ─── MOCK DATA ─────────────────────────────────────────────────────────────────
 const ALL_GROUPS = ["BTS","Stray Kids","NewJeans","aespa","BLACKPINK","TXT","ENHYPEN","IVE","LE SSERAFIM","ITZY","NCT Dream","EXO","SHINee","GOT7","SEVENTEEN","ATEEZ","Red Velvet","TWICE","Kep1er","NMIXX","RIIZE","ZEROBASEONE","BABYMONSTER","BOYNEXTDOOR"];
+
+// ─── CITY LIST — global-ready normalized location data ────────────────────────
+// Each entry: city, region (full), region_code (short/empty), country (full),
+//   country_code (ISO-2), continent, lat, lng, timezone (IANA)
+// Used for: autocomplete, Fan Hubs, local discovery, future continent/country drill-down.
+// NEVER store or expose exact GPS — city-level only.
+const CITY_LIST = [
+  // ── North America › United States ───────────────────────────────────────────
+  {city:"New York",       region:"New York",      region_code:"NY", country:"United States", country_code:"US", continent:"North America", lat:40.71,  lng:-74.01,  timezone:"America/New_York"},
+  {city:"Los Angeles",    region:"California",    region_code:"CA", country:"United States", country_code:"US", continent:"North America", lat:34.05,  lng:-118.24, timezone:"America/Los_Angeles"},
+  {city:"Chicago",        region:"Illinois",      region_code:"IL", country:"United States", country_code:"US", continent:"North America", lat:41.88,  lng:-87.63,  timezone:"America/Chicago"},
+  {city:"Houston",        region:"Texas",         region_code:"TX", country:"United States", country_code:"US", continent:"North America", lat:29.76,  lng:-95.37,  timezone:"America/Chicago"},
+  {city:"Dallas",         region:"Texas",         region_code:"TX", country:"United States", country_code:"US", continent:"North America", lat:32.78,  lng:-96.80,  timezone:"America/Chicago"},
+  {city:"San Antonio",    region:"Texas",         region_code:"TX", country:"United States", country_code:"US", continent:"North America", lat:29.42,  lng:-98.49,  timezone:"America/Chicago"},
+  {city:"Austin",         region:"Texas",         region_code:"TX", country:"United States", country_code:"US", continent:"North America", lat:30.27,  lng:-97.74,  timezone:"America/Chicago"},
+  {city:"Atlanta",        region:"Georgia",       region_code:"GA", country:"United States", country_code:"US", continent:"North America", lat:33.75,  lng:-84.39,  timezone:"America/New_York"},
+  {city:"Miami",          region:"Florida",       region_code:"FL", country:"United States", country_code:"US", continent:"North America", lat:25.77,  lng:-80.19,  timezone:"America/New_York"},
+  {city:"Orlando",        region:"Florida",       region_code:"FL", country:"United States", country_code:"US", continent:"North America", lat:28.54,  lng:-81.38,  timezone:"America/New_York"},
+  {city:"Tampa",          region:"Florida",       region_code:"FL", country:"United States", country_code:"US", continent:"North America", lat:27.95,  lng:-82.46,  timezone:"America/New_York"},
+  {city:"Washington",     region:"District of Columbia", region_code:"DC", country:"United States", country_code:"US", continent:"North America", lat:38.91, lng:-77.04, timezone:"America/New_York"},
+  {city:"Philadelphia",   region:"Pennsylvania",  region_code:"PA", country:"United States", country_code:"US", continent:"North America", lat:39.95,  lng:-75.17,  timezone:"America/New_York"},
+  {city:"Boston",         region:"Massachusetts", region_code:"MA", country:"United States", country_code:"US", continent:"North America", lat:42.36,  lng:-71.06,  timezone:"America/New_York"},
+  {city:"Seattle",        region:"Washington",    region_code:"WA", country:"United States", country_code:"US", continent:"North America", lat:47.61,  lng:-122.33, timezone:"America/Los_Angeles"},
+  {city:"San Francisco",  region:"California",    region_code:"CA", country:"United States", country_code:"US", continent:"North America", lat:37.77,  lng:-122.42, timezone:"America/Los_Angeles"},
+  {city:"San Jose",       region:"California",    region_code:"CA", country:"United States", country_code:"US", continent:"North America", lat:37.34,  lng:-121.89, timezone:"America/Los_Angeles"},
+  {city:"San Diego",      region:"California",    region_code:"CA", country:"United States", country_code:"US", continent:"North America", lat:32.72,  lng:-117.16, timezone:"America/Los_Angeles"},
+  {city:"Sacramento",     region:"California",    region_code:"CA", country:"United States", country_code:"US", continent:"North America", lat:38.58,  lng:-121.49, timezone:"America/Los_Angeles"},
+  {city:"Las Vegas",      region:"Nevada",        region_code:"NV", country:"United States", country_code:"US", continent:"North America", lat:36.17,  lng:-115.14, timezone:"America/Los_Angeles"},
+  {city:"Phoenix",        region:"Arizona",       region_code:"AZ", country:"United States", country_code:"US", continent:"North America", lat:33.45,  lng:-112.07, timezone:"America/Phoenix"},
+  {city:"Tucson",         region:"Arizona",       region_code:"AZ", country:"United States", country_code:"US", continent:"North America", lat:32.22,  lng:-110.93, timezone:"America/Phoenix"},
+  {city:"Denver",         region:"Colorado",      region_code:"CO", country:"United States", country_code:"US", continent:"North America", lat:39.74,  lng:-104.99, timezone:"America/Denver"},
+  {city:"Salt Lake City", region:"Utah",          region_code:"UT", country:"United States", country_code:"US", continent:"North America", lat:40.76,  lng:-111.89, timezone:"America/Denver"},
+  {city:"Portland",       region:"Oregon",        region_code:"OR", country:"United States", country_code:"US", continent:"North America", lat:45.52,  lng:-122.68, timezone:"America/Los_Angeles"},
+  {city:"Minneapolis",    region:"Minnesota",     region_code:"MN", country:"United States", country_code:"US", continent:"North America", lat:44.98,  lng:-93.27,  timezone:"America/Chicago"},
+  {city:"Kansas City",    region:"Missouri",      region_code:"MO", country:"United States", country_code:"US", continent:"North America", lat:39.10,  lng:-94.58,  timezone:"America/Chicago"},
+  {city:"St. Louis",      region:"Missouri",      region_code:"MO", country:"United States", country_code:"US", continent:"North America", lat:38.63,  lng:-90.20,  timezone:"America/Chicago"},
+  {city:"Nashville",      region:"Tennessee",     region_code:"TN", country:"United States", country_code:"US", continent:"North America", lat:36.17,  lng:-86.78,  timezone:"America/Chicago"},
+  {city:"Memphis",        region:"Tennessee",     region_code:"TN", country:"United States", country_code:"US", continent:"North America", lat:35.15,  lng:-90.05,  timezone:"America/Chicago"},
+  {city:"New Orleans",    region:"Louisiana",     region_code:"LA", country:"United States", country_code:"US", continent:"North America", lat:29.95,  lng:-90.07,  timezone:"America/Chicago"},
+  {city:"Indianapolis",   region:"Indiana",       region_code:"IN", country:"United States", country_code:"US", continent:"North America", lat:39.77,  lng:-86.16,  timezone:"America/Indiana/Indianapolis"},
+  {city:"Columbus",       region:"Ohio",          region_code:"OH", country:"United States", country_code:"US", continent:"North America", lat:39.96,  lng:-82.99,  timezone:"America/New_York"},
+  {city:"Detroit",        region:"Michigan",      region_code:"MI", country:"United States", country_code:"US", continent:"North America", lat:42.33,  lng:-83.05,  timezone:"America/Detroit"},
+  {city:"Pittsburgh",     region:"Pennsylvania",  region_code:"PA", country:"United States", country_code:"US", continent:"North America", lat:40.44,  lng:-79.99,  timezone:"America/New_York"},
+  {city:"Baltimore",      region:"Maryland",      region_code:"MD", country:"United States", country_code:"US", continent:"North America", lat:39.29,  lng:-76.61,  timezone:"America/New_York"},
+  {city:"Charlotte",      region:"North Carolina",region_code:"NC", country:"United States", country_code:"US", continent:"North America", lat:35.23,  lng:-80.84,  timezone:"America/New_York"},
+  {city:"Raleigh",        region:"North Carolina",region_code:"NC", country:"United States", country_code:"US", continent:"North America", lat:35.78,  lng:-78.64,  timezone:"America/New_York"},
+  {city:"Richmond",       region:"Virginia",      region_code:"VA", country:"United States", country_code:"US", continent:"North America", lat:37.54,  lng:-77.43,  timezone:"America/New_York"},
+  {city:"Honolulu",       region:"Hawaii",        region_code:"HI", country:"United States", country_code:"US", continent:"North America", lat:21.31,  lng:-157.86, timezone:"Pacific/Honolulu"},
+  // ── North America › Canada ───────────────────────────────────────────────────
+  {city:"Toronto",        region:"Ontario",       region_code:"ON", country:"Canada",         country_code:"CA", continent:"North America", lat:43.65,  lng:-79.38,  timezone:"America/Toronto"},
+  {city:"Vancouver",      region:"British Columbia", region_code:"BC", country:"Canada",      country_code:"CA", continent:"North America", lat:49.28,  lng:-123.12, timezone:"America/Vancouver"},
+  {city:"Montreal",       region:"Quebec",        region_code:"QC", country:"Canada",         country_code:"CA", continent:"North America", lat:45.51,  lng:-73.56,  timezone:"America/Toronto"},
+  // ── North America › Mexico ───────────────────────────────────────────────────
+  {city:"Mexico City",    region:"",              region_code:"",   country:"Mexico",          country_code:"MX", continent:"North America", lat:19.43,  lng:-99.13,  timezone:"America/Mexico_City"},
+  {city:"Monterrey",      region:"",              region_code:"",   country:"Mexico",          country_code:"MX", continent:"North America", lat:25.67,  lng:-100.31, timezone:"America/Monterrey"},
+  {city:"Guadalajara",    region:"",              region_code:"",   country:"Mexico",          country_code:"MX", continent:"North America", lat:20.66,  lng:-103.35, timezone:"America/Mexico_City"},
+  // ── Asia › South Korea ───────────────────────────────────────────────────────
+  {city:"Seoul",          region:"",              region_code:"",   country:"South Korea",     country_code:"KR", continent:"Asia",          lat:37.57,  lng:126.98,  timezone:"Asia/Seoul"},
+  {city:"Busan",          region:"",              region_code:"",   country:"South Korea",     country_code:"KR", continent:"Asia",          lat:35.18,  lng:129.08,  timezone:"Asia/Seoul"},
+  {city:"Incheon",        region:"",              region_code:"",   country:"South Korea",     country_code:"KR", continent:"Asia",          lat:37.46,  lng:126.71,  timezone:"Asia/Seoul"},
+  // ── Asia › Japan ─────────────────────────────────────────────────────────────
+  {city:"Tokyo",          region:"",              region_code:"",   country:"Japan",           country_code:"JP", continent:"Asia",          lat:35.68,  lng:139.69,  timezone:"Asia/Tokyo"},
+  {city:"Osaka",          region:"",              region_code:"",   country:"Japan",           country_code:"JP", continent:"Asia",          lat:34.69,  lng:135.50,  timezone:"Asia/Tokyo"},
+  {city:"Yokohama",       region:"",              region_code:"",   country:"Japan",           country_code:"JP", continent:"Asia",          lat:35.44,  lng:139.64,  timezone:"Asia/Tokyo"},
+  {city:"Nagoya",         region:"",              region_code:"",   country:"Japan",           country_code:"JP", continent:"Asia",          lat:35.18,  lng:136.91,  timezone:"Asia/Tokyo"},
+  {city:"Fukuoka",        region:"",              region_code:"",   country:"Japan",           country_code:"JP", continent:"Asia",          lat:33.59,  lng:130.40,  timezone:"Asia/Tokyo"},
+  // ── Asia › Southeast Asia ────────────────────────────────────────────────────
+  {city:"Manila",         region:"",              region_code:"",   country:"Philippines",     country_code:"PH", continent:"Asia",          lat:14.60,  lng:120.98,  timezone:"Asia/Manila"},
+  {city:"Bangkok",        region:"",              region_code:"",   country:"Thailand",        country_code:"TH", continent:"Asia",          lat:13.75,  lng:100.50,  timezone:"Asia/Bangkok"},
+  {city:"Singapore",      region:"",              region_code:"",   country:"Singapore",       country_code:"SG", continent:"Asia",          lat:1.35,   lng:103.82,  timezone:"Asia/Singapore"},
+  {city:"Jakarta",        region:"",              region_code:"",   country:"Indonesia",       country_code:"ID", continent:"Asia",          lat:-6.21,  lng:106.85,  timezone:"Asia/Jakarta"},
+  {city:"Taipei",         region:"",              region_code:"",   country:"Taiwan",          country_code:"TW", continent:"Asia",          lat:25.05,  lng:121.53,  timezone:"Asia/Taipei"},
+  {city:"Hong Kong",      region:"",              region_code:"",   country:"Hong Kong",       country_code:"HK", continent:"Asia",          lat:22.32,  lng:114.17,  timezone:"Asia/Hong_Kong"},
+  // ── Europe ────────────────────────────────────────────────────────────────────
+  {city:"London",         region:"",              region_code:"",   country:"United Kingdom",  country_code:"GB", continent:"Europe",        lat:51.51,  lng:-0.13,   timezone:"Europe/London"},
+  {city:"Paris",          region:"",              region_code:"",   country:"France",          country_code:"FR", continent:"Europe",        lat:48.86,  lng:2.35,    timezone:"Europe/Paris"},
+  {city:"Berlin",         region:"",              region_code:"",   country:"Germany",         country_code:"DE", continent:"Europe",        lat:52.52,  lng:13.41,   timezone:"Europe/Berlin"},
+  {city:"Madrid",         region:"",              region_code:"",   country:"Spain",           country_code:"ES", continent:"Europe",        lat:40.42,  lng:-3.70,   timezone:"Europe/Madrid"},
+  {city:"Amsterdam",      region:"",              region_code:"",   country:"Netherlands",     country_code:"NL", continent:"Europe",        lat:52.37,  lng:4.90,    timezone:"Europe/Amsterdam"},
+  {city:"Milan",          region:"",              region_code:"",   country:"Italy",           country_code:"IT", continent:"Europe",        lat:45.46,  lng:9.19,    timezone:"Europe/Rome"},
+  // ── Oceania ───────────────────────────────────────────────────────────────────
+  {city:"Sydney",         region:"New South Wales", region_code:"NSW", country:"Australia",   country_code:"AU", continent:"Oceania",       lat:-33.87, lng:151.21,  timezone:"Australia/Sydney"},
+  {city:"Melbourne",      region:"Victoria",      region_code:"VIC", country:"Australia",     country_code:"AU", continent:"Oceania",       lat:-37.81, lng:144.96,  timezone:"Australia/Melbourne"},
+  // ── South America ────────────────────────────────────────────────────────────
+  {city:"São Paulo",      region:"São Paulo",     region_code:"SP", country:"Brazil",          country_code:"BR", continent:"South America", lat:-23.55, lng:-46.63,  timezone:"America/Sao_Paulo"},
+  {city:"Rio de Janeiro", region:"Rio de Janeiro",region_code:"RJ", country:"Brazil",          country_code:"BR", continent:"South America", lat:-22.91, lng:-43.17,  timezone:"America/Sao_Paulo"},
+  {city:"Buenos Aires",   region:"",              region_code:"",   country:"Argentina",       country_code:"AR", continent:"South America", lat:-34.61, lng:-58.38,  timezone:"America/Argentina/Buenos_Aires"},
+  {city:"Santiago",       region:"",              region_code:"",   country:"Chile",           country_code:"CL", continent:"South America", lat:-33.46, lng:-70.65,  timezone:"America/Santiago"},
+  {city:"Bogotá",         region:"",              region_code:"",   country:"Colombia",        country_code:"CO", continent:"South America", lat:4.71,   lng:-74.07,  timezone:"America/Bogota"},
+  {city:"Lima",           region:"",              region_code:"",   country:"Peru",            country_code:"PE", continent:"South America", lat:-12.05, lng:-77.04,  timezone:"America/Lima"},
+];
+
+// Stable slug: "san_antonio_tx_us", "seoul_kr", "toronto_on_ca"
+// Includes country_code so keys are globally unique even if city names collide.
+const makeCityKey = (c) =>
+  [c.city, c.region_code, c.country_code]
+    .filter(Boolean)
+    .join('_')
+    .toLowerCase()
+    .replace(/[\s.]+/g,'_')
+    .replace(/[^a-z0-9_]/g,'');
+
+// Short UI display: "San Antonio, TX" / "Toronto, ON" / "Seoul, South Korea"
+const makeCityDisplay = (c) => {
+  if (c.region_code) return `${c.city}, ${c.region_code}`;
+  return `${c.city}, ${c.country}`;
+};
+
+// Canonical full string stored in city_display meta field:
+// "San Antonio, TX, USA" / "Toronto, ON, Canada" / "Seoul, South Korea"
+const makeCityFull = (c) => {
+  if (c.country_code === 'US' && c.region_code) return `${c.city}, ${c.region_code}, USA`;
+  if (c.country_code === 'CA' && c.region_code) return `${c.city}, ${c.region_code}, Canada`;
+  if (c.region_code) return `${c.city}, ${c.region_code}, ${c.country}`;
+  return `${c.city}, ${c.country}`;
+};
 
 // ─── KPOP BIAS CATALOG ─────────────────────────────────────────────────────────
 // Separate from RESERVED_USERNAMES — username protection ≠ bias discovery.
@@ -3377,7 +3842,7 @@ function HomeIdentity({ user, go }) {
               <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:17,letterSpacing:"-0.015em",marginBottom:2 }}>@{name}</p>
               {status
                 ? <p style={{ fontSize:11,color:C.textMid,fontStyle:"italic",marginBottom:8 }}>{status}</p>
-                : <p onClick={()=>go("profile")} style={{ fontSize:11,color:C.textDim,fontStyle:"italic",marginBottom:8,cursor:"pointer" }}>tap to set your vibe... ✏️</p>
+                : <p onClick={()=>go("profile")} style={{ fontSize:11,color:C.textMid,fontStyle:"italic",marginBottom:8,cursor:"pointer" }}>tap to set your vibe... ✏️</p>
               }
               {/* Fandoms — only shown when set; empty state prompts edit */}
               {fandoms.length > 0 ? (
@@ -3389,7 +3854,7 @@ function HomeIdentity({ user, go }) {
                 </div>
               ) : (
                 <div onClick={()=>go("profile")} style={{ display:"inline-flex",alignItems:"center",gap:4,background:C.surfaceHi,border:`1px dashed ${C.border}`,borderRadius:99,padding:"3px 10px",cursor:"pointer" }}>
-                  <p style={{ fontSize:9,color:C.textDim }}>+ Add your groups</p>
+                  <p style={{ fontSize:9,color:C.textMid }}>+ Add your groups</p>
                 </div>
               )}
             </div>
@@ -3402,7 +3867,7 @@ function HomeIdentity({ user, go }) {
             : <div onClick={()=>go("profile")} style={{ display:"flex",gap:10,alignItems:"center",background:`${C.pink}06`,border:`1px dashed ${C.border}`,borderRadius:12,padding:"8px 11px",cursor:"pointer",marginBottom:0 }}>
                 <div style={{ width:30,height:30,borderRadius:9,background:C.surfaceHi,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,flexShrink:0 }}>🎵</div>
                 <div style={{ flex:1 }}>
-                  <p style={{ fontSize:11,color:C.textDim,fontFamily:"'Epilogue',sans-serif" }}>Set your now playing in Studio →</p>
+                  <p style={{ fontSize:11,color:C.textMid,fontFamily:"'Epilogue',sans-serif" }}>Set your now playing in Studio →</p>
                 </div>
               </div>
           }
@@ -4015,6 +4480,58 @@ function HomeFounderCard({ user, go }) {
   );
 }
 
+function HomeDiscoveryHint({ go }) {
+  const [dismissed, setDismissed] = useState(()=>ls.get("backstage_seen_discovery_hints",false));
+  if(dismissed) return null;
+  return (
+    <div style={{ padding:"0 18px 14px" }}>
+      <div style={{ background:`linear-gradient(140deg,${C.accent}10,${C.lavender}08)`, border:`1.5px solid ${C.accent}22`, borderRadius:18, padding:"14px 16px", position:"relative" }}>
+        <button onClick={()=>{ ls.set("backstage_seen_discovery_hints",true); setDismissed(true); }} style={{ position:"absolute",top:10,right:12,background:"none",border:"none",color:C.textDim,fontSize:18,cursor:"pointer",lineHeight:1,padding:0 }}>×</button>
+        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,color:C.accent,marginBottom:4 }}>You're in the Fanverse. ✦</p>
+        <p style={{ fontSize:11,color:C.textMid,lineHeight:1.6,marginBottom:12,paddingRight:24 }}>Build your fan identity, find your people, save the concert, keep the memories.</p>
+        <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
+          {[["🎭 My Stage","profile"],["💜 Find People","community"],["📸 Concert Capsule","capsule"]].map(([label,dest])=>(
+            <button key={label} onClick={()=>go(dest)} style={{ padding:"6px 12px",borderRadius:99,background:`${C.accent}14`,border:`1px solid ${C.accent}30`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:10,cursor:"pointer" }}>{label}</button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HomeFeatureDiscovery({ go }) {
+  const FEATURES = [
+    { emoji:"🎭", label:"My Stage",         sub:"Show the Fanverse who you are",          route:"profile",   color:C.lavender },
+    { emoji:"💜", label:"Fan Circles",       sub:"Find your people before the show",       route:"community", color:C.accent   },
+    { emoji:"📸", label:"Concert Capsule",   sub:"Save the night before it becomes a blur",route:"capsule",   color:C.pink     },
+    { emoji:"✨", label:"Afterglow",         sub:"Afterglow is real. You're not alone.",   route:"myshows",   color:C.gold     },
+    { emoji:"🏛️", label:"My World",         sub:"Keep your fan life in My World",         route:"collect",   color:C.mint     },
+    { emoji:"🃏", label:"Trade Hub",         sub:"Trade safer with Trust Passport signals",route:"collect",   color:C.rose     },
+    { emoji:"✦",  label:"Stage Studio",      sub:"Customize how your stage looks",         route:"studio",    color:C.berry    },
+    { emoji:"🎤", label:"Plan Concert Day",  sub:"Prep your fit, find your people, go",    route:"concerts",  color:C.sky      },
+  ];
+  return (
+    <div style={{ padding:"0 0 20px" }}>
+      <div style={{ padding:"0 18px",marginBottom:12 }}>
+        <p style={VS.softSectionHeader}>Your Fan Era ✦</p>
+      </div>
+      <div style={{ display:"flex",gap:10,overflowX:"auto",paddingLeft:18,paddingRight:18,paddingBottom:8,scrollbarWidth:"none" }}>
+        {FEATURES.map(f=>(
+          <div key={f.label} onClick={()=>go(f.route)} className="tap" style={{ flexShrink:0,width:148,...VS.glowCard(f.color),cursor:"pointer" }}>
+            <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${f.color}55,transparent)` }} />
+            <div style={{ padding:"14px 12px 13px",position:"relative" }}>
+              <div style={{ position:"absolute",top:-12,right:-12,width:70,height:70,borderRadius:"50%",background:`radial-gradient(circle,${f.color}18,transparent 65%)`,pointerEvents:"none" }} />
+              <p style={{ fontSize:22,marginBottom:8 }}>{f.emoji}</p>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,color:C.text,marginBottom:4,lineHeight:1.2 }}>{f.label}</p>
+              <p style={{ fontSize:9.5,color:f.color,lineHeight:1.4 }}>{f.sub}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function HomeFeed({ user, go, weather, isVip, onUpgrade, onSmartNotifs }) {
   const [searchVal, setSearchVal] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -4098,6 +4615,9 @@ function HomeFeed({ user, go, weather, isVip, onUpgrade, onSmartNotifs }) {
 
         <InstallPromptCard />
 
+        {/* 1b-hint. ONE-TIME DISCOVERY CARD — dismisses via localStorage */}
+        <HomeDiscoveryHint go={go} />
+
         {/* VIP/Founder welcome card — shown at top when user has active pass */}
         {isVip && <HomeFounderCard user={user} go={go} />}
 
@@ -4161,6 +4681,9 @@ function HomeFeed({ user, go, weather, isVip, onUpgrade, onSmartNotifs }) {
 
         {/* 4. ASYMMETRIC EXPLORE GRID — command center */}
         <HomeQuickActions user={user} go={go} />
+
+        {/* 4b. FEATURE DISCOVERY — Your Fan Era horizontal scroll */}
+        <HomeFeatureDiscovery go={go} />
 
         {/* 5. LIVE FANVERSE PREVIEW — 2–3 cards only, then "Enter Fanverse →" */}
         <HomeFanversePreview go={go} />
@@ -4283,10 +4806,15 @@ function Onboarding({ onDone }) {
   const [step, setStep]     = useState(1);
   const [email, setEmail]   = useState(pendingProfile?.email || "");
   const [pass, setPass]     = useState("");
-  const [data, setData]     = useState({ name:pendingProfile?.handle || "", groups:pendingProfile?.fandoms || [], bias:pendingProfile?.bias || "", city:pendingProfile?.city || "", skippedRequiredProfile:false });
+  const [data, setData]     = useState({ name:pendingProfile?.handle || "", groups:pendingProfile?.fandoms || [], bias:pendingProfile?.bias || "", biasWrecker:"", ult:"", fanDNA:[], concertCount:"", discoveryPrefs:[], city:pendingProfile?.city || "", cityMeta:null, skippedRequiredProfile:false });
+  const [onbCitySuggestions, setOnbCitySuggestions] = useState([]);
   const [search, setSearch] = useState("");
   const [err, setErr]       = useState("");
   const [loading, setLoading] = useState(false);
+  const [cooldown, setCooldown] = useState(0); // seconds remaining after rate-limit
+  const [unconfirmed, setUnconfirmed] = useState(false); // true when sign-in blocked by unconfirmed email
+  const [resendCooldown, setResendCooldown] = useState(0); // seconds remaining after resend attempt
+  const [resendSuccess, setResendSuccess] = useState(""); // success message after resend
   const [savedProfile, setSavedProfile] = useState(null);
   const [tourStep, setTourStep] = useState(0);
 
@@ -4298,10 +4826,23 @@ function Onboarding({ onDone }) {
     : ALL_GROUPS.slice(0, 16);
   const toggle = g => setData(d => ({ ...d, groups: d.groups.includes(g) ? d.groups.filter(x=>x!==g) : [...d.groups, g] }));
 
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setTimeout(() => setCooldown(c => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [cooldown]);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const t = setTimeout(() => setResendCooldown(c => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [resendCooldown]);
+
   // ── SIGN IN ──
   const handleSignIn = async () => {
+    if (loading) return;
     if (!email.trim() || !pass) return;
-    setLoading(true); setErr("");
+    setLoading(true); setErr(""); setUnconfirmed(false); setResendSuccess("");
     if (MOCK_AUTH) {
       const mockUser = ls.get('backstage_mock_user');
       if (mockUser) { onDone(mockUser); setLoading(false); return; }
@@ -4310,7 +4851,35 @@ function Onboarding({ onDone }) {
     }
     try {
       const { data: d, error } = await _supabase.auth.signInWithPassword({ email, password: pass });
-      if (error) { setErr(error.message); setLoading(false); return; }
+      if (error) {
+        const msg = error.message || '';
+        if (error.status === 429 || msg.toLowerCase().includes('security purposes') || msg.toLowerCase().includes('rate limit') || msg.toLowerCase().includes('too many')) {
+          setCooldown(60);
+          setErr("Backstage is cooling down sign-in emails. Wait 60 seconds and try once.");
+        } else if (msg.toLowerCase().includes('email not confirmed') || msg.toLowerCase().includes('email_not_confirmed')) {
+          setUnconfirmed(true);
+          setErr("Your email still needs to be confirmed.");
+        } else {
+          setErr(msg);
+        }
+        setLoading(false); return;
+      }
+      // Set token immediately so api.get('/api/users/me') below is authenticated.
+      // AuthProvider.onAuthStateChange will also set it, but fires asynchronously.
+      if (d.session?.access_token) api._setToken(d.session.access_token);
+      // Replay any pending onboarding PATCH — happens when email confirmation was
+      // required at signup and the PATCH got 401'd (no session token yet).
+      const pendingPatch = ls.get(`backstage_pending_patch_${d.user.id}`);
+      if (pendingPatch && d.session?.access_token) {
+        try {
+          const pr = await fetch(`${API_URL}/api/users/me`, {
+            method:'PATCH',
+            headers:{ 'Content-Type':'application/json', 'Authorization':`Bearer ${d.session.access_token}` },
+            body: JSON.stringify(pendingPatch),
+          });
+          if (pr.ok) { ls.del(`backstage_pending_patch_${d.user.id}`); console.log('[SignIn] pending onboarding patch replayed'); }
+        } catch(e) { console.warn('[SignIn] pending patch replay failed:', e?.message); }
+      }
       const profile = await api.get('/api/users/me');
       const fallback = { id:d.user.id, email:d.user.email, username:email.split('@')[0], fandoms:[], bias:'', is_vip:false };
       const u = mergeStoredProfile(ls.get(`backstage_profile_${d.user.id}`), profile?.id ? normalizeProfile({...fallback,...profile}) : null, fallback);
@@ -4330,16 +4899,17 @@ function Onboarding({ onDone }) {
 
   // ── SIGN UP ──
   const handleSignUp = async () => {
+    if (loading) return;
     if (!email.trim() || pass.length < 6) { setErr("Password must be at least 6 characters."); return; }
-    if (loading) return; // prevent double-tap
     setLoading(true); setErr("");
     if (MOCK_AUTH) { setMode("profile"); setLoading(false); return; }
     try {
       const { data: d, error } = await _supabase.auth.signUp({ email, password: pass });
       if (error) {
         const msg = error.message || '';
-        if (error.status === 429 || msg.toLowerCase().includes('security purposes') || msg.toLowerCase().includes('rate limit')) {
-          setErr('Too many attempts. Please wait about 1 minute, then try again.');
+        if (error.status === 429 || msg.toLowerCase().includes('security purposes') || msg.toLowerCase().includes('rate limit') || msg.toLowerCase().includes('too many')) {
+          setCooldown(60);
+          setErr("Backstage is cooling down signup emails. Wait 60 seconds and try once.");
         } else {
           setErr(msg);
         }
@@ -4349,6 +4919,49 @@ function Onboarding({ onDone }) {
       if (d.user) { ls.set('backstage_pending_uid', d.user.id); setMode("profile"); }
     } catch(e) { setErr('Connection error. Try again.'); }
     setLoading(false);
+  };
+
+  // ── FORGOT PASSWORD ──
+  const handleForgotPassword = async () => {
+    if (loading) return;
+    if (!email.trim()) { setErr("Enter your email address."); return; }
+    setLoading(true); setErr("");
+    if (MOCK_AUTH) { setLoading(false); setMode("resetpw_sent"); return; }
+    try {
+      const { error } = await _supabase.auth.resetPasswordForEmail(email.trim(), {
+        redirectTo: window.location.origin,
+      });
+      if (error) { setErr(error.message); } else { setMode("resetpw_sent"); }
+    } catch(e) { setErr('Connection error. Try again.'); }
+    setLoading(false);
+  };
+
+  // ── RESEND VERIFICATION (for unconfirmed users on sign-in screen) ──
+  const handleResendFromSignIn = async () => {
+    if (resendCooldown > 0) return;
+    setResendSuccess("");
+    if (MOCK_AUTH) {
+      setErr("");
+      setResendSuccess("Confirmation email sent. Check your inbox and spam folder.");
+      setResendCooldown(60);
+      return;
+    }
+    try {
+      const { error } = await _supabase.auth.resend({ type: 'signup', email: email.trim() });
+      if (error) {
+        const m = error.message?.toLowerCase() || '';
+        if (error.status === 429 || m.includes('too many') || m.includes('rate limit') || m.includes('security purposes')) {
+          setErr('Too many attempts. Wait 1 minute and try again.');
+          setResendCooldown(60);
+        } else {
+          setErr(error.message);
+        }
+      } else {
+        setErr("");
+        setResendSuccess("Confirmation email sent. Check your inbox and spam folder.");
+        setResendCooldown(60);
+      }
+    } catch(e) { setErr('Connection error. Try again.'); }
   };
 
   // ── CLEAR STALE SESSION ──
@@ -4369,6 +4982,23 @@ function Onboarding({ onDone }) {
     // fandoms = canonical selected-groups field. data.groups comes from the
     // fandom picker (step 2 of onboarding). Stored as user.fandoms everywhere.
     // PHASE 2: user.fandoms will personalize GET /api/events (Ticketmaster-backed).
+    const locationFields = {};
+    if (data.cityMeta) {
+      const e = data.cityMeta;
+      Object.assign(locationFields, {
+        city_display: makeCityFull(e),
+        city_key:     makeCityKey(e),
+        region:       e.region,
+        region_code:  e.region_code,
+        country:      e.country,
+        country_code: e.country_code,
+        continent:    e.continent,
+        city_lat:     e.lat,
+        city_lng:     e.lng,
+        timezone:     e.timezone,
+      });
+    }
+
     const profile = normalizeProfile({
       id:uid,
       email,
@@ -4381,6 +5011,7 @@ function Onboarding({ onDone }) {
       bias:data.bias,
       bias_wrecker:data.bias_wrecker || "",
       city:data.city,
+      ...locationFields,
       show_city:true,
       showCity:true,
       is_vip:false,
@@ -4390,16 +5021,26 @@ function Onboarding({ onDone }) {
     });
 
     if (!MOCK_AUTH && _supabase) {
+      const patchBody = { username:data.name, handle:data.name, backstage_name:data.name, display_name:data.name, fandoms:data.groups, favorite_groups:data.groups, bias:data.bias, bias_wrecker:data.bias_wrecker || "", city:data.city, ...locationFields, show_city:true, onboarding_complete:true, profile_complete:true };
       try {
         const session = await _supabase.auth.getSession();
         const token = session?.data?.session?.access_token;
-        await fetch(`${API_URL}/api/users/me`, {
+        const res = await fetch(`${API_URL}/api/users/me`, {
           method:'PATCH',
           headers:{ 'Content-Type':'application/json', 'Authorization':`Bearer ${token||''}` },
-          body: JSON.stringify({ username:data.name, handle:data.name, backstage_name:data.name, display_name:data.name, fandoms:data.groups, favorite_groups:data.groups, bias:data.bias, bias_wrecker:data.bias_wrecker || "", city:data.city, show_city:true, onboarding_complete:true, profile_complete:true }),
+          body: JSON.stringify(patchBody),
         });
+        if (!res.ok) {
+          // No valid session yet (email confirmation pending) — 401 silently discarded
+          // by fetch(). Store for replay on the next successful sign-in.
+          ls.set(`backstage_pending_patch_${uid}`, patchBody);
+          console.warn('[Onboarding] profile PATCH', res.status, '— stored for replay on sign-in');
+        } else {
+          ls.del(`backstage_pending_patch_${uid}`);
+        }
       } catch(e) {
-        // API unavailable in this deployment — profile is saved locally, continue
+        // Network error — store for replay
+        ls.set(`backstage_pending_patch_${uid}`, patchBody);
         console.warn('[Onboarding] profile PATCH skipped (API unavailable):', e?.message);
       }
     }
@@ -4410,6 +5051,15 @@ function Onboarding({ onDone }) {
       if (profile.id) ls.set(`backstage_profile_${profile.id}`, profile);
       markOnboardingComplete(profile);
       ls.del('backstage_pending_uid');
+      // Seed rich fan identity from onboarding data
+      try {
+        ls.set("backstage_fan_identity", { name:data.name, ult:data.ult||"", bias:data.bias, biasWrecker:data.biasWrecker||"", fanDNA:data.fanDNA||[], fandoms:data.groups, concertCount:data.concertCount||"", city:data.city, seededAt:Date.now() });
+        if (data.discoveryPrefs?.length) ls.set("backstage_discovery_preferences", data.discoveryPrefs);
+        if (data.concertCount && data.concertCount !== "") {
+          const cResume = ls.get("backstage_concert_resume", {});
+          ls.set("backstage_concert_resume", { ...cResume, concertCount:data.concertCount, seededFromOnboarding:true });
+        }
+      } catch(e) { console.warn("[Onboarding] fan identity seed failed:", e?.message); }
     } catch(e) {
       console.warn('[Onboarding] localStorage write failed:', e?.message);
     }
@@ -4434,15 +5084,18 @@ function Onboarding({ onDone }) {
           style={{ width:120, height:120, objectFit:"contain", marginBottom:16 }}
         />
         <p style={{ fontSize:10, letterSpacing:"0.2em", textTransform:"uppercase", color:C.textMid, marginBottom:12 }}>Fanverse · K-pop Fandom App</p>
-        <p style={{ color:C.textMid, fontSize:13.5, lineHeight:1.7, maxWidth:270, margin:"0 auto 40px" }}>
+        <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, letterSpacing:"-0.02em", marginBottom:8, lineHeight:1.2 }}>Welcome to Backstage</p>
+        <p style={{ color:C.textMid, fontSize:12.5, lineHeight:1.65, maxWidth:270, margin:"0 auto 6px" }}>Your fandom. Your people. Your memories.</p>
+        <p style={{ color:C.textDim, fontSize:12, lineHeight:1.6, maxWidth:260, margin:"0 auto 32px" }}>
           {fromCapsule
             ? <>Your Concert Capsule is waiting.<br/>Join Backstage to save your moment.</>
-            : <>Concerts. Collecting. Community.<br/>Your all-in-one K-pop companion.</>}
+            : <>Build My Stage, find your circle,<br/>and keep every concert era.</>}
         </p>
         <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
           <Btn onClick={()=>setMode("signup")}>Get started →</Btn>
           <Btn ghost color={C.textMid} onClick={()=>setMode("login")}>I already have an account</Btn>
         </div>
+        <p style={{ fontSize:10, color:C.textDim, textAlign:"center", marginTop:14, lineHeight:1.5 }}>Start free. Go VIP when you're ready to unlock your full fan era.</p>
         {MOCK_AUTH && (
           <div style={{ marginTop:18, background:`${C.gold}0a`, border:`1px solid ${C.gold}28`, borderRadius:12, padding:"9px 14px" }}>
             <p style={{ fontSize:10.5, color:C.gold, lineHeight:1.5 }}>✦ No account needed — jump straight in.</p>
@@ -4466,22 +5119,64 @@ function Onboarding({ onDone }) {
             ? "Sign in to your Backstage account."
             : fromCapsule
               ? "Create your profile to add your moment to tonight's capsule."
-              : "Your fan journey starts here."}
+              : "Join Backstage. Build your fan world."}
         </p>
-        {err && <div style={{ background:`${C.rose}12`, border:`1px solid ${C.rose}40`, borderRadius:11, padding:"10px 13px", marginBottom:14, fontSize:12, color:C.rose }}>{err}</div>}
-        <Input label="Email" value={email} onChange={e=>{setEmail(e.target.value);setErr("");}} placeholder="you@example.com" type="email" style={{ marginBottom:12 }} />
-        <Input label="Password" value={pass} onChange={e=>{setPass(e.target.value);setErr("");}} placeholder={mode==="signup"?"At least 6 characters":"Your password"} type="password" style={{ marginBottom:20 }} />
-        <Btn onClick={mode==="login"?handleSignIn:handleSignUp} disabled={loading||!email.trim()||!pass}>
-          {loading?"Working...":mode==="login"?"Sign In":"Create Account →"}
+        {err && <div style={{ background:`${C.rose}12`, border:`1px solid ${C.rose}40`, borderRadius:11, padding:"10px 13px", marginBottom:unconfirmed?6:14, fontSize:12, color:C.rose }}>{err}</div>}
+        {mode==="login"&&unconfirmed&&(
+          <div style={{ marginBottom:14 }}>
+            <button onClick={handleResendFromSignIn} disabled={resendCooldown>0} style={{ background:"none",border:"none",color:C.accent,fontSize:12,cursor:resendCooldown>0?"default":"pointer",textDecoration:"underline",padding:0,opacity:resendCooldown>0?0.5:1 }}>
+              {resendCooldown>0?`Resend available in ${resendCooldown}s…`:"Resend confirmation email →"}
+            </button>
+          </div>
+        )}
+        {mode==="login"&&resendSuccess&&(
+          <div style={{ background:`${C.accent}15`,border:`1px solid ${C.accent}40`,borderRadius:11,padding:"10px 13px",marginBottom:14,fontSize:12,color:C.accent }}>
+            {resendSuccess}
+          </div>
+        )}
+        <Input label="Email" value={email} onChange={e=>{setEmail(e.target.value);setErr("");setUnconfirmed(false);setResendSuccess("");}} placeholder="you@example.com" type="email" style={{ marginBottom:12 }} />
+        <Input label="Password" value={pass} onChange={e=>{setPass(e.target.value);setErr("");}} placeholder={mode==="signup"?"At least 6 characters":"Your password"} type="password" style={{ marginBottom:mode==="login"?8:20 }} />
+        {mode==="login"&&<div style={{ textAlign:"right",marginBottom:14 }}><button onClick={()=>{setErr("");setMode("forgot");}} style={{ background:"none",border:"none",color:C.accent,fontSize:11.5,cursor:"pointer",textDecoration:"underline",padding:0 }}>Forgot password?</button></div>}
+        <Btn onClick={mode==="login"?handleSignIn:handleSignUp} disabled={loading||cooldown>0||!email.trim()||!pass}>
+          {cooldown>0?`Wait ${cooldown}s…`:loading?"Working...":mode==="login"?"Sign In":"Create Account →"}
         </Btn>
         <div style={{ height:14 }} />
-        <Btn ghost color={C.textMid} onClick={()=>setMode(mode==="login"?"signup":"login")} small>
+        <Btn ghost color={C.textMid} onClick={()=>{setMode(mode==="login"?"signup":"login");setUnconfirmed(false);setResendSuccess("");}} small>
           {mode==="login"?"Don't have an account? Sign up":"Already have an account? Sign in"}
         </Btn>
         <div style={{ height:20 }} />
         <button onClick={clearSession} style={{ background:"none",border:"none",color:C.textMid,fontSize:11,cursor:"pointer",opacity:0.55,textDecoration:"underline",display:"block",margin:"0 auto" }}>
           Having trouble? Clear session and try again
         </button>
+      </div>
+    </div>
+  );
+
+  // ── FORGOT PASSWORD ──
+  if (mode === "forgot") return (
+    <div style={{ height:"100%",display:"flex",flexDirection:"column",justifyContent:"center",padding:"32px 24px",background:C.bg,overflowY:"auto" }}>
+      <div style={{ animation:"up .35s ease" }}>
+        <button onClick={()=>{setMode("login");setErr("");}} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer",marginBottom:24 }}>←</button>
+        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:28,letterSpacing:"-0.025em",marginBottom:6 }}>Forgot password?</p>
+        <p style={{ color:C.textMid,fontSize:13,marginBottom:28 }}>Enter your email and we'll send a reset link.</p>
+        {err&&<div style={{ background:`${C.rose}12`,border:`1px solid ${C.rose}40`,borderRadius:11,padding:"10px 13px",marginBottom:14,fontSize:12,color:C.rose }}>{err}</div>}
+        <Input label="Email" value={email} onChange={e=>{setEmail(e.target.value);setErr("");}} placeholder="you@example.com" type="email" style={{ marginBottom:20 }} />
+        <Btn onClick={handleForgotPassword} disabled={loading||!email.trim()}>
+          {loading?"Sending…":"Send Reset Link"}
+        </Btn>
+      </div>
+    </div>
+  );
+
+  if (mode === "resetpw_sent") return (
+    <div style={{ height:"100%",display:"flex",flexDirection:"column",justifyContent:"center",padding:"32px 24px",background:C.bg }}>
+      <div style={{ animation:"up .35s ease",textAlign:"center" }}>
+        <p style={{ fontSize:40,marginBottom:16 }}>✉️</p>
+        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:24,marginBottom:8 }}>Check your email</p>
+        <p style={{ color:C.textMid,fontSize:13,lineHeight:1.6,maxWidth:280,margin:"0 auto 28px" }}>
+          We sent a password reset link to <strong style={{ color:C.text }}>{email}</strong>. Tap the link to set a new password.
+        </p>
+        <Btn ghost color={C.textMid} onClick={()=>{setMode("login");setErr("");}}>Back to Sign In</Btn>
       </div>
     </div>
   );
@@ -4594,7 +5289,7 @@ function Onboarding({ onDone }) {
               onClick={()=>{
                 if(isLast){
                   ls.set('backstage_tour_shown', true);
-                  onDone(savedProfile);
+                  setMode("firstaction");
                 } else {
                   setTourStep(t=>t+1);
                 }
@@ -4605,7 +5300,7 @@ function Onboarding({ onDone }) {
               {isLast ? "Enter Backstage ✦" : "Next →"}
             </button>
             {!isLast && (
-              <button onClick={()=>{ ls.set('backstage_tour_shown', true); onDone(savedProfile); }} style={{ background:"none",border:"none",color:C.textDim,fontSize:12,cursor:"pointer",padding:"8px",fontFamily:"'Instrument Sans',sans-serif" }}>
+              <button onClick={()=>{ ls.set('backstage_tour_shown', true); setMode("firstaction"); }} style={{ background:"none",border:"none",color:C.textDim,fontSize:12,cursor:"pointer",padding:"8px",fontFamily:"'Instrument Sans',sans-serif" }}>
                 Skip intro
               </button>
             )}
@@ -4615,12 +5310,61 @@ function Onboarding({ onDone }) {
     );
   }
 
-  // ── PROFILE SETUP (3-step) ──
+  // ── FIRST ACTION ──
+  if (mode === "firstaction") {
+    const FA_ACTIONS = [
+      { emoji:"🎭", label:"Customize My Stage",  sub:"Make your fan identity shine",           dest:"studio",    color:C.lavender },
+      { emoji:"💜", label:"Find my people",       sub:"Meet fans near your next show",          dest:"community", color:C.accent   },
+      { emoji:"⭕", label:"Join a Fan Circle",    sub:"Groups for your specific fandom era",    dest:"community", color:C.pink     },
+      { emoji:"🏛️", label:"Open My World",       sub:"Collections, capsules and memories",     dest:"collect",   color:C.mint     },
+      { emoji:"🎤", label:"Add a concert",        sub:"Log your shows and fan eras",            dest:"myshows",   color:C.gold     },
+      { emoji:"📸", label:"Concert Capsule",      sub:"Save tonight's moments forever",         dest:"capsule",   color:C.rose     },
+    ];
+    const handleFirstAction = (dest) => {
+      if (dest === "studio") ls.set("backstage_open_studio", true);
+      ls.set("backstage_first_action_done", true);
+      onDone(savedProfile || ls.get("backstage_mock_user") || ls.get("backstage_session")?.user);
+    };
+    const firstName = (data.name || "").split(/[_\-\.]/)[0] || data.name || "fan";
+    return (
+      <div style={{ height:"100%", display:"flex", flexDirection:"column", background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 55%)`, overflowY:"auto", padding:"32px 24px 28px", position:"relative" }}>
+        {/* Ambient glow */}
+        <div style={{ position:"absolute",top:0,left:"50%",transform:"translateX(-50%)",width:340,height:240,borderRadius:"50%",background:`radial-gradient(ellipse,${C.accent}12,transparent 65%)`,pointerEvents:"none" }} />
+        <div style={{ animation:"up .4s ease", position:"relative" }}>
+          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:25, letterSpacing:"-0.025em", marginBottom:5, lineHeight:1.2 }}>
+            You're in{firstName ? `, ${firstName}` : ""}. ✦
+          </p>
+          <p style={{ color:C.textMid, fontSize:13, lineHeight:1.65, marginBottom:22 }}>
+            Where do you want to start?
+          </p>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:22 }}>
+            {FA_ACTIONS.map((a,i)=>(
+              <div key={i} onClick={()=>handleFirstAction(a.dest)} className="tap"
+                style={{ background:`${a.color}0c`, border:`1.5px solid ${a.color}28`, borderRadius:16, padding:"14px 12px", cursor:"pointer" }}>
+                <div style={{ fontSize:22, marginBottom:7 }}>{a.emoji}</div>
+                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, color:a.color, lineHeight:1.25, marginBottom:3 }}>{a.label}</p>
+                <p style={{ fontSize:10, color:C.textDim, lineHeight:1.4 }}>{a.sub}</p>
+              </div>
+            ))}
+          </div>
+          <button onClick={()=>{ ls.set("backstage_first_action_done",true); onDone(savedProfile || ls.get("backstage_mock_user") || ls.get("backstage_session")?.user); }}
+            style={{ background:"none", border:"none", color:C.textDim, fontSize:12, cursor:"pointer", display:"block", margin:"0 auto 14px", fontFamily:"'Instrument Sans',sans-serif", padding:"8px" }}>
+            Take me to the home feed →
+          </button>
+          <p style={{ fontSize:10, color:C.textDim, textAlign:"center", lineHeight:1.55 }}>
+            Start free. Go VIP when you're ready to unlock your full fan era.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── PROFILE SETUP (6-step) ──
   return (
     <div style={{ height:"100%", display:"flex", flexDirection:"column", justifyContent:"center", padding:"32px 24px", background:C.bg, overflowY:"auto" }}>
       <div style={{ display:"flex", gap:5, justifyContent:"center", marginBottom:28 }}>
-        {[1,2,3].map(i=>(
-          <div key={i} style={{ height:3, borderRadius:99, width:i<=step?24:6, background:i<=step?C.accent:C.border, transition:"all .3s" }} />
+        {[1,2,3,4,5,6].map(i=>(
+          <div key={i} style={{ height:3, borderRadius:99, width:i===step?24:i<step?16:5, background:i<=step?C.accent:C.border, transition:"all .3s" }} />
         ))}
       </div>
       {step===1 && (
@@ -4652,7 +5396,22 @@ function Onboarding({ onDone }) {
               <span key={g} onClick={()=>toggle(g)} className="tap" style={{ padding:"7px 14px", borderRadius:99, fontSize:12, fontFamily:"'Epilogue',sans-serif", fontWeight:600, cursor:"pointer", background:data.groups.includes(g)?C.accent:C.surfaceHi, color:data.groups.includes(g)?C.bg:C.text, border:`1.5px solid ${data.groups.includes(g)?C.accent:C.border}`, transition:"all .18s" }}>{g}</span>
             ))}
           </div>
-          {data.groups.length>0&&<p style={{ fontSize:11, color:C.accentDim, marginBottom:12 }}>{data.groups.length} selected</p>}
+          {data.groups.length>0&&(
+            <>
+              <p style={{ fontSize:11, color:C.accentDim, marginBottom:10 }}>{data.groups.length} selected</p>
+              <p style={{ fontSize:11.5, color:C.textMid, marginBottom:8 }}>Your ULT group <span style={{ color:C.textDim }}>— optional</span></p>
+              <div style={{ display:"flex", flexWrap:"wrap", gap:7, marginBottom:14 }}>
+                {data.groups.map(g=>(
+                  <span key={g} onClick={()=>setData(d=>({...d, ult:d.ult===g?"":g}))} className="tap"
+                    style={{ padding:"6px 12px", borderRadius:99, fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:600, cursor:"pointer",
+                      background:data.ult===g?C.gold:`${C.gold}12`, color:data.ult===g?C.bg:C.gold,
+                      border:`1.5px solid ${data.ult===g?C.gold:`${C.gold}30`}`, transition:"all .18s" }}>
+                    {data.ult===g?"★ ":""}{g}
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
           <Btn onClick={()=>data.groups.length&&setStep(3)} disabled={!data.groups.length}>Continue →</Btn>
           <div style={{ height:10 }} />
           <Btn ghost color={C.textMid} onClick={()=>{ setData(d=>({...d, skippedRequiredProfile:true})); setStep(3); }} small>Skip for now</Btn>
@@ -4662,11 +5421,98 @@ function Onboarding({ onDone }) {
         <div style={{ animation:"up .35s ease" }}>
           <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:24, marginBottom:6 }}>Who's your bias?</p>
           <p style={{ color:C.textMid, fontSize:13, marginBottom:22 }}>Just one. We know how hard that is.</p>
-          <Input value={data.bias} onChange={e=>setData({...data,bias:e.target.value})} placeholder="e.g. Felix, Jimin, Karina..." autoFocus style={{ marginBottom:20 }} />
-          <p style={{ fontSize:11, color:C.textMid, marginBottom:8 }}>Your City <span style={{ color:C.textDim }}>— optional</span></p>
-          <Input value={data.city} onChange={e=>setData({...data,city:e.target.value})} placeholder="e.g. Dallas, TX" style={{ marginBottom:20 }} />
+          <Input value={data.bias} onChange={e=>setData({...data,bias:e.target.value})} placeholder="e.g. Felix, Jimin, Karina..." autoFocus style={{ marginBottom:16 }} />
+          <p style={{ fontSize:11.5, color:C.textMid, marginBottom:8 }}>Bias wrecker <span style={{ color:C.textDim }}>— optional</span></p>
+          <Input value={data.biasWrecker} onChange={e=>setData({...data,biasWrecker:e.target.value})} placeholder="The one who keeps threatening your bias..." style={{ marginBottom:22 }} />
+          <Btn onClick={()=>setStep(4)}>Continue →</Btn>
+          <div style={{ height:10 }} />
+          <Btn ghost color={C.textMid} onClick={()=>setStep(4)} small>Skip</Btn>
+        </div>
+      )}
+      {step===4 && (
+        <div style={{ animation:"up .35s ease" }}>
+          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:24, marginBottom:6 }}>Your Fan DNA</p>
+          <p style={{ color:C.textMid, fontSize:13, marginBottom:18 }}>Pick what vibes with you. This shapes your Fanverse experience.</p>
+          <div style={{ display:"flex", flexWrap:"wrap", gap:8, marginBottom:16, maxHeight:200, overflowY:"auto" }}>
+            {["Concert goer 🎤","Merch collector 🃏","Photo fan 📸","Setlist nerd 📋","Multi-fandom 💫","ULT stan 💜","Fan art lover 🎨","Cosplay / fits 🎭","Solo stan 🌟","Fandom OG 📅","Stream warrior 🎵","Light stick army 💡","Concert buddies 👯","K-drama fan 📺"].map(dna=>(
+              <span key={dna} onClick={()=>setData(d=>({ ...d, fanDNA:d.fanDNA.includes(dna)?d.fanDNA.filter(x=>x!==dna):[...d.fanDNA,dna] }))}
+                className="tap"
+                style={{ padding:"7px 13px", borderRadius:99, fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:600, cursor:"pointer",
+                  background:data.fanDNA.includes(dna)?C.pink:`${C.pink}10`,
+                  color:data.fanDNA.includes(dna)?C.bg:C.text,
+                  border:`1.5px solid ${data.fanDNA.includes(dna)?C.pink:C.border}`, transition:"all .18s" }}>
+                {dna}
+              </span>
+            ))}
+          </div>
+          {data.fanDNA.length>0&&<p style={{ fontSize:11, color:C.pink, marginBottom:10 }}>{data.fanDNA.length} picked</p>}
+          <Btn onClick={()=>setStep(5)}>Continue →</Btn>
+          <div style={{ height:10 }} />
+          <Btn ghost color={C.textMid} onClick={()=>setStep(5)} small>Skip</Btn>
+        </div>
+      )}
+      {step===5 && (
+        <div style={{ animation:"up .35s ease" }}>
+          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:24, marginBottom:6 }}>Your concert life</p>
+          <p style={{ color:C.textMid, fontSize:13, marginBottom:20 }}>How many K-pop concerts have you been to?</p>
+          <div style={{ display:"flex", flexWrap:"wrap", gap:8, marginBottom:22 }}>
+            {[["0","First one coming 🌱"],["1-3","Just getting started ✦"],["4-10","Era regular 🎤"],["11-20","Concert veteran 🎟️"],["20+","Hall of fame 💜"]].map(([val,label])=>(
+              <div key={val} onClick={()=>setData(d=>({...d,concertCount:val}))}
+                className="tap"
+                style={{ flex:"1 1 calc(50% - 4px)", background:data.concertCount===val?C.accent:`${C.accent}0c`,
+                  border:`1.5px solid ${data.concertCount===val?C.accent:`${C.accent}28`}`,
+                  borderRadius:13, padding:"12px 14px", cursor:"pointer", transition:"all .18s" }}>
+                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, color:data.concertCount===val?C.bg:C.accent, lineHeight:1.3 }}>{label}</p>
+                <p style={{ fontSize:10, color:data.concertCount===val?"rgba(10,10,20,0.65)":C.textDim, marginTop:3 }}>{val} concerts</p>
+              </div>
+            ))}
+          </div>
+          <Btn onClick={()=>setStep(6)}>Continue →</Btn>
+          <div style={{ height:10 }} />
+          <Btn ghost color={C.textMid} onClick={()=>setStep(6)} small>Skip</Btn>
+        </div>
+      )}
+      {step===6 && (
+        <div style={{ animation:"up .35s ease" }}>
+          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:23, marginBottom:5 }}>Your region + vibe</p>
+          <p style={{ fontSize:10.5, color:C.textDim, marginBottom:14, lineHeight:1.55 }}>Approx city/region helps fans find their people. You can hide it anytime.</p>
+          <div style={{ position:"relative", marginBottom:16 }}>
+            <input
+              value={data.city}
+              onChange={e=>{ const v=e.target.value; setData(d=>({...d,city:v,cityMeta:null})); if(v.length>=2){const q=v.toLowerCase();setOnbCitySuggestions(CITY_LIST.filter(c=>c.city.toLowerCase().includes(q)||makeCityDisplay(c).toLowerCase().includes(q)||c.country.toLowerCase().includes(q)).slice(0,6));}else{setOnbCitySuggestions([]);} }}
+              onKeyDown={e=>{ if(e.key==="Escape"||e.key==="Enter") setOnbCitySuggestions([]); }}
+              placeholder="e.g. Dallas, TX — approximate is fine"
+              style={{ width:"100%", padding:"11px 14px", borderRadius:11, background:C.surfaceHi, border:`1.5px solid ${C.border}`, color:C.text, fontSize:13, boxSizing:"border-box" }}
+            />
+            {onbCitySuggestions.length > 0 && (
+              <div style={{ position:"absolute",top:"100%",left:0,right:0,background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,zIndex:200,overflow:"hidden",marginTop:3 }}>
+                {onbCitySuggestions.map((c,i)=>(
+                  <div key={i} onMouseDown={()=>{ const display=makeCityDisplay(c); setData(d=>({...d,city:display,cityMeta:c})); setOnbCitySuggestions([]); }}
+                    style={{ padding:"9px 14px",cursor:"pointer",fontSize:13,display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:i<onbCitySuggestions.length-1?`1px solid ${C.border}`:"none" }}
+                    onMouseEnter={e=>e.currentTarget.style.background=C.surfaceMid}
+                    onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                    <span style={{ color:C.text,fontWeight:600 }}>{c.city}</span>
+                    <span style={{ color:C.textDim,fontSize:11 }}>{c.region_code?`${c.region_code} · ${c.country}`:c.country}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <p style={{ fontSize:11.5, color:C.textMid, marginBottom:10 }}>What are you looking for? <span style={{ color:C.textDim }}>— pick any</span></p>
+          <div style={{ display:"flex", flexWrap:"wrap", gap:7, marginBottom:22 }}>
+            {["Concert buddies 🎤","Local fans 📍","Fan Circles 💜","Trades 🃏","Freebies 🎁","Travel buddies ✈️","Outfit inspo 🎭","Capsule memories 📸"].map(pref=>(
+              <span key={pref} onClick={()=>setData(d=>({ ...d, discoveryPrefs:d.discoveryPrefs.includes(pref)?d.discoveryPrefs.filter(x=>x!==pref):[...d.discoveryPrefs,pref] }))}
+                className="tap"
+                style={{ padding:"6px 12px", borderRadius:99, fontSize:11, fontFamily:"'Epilogue',sans-serif", fontWeight:600, cursor:"pointer",
+                  background:data.discoveryPrefs.includes(pref)?C.lavender:`${C.lavender}10`,
+                  color:data.discoveryPrefs.includes(pref)?C.bg:C.text,
+                  border:`1.5px solid ${data.discoveryPrefs.includes(pref)?C.lavender:C.border}`, transition:"all .18s" }}>
+                {pref}
+              </span>
+            ))}
+          </div>
           <Btn onClick={handleProfileDone} disabled={loading}>
-            {loading?"Setting up...":"Enter Backstage ✦"}
+            {loading?"Setting up…":"Enter Backstage ✦"}
           </Btn>
         </div>
       )}
@@ -4675,6 +5521,53 @@ function Onboarding({ onDone }) {
 
 }
 
+
+// ─── SET NEW PASSWORD (password reset callback) ────────────────────────────────
+function SetNewPasswordScreen() {
+  const { setPasswordRecovery } = useAuth();
+  const [newPass, setNewPass]         = useState("");
+  const [confirm, setConfirm]         = useState("");
+  const [loading, setLoading]         = useState(false);
+  const [err, setErr]                 = useState("");
+  const [done, setDone]               = useState(false);
+
+  const handleSubmit = async () => {
+    if (loading) return;
+    if (newPass.length < 6) { setErr("Password must be at least 6 characters."); return; }
+    if (newPass !== confirm) { setErr("Passwords don't match."); return; }
+    setLoading(true); setErr("");
+    if (MOCK_AUTH) { setDone(true); setLoading(false); return; }
+    try {
+      const { error } = await _supabase.auth.updateUser({ password: newPass });
+      if (error) { setErr(error.message); setLoading(false); }
+      else { setDone(true); setLoading(false); }
+    } catch(e) { setErr("Connection error. Try again."); setLoading(false); }
+  };
+
+  return (
+    <div style={{ position:"fixed",inset:0,zIndex:9999,background:`linear-gradient(160deg,${C.cosmic},${C.bg})`,display:"flex",flexDirection:"column",justifyContent:"center",padding:"32px 24px" }}>
+      {!done ? (
+        <div style={{ animation:"up .35s ease" }}>
+          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:28,letterSpacing:"-0.025em",marginBottom:6 }}>Set new password</p>
+          <p style={{ color:C.textMid,fontSize:13,marginBottom:28 }}>Choose a strong password for your Backstage account.</p>
+          {err&&<div style={{ background:`${C.rose}12`,border:`1px solid ${C.rose}40`,borderRadius:11,padding:"10px 13px",marginBottom:14,fontSize:12,color:C.rose }}>{err}</div>}
+          <Input label="New Password" value={newPass} onChange={e=>{setNewPass(e.target.value);setErr("");}} placeholder="At least 6 characters" type="password" style={{ marginBottom:12 }} />
+          <Input label="Confirm Password" value={confirm} onChange={e=>{setConfirm(e.target.value);setErr("");}} placeholder="Repeat password" type="password" style={{ marginBottom:20 }} />
+          <Btn onClick={handleSubmit} disabled={loading||!newPass||!confirm}>
+            {loading?"Saving…":"Save New Password"}
+          </Btn>
+        </div>
+      ) : (
+        <div style={{ animation:"up .35s ease",textAlign:"center" }}>
+          <p style={{ fontSize:40,marginBottom:16 }}>✓</p>
+          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:24,marginBottom:8 }}>Password updated!</p>
+          <p style={{ color:C.textMid,fontSize:13,lineHeight:1.6,maxWidth:280,margin:"0 auto 28px" }}>Your new password is set. You're good to go.</p>
+          <Btn onClick={()=>setPasswordRecovery(false)}>Continue to Backstage →</Btn>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ─── CONCERTS ─────────────────────────────────────────────────────────────────
 function ConcertsPage({ go, isVip, onUpgrade, user }) {
@@ -5326,8 +6219,31 @@ function PhotocardGrid({ cards, groups, groupFilter, setGroupFilter, go, rarityC
 }
 
 function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
-  const [section, setSection] = useState("photocards");
+  const [section, setSection] = useState("museum");
   const [groupFilter, setGroupFilter] = useState("all");
+  const [myWorldTheme, setMyWorldTheme] = useState(()=>ls.get("backstage_my_world_theme","Purple Galaxy"));
+  const [featuredShelf, setFeaturedShelf] = useState(()=>ls.get("backstage_featured_shelf",{photocard:null,concert:null,capsule:null,outfit:null,biasMoment:null}));
+  const [showDecorate, setShowDecorate] = useState(false);
+  const [editingShelfKey, setEditingShelfKey] = useState(null);
+  const [shelfDraft, setShelfDraft] = useState("");
+  const saveTheme = (t)=>{ setMyWorldTheme(t); ls.set("backstage_my_world_theme",t); };
+  const saveFeatured = (key,val)=>{ const next={...featuredShelf,[key]:val}; setFeaturedShelf(next); ls.set("backstage_featured_shelf",next); };
+  const WORLD_THEMES = [
+    {id:"Purple Galaxy",  emoji:"🌌", color:C.lavender},
+    {id:"Pink Lightstick",emoji:"🩷", color:C.pink    },
+    {id:"Golden Founder", emoji:"✦",  color:C.gold    },
+    {id:"Holo Binder",    emoji:"🌈", color:C.mint    },
+    {id:"Soft MySpace",   emoji:"💜", color:C.berry   },
+    {id:"Midnight Arena", emoji:"🎤", color:"#6699dd" },
+  ];
+  const THEME_BG = {
+    "Purple Galaxy":  `radial-gradient(ellipse at 65% 0%,${C.lavender}22,transparent 55%),radial-gradient(ellipse at 20% 88%,${C.accent}10,transparent 50%)`,
+    "Pink Lightstick":`radial-gradient(ellipse at 70% 0%,${C.pink}20,transparent 55%),radial-gradient(ellipse at 25% 85%,${C.rose}10,transparent 50%)`,
+    "Golden Founder": `radial-gradient(ellipse at 60% 0%,${C.gold}18,transparent 55%),radial-gradient(ellipse at 15% 88%,${C.gold}08,transparent 50%)`,
+    "Holo Binder":    `radial-gradient(ellipse at 70% 5%,${C.mint}18,transparent 55%),radial-gradient(ellipse at 25% 80%,${C.sky}10,transparent 50%)`,
+    "Soft MySpace":   `radial-gradient(ellipse at 60% 0%,${C.berry}20,transparent 55%),radial-gradient(ellipse at 20% 88%,${C.blush}10,transparent 50%)`,
+    "Midnight Arena": `radial-gradient(ellipse at 65% 5%,#6699dd22,transparent 55%),radial-gradient(ellipse at 15% 80%,#44668820,transparent 50%)`,
+  };
 
   const { binders } = useBinders();
   const [isoCards, setIsoCards] = useState([]);
@@ -5353,7 +6269,28 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
     N: `linear-gradient(135deg,#0e0e22,#181830,#1e1e3c)`,
   };
 
+  const _concertResume = ls.get("backstage_concert_resume",[]);
+  const _fanIdentity   = ls.get("backstage_fan_identity",null);
+  const MUSEUM_TILES = [
+    {id:"albums",       emoji:"📁", label:"Albums",       stat:binders.length,          unit:"binders",  color:C.accent  },
+    {id:"pcs",          emoji:"🃏", label:"Photocards",   stat:allCards.length,          unit:"cards",    color:C.pink    },
+    {id:"memories",     emoji:"📸", label:"Memories",     stat:4,                        unit:"moments",  color:C.sky     },
+    {id:"concerts",     emoji:"🎤", label:"Concerts",     stat:_concertResume.length||6, unit:"shows",    color:C.berry   },
+    {id:"capsules",     emoji:"💊", label:"Capsules",     stat:ls.get("backstage_capsules_count",2), unit:"saved", color:C.mint },
+    {id:"scrapbook",    emoji:"🗂️", label:"Scrapbooks",  stat:1,                        unit:"book",     color:C.lavender},
+    {id:"achievements", emoji:"🏅", label:"Achievements", stat:7,                        unit:"unlocked", color:C.gold    },
+    {id:"shrine",       emoji:"💜", label:"Bias Shrine",  stat:_fanIdentity?.bias?1:0,   unit:"set",      color:C.rose    },
+  ];
+  const FEATURED_OPTIONS = [
+    {key:"photocard",  label:"Favorite Photocard",    emoji:"🃏", placeholder:"Felix — MANIAC era",        color:C.pink    },
+    {key:"concert",    label:"Favorite Concert",       emoji:"🎤", placeholder:"ATEEZ Dallas 2025",         color:C.berry   },
+    {key:"capsule",    label:"Favorite Capsule",       emoji:"💊", placeholder:"BTS Vegas Night 2 ✦",      color:C.mint    },
+    {key:"outfit",     label:"Favorite Outfit",        emoji:"✨", placeholder:"MANIAC era silver fit",     color:C.lavender},
+    {key:"biasMoment", label:"Favorite Bias Moment",   emoji:"💜", placeholder:"Karina eye contact fancam", color:C.rose    },
+  ];
+
   const SECTIONS = [
+    { id:"museum",     label:"Museum",     icon:"🏛️" },
     { id:"photocards", label:"Photocards", icon:"🃏" },
     { id:"albums",     label:"Albums",     icon:"📁" },
     { id:"scrapbook",  label:"Scrapbook",  icon:"📸" },
@@ -5364,15 +6301,18 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
     <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
       {/* Atmospheric bg */}
       <div style={{ position:"absolute",inset:0,background:`radial-gradient(ellipse at 80% 10%,${C.pink}06,transparent 45%),radial-gradient(ellipse at 10% 85%,${C.accent}05,transparent 50%)`,pointerEvents:"none",zIndex:0 }} />
+      {/* Theme overlay — changes with Decorate selection */}
+      <div style={{ position:"absolute",inset:0,background:THEME_BG[myWorldTheme]||THEME_BG["Purple Galaxy"],pointerEvents:"none",zIndex:0,transition:"background .5s ease" }} />
 
       {/* Slim fixed header — only title + sub-nav */}
       <div style={{ padding:"18px 20px 0", flexShrink:0, position:"relative", zIndex:1 }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
           <div>
             <div>
-              <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:1 }}>My Collection</p>
+              <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:1 }}>My World</p>
               <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontStyle:"italic",fontWeight:700,fontSize:20,background:`linear-gradient(135deg,${C.lavender},${C.blush})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",lineHeight:1.1 }}>My Universe ✦</h2>
-              <p style={{ fontSize:9.5,color:C.textMid,marginTop:2 }}>{totalOwned} owned · {wishlist.length} wanted · {tradeable.length} tradeable</p>
+              <p style={{ fontSize:9.5,color:C.textDim,marginTop:2 }}>Collections, capsules, memories, and scrapbooks.</p>
+              <p style={{ fontSize:9.5,color:C.textMid,marginTop:1 }}>{totalOwned} owned · {wishlist.length} wanted · {tradeable.length} tradeable</p>
             </div>
           </div>
           <div style={{ display:"flex", gap:8, alignItems:"center" }}>
@@ -5452,6 +6392,75 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
               <p style={{ fontSize:10, color:C.textMid }}>Unlimited binders · Trade analytics · Priority matches</p>
             </div>
             <div style={{ ...VS.activePill(C.gold), fontSize:9 }}>Upgrade →</div>
+          </div>
+        )}
+
+        {/* ── MY WORLD MUSEUM ─────────────────────────────────────────────── */}
+        {section==="museum" && (
+          <div>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+              <div>
+                <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em",marginBottom:2 }}>Fan Archive</p>
+                <h3 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,color:C.text,lineHeight:1.1 }}>Your Fan Museum ✦</h3>
+              </div>
+              <button onClick={()=>setShowDecorate(d=>!d)} style={{ background:showDecorate?`${C.lavender}28`:`${C.lavender}12`, border:`1.5px solid ${showDecorate?C.lavender:C.lavender+"33"}`, borderRadius:10, padding:"7px 13px", color:C.lavender, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10.5, cursor:"pointer", transition:"all .2s" }}>🎨 Decorate</button>
+            </div>
+            {showDecorate && (
+              <div style={{ ...VS.glowCard(C.lavender), padding:"14px 16px", marginBottom:14 }}>
+                <div style={VS.shimmerLine(C.lavender)} />
+                <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10 }}>World Theme</p>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8 }}>
+                  {WORLD_THEMES.map(t=>(
+                    <div key={t.id} onClick={()=>saveTheme(t.id)} className="tap" style={{ borderRadius:12, padding:"10px 8px", textAlign:"center", cursor:"pointer", background:myWorldTheme===t.id?`${t.color}28`:`${t.color}0a`, border:`1.5px solid ${myWorldTheme===t.id?t.color:t.color+"33"}`, transition:"all .2s" }}>
+                      <div style={{ fontSize:18, marginBottom:3 }}>{t.emoji}</div>
+                      <p style={{ fontSize:8.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:myWorldTheme===t.id?t.color:C.textMid, lineHeight:1.3 }}>{t.id}</p>
+                      {myWorldTheme===t.id && <div style={{ width:5,height:5,borderRadius:"50%",background:t.color,margin:"4px auto 0" }} />}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16 }}>
+              {MUSEUM_TILES.map(tile=>(
+                <div key={tile.id} onClick={({albums:()=>setSection("albums"),pcs:()=>setSection("photocards"),memories:()=>go("scrapbook"),concerts:()=>go("myshows"),capsules:()=>go("capsule"),scrapbook:()=>setSection("scrapbook")})[tile.id]} className="tap" style={{ borderRadius:16, padding:"14px 14px", background:`${tile.color}0d`, border:`1.5px solid ${tile.color}30`, cursor:"pointer", position:"relative", overflow:"hidden" }}>
+                  <div style={{ position:"absolute",top:-10,right:-10,width:44,height:44,borderRadius:"50%",background:`${tile.color}10`,pointerEvents:"none" }} />
+                  <div style={{ fontSize:22, marginBottom:5 }}>{tile.emoji}</div>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:24,color:tile.color,lineHeight:1 }}>{tile.stat}</p>
+                  <p style={{ fontSize:9,color:C.textMid,marginTop:1 }}>{tile.unit}</p>
+                  <p style={{ fontSize:11.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,color:C.text,marginTop:5 }}>{tile.label}</p>
+                </div>
+              ))}
+            </div>
+            <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em",marginBottom:8 }}>✦ Featured Shelf</p>
+            <div style={{ display:"flex", flexDirection:"column", gap:9, marginBottom:4 }}>
+              {FEATURED_OPTIONS.map(opt=>{
+                const val = featuredShelf[opt.key];
+                const isEditing = editingShelfKey===opt.key;
+                return (
+                  <div key={opt.key} style={{ ...VS.glowCard(opt.color), padding:"11px 14px" }}>
+                    <div style={VS.shimmerLine(opt.color)} />
+                    <div style={{ position:"relative", display:"flex", gap:10, alignItems:"center" }}>
+                      <div style={{ fontSize:18, flexShrink:0 }}>{opt.emoji}</div>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <p style={{ fontSize:8.5,color:opt.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:2 }}>{opt.label}</p>
+                        {isEditing ? (
+                          <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                            <input value={shelfDraft} onChange={e=>setShelfDraft(e.target.value)} placeholder={opt.placeholder} style={{ flex:1, padding:"5px 8px", borderRadius:8, background:C.surfaceHi, border:`1.5px solid ${opt.color}44`, color:C.text, fontSize:11, fontFamily:"'Instrument Sans',sans-serif", outline:"none" }} autoFocus />
+                            <button onClick={()=>{ saveFeatured(opt.key,shelfDraft||null); setEditingShelfKey(null); }} style={{ background:opt.color, border:"none", borderRadius:8, padding:"5px 10px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10, cursor:"pointer" }}>✓</button>
+                            <button onClick={()=>setEditingShelfKey(null)} style={{ background:`${opt.color}18`, border:`1px solid ${opt.color}33`, borderRadius:8, padding:"5px 8px", color:opt.color, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10, cursor:"pointer" }}>✕</button>
+                          </div>
+                        ) : (
+                          <p style={{ fontSize:12,color:val?C.text:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:val?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{val||opt.placeholder}</p>
+                        )}
+                      </div>
+                      {!isEditing && (
+                        <button onClick={()=>{ setEditingShelfKey(opt.key); setShelfDraft(val||""); }} style={{ flexShrink:0,background:`${opt.color}18`,border:`1.5px solid ${opt.color}44`,borderRadius:9,padding:"5px 11px",color:opt.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10,cursor:"pointer" }}>{val?"Edit":"Set"}</button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
@@ -6763,6 +7772,64 @@ function OfferThread({ offer: initialOffer, user, onBack, onComplete }) {
   );
 }
 
+// ─── TRADE PASSPORT — trust layer, shown in Trade Hub & Profile Preview ──────
+const DEFAULT_TRADE_PASSPORT = { successfulTrades:37, yearsCollecting:4, verified:true, reports:0, rating:4.9, badges:["Fast Shipper","Careful Packaging","Venue Trader","Wishlist Matcher"], packagingNotes:"Always ships in top loaders with bubble mailers — zero damage reports." };
+const DEFAULT_TRADE_HISTORY = { completed:34, cancelled:3 };
+const TRADE_BADGE_ICONS = { "Fast Shipper":"🚀", "Careful Packaging":"📦", "Venue Trader":"🎤", "Wishlist Matcher":"🎯" };
+
+function TradePassportCard({ passport, history, compact }) {
+  const [expanded, setExpanded] = useState(false);
+  const p = passport || DEFAULT_TRADE_PASSPORT;
+  const h = history || DEFAULT_TRADE_HISTORY;
+  const ratingDisplay = typeof p.rating === "number" ? p.rating.toFixed(1) : p.rating;
+  return (
+    <div style={{ ...VS.glowCard(C.gold), padding: compact ? "13px 15px" : "16px 18px", marginBottom:16 }}>
+      <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.gold}44,transparent)` }} />
+      <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:12,position:"relative" }}>
+        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5,flex:1 }}>🛡️ Trade Passport</p>
+        {p.verified && <Pill color={C.mint} small>✓ Verified Trader</Pill>}
+      </div>
+      <div style={{ display:"flex",gap:7,marginBottom:12,position:"relative" }}>
+        {[[p.successfulTrades,"Trades",C.gold],[p.yearsCollecting,"Yrs Collecting",C.accent],[`★ ${ratingDisplay}`,"Rating",C.pink],[p.reports,"Reports",C.mint]].map(([val,label,color])=>(
+          <div key={label} style={{ flex:1,textAlign:"center",padding:"8px 4px",borderRadius:12,background:`${color}10`,border:`1px solid ${color}28` }}>
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:14.5,color }}>{val}</p>
+            <p style={{ fontSize:8,color:C.textMid,marginTop:2,lineHeight:1.3 }}>{label}</p>
+          </div>
+        ))}
+      </div>
+      {p.badges?.length>0 && (
+        <div style={{ display:"flex",gap:6,flexWrap:"wrap",marginBottom:10,position:"relative" }}>
+          {p.badges.map(b=>(
+            <span key={b} style={{ padding:"5px 11px",borderRadius:99,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:600,background:`${C.gold}14`,color:C.gold,border:`1px solid ${C.gold}30` }}>{TRADE_BADGE_ICONS[b]||"✦"} {b}</span>
+          ))}
+        </div>
+      )}
+      <div onClick={()=>setExpanded(e=>!e)} className="tap" style={{ display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",position:"relative",paddingTop:2 }}>
+        <p style={{ fontSize:10.5,color:C.accentDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>Trust Details</p>
+        <span style={{ fontSize:11,color:C.textMid }}>{expanded?"▾":"▸"}</span>
+      </div>
+      {expanded && (
+        <div style={{ marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`,display:"flex",flexDirection:"column",gap:7,position:"relative" }}>
+          {[
+            ["Completed Trades",h.completed],
+            ["Cancelled Trades",h.cancelled],
+            ["Reports",p.reports],
+            ["Verification Status",p.verified?"Verified ✓":"Unverified"],
+          ].map(([label,val])=>(
+            <div key={label} style={{ display:"flex",justifyContent:"space-between" }}>
+              <p style={{ fontSize:11,color:C.textMid }}>{label}</p>
+              <p style={{ fontSize:11,fontWeight:700 }}>{val}</p>
+            </div>
+          ))}
+          {p.packagingNotes && (
+            <p style={{ fontSize:10.5,color:C.textDim,fontStyle:"italic",lineHeight:1.5,marginTop:2 }}>📦 "{p.packagingNotes}"</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TradeHub({ onBack, onNotif, user }) {
   const { tokenReady } = useAuth();
   const [hubTab, setHubTab]         = useState("mine");
@@ -6775,6 +7842,8 @@ function TradeHub({ onBack, onNotif, user }) {
 
   // Keep mock trades as fallback for the old "My Trades" flow (pre-real-data)
   const [trades] = useState(()=>ls.get("backstage_active_trades", MOCK_ACTIVE_TRADES_DEFAULT));
+  const [tradePassport] = useState(()=>ls.get("backstage_trade_passport", DEFAULT_TRADE_PASSPORT));
+  const [tradeHistory] = useState(()=>ls.get("backstage_trade_history", DEFAULT_TRADE_HISTORY));
 
   useEffect(()=>{
     if (hubTab !== "hub") return;
@@ -6976,6 +8045,12 @@ function TradeHub({ onBack, onNotif, user }) {
       </div>
 
       <Screen style={{ padding:"0 18px calc(120px + env(safe-area-inset-bottom))" }}>
+        {/* TRADE PASSPORT — your trust signal to other traders */}
+        <div style={{ paddingTop:14 }}>
+          <p style={{ fontSize:9, color:C.textDim, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.12em", marginBottom:8 }}>Your trust signal to other traders</p>
+          <TradePassportCard passport={tradePassport} history={tradeHistory} compact />
+        </div>
+
         {/* Public Hub — clickable listings */}
         {hubTab==="hub" && (
           hubLoading ? <div style={{ textAlign:"center",padding:40,color:C.textMid,fontSize:13 }}>Loading listings...</div> : (
@@ -7996,8 +9071,224 @@ function FanDiscoverySection({ user, fans, loading, onViewProfile }) {
   );
 }
 
+// ─── SEED DATA FOR FAN CIRCLES ───────────────────────────────────────────────
+const SEED_CIRCLES = [
+  { id:"c1", name:"San Antonio ARMY", fandom:"BTS", region:"San Antonio area", privacy:"private", tags:["BTS","concerts","local"], intro:"A tight-knit group of SA ARMYs who've been going to shows together since 2019. Cup sleeve runs, pre-show meetups, and freebie swaps.", members:12, recentActivity:"2h ago", lastPost:"Anyone going to the Dec show? 💜", avatars:["S","A","J","M"], pinned:"Pre-show meetup @ Riverwalk 6pm", upcoming:"BTS World Tour · Dec 2025 · San Antonio" },
+  { id:"c2", name:"Vegas Travelers", fandom:"BTS", region:"Vegas travelers", privacy:"open", tags:["BTS","travel","Vegas"], intro:"For fans flying in for Vegas concerts. Share hotel tips, airport pickups, and make the whole trip better.", members:34, recentActivity:"45m ago", lastPost:"Hotel near T-Mobile Arena recs?", avatars:["V","L","K","R","T"], pinned:"Shared hotel list for Dec shows", upcoming:"BTS World Tour · Dec 2025 · Las Vegas" },
+  { id:"c3", name:"Photocard Traders", fandom:"K-pop", region:"Online worldwide", privacy:"open", tags:["photocards","trading","WTT","WTS"], intro:"Safe and trusted photocard trading circle. Verified members only after 3 successful trades.", members:89, recentActivity:"12m ago", lastPost:"LF Jungkook MOTS:7 PC 🙏", avatars:["P","M","H","J","A","B"], pinned:"Trust guide pinned — read before first trade", upcoming:null },
+  { id:"c4", name:"BTS Moms", fandom:"BTS", region:"US/Canada area", privacy:"invite", tags:["BTS","moms","family"], intro:"For moms (and parents) who became ARMY through their kids — or just on our own 💜 Safe space, no judgment.", members:22, recentActivity:"3h ago", lastPost:"Anyone else cry at Boy In Luv live?", avatars:["K","D","R","S"], pinned:"Welcome — introduce yourself!", upcoming:null },
+  { id:"c5", name:"TXT Squad", fandom:"TXT", region:"Online worldwide", privacy:"open", tags:["TXT","MOA","concerts"], intro:"All MOAs welcome. We celebrate every era, every comeback, every concert run together.", members:18, recentActivity:"1h ago", lastPost:"TOMORROW X TOGETHER concert thoughts 🔥", avatars:["T","J","Y","S","B"], pinned:null, upcoming:null },
+  { id:"c6", name:"Concert Fit Check Circle", fandom:"K-pop", region:"Online worldwide", privacy:"open", tags:["fits","fashion","kpop","concerts"], intro:"Post your concert fits, get feedback, give hype. We're basically a fandom styling team.", members:45, recentActivity:"30m ago", lastPost:"Silver theme inspo for next weekend ✨", avatars:["F","C","A","N","J"], pinned:null, upcoming:null },
+  { id:"c7", name:"Cupsleeve Crew", fandom:"K-pop", region:"Dallas show weekend", privacy:"request", tags:["cupsleeves","events","Dallas"], intro:"We organize cupsleeve events in Dallas. If you want to make or distribute, this is your circle.", members:28, recentActivity:"6h ago", lastPost:"Venue confirmed for April 29th run!", avatars:["C","E","G","D"], pinned:"April 29 event — signup form linked", upcoming:"Cup sleeve event · April 29 · Dallas" },
+  { id:"c8", name:"Freebie Makers", fandom:"K-pop", region:"Online worldwide", privacy:"open", tags:["freebies","crafts","design","concerts"], intro:"A circle for fans who make and share freebies at concerts. Templates, printing tips, distribution spots.", members:37, recentActivity:"4h ago", lastPost:"Anyone want co-print on Jimin poster set?", avatars:["F","M","A","B","H"], pinned:null, upcoming:null },
+];
+
 // ─── FANVERSE TAB — MAP-FIRST LIVE FANDOM NETWORK ────────────────────────────
 // Priority: 1. Live Map  2. City Activity  3. Meetups  4. Feed  5. Fan Discovery
+function FanversePulse({ go }) {
+  const capsuleCount = ls.get("backstage_concert_capsules",[]).length;
+  const joinedCircles = ls.get("backstage_joined_circles",[]).length;
+  const STATS = [
+    { emoji:"💜", val:`${45 + capsuleCount}`, label:"fans posted today",    color:C.accent   },
+    { emoji:"✦",  val:`${12 + joinedCircles}`, label:"checked in nearby",  color:C.lavender },
+    { emoji:"🃏",  val:"8",                    label:"new traders nearby",  color:C.gold     },
+    { emoji:"🎤",  val:"4",                    label:"going tonight",       color:C.pink     },
+    { emoji:"📸",  val:`${6 + capsuleCount}`,  label:"capsule memories",    color:C.mint     },
+    { emoji:"🌐",  val:"3",                    label:"city hubs active",    color:C.berry    },
+  ];
+  return (
+    <div style={{ flexShrink:0, paddingTop:10 }}>
+      <div style={{ padding:"0 18px 7px", display:"flex", alignItems:"center", gap:8 }}>
+        <div style={{ width:6,height:6,borderRadius:"50%",background:C.rose,boxShadow:`0 0 7px ${C.rose}`,animation:"pulse 1.4s ease infinite",flexShrink:0 }} />
+        <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.09em" }}>Today in the Fanverse</p>
+        <p style={{ fontSize:9.5,color:C.textDim,marginLeft:1 }}>Your people are already here.</p>
+      </div>
+      <div style={{ display:"flex",gap:8,overflowX:"auto",paddingLeft:18,paddingRight:18,paddingBottom:10,scrollbarWidth:"none" }}>
+        {STATS.map((s,i)=>(
+          <div key={i} className="tap" style={{ flexShrink:0,background:`${s.color}10`,border:`1.5px solid ${s.color}30`,borderRadius:13,padding:"8px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:8,minWidth:108 }}>
+            <div style={{ width:5,height:5,borderRadius:"50%",background:s.color,animation:`pulse 2s ease-in-out infinite`,animationDelay:`${i*0.25}s`,flexShrink:0 }} />
+            <div style={{ flex:1 }}>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,color:s.color,lineHeight:1 }}>{s.val}</p>
+              <p style={{ fontSize:8.5,color:C.textMid,lineHeight:1.3,marginTop:2 }}>{s.label}</p>
+            </div>
+            <span style={{ fontSize:14,flexShrink:0 }}>{s.emoji}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── HUB STATUS HELPERS (shared by CityHubDetail + FanverseTab) ───────────────
+const HUB_STATUS_COLOR = { seed:C.border, forming:C.accent, official:C.mint, featured:C.gold };
+const HUB_STATUS_LABEL = { seed:"🌱 Seed", forming:"⚡ Forming", official:"🌟 Official", featured:"✨ Featured" };
+
+// ─── CITY HUB DETAIL ──────────────────────────────────────────────────────────
+// Opens when a live or mock city card is tapped inside FanverseTab → Hubs view.
+// Loads local fans + open trades for the city. Events are placeholder for now.
+// Privacy: uses aggregate counts only; never shows exact last_active_at.
+function CityHubDetail({ city, user, onBack, onViewProfile }) {
+  const [fans, setFans]       = useState([]);
+  const [trades, setTrades]   = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded]   = useState(false);
+
+  useEffect(() => {
+    if (city.isMock || loaded) return;
+    setLoading(true);
+    Promise.all([
+      api.get(`/api/users/discover?city_key=${encodeURIComponent(city.city_key)}`).catch(() => ({ users: [] })),
+      api.get(`/api/trade-listings?city_key=${encodeURIComponent(city.city_key)}&limit=8`).catch(() => ({ listings: [] })),
+    ]).then(([fanData, tradeData]) => {
+      setFans(fanData?.users || []);
+      setTrades(tradeData?.listings || []);
+      setLoaded(true);
+      setLoading(false);
+    });
+  }, [city.city_key, city.isMock, loaded]);
+
+  const color = HUB_STATUS_COLOR[city.hub_status] || C.accent;
+  const isMyCity = !!user?.city_key && user.city_key === city.city_key;
+  const hasNoCity = !user?.city_key;
+
+  return (
+    <div onScroll={()=>{}} style={{ flex:1, overflowY:"auto", overflowX:"hidden", padding:"0 18px 120px", animation:"up .25s ease" }}>
+
+      {/* ── Header ── */}
+      <div style={{ display:"flex", alignItems:"center", gap:10, paddingTop:14, marginBottom:16 }}>
+        <button onClick={onBack} style={{ background:"none", border:"none", color:C.textMid, fontSize:22, cursor:"pointer", padding:"0 4px 0 0", lineHeight:1 }}>←</button>
+        <div style={{ flex:1, minWidth:0 }}>
+          <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:18, lineHeight:1.15, color:C.text }}>{city.city_display || city.name}</h2>
+          <p style={{ fontSize:10.5, color, fontFamily:"'Epilogue',sans-serif", fontWeight:700, marginTop:2 }}>{HUB_STATUS_LABEL[city.hub_status] || "🏙️ Hub"}</p>
+        </div>
+      </div>
+
+      {/* ── Stats strip ── */}
+      {!city.isMock && (
+        <div style={{ ...VS.glowCard(color), padding:"14px 16px", marginBottom:12, display:"flex", gap:0, justifyContent:"space-around" }}>
+          <div style={VS.innerGlow(color)} />
+          {[
+            [city.total_fans,   "fans"],
+            [city.active_7d > 0 ? city.active_7d : null, "this week"],
+            [city.trades_open > 0 ? city.trades_open : null, "trades"],
+            [city.hub_score,    "score"],
+          ].filter(([v]) => v != null).map(([val, label], i) => (
+            <div key={i} style={{ textAlign:"center", position:"relative" }}>
+              <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:20, color:C.text, lineHeight:1 }}>{val}</p>
+              <p style={{ fontSize:9.5, color:C.textMid, marginTop:2 }}>{label}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Milestone ── */}
+      {city.next_milestone && (
+        <div style={{ background:`${C.accent}10`, border:`1px solid ${C.accent}30`, borderRadius:11, padding:"10px 14px", marginBottom:14 }}>
+          <p style={{ fontSize:11.5, color:C.textMid, lineHeight:1.55 }}>📈 {city.next_milestone}</p>
+        </div>
+      )}
+
+      {/* ── Loading ── */}
+      {loading && (
+        <div style={{ textAlign:"center", padding:"40px 0" }}>
+          <div style={{ width:26,height:26,borderRadius:"50%",border:`3px solid ${C.accent}`,borderTopColor:"transparent",animation:"spin 0.8s linear infinite",margin:"0 auto 10px" }} />
+          <p style={{ fontSize:11, color:C.textMid }}>Loading hub data…</p>
+        </div>
+      )}
+
+      {/* ── Sections (live or mock) ── */}
+      {(!loading || city.isMock) && (
+        <>
+          {/* Local Fans */}
+          <p style={{ ...VS.softSectionHeader, marginBottom:10 }}>Local Fans</p>
+          {city.isMock ? (
+            <div style={{ ...VS.elevatedCard(C.accent), padding:"12px 14px", marginBottom:10 }}>
+              <div style={VS.innerGlow(C.accent)} />
+              <p style={{ fontSize:11.5, color:C.textMid, position:"relative", lineHeight:1.6 }}>Fan profiles will appear here once Hub data is live.</p>
+            </div>
+          ) : fans.length > 0 ? fans.map(fan => {
+            const biases = Array.isArray(fan.bias) ? fan.bias : fan.bias ? [fan.bias] : [];
+            return (
+              <div key={fan.id} onClick={()=>onViewProfile && onViewProfile(fan)} className="tap"
+                style={{ ...VS.elevatedCard(C.accent), padding:"12px 14px", marginBottom:9, display:"flex", gap:11, alignItems:"center", cursor:"pointer" }}>
+                <div style={VS.innerGlow(C.accent)} />
+                <div style={{ width:40,height:40,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.berry})`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,color:C.bg,flexShrink:0,position:"relative" }}>
+                  {fan.avatar || String(fan.display_name || "B").charAt(0).toUpperCase()}
+                </div>
+                <div style={{ flex:1, minWidth:0, position:"relative" }}>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13, color:C.text }}>{fan.display_name || fan.handle}</p>
+                  <p style={{ fontSize:10, color:C.textMid, marginTop:1 }}>
+                    {(fan.fandoms || []).slice(0,2).join(" · ")}
+                    {biases.length > 0 ? ` · ${biases[0]}` : ""}
+                  </p>
+                </div>
+                <span style={{ color:C.textDim, fontSize:16 }}>›</span>
+              </div>
+            );
+          }) : loaded ? (
+            <div style={{ textAlign:"center", padding:"28px 0 8px" }}>
+              <p style={{ fontSize:26, marginBottom:8 }}>👀</p>
+              <p style={{ fontSize:11, color:C.textMid, lineHeight:1.6 }}>Fans are gathering here.{"\n"}Be one of the first to show up.</p>
+            </div>
+          ) : null}
+
+          {/* Open Trades */}
+          <p style={{ ...VS.softSectionHeader, marginTop:16, marginBottom:10 }}>Open Trades</p>
+          {city.isMock ? (
+            <div style={{ ...VS.elevatedCard(C.mint), padding:"12px 14px", marginBottom:10 }}>
+              <div style={VS.innerGlow(C.mint)} />
+              <p style={{ fontSize:11.5, color:C.textMid, position:"relative", lineHeight:1.6 }}>Trade listings from local fans will appear here.</p>
+            </div>
+          ) : trades.length > 0 ? trades.map(t => {
+            const card = t.user_cards || {};
+            const seller = t.users || {};
+            return (
+              <div key={t.id} style={{ ...VS.glowCard(C.mint), padding:"12px 14px", marginBottom:9, display:"flex", gap:11, alignItems:"center" }}>
+                <div style={VS.innerGlow(C.mint)} />
+                <div style={{ width:38,height:38,borderRadius:10,background:`${C.mint}18`,border:`1.5px solid ${C.mint}40`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0,position:"relative" }}>🃏</div>
+                <div style={{ flex:1, minWidth:0, position:"relative" }}>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12.5, color:C.text }}>
+                    {card.member ? `${card.member} — ` : ""}{card.group_name || "Photocard"}
+                  </p>
+                  <p style={{ fontSize:10, color:C.textMid }}>
+                    {t.trade_type === "sell" ? "For sale" : t.trade_type === "trade" ? "Trade" : "Trade/Sell"} · @{seller.username || "fan"}
+                  </p>
+                  {t.wants_description && <p style={{ fontSize:9.5, color:C.textDim, marginTop:2, lineHeight:1.4 }}>Wants: {t.wants_description}</p>}
+                </div>
+              </div>
+            );
+          }) : loaded ? (
+            <p style={{ fontSize:11, color:C.textDim, textAlign:"center", padding:"16px 0 8px" }}>No open trades here yet.</p>
+          ) : null}
+
+          {/* Upcoming Events */}
+          <p style={{ ...VS.softSectionHeader, marginTop:16, marginBottom:10 }}>Upcoming Events</p>
+          <div style={{ ...VS.elevatedCard(C.pink), padding:"12px 14px", marginBottom:10 }}>
+            <div style={VS.innerGlow(C.pink)} />
+            <p style={{ fontSize:11.5, color:C.textMid, position:"relative", lineHeight:1.65 }}>🎤 Concerts, cupsleeves, fan events, and meetups will appear here soon.</p>
+          </div>
+
+          {/* Help Unlock */}
+          <p style={{ ...VS.softSectionHeader, marginTop:16, marginBottom:10 }}>Help Unlock This Hub</p>
+          <div style={{ background:`${C.accent}10`, border:`1px solid ${C.accent}30`, borderRadius:12, padding:"13px 16px" }}>
+            <p style={{ fontSize:12, color:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:700, marginBottom:5 }}>
+              {isMyCity ? "🏡 This is your city!" : hasNoCity ? "📍 Join your local Hub" : "✦ Support this Hub"}
+            </p>
+            <p style={{ fontSize:11.5, color:C.textMid, lineHeight:1.6 }}>
+              {isMyCity
+                ? "Invite local K-pop fans to help your city level up. The more fans discover Backstage here, the closer you get to Official Hub."
+                : hasNoCity
+                ? "Add your city in Profile to join your local Hub and start showing up in city energy scores."
+                : "Every fan who joins from this city raises its Hub Score. Share Backstage with K-pop fans you know here."}
+            </p>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+
 function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
   const { tokenReady } = useAuth();
   const [view, setView]   = useState("feed"); // feed | map | hubs | fans | leaders
@@ -8012,6 +9303,41 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
   const [discoverFilter, setDiscoverFilter] = useState("all");
   const [discoverStatuses, setDiscoverStatuses] = useState({});
   const [discoverLoaded, setDiscoverLoaded] = useState(false);
+
+  // ── City Hubs state ──
+  const [hubCities, setHubCities]     = useState([]);
+  const [hubsLoading, setHubsLoading] = useState(false);
+  const [hubsLoaded, setHubsLoaded]   = useState(false);
+  const [hubsTab, setHubsTab]         = useState("trending"); // trending | rising | nearby | global
+
+  // ── Fan Circles state ──
+  const [fanCircles, setFanCircles]     = useState(()=>{ const s=ls.get("backstage_fan_circles",null); return s&&s.length>0?s:SEED_CIRCLES; });
+  const [joinedCircles, setJoinedCircles] = useState(()=>ls.get("backstage_joined_circles",[]));
+  const [circleRequests, setCircleRequests] = useState(()=>ls.get("backstage_circle_requests",[]));
+  const [circleView, setCircleView]     = useState(null);
+  const [showCreateCircle, setShowCreateCircle] = useState(false);
+  const [circleForm, setCircleForm]     = useState({ name:"", fandom:"", region:"", privacy:"open", tags:[], intro:"" });
+  const [circleToast, setCircleToast]   = useState(null);
+  const [circleFormError, setCircleFormError] = useState("");
+
+  useEffect(()=>{ setCircleView(null); setShowCreateCircle(false); }, [view]);
+
+  const joinCircle    = (id) => { setJoinedCircles(prev=>{ const n=[...prev,id]; ls.set("backstage_joined_circles",n); return n; }); };
+  const requestCircle = (id) => { setCircleRequests(prev=>{ const n=[...prev,id]; ls.set("backstage_circle_requests",n); return n; }); };
+  const showCToast    = (msg) => { setCircleToast(msg); setTimeout(()=>setCircleToast(null),2800); };
+  const submitCircle  = () => {
+    const _created = fanCircles.filter(c=>c.id.startsWith("uc-")).length;
+    if(!isVip && _created >= FREE_LIMITS.fanCirclesCreated){ setShowCreateCircle(false); setCircleFormError(""); onUpgrade(); return; }
+    if(!circleForm.name.trim()){ setCircleFormError("Circle name is required"); return; }
+    if(!circleForm.fandom.trim()){ setCircleFormError("Fandom is required"); return; }
+    const nc = { id:`uc-${Date.now()}`, name:circleForm.name.trim(), fandom:circleForm.fandom.trim(), region:circleForm.region.trim()||"Online worldwide", privacy:circleForm.privacy, tags:circleForm.tags, intro:circleForm.intro.trim()||"A new fan circle just getting started.", members:1, recentActivity:"just now", lastPost:"Circle created! Say hello 👋", avatars:[(circleForm.name[0]||"?").toUpperCase()], pinned:null, upcoming:null };
+    setFanCircles(prev=>{ const n=[nc,...prev]; ls.set("backstage_fan_circles",n); return n; });
+    joinCircle(nc.id);
+    setCircleForm({ name:"", fandom:"", region:"", privacy:"open", tags:[], intro:"" });
+    setCircleFormError("");
+    setShowCreateCircle(false);
+    showCToast("Circle created! ✦ Welcome to your crew.");
+  };
 
   useEffect(() => {
     if (discoverLoaded || !tokenReady) return;
@@ -8030,6 +9356,17 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
       setDiscoverLoading(false);
     });
   }, [discoverLoaded, tokenReady]);
+
+  // Fetch city hub cards once when the user first opens the Hubs view.
+  // Fetches up to 50 cities; sub-tab filtering is done client-side.
+  // On failure: leaves hubCities empty → mock fallback renders instead.
+  useEffect(() => {
+    if (view !== "hubs" || hubsLoaded) return;
+    setHubsLoading(true);
+    api.get('/api/hubs/cities?limit=50')
+      .then(d => { setHubCities(d?.cities || []); setHubsLoaded(true); setHubsLoading(false); })
+      .catch(() => { setHubsLoaded(true); setHubsLoading(false); });
+  }, [view, hubsLoaded]);
 
   const handleDiscoverAdd = async (fan) => {
     const next = { ...discoverStatuses, [fan.id]: "sent" };
@@ -8208,8 +9545,9 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
         <div style={{ overflow:"hidden", maxHeight:scrolled?0:54, opacity:scrolled?0:1, paddingTop:scrolled?0:14, paddingInline:20, transition:"max-height .28s ease, opacity .22s ease, padding-top .28s ease" }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", paddingBottom:4 }}>
             <div>
-              <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:1 }}>Your Map</p>
+              <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:1 }}>Your Fanverse</p>
               <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontStyle:"italic",fontWeight:700,fontSize:20,background:`linear-gradient(135deg,${C.lavender},${C.blush})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",lineHeight:1 }}>the Fanverse ✦</h2>
+              <p style={{ fontSize:9.5,color:C.textDim,marginTop:3 }}>People, circles, hubs, and what's happening today.</p>
             </div>
             <div style={{ display:"flex",gap:6,alignItems:"center" }}>
               <div style={{ width:6,height:6,borderRadius:"50%",background:C.rose,animation:"pulse 1.2s ease infinite",boxShadow:`0 0 5px ${C.rose}` }} />
@@ -8286,7 +9624,7 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
         {/* ── STICKY TABS — compress on scroll ── */}
         <div style={{ padding:`${scrolled?2:0}px 14px ${scrolled?5:8}px`,transition:"padding .28s ease" }}>
           <div style={{ display:"flex",gap:0,background:C.surfaceHi,borderRadius:scrolled?10:13,padding:scrolled?2:3,transition:"all .28s ease" }}>
-            {[["feed","🌐","Feed"],["map","🗺️","Map"],["hubs","🏙️","Hubs"],["fans","👥","Fans"],["leaders","🏆","Leaders"]].map(([id,icon,name])=>(
+            {[["feed","🌐","Feed"],["map","🗺️","Map"],["hubs","🏙️","Hubs"],["fans","👥","Fans"],["leaders","🏆","Leaders"],["circles","✦","Circles"]].map(([id,icon,name])=>(
               <span key={id} onClick={()=>changeView(id)} style={{ flex:1,textAlign:"center",padding:scrolled?"5px 2px":"7px 2px",borderRadius:scrolled?8:10,fontSize:scrolled?9:10,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:view===id?C.accent:"transparent",color:view===id?C.bg:C.textMid,transition:"all .18s",whiteSpace:"nowrap" }}>{scrolled?`${icon} ${name}`:`${icon} ${name}`}</span>
             ))}
           </div>
@@ -8298,6 +9636,7 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
       {/* LIVE FEED */}
       {view==="feed" && (
         <div style={{ flex:1,overflow:"hidden",display:"flex",flexDirection:"column" }}>
+          <FanversePulse go={go} />
           <FansVibeStrip fans={discoverFans} onViewProfile={onViewProfile} />
           <LiveFeedTab user={user} go={go} hideStoryRail onScrollNotify={y=>setScrolled(y>48)} />
         </div>
@@ -8334,26 +9673,102 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
             </div>
           ))}
           <div style={{ height:1,background:C.border,margin:"14px 0" }} />
+
+          {/* ── City Hubs — live from GET /api/hubs/cities ── */}
           <p style={{ ...VS.softSectionHeader,marginBottom:10 }}>City Hubs</p>
-          <div style={{ ...VS.elevatedCard(C.accent),padding:"11px 14px",marginBottom:12 }}>
-            <div style={VS.innerGlow(C.accent)} />
-            <div style={{ position:"relative" }}>
-              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12.5,marginBottom:3,color:C.text }}>How Hubs Work 🏙️</p>
-              <p style={{ fontSize:11.5,color:C.textMid,lineHeight:1.65 }}>Hubs activate when enough fans light up a city. Curated, not user-created.</p>
-            </div>
+
+          {/* Sub-tab chips */}
+          <div style={{ display:"flex", gap:6, overflowX:"auto", scrollbarWidth:"none", marginBottom:14, paddingBottom:2 }}>
+            {[["trending","🔥 Trending"],["rising","✨ Rising"],["nearby","📍 Nearby"],["global","🌐 Global"]].map(([id,label])=>(
+              <span key={id} onClick={()=>setHubsTab(id)} className="tap" style={{ flexShrink:0, padding:"6px 13px", borderRadius:99, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:hubsTab===id?C.accent:`${C.accent}14`, color:hubsTab===id?C.bg:C.accent, border:`1px solid ${hubsTab===id?C.accent:C.accent+'44'}`, transition:"all .18s" }}>{label}</span>
+            ))}
           </div>
-          {MOCK_HUBS.map(hub=>(
-            <div key={hub.id} className="tap" style={{ ...VS.glowCard(hub.color),padding:14,marginBottom:10,cursor:"pointer",display:"flex",gap:12,alignItems:"center" }}>
-              <div style={VS.innerGlow(hub.color)} />
-              <div style={{ position:"relative",width:46,height:46,borderRadius:14,background:`${hub.color}20`,border:`1.5px solid ${hub.color}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0,boxShadow:`0 0 12px ${hub.color}14` }}>🏙️</div>
-              <div style={{ flex:1,position:"relative" }}>
-                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5 }}>{hub.fandom} in {hub.name}</p>
-                <p style={{ fontSize:10.5,color:C.textMid }}>{hub.members.toLocaleString()} members</p>
-              </div>
-              {hub.active&&<div style={{ width:8,height:8,borderRadius:"50%",background:C.mint,animation:"pulse 2s ease infinite",flexShrink:0 }} />}
-              {joined.includes(hub.id)&&<Pill color={hub.color} active small>Joined</Pill>}
+
+          {/* Loading */}
+          {hubsLoading && (
+            <div style={{ textAlign:"center", padding:"36px 0" }}>
+              <div style={{ width:26,height:26,borderRadius:"50%",border:`3px solid ${C.accent}`,borderTopColor:"transparent",animation:"spin 0.8s linear infinite",margin:"0 auto 10px" }} />
+              <p style={{ fontSize:11,color:C.textMid }}>Loading city hubs…</p>
             </div>
-          ))}
+          )}
+
+          {/* Live city cards */}
+          {!hubsLoading && hubsLoaded && hubCities.length > 0 && (() => {
+            const HUB_COLOR = { seed:C.border, forming:C.accent, official:C.mint, featured:C.gold };
+            const HUB_LABEL = { seed:"🌱 Seed", forming:"⚡ Forming", official:"🌟 Official", featured:"✨ Featured" };
+            const CC   = user?.country_code;
+            const CONT = user?.continent;
+            let cities = [...hubCities];
+            if (hubsTab === "trending") cities.sort((a,b)=>b.hub_score-a.hub_score);
+            else if (hubsTab === "global") cities.sort((a,b)=>b.total_fans-a.total_fans);
+            else if (hubsTab === "rising") cities = cities.filter(c=>c.hub_status==="seed"||c.hub_status==="forming").sort((a,b)=>b.hub_score-a.hub_score);
+            else if (hubsTab === "nearby") {
+              const byCC   = CC   ? cities.filter(c=>c.country_code===CC)   : [];
+              const byCont = CONT ? cities.filter(c=>c.continent===CONT)    : [];
+              cities = (byCC.length ? byCC : byCont.length ? byCont : cities).sort((a,b)=>b.hub_score-a.hub_score);
+            }
+            if (!cities.length) return (
+              <div style={{ textAlign:"center", padding:"44px 0 20px" }}>
+                <p style={{ fontSize:26, marginBottom:10 }}>🏙️</p>
+                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:14, marginBottom:6 }}>
+                  {hubsTab==="nearby" && !CC && !CONT ? "Set your city first" : "No hubs here yet"}
+                </p>
+                <p style={{ fontSize:11, color:C.textMid, lineHeight:1.6 }}>
+                  {hubsTab==="nearby" && !CC && !CONT
+                    ? "Your Fanverse is forming. Add your city to help unlock your local Hub."
+                    : "Be the first fan in your city to light it up."}
+                </p>
+              </div>
+            );
+            return cities.map(c => {
+              const color = HUB_COLOR[c.hub_status] || C.accent;
+              return (
+                <div key={c.city_key} className="tap" style={{ ...VS.glowCard(color), padding:"14px 16px", marginBottom:10, cursor:"pointer" }}>
+                  <div style={VS.innerGlow(color)} />
+                  <div style={{ position:"relative", display:"flex", gap:12, alignItems:"flex-start" }}>
+                    <div style={{ width:44,height:44,borderRadius:13,background:`${color}20`,border:`1.5px solid ${color}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:21,flexShrink:0,boxShadow:`0 0 10px ${color}12` }}>🏙️</div>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:6 }}>
+                        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13.5,color:C.text,lineHeight:1.25 }}>{c.city_display}</p>
+                        {c.active_7d>0&&<div style={{ width:7,height:7,borderRadius:"50%",background:C.mint,animation:"pulse 2s ease infinite",flexShrink:0,marginTop:5 }} />}
+                      </div>
+                      <p style={{ fontSize:10,color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,marginTop:2,marginBottom:4 }}>{HUB_LABEL[c.hub_status]}</p>
+                      <p style={{ fontSize:10.5,color:C.textMid }}>
+                        {c.total_fans} fan{c.total_fans!==1?"s":""}
+                        {c.active_7d>0?` · ${c.active_7d} active this week`:""}
+                        {c.trades_open>0?` · ${c.trades_open} trade${c.trades_open!==1?"s":""} open`:""}
+                      </p>
+                      {c.next_milestone&&<p style={{ fontSize:9.5,color:C.textDim,marginTop:3,lineHeight:1.4 }}>{c.next_milestone}</p>}
+                    </div>
+                  </div>
+                </div>
+              );
+            });
+          })()}
+
+          {/* Fallback: API failed — show mock hubs */}
+          {!hubsLoading && hubsLoaded && hubCities.length === 0 && (
+            <>
+              <div style={{ ...VS.elevatedCard(C.accent),padding:"11px 14px",marginBottom:12 }}>
+                <div style={VS.innerGlow(C.accent)} />
+                <div style={{ position:"relative" }}>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12.5,marginBottom:3,color:C.text }}>How Hubs Work 🏙️</p>
+                  <p style={{ fontSize:11.5,color:C.textMid,lineHeight:1.65 }}>Hubs activate when enough fans light up a city. Curated, not user-created.</p>
+                </div>
+              </div>
+              {MOCK_HUBS.map(hub=>(
+                <div key={hub.id} className="tap" style={{ ...VS.glowCard(hub.color),padding:14,marginBottom:10,cursor:"pointer",display:"flex",gap:12,alignItems:"center" }}>
+                  <div style={VS.innerGlow(hub.color)} />
+                  <div style={{ position:"relative",width:46,height:46,borderRadius:14,background:`${hub.color}20`,border:`1.5px solid ${hub.color}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0,boxShadow:`0 0 12px ${hub.color}14` }}>🏙️</div>
+                  <div style={{ flex:1,position:"relative" }}>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5 }}>{hub.fandom} in {hub.name}</p>
+                    <p style={{ fontSize:10.5,color:C.textMid }}>{hub.members.toLocaleString()} members</p>
+                  </div>
+                  {hub.active&&<div style={{ width:8,height:8,borderRadius:"50%",background:C.mint,animation:"pulse 2s ease infinite",flexShrink:0 }} />}
+                </div>
+              ))}
+            </>
+          )}
         </div>
       )}
 
@@ -8449,6 +9864,220 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
 
       {/* LEADERS */}
       {view==="leaders" && <FanverseLeaders />}
+
+      {/* ── CIRCLES ──────────────────────────────────────────────────────────── */}
+      {view==="circles" && (
+        <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden",position:"relative" }}>
+
+          {/* Circle detail view */}
+          {circleView ? (
+            <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden" }}>
+              {/* Detail header */}
+              <div style={{ padding:"14px 18px",display:"flex",alignItems:"center",gap:12,flexShrink:0,borderBottom:`1px solid ${C.border}`,background:`rgba(7,5,15,0.97)`,backdropFilter:"blur(16px)" }}>
+                <button onClick={()=>setCircleView(null)} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer",padding:0 }}>←</button>
+                <div style={{ flex:1,minWidth:0 }}>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:16,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{circleView.name}</p>
+                  <p style={{ fontSize:10,color:C.textMid }}>{circleView.fandom} · {circleView.region}</p>
+                </div>
+                <div style={{ padding:"5px 11px",borderRadius:99,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,background:`${joinedCircles.includes(circleView.id)?C.accent:C.lavender}18`,color:joinedCircles.includes(circleView.id)?C.accent:C.lavender,border:`1px solid ${joinedCircles.includes(circleView.id)?C.accent:C.lavender}44` }}>{joinedCircles.includes(circleView.id)?"Joined ✦":circleView.privacy==="open"?"Open":"Private"}</div>
+              </div>
+              {/* Detail body */}
+              <div style={{ overflowY:"auto",flex:1,padding:"16px 18px",paddingBottom:"calc(88px + env(safe-area-inset-bottom))" }}>
+                {circleView.intro&&(
+                  <div style={{ ...VS.glowCard(C.lavender),padding:"14px 16px",marginBottom:16 }}>
+                    <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.lavender}44,transparent)` }} />
+                    <p style={{ fontSize:12,lineHeight:1.7,color:C.text,position:"relative" }}>{circleView.intro}</p>
+                  </div>
+                )}
+                <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10 }}>Members ({circleView.members})</p>
+                <div style={{ display:"flex",gap:12,marginBottom:18,flexWrap:"wrap" }}>
+                  {circleView.avatars.map((a,i)=>(
+                    <div key={i} style={{ width:46,height:46,borderRadius:"50%",background:`linear-gradient(135deg,${[C.accent,C.pink,C.mint,C.gold,C.lavender,C.berry][i%6]}44,${[C.accent,C.pink,C.mint,C.gold,C.lavender,C.berry][i%6]}22)`,border:`2px solid ${[C.accent,C.pink,C.mint,C.gold,C.lavender,C.berry][i%6]}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17,color:[C.accent,C.pink,C.mint,C.gold,C.lavender,C.berry][i%6] }}>{a}</div>
+                  ))}
+                  {circleView.members>circleView.avatars.length&&<div style={{ width:46,height:46,borderRadius:"50%",background:C.surfaceHi,border:`2px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:C.textMid }}>+{circleView.members-circleView.avatars.length}</div>}
+                </div>
+                {circleView.pinned&&(
+                  <div style={{ background:`${C.gold}12`,border:`1px solid ${C.gold}33`,borderRadius:13,padding:"11px 14px",marginBottom:14 }}>
+                    <p style={{ fontSize:9,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4 }}>📌 Pinned</p>
+                    <p style={{ fontSize:12.5,color:C.text }}>{circleView.pinned}</p>
+                  </div>
+                )}
+                {circleView.upcoming&&(
+                  <div style={{ background:`${C.accent}10`,border:`1px solid ${C.accent}30`,borderRadius:13,padding:"11px 14px",marginBottom:14 }}>
+                    <p style={{ fontSize:9,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4 }}>🎤 Upcoming</p>
+                    <p style={{ fontSize:12.5,color:C.text }}>{circleView.upcoming}</p>
+                  </div>
+                )}
+                <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10,marginTop:4 }}>Recent Moments</p>
+                {[circleView.lastPost,"A member just joined the circle 👋","Circle chat launches soon — stay tuned ✨"].filter(Boolean).slice(0,3).map((post,i)=>(
+                  <div key={i} style={{ ...cosmicCard(C.accent),padding:"12px 14px",marginBottom:10 }}>
+                    <div style={{ display:"flex",gap:10,alignItems:"flex-start" }}>
+                      <div style={{ width:30,height:30,borderRadius:"50%",background:`${[C.accent,C.pink,C.mint][i%3]}33`,border:`1.5px solid ${[C.accent,C.pink,C.mint][i%3]}55`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,flexShrink:0 }}>{circleView.avatars[i%circleView.avatars.length]||"?"}</div>
+                      <p style={{ fontSize:12,lineHeight:1.6,color:C.text }}>{post}</p>
+                    </div>
+                  </div>
+                ))}
+                {/* Chat CTA */}
+                <div style={{ marginTop:8,padding:"14px 16px",borderRadius:16,background:`linear-gradient(135deg,${C.accent}12,${C.berry}10)`,border:`1.5px solid ${C.accent}30`,textAlign:"center" }}>
+                  <p style={{ fontSize:16,marginBottom:6 }}>💬</p>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,color:C.text,marginBottom:4 }}>Circle Chat</p>
+                  <p style={{ fontSize:11,color:C.textMid,marginBottom:12 }}>Talk to your crew in a private space.</p>
+                  <button onClick={()=>showCToast("Circle chat coming soon ✨")} className="tap" style={{ width:"100%",padding:"11px",borderRadius:12,background:`${C.accent}18`,border:`1.5px solid ${C.accent}44`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}>Open Circle Chat</button>
+                </div>
+              </div>
+              {/* Join CTA bar */}
+              {!joinedCircles.includes(circleView.id)&&(
+                <div style={{ padding:"12px 18px calc(20px + env(safe-area-inset-bottom))",flexShrink:0,borderTop:`1px solid ${C.border}`,background:`rgba(7,5,15,0.97)`,backdropFilter:"blur(16px)" }}>
+                  <button onClick={()=>{ if(circleView.privacy==="open"){joinCircle(circleView.id);showCToast(`Joined ${circleView.name} 💜`);}else if(!circleRequests.includes(circleView.id)){requestCircle(circleView.id);showCToast("Request sent ✦");} }} className="tap" style={{ width:"100%",padding:"13px",borderRadius:14,background:circleRequests.includes(circleView.id)?`${C.gold}18`:`linear-gradient(135deg,${C.accent},${C.berry})`,border:circleRequests.includes(circleView.id)?`1.5px solid ${C.gold}55`:"none",color:circleRequests.includes(circleView.id)?C.gold:C.white,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer" }}>{circleRequests.includes(circleView.id)?"Request Sent ✓":circleView.privacy==="open"?"Join Circle 💜":"Request an Invite ✦"}</button>
+                </div>
+              )}
+            </div>
+
+          ) : (
+
+            /* ── Main Circles list ── */
+            <div style={{ overflowY:"auto",flex:1,paddingBottom:"calc(120px + env(safe-area-inset-bottom))" }}>
+              {/* Hero */}
+              <div style={{ padding:"18px 18px 12px" }}>
+                <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em",marginBottom:4 }}>Fan Circles</p>
+                <h3 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:22,background:`linear-gradient(135deg,${C.lavender},${C.blush})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",lineHeight:1.15,marginBottom:6 }}>Find your people<br/>before the show.</h3>
+                <p style={{ fontSize:11.5,color:C.textMid,lineHeight:1.65 }}>Small circles for fans who get it. Private spaces for your fandom life.</p>
+              </div>
+              {/* Create CTA */}
+              <div style={{ padding:"0 18px 16px" }}>
+                <div onClick={()=>{ const _c=fanCircles.filter(c=>c.id.startsWith("uc-")).length; if(!isVip&&_c>=FREE_LIMITS.fanCirclesCreated){onUpgrade();return;} setShowCreateCircle(true); }} className="tap" style={{ background:`linear-gradient(135deg,${C.accent}18,${C.berry}14)`,border:`1.5px solid ${C.accent}40`,borderRadius:16,padding:"13px 16px",cursor:"pointer",display:"flex",alignItems:"center",gap:12 }}>
+                  <div style={{ width:38,height:38,borderRadius:12,background:`${C.accent}22`,border:`1.5px solid ${C.accent}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0 }}>✦</div>
+                  <div>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13 }}>Start a Circle</p>
+                    <p style={{ fontSize:10.5,color:C.textMid }}>{!isVip?"1 circle free · VIP to create more":"Create a crew for your next concert era"}</p>
+                  </div>
+                  <p style={{ marginLeft:"auto",color:C.accent,fontSize:18 }}>›</p>
+                </div>
+              </div>
+              {joinedCircles.length>0&&(
+                <div style={{ padding:"0 18px 10px",display:"flex",alignItems:"center",gap:8 }}>
+                  <div style={{ width:7,height:7,borderRadius:"50%",background:C.mint,boxShadow:`0 0 6px ${C.mint}` }} />
+                  <p style={{ fontSize:10.5,color:C.mint,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>In {joinedCircles.length} circle{joinedCircles.length>1?"s":""}</p>
+                </div>
+              )}
+              {/* Circle cards */}
+              <div style={{ padding:"0 18px" }}>
+                {fanCircles.map(c=>{
+                  const isJoined    = joinedCircles.includes(c.id);
+                  const isRequested = circleRequests.includes(c.id);
+                  const pCol   = c.privacy==="open"?C.mint:c.privacy==="invite"?C.berry:C.gold;
+                  const pLabel = c.privacy==="open"?"Open":c.privacy==="invite"?"Invite Only":"Request to Join";
+                  const ctaLabel = isJoined?"View Circle":isRequested?"Requested ✓":c.privacy==="open"?"Join":"Request Invite";
+                  const ctaColor = isJoined?C.accent:isRequested?C.gold:c.privacy==="open"?C.mint:C.berry;
+                  const onCta = (e) => {
+                    e.stopPropagation();
+                    if(isJoined){ setCircleView(c); return; }
+                    if(isRequested) return;
+                    if(c.privacy==="open"){ joinCircle(c.id); showCToast(`Joined ${c.name} 💜`); }
+                    else { requestCircle(c.id); showCToast(`Request sent to ${c.name} ✦`); }
+                  };
+                  return (
+                    <div key={c.id} onClick={()=>setCircleView(c)} style={{ ...VS.glowCard(isJoined?C.accent:C.lavender),marginBottom:14,cursor:"pointer" }}>
+                      <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${isJoined?C.accent:C.lavender}44,transparent)` }} />
+                      <div style={{ padding:"15px 16px 14px",position:"relative" }}>
+                        {/* Privacy pill + activity dot */}
+                        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10 }}>
+                          <div style={{ display:"flex",gap:7,alignItems:"center" }}>
+                            <span style={{ padding:"3px 9px",borderRadius:99,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,background:`${pCol}16`,color:pCol,border:`1px solid ${pCol}40` }}>{pLabel}</span>
+                            {isJoined&&<span style={{ padding:"3px 9px",borderRadius:99,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,background:`${C.accent}20`,color:C.accent,border:`1px solid ${C.accent}50` }}>Joined ✦</span>}
+                          </div>
+                          <div style={{ display:"flex",alignItems:"center",gap:5 }}>
+                            <div style={{ width:6,height:6,borderRadius:"50%",background:C.rose,animation:"pulse 1.4s ease infinite",boxShadow:`0 0 5px ${C.rose}` }} />
+                            <p style={{ fontSize:8.5,color:C.textMid }}>{c.recentActivity}</p>
+                          </div>
+                        </div>
+                        {/* Name + fandom */}
+                        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:17,color:C.text,marginBottom:2 }}>{c.name}</p>
+                        <p style={{ fontSize:10.5,color:C.textMid,marginBottom:10 }}>{c.fandom} · {c.region}</p>
+                        {/* Member avatar stack */}
+                        <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:10 }}>
+                          <div style={{ display:"flex" }}>
+                            {c.avatars.slice(0,4).map((a,i)=>(
+                              <div key={i} style={{ width:24,height:24,borderRadius:"50%",background:`linear-gradient(135deg,${[C.accent,C.pink,C.mint,C.gold,C.lavender][i%5]}44,${[C.accent,C.pink,C.mint,C.gold,C.lavender][i%5]}22)`,border:`2px solid ${C.bg}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:9,color:[C.accent,C.pink,C.mint,C.gold,C.lavender][i%5],marginLeft:i>0?-8:0,zIndex:5-i }}>{a}</div>
+                            ))}
+                            {c.avatars.length>4&&<div style={{ width:24,height:24,borderRadius:"50%",background:C.surfaceHi,border:`2px solid ${C.bg}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,color:C.textMid,marginLeft:-8 }}>+{c.avatars.length-4}</div>}
+                          </div>
+                          <p style={{ fontSize:10,color:C.textMid }}>{c.members} member{c.members!==1?"s":""}</p>
+                        </div>
+                        {/* Last post preview */}
+                        {c.lastPost&&(
+                          <div style={{ background:C.surfaceHi,borderRadius:10,padding:"8px 11px",marginBottom:10 }}>
+                            <p style={{ fontSize:11,color:C.textMid,lineHeight:1.5 }}>{c.lastPost}</p>
+                          </div>
+                        )}
+                        {/* Tags */}
+                        {c.tags?.length>0&&(
+                          <div style={{ display:"flex",gap:6,flexWrap:"wrap",marginBottom:12 }}>
+                            {c.tags.slice(0,4).map(t=>(
+                              <span key={t} style={{ padding:"3px 9px",borderRadius:99,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:600,background:`${C.lavender}10`,color:C.lavender,border:`1px solid ${C.lavender}28` }}>#{t}</span>
+                            ))}
+                          </div>
+                        )}
+                        {/* CTA button */}
+                        <button onClick={onCta} className="tap" style={{ width:"100%",padding:"10px",borderRadius:12,background:`${ctaColor}16`,border:`1.5px solid ${ctaColor}44`,color:ctaColor,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:isRequested?"default":"pointer",transition:"all .18s" }}>{ctaLabel}</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Create Circle bottom sheet */}
+          {showCreateCircle&&(
+            <div onClick={()=>{setShowCreateCircle(false);setCircleFormError("");}} style={{ position:"absolute",inset:0,zIndex:200,background:"rgba(6,4,20,0.88)",display:"flex",alignItems:"flex-end",animation:"in .18s ease" }}>
+              <div onClick={e=>e.stopPropagation()} style={{ width:"100%",background:`linear-gradient(160deg,${C.surfaceMid},${C.cosmic})`,borderRadius:"22px 22px 0 0",padding:"22px 20px calc(36px + env(safe-area-inset-bottom))",border:`1.5px solid ${C.borderHi}`,maxHeight:"88vh",overflowY:"auto" }}>
+                <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 18px" }} />
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:18,marginBottom:4 }}>Start a Circle</p>
+                <p style={{ fontSize:11,color:C.textMid,marginBottom:18 }}>Your private space for your fandom crew.</p>
+                {circleFormError&&<div style={{ background:`${C.rose}15`,border:`1px solid ${C.rose}40`,borderRadius:10,padding:"9px 12px",marginBottom:14 }}><p style={{ fontSize:11,color:C.rose }}>{circleFormError}</p></div>}
+                {[
+                  {label:"Circle Name",key:"name",placeholder:"e.g. San Antonio ARMY, Cupsleeve Crew"},
+                  {label:"Fandom",key:"fandom",placeholder:"e.g. BTS, Stray Kids, K-pop"},
+                  {label:"City / Region (approximate only)",key:"region",placeholder:"e.g. San Antonio area, Vegas travelers, Dallas show weekend"},
+                  {label:"Short intro",key:"intro",placeholder:"What's this circle about? Who's it for?",multiline:true},
+                ].map(({label,key,placeholder,multiline})=>(
+                  <div key={key} style={{ marginBottom:14 }}>
+                    <p style={{ fontSize:10.5,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,marginBottom:6 }}>{label}</p>
+                    {multiline
+                      ? <textarea value={circleForm[key]} onChange={e=>setCircleForm(f=>({...f,[key]:e.target.value}))} placeholder={placeholder} rows={3} style={{ width:"100%",background:C.surfaceHi,border:`1px solid ${C.border}`,borderRadius:11,padding:"10px 12px",color:C.text,fontSize:12,fontFamily:"'Epilogue',sans-serif",resize:"none",boxSizing:"border-box",outline:"none" }} />
+                      : <input value={circleForm[key]} onChange={e=>setCircleForm(f=>({...f,[key]:e.target.value}))} placeholder={placeholder} style={{ width:"100%",background:C.surfaceHi,border:`1px solid ${C.border}`,borderRadius:11,padding:"10px 12px",color:C.text,fontSize:12,fontFamily:"'Epilogue',sans-serif",boxSizing:"border-box",outline:"none" }} />
+                    }
+                  </div>
+                ))}
+                <div style={{ marginBottom:18 }}>
+                  <p style={{ fontSize:10.5,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,marginBottom:8 }}>Privacy</p>
+                  <div style={{ display:"flex",gap:8 }}>
+                    {[["open","Open","Anyone can join",C.mint],["request","Request","Mods approve",C.gold],["invite","Invite Only","Invite required",C.berry]].map(([val,label,desc,col])=>(
+                      <div key={val} onClick={()=>setCircleForm(f=>({...f,privacy:val}))} className="tap" style={{ flex:1,padding:"10px 6px",borderRadius:12,border:`1.5px solid ${circleForm.privacy===val?col:`${col}30`}`,background:circleForm.privacy===val?`${col}16`:"transparent",cursor:"pointer",textAlign:"center",transition:"all .18s" }}>
+                        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10,color:circleForm.privacy===val?col:C.textMid,marginBottom:2 }}>{label}</p>
+                        <p style={{ fontSize:8,color:C.textDim }}>{desc}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ display:"flex",gap:10 }}>
+                  <button onClick={()=>{setShowCreateCircle(false);setCircleFormError("");}} style={{ flex:1,padding:"12px",borderRadius:13,background:"transparent",border:`1.5px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}>Cancel</button>
+                  <button onClick={submitCircle} className="tap" style={{ flex:2,padding:"12px",borderRadius:13,background:`linear-gradient(135deg,${C.accent},${C.berry})`,border:"none",color:C.white,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,cursor:"pointer" }}>Create Circle ✦</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Toast */}
+          {circleToast&&(
+            <div style={{ position:"absolute",top:60,left:16,right:16,zIndex:400,background:`linear-gradient(135deg,${C.accent}dd,${C.berry}aa)`,backdropFilter:"blur(16px)",borderRadius:14,padding:"11px 16px",border:`1.5px solid ${C.accent}66`,animation:"in .2s ease",boxShadow:`0 8px 24px ${C.plum}60` }}>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,color:C.white,textAlign:"center" }}>{circleToast}</p>
+            </div>
+          )}
+        </div>
+      )}
+
     </div>
   );
 }
@@ -9985,7 +11614,7 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
 
   const ICONS = { outfit:"✨", trade:"🃏", concert:"🎤", memory:"📸", collect:"📦", general:"💬", haul:"📦", freebie:"🎁" };
 
-  const ERA_TAGS = ["BTS","aespa","Stray Kids","BLACKPINK","NewJeans","SEVENTEEN","ATEEZ","BLACKPINK","TWICE","Kep1er","IVE","LE SSERAFIM","ENHYPEN"];
+  const ERA_TAGS = ["BTS","aespa","Stray Kids","BLACKPINK","NewJeans","SEVENTEEN","ATEEZ","TWICE","Kep1er","IVE","LE SSERAFIM","ENHYPEN"];
 
   const sortedPosts = [...posts].sort((a,b)=>{
     if(sort==="trending") return (b.likes+b.comments*2)-(a.likes+a.comments*2);
@@ -10123,7 +11752,7 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
         {/* FOMO microcopy */}
         <div style={{ background:`${C.accent}08`, border:`1px solid ${C.accent}18`, borderRadius:11, padding:"9px 14px", marginBottom:14, display:"flex", gap:8, alignItems:"center" }}>
           <span style={{ fontSize:14 }}>🌸</span>
-          <p style={{ fontSize:11.5, color:C.textMid }}><StatusChip label="PREVIEW" style={{ fontSize:8,marginRight:5 }} /><span style={{ color:C.textMid }}>Fan updates from your area · preview</span></p>
+          <div style={{ fontSize:11.5, color:C.textMid, display:"flex", alignItems:"center", gap:0 }}><StatusChip label="PREVIEW" style={{ fontSize:8,marginRight:5 }} /><span style={{ color:C.textMid }}>Fan updates from your area · preview</span></div>
         </div>
 
         {/* Posts */}
@@ -10565,6 +12194,8 @@ function FriendsPage({ onBack, onNotif }) {
   const [search, setSearch] = useState("");
   const [incoming, setIncoming] = useState(()=>readFriendRequestStore().incoming);
   const [outgoing, setOutgoing] = useState(()=>readFriendRequestStore().outgoing);
+  const [reactPromptFor, setReactPromptFor] = useState(null); // {req, member} — optional "send a reaction" sheet after accept
+  const [reactGifPickerOpen, setReactGifPickerOpen] = useState(false);
   const TYPE_LABELS = { close_friend:"💜 Close Friend", concert_buddy:"🎤 Concert Buddy", trade_buddy:"🃏 Trade Buddy" };
   const TYPE_COLORS = { close_friend:C.accent, concert_buddy:C.pink, trade_buddy:C.mint };
   useEffect(()=>{ ls.set("backstage_friends", friends); }, [friends]);
@@ -10585,14 +12216,19 @@ function FriendsPage({ onBack, onNotif }) {
     setOutgoing(nextOutgoing);
     ls.set("backstage_friend_requests", { incoming:nextIncoming, outgoing:nextOutgoing });
   };
-  const acceptReq = (req) => {
-    const member = { ...requestUserFromRow(req), status:"accepted" };
+  // Finalizes the accept (backend call + local state) — called directly, or after the
+  // optional "send a reaction" sheet resolves (Skip or GIF pick), so the API is hit once.
+  const finalizeAccept = (req, member, gif = null) => {
     const nextFriends = upsertById(friends, member);
     setFriends(nextFriends);
     ls.set("backstage_friends", nextFriends);
     persistRequests(incoming.filter(r=>r.id!==req.id), outgoing);
-    api.post('/api/friends/accept', { requestId:req.id }).catch(()=>{});
-    onNotif({ title:"Friend request accepted!", body:`${member.name} is now in your Circle.`, icon:"friend", color:C.mint });
+    api.post('/api/friends/accept', { requestId:req.id, gif:gif||null }).catch(()=>{});
+    onNotif({ title:"Friend request accepted!", body:`${member.name} is now in your Circle.`, icon:"friend", color:C.mint, gif:gif||null });
+  };
+  const acceptReq = (req) => {
+    const member = { ...requestUserFromRow(req), status:"accepted" };
+    setReactPromptFor({ req, member }); // offer an optional reaction before finalizing
   };
   const declineReq = (req) => {
     persistRequests(incoming.filter(r=>r.id!==req.id), outgoing);
@@ -10710,6 +12346,29 @@ function FriendsPage({ onBack, onNotif }) {
           </button>
         </div>
       </Screen>
+
+      {/* Optional "send a reaction" sheet — appears right after tapping Accept, before it's finalized */}
+      {reactPromptFor&&!reactGifPickerOpen&&(
+        <div onClick={()=>{ finalizeAccept(reactPromptFor.req, reactPromptFor.member); setReactPromptFor(null); }} style={{ position:"fixed",inset:0,zIndex:880,background:"rgba(6,6,15,0.88)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ width:"100%",background:`linear-gradient(160deg,${C.surfaceMid},${C.cosmic})`,borderRadius:"24px 24px 0 0",padding:"16px 20px calc(28px + env(safe-area-inset-bottom))",border:`1.5px solid ${C.borderHi}`,borderBottom:"none",animation:"slideUp .26s ease" }}>
+            <div style={{ width:36,height:4,borderRadius:99,background:C.border,margin:"0 auto 16px" }} />
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:16,marginBottom:4 }}>Send {reactPromptFor.member.name} a reaction? ✦</p>
+            <p style={{ fontSize:11.5,color:C.textMid,marginBottom:16 }}>Welcome them to your Circle with a GIF — totally optional.</p>
+            <div style={{ display:"flex",gap:10 }}>
+              <button onClick={()=>setReactGifPickerOpen(true)} className="tap" style={{ flex:1,padding:"13px",borderRadius:13,background:`linear-gradient(140deg,${C.accent},${C.pink})`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer" }}>🎬 Pick a GIF</button>
+              <button onClick={()=>{ finalizeAccept(reactPromptFor.req, reactPromptFor.member); setReactPromptFor(null); }} className="tap" style={{ flex:1,padding:"13px",borderRadius:13,background:"transparent",border:`1.5px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer" }}>Skip</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {reactGifPickerOpen&&reactPromptFor&&(
+        <GifPicker
+          title="Send the vibe"
+          subtitle={`Welcome ${reactPromptFor.member.name} to your Circle`}
+          onSelect={(gif)=>{ finalizeAccept(reactPromptFor.req, reactPromptFor.member, gif); setReactGifPickerOpen(false); setReactPromptFor(null); }}
+          onClose={()=>{ setReactGifPickerOpen(false); }}
+        />
+      )}
     </div>
   );
 }
@@ -11048,7 +12707,46 @@ function SafetyCenter({ onBack }) {
   const [showReportSheet, setShowReportSheet] = useState(false);
   const [notif, setNotif] = useState(null);
   const [checkIn, setCheckIn] = useState({contact:"",plan:"",checkedIn:false});
+  const [isAdmin, setIsAdmin] = useState(false);
   const blockedUsers = getBlockedUsers();
+
+  useEffect(()=>{
+    let alive = true;
+    api.get('/api/admin/check').then(r=>{ if (alive && r?.isAdmin) setIsAdmin(true); });
+    return ()=>{ alive = false; };
+  }, []);
+
+  if (section === "modqueue") return <ModerationQueue onBack={()=>setSection("main")} />;
+
+  if (section === "guidelines") return (
+    <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden" }}>
+      <div style={{ padding:"16px 20px",display:"flex",gap:10,alignItems:"center",flexShrink:0 }}>
+        <button onClick={()=>setSection("main")} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
+        <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19 }}>Community Guidelines 📜</h2>
+      </div>
+      <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
+        <p style={{ fontSize:12,color:C.textMid,lineHeight:1.7,marginBottom:16 }}>Backstage is a space for fans to connect over the music and the moments. To keep it that way, every fan agrees to these ground rules.</p>
+        {[
+          ["💜 Be a good fan to other fans", "Treat everyone the way you'd want to be treated at a show — no harassment, hate speech, bullying, or pile-ons, including against idols, other fandoms, or staff."],
+          ["🚫 No impersonation or scams", "Don't pretend to be someone else (including idols, agencies, or other fans), and don't run trades, giveaways, or links designed to defraud people."],
+          ["🔞 Keep it age-appropriate", "Backstage is for fans 13+. No sexual content, no content that sexualizes minors, and no graphic violence."],
+          ["🃏 Trade fairly", "Photocard and merch trades must be honest about condition, ownership, and shipping. Scam attempts get accounts permanently removed."],
+          ["📍 Respect privacy", "Don't share other people's exact location, personal info, or private messages without consent — including at meetups."],
+          ["🛑 Zero tolerance for illegal content", "Absolutely no CSAM, threats of violence, or illegal activity. These are reported to authorities immediately."],
+        ].map(([title,body])=>(
+          <div key={title} style={{ background:C.surface,border:`1px solid ${C.border}`,borderRadius:13,padding:"12px 14px",marginBottom:9 }}>
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,marginBottom:4 }}>{title}</p>
+            <p style={{ fontSize:11.5,color:C.textMid,lineHeight:1.6 }}>{body}</p>
+          </div>
+        ))}
+        <div style={{ background:`${C.accent}08`,border:`1px solid ${C.accent}22`,borderRadius:13,padding:"12px 14px",marginTop:8 }}>
+          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12.5,marginBottom:4 }}>What happens when guidelines are broken?</p>
+          <p style={{ fontSize:11.5,color:C.textMid,lineHeight:1.6 }}>Our team reviews every report. Depending on severity, we may remove content, issue a warning, suspend, or permanently ban an account. If you believe a moderation decision was made in error, you can appeal at <strong>support@backstagefanverse.com</strong> — include your username and the date of the action.</p>
+        </div>
+        <p style={{ fontSize:10.5,color:C.textDim,marginTop:14,lineHeight:1.6 }}>Full legal terms live at <strong>backstagefanverse.com/terms</strong>.</p>
+      </Screen>
+    </div>
+  );
 
   if (section === "blocked") return (
     <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden" }}>
@@ -11089,9 +12787,10 @@ function SafetyCenter({ onBack }) {
         <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19 }}>Safety Center 🛡️</h2>
       </div>
       <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
-        <div style={{ background:`${C.mint}08`,border:`1px solid ${C.mint}22`,borderRadius:14,padding:12,marginBottom:18 }}>
+        <div style={{ background:`${C.mint}08`,border:`1px solid ${C.mint}22`,borderRadius:14,padding:12,marginBottom:10 }}>
           <p style={{ fontSize:12,color:C.textMid,lineHeight:1.7 }}>🛡️ Your safety is priority one. All reports are confidential.</p>
         </div>
+        <p style={{ fontSize:11,color:C.textDim,lineHeight:1.7,marginBottom:18 }}>Reports are reviewed by Backstage moderators. Repeat violations may result in content removal or account restrictions.</p>
 
         <SectionHeader title="Report &amp; Block" />
         <div style={{ display:"flex",flexDirection:"column",gap:8,marginBottom:18 }}>
@@ -11117,6 +12816,24 @@ function SafetyCenter({ onBack }) {
             </div>
             <span style={{ color:C.textMid,fontSize:16 }}>›</span>
           </div>
+          <div className="tap" onClick={()=>setSection("guidelines")} style={{ background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:14,padding:"12px 14px",cursor:"pointer",display:"flex",gap:12,alignItems:"center" }}>
+            <span style={{ fontSize:22,flexShrink:0 }}>📜</span>
+            <div style={{ flex:1 }}>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13 }}>Community Guidelines</p>
+              <p style={{ fontSize:10.5,color:C.textMid }}>What's allowed on Backstage — and what isn't</p>
+            </div>
+            <span style={{ color:C.textMid,fontSize:16 }}>›</span>
+          </div>
+          {isAdmin && (
+            <div className="tap" onClick={()=>setSection("modqueue")} style={{ background:`${C.rose}0c`,border:`1.5px solid ${C.rose}44`,borderRadius:14,padding:"12px 14px",cursor:"pointer",display:"flex",gap:12,alignItems:"center" }}>
+              <span style={{ fontSize:22,flexShrink:0 }}>🛡️</span>
+              <div style={{ flex:1 }}>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,color:C.rose }}>Moderation Queue</p>
+                <p style={{ fontSize:10.5,color:C.textMid }}>Admin only · Review and act on reports</p>
+              </div>
+              <span style={{ color:C.rose,fontSize:16 }}>›</span>
+            </div>
+          )}
         </div>
 
         <SectionHeader title="Trusted Buddy Check-In" />
@@ -11135,6 +12852,160 @@ function SafetyCenter({ onBack }) {
             </div>
           ))}
         </div>
+      </Screen>
+    </div>
+  );
+}
+
+// ─── ADMIN MODERATION QUEUE ──────────────────────────────────────────────────
+// Minimal triage UI for moderation_reports. Admin-gated server-side (requireAdmin)
+// — this screen is only reachable if /api/admin/check returned isAdmin:true.
+// Action buttons (warn/suspend/ban/remove) are PLACEHOLDERS: they write an
+// audit-log row to moderation_actions and update the report's status/action_taken.
+// They do NOT suspend accounts, ban users, or delete content — that enforcement
+// layer is intentionally deferred (needs appeals + reversibility + notifications).
+const STATUS_BADGE = {
+  pending:       { label:"Pending",       color: "#f5a623" },
+  reviewed:      { label:"Reviewed",      color: "#5ac8fa" },
+  dismissed:     { label:"Dismissed",     color: "#8e8e93" },
+  action_taken:  { label:"Action Taken",  color: "#ff5c7a" },
+};
+
+function ModerationReportCard({ report, onUpdate, onAction }) {
+  const [notes, setNotes] = useState(report.resolution_notes || "");
+  const [savingNotes, setSavingNotes] = useState(false);
+  const [showActions, setShowActions] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const badge = STATUS_BADGE[report.status] || STATUS_BADGE.pending;
+
+  const run = async (fn) => { setBusy(true); try { await fn(); } finally { setBusy(false); } };
+
+  return (
+    <div style={{ background:C.surface, border:`1.5px solid ${C.border}`, borderRadius:14, padding:14, marginBottom:10 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8, gap:8 }}>
+        <div>
+          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:13 }}>
+            {report.type?.toUpperCase()} · {report.reason}
+          </p>
+          <p style={{ fontSize:10.5, color:C.textMid, marginTop:2 }}>
+            {new Date(report.created_at).toLocaleString()}
+          </p>
+        </div>
+        <span style={{ background:`${badge.color}1c`, border:`1px solid ${badge.color}55`, color:badge.color, borderRadius:99, padding:"3px 9px", fontSize:10, fontWeight:700, flexShrink:0 }}>{badge.label}</span>
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
+        <div style={{ background:C.surfaceHi, borderRadius:10, padding:"8px 10px" }}>
+          <p style={{ fontSize:9.5, color:C.textDim, fontWeight:700, marginBottom:2 }}>REPORTER</p>
+          <p style={{ fontSize:11.5 }}>{report.reporter?.username ? `@${report.reporter.username}` : (report.reporter?.email || report.reporter_id || "—")}</p>
+        </div>
+        <div style={{ background:C.surfaceHi, borderRadius:10, padding:"8px 10px" }}>
+          <p style={{ fontSize:9.5, color:C.textDim, fontWeight:700, marginBottom:2 }}>TARGET</p>
+          <p style={{ fontSize:11.5 }}>{report.target_handle ? `@${report.target_handle}` : (report.target_id || "—")}</p>
+        </div>
+      </div>
+
+      {report.detail && (
+        <div style={{ background:C.surfaceHi, borderRadius:10, padding:"8px 10px", marginBottom:8 }}>
+          <p style={{ fontSize:9.5, color:C.textDim, fontWeight:700, marginBottom:2 }}>DETAILS</p>
+          <p style={{ fontSize:11.5, lineHeight:1.5, color:C.textMid }}>{report.detail}</p>
+        </div>
+      )}
+
+      {report.action_taken && (
+        <p style={{ fontSize:10.5, color:C.textMid, marginBottom:8 }}>
+          Last action: <strong>{report.action_taken.replace(/_/g," ")}</strong>
+          {report.reviewer?.username ? ` by @${report.reviewer.username}` : ""}
+          {report.reviewed_at ? ` · ${new Date(report.reviewed_at).toLocaleDateString()}` : ""}
+        </p>
+      )}
+
+      <textarea
+        value={notes}
+        onChange={e=>setNotes(e.target.value)}
+        placeholder="Resolution notes (internal only)..."
+        style={{ width:"100%", minHeight:50, background:C.surfaceHi, border:`1.5px solid ${C.border}`, borderRadius:10, padding:"8px 10px", color:C.text, fontSize:11.5, fontFamily:"inherit", resize:"vertical", boxSizing:"border-box", marginBottom:8 }}
+      />
+
+      <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+        <button disabled={busy} onClick={()=>run(()=>onUpdate(report.id, { status:"reviewed", resolution_notes: notes }))}
+          style={{ background:"none", border:`1.5px solid ${C.border}`, borderRadius:9, padding:"6px 11px", color:C.textMid, fontSize:10.5, fontWeight:700, cursor:"pointer" }}>Mark Reviewed</button>
+        <button disabled={busy} onClick={()=>run(()=>onUpdate(report.id, { status:"dismissed", resolution_notes: notes }))}
+          style={{ background:"none", border:`1.5px solid ${C.border}`, borderRadius:9, padding:"6px 11px", color:C.textMid, fontSize:10.5, fontWeight:700, cursor:"pointer" }}>Dismiss</button>
+        <button disabled={busy} onClick={()=>run(()=>onUpdate(report.id, { resolution_notes: notes }, ()=>setSavingNotes(false)))}
+          style={{ background:"none", border:`1.5px solid ${C.border}`, borderRadius:9, padding:"6px 11px", color:C.textMid, fontSize:10.5, fontWeight:700, cursor:"pointer" }}>{savingNotes ? "Saving..." : "Save Notes"}</button>
+        <button disabled={busy} onClick={()=>setShowActions(s=>!s)}
+          style={{ background:`${C.rose}14`, border:`1.5px solid ${C.rose}55`, borderRadius:9, padding:"6px 11px", color:C.rose, fontSize:10.5, fontWeight:700, cursor:"pointer" }}>Action Taken ▾</button>
+      </div>
+
+      {showActions && (
+        <div style={{ marginTop:8, padding:10, background:C.surfaceHi, borderRadius:10, border:`1px solid ${C.border}` }}>
+          <p style={{ fontSize:9.5, color:C.textDim, marginBottom:7, lineHeight:1.5 }}>
+            ⚠️ Placeholder actions — these log a decision for audit purposes only. They do not suspend, ban, or delete anything yet.
+          </p>
+          <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+            {[
+              ["warn_user","Warn User"],
+              ["suspend_user","Suspend (placeholder)"],
+              ["ban_user","Ban (placeholder)"],
+              ["remove_content","Remove Content (placeholder)"],
+            ].map(([type,label])=>(
+              <button key={type} disabled={busy} onClick={()=>run(async ()=>{ await onAction(report.id, type, notes); setShowActions(false); })}
+                style={{ background:"none", border:`1.5px solid ${C.border}`, borderRadius:9, padding:"6px 11px", color:C.textMid, fontSize:10, fontWeight:700, cursor:"pointer" }}>{label}</button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ModerationQueue({ onBack }) {
+  const [reports, setReports] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [filter, setFilter] = useState("pending");
+
+  const load = async () => {
+    setLoading(true); setError(false);
+    const res = await api.get(`/api/admin/moderation/reports${filter ? `?status=${filter}` : ""}`);
+    if (res?.reports) setReports(res.reports); else setError(true);
+    setLoading(false);
+  };
+  useEffect(()=>{ load(); }, [filter]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const updateReport = async (id, patch) => {
+    const res = await api.patch(`/api/admin/moderation/reports/${id}`, patch);
+    if (res?.report) setReports(rs => rs.map(r => r.id === id ? { ...r, ...res.report } : r));
+  };
+  const actionOnReport = async (id, action_type, notes) => {
+    const res = await api.post(`/api/admin/moderation/reports/${id}/action`, { action_type, notes });
+    if (res?.logged) await load();
+  };
+
+  return (
+    <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
+      <div style={{ padding:"16px 20px", display:"flex", gap:10, alignItems:"center", flexShrink:0 }}>
+        <button onClick={onBack} style={{ background:"none", border:"none", color:C.textMid, fontSize:22, cursor:"pointer" }}>←</button>
+        <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:19 }}>Moderation Queue 🛡️</h2>
+      </div>
+      <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
+        <div style={{ display:"flex", gap:6, marginBottom:14, flexWrap:"wrap" }}>
+          {[["pending","Pending"],["reviewed","Reviewed"],["dismissed","Dismissed"],["action_taken","Actioned"],["","All"]].map(([val,label])=>(
+            <button key={label} onClick={()=>setFilter(val)}
+              style={{ background: filter===val ? `${C.accent}1c` : "none", border:`1.5px solid ${filter===val?C.accent:C.border}`, borderRadius:99, padding:"6px 13px", color: filter===val ? C.accent : C.textMid, fontSize:11, fontWeight:700, cursor:"pointer" }}>{label}</button>
+          ))}
+        </div>
+
+        {loading ? (
+          <p style={{ fontSize:12, color:C.textMid, textAlign:"center", padding:30 }}>Loading reports...</p>
+        ) : error ? (
+          <Empty emoji="⚠️" title="Couldn't load reports" sub="Check your connection and try again." />
+        ) : reports.length === 0 ? (
+          <Empty emoji="🛡️" title="No reports here" sub="Nothing in this queue right now." />
+        ) : reports.map(r => (
+          <ModerationReportCard key={r.id} report={r} onUpdate={updateReport} onAction={actionOnReport} />
+        ))}
       </Screen>
     </div>
   );
@@ -12877,11 +14748,11 @@ function KDramaTracker() {
 
 // ─── AFTERGLOW — POST-CONCERT CARE ───────────────────────────────────────────
 // GET /api/afterglow/:userId | POST /api/afterglow/create | POST /api/afterglow/update
-function AfterglowPage({ onBack, showName, isVip, onUpgrade }) {
+function AfterglowPage({ onBack, showName, isVip, onUpgrade, go }) {
   const [step, setStep] = useState("mood");
   const [mood, setMood] = useState(null);
   const [checklist, setChecklist] = useState({ hydrate:false, rest:false, upload:false, backup:false, message:false, store:false, journal:false, plan:false });
-  const [note, setNote] = useState({ sad:"", grateful:"", nextTime:"" });
+  const [note, setNote] = useState({ sad:"", grateful:"", nextTime:"", unforgettable:"", nextSpark:"" });
   const [saved, setSaved] = useState(false);
 
   const RECOVERY = [
@@ -12899,6 +14770,7 @@ function AfterglowPage({ onBack, showName, isVip, onUpgrade }) {
     const entry = { id:`ag-${Date.now()}`, showId: showName, mood, checklist, note, createdAt: new Date().toISOString() };
     const existing = ls.get("backstage_afterglow_entries",[]);
     ls.set("backstage_afterglow_entries", [entry, ...existing]);
+    ls.set("backstage_afterglow_recovery", entry);
     setSaved(true);
   };
 
@@ -12906,9 +14778,15 @@ function AfterglowPage({ onBack, showName, isVip, onUpgrade }) {
     <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
       <div style={{ padding:"16px 20px", display:"flex", gap:10, alignItems:"center", flexShrink:0 }}>
         <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
-        <div>
+        <div style={{ flex:1 }}>
           <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:18 }}>Afterglow ✨</h2>
           <p style={{ fontSize:11, color:C.textMid }}>Post-concert care · {showName}</p>
+        </div>
+      </div>
+      <div style={{ padding:"0 20px 14px", flexShrink:0 }}>
+        <div style={{ background:`linear-gradient(140deg,${C.berry}14,${C.accent}0a)`, border:`1.5px solid ${C.berry}28`, borderRadius:16, padding:"12px 16px" }}>
+          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:15, color:C.accent, marginBottom:3 }}>Afterglow is real. You're not alone.</p>
+          <p style={{ fontSize:11.5, color:C.textMid, lineHeight:1.6 }}>That post-concert ache? It means it mattered. Take care of yourself first.</p>
         </div>
       </div>
       <Screen>
@@ -12921,6 +14799,24 @@ function AfterglowPage({ onBack, showName, isVip, onUpgrade }) {
           </div>
         ) : (
           <>
+            {/* RECOVERY ACTIONS */}
+            <div style={{ marginBottom:18 }}>
+              <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12.5, color:C.textMid, marginBottom:10 }}>Where do you want to land? 🌙</p>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                {[
+                  {emoji:"📸",label:"Add to Capsule",   route:"capsule",  color:C.pink},
+                  {emoji:"📓",label:"Build Scrapbook",  route:"scrapbook",color:C.mint},
+                  {emoji:"💜",label:"Find Your People", route:"fanverse", color:C.accent},
+                  {emoji:"🎤",label:"Plan Next Show",   route:"concerts", color:C.lavender},
+                ].map(a=>(
+                  <div key={a.label} onClick={()=>go?.(a.route)} className="tap" style={{ background:`${a.color}0f`,border:`1.5px solid ${a.color}28`,borderRadius:13,padding:"11px 12px",cursor:go?"pointer":"default",display:"flex",alignItems:"center",gap:8 }}>
+                    <span style={{ fontSize:16 }}>{a.emoji}</span>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:11,color:a.color,lineHeight:1.3 }}>{a.label}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             {/* STEP: MOOD */}
             <div style={{ background:`linear-gradient(140deg,${C.accent}12,${C.pink}08)`, border:`1.5px solid ${C.accent}30`, borderRadius:20, padding:18, marginBottom:18 }}>
               <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:16, marginBottom:4 }}>How are you feeling? 💜</p>
@@ -12954,7 +14850,7 @@ function AfterglowPage({ onBack, showName, isVip, onUpgrade }) {
             <div style={{ marginBottom:18 }}>
               <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:14, marginBottom:4 }}>Your Afterglow Note ✍️</p>
               <p style={{ fontSize:11.5, color:C.textMid, marginBottom:12 }}>For your eyes only. Write whatever you need to.</p>
-              {[["sad","I feel sad because…",C.textMid],["grateful","I'm grateful for…",C.mint],["nextTime","Next time I want to…",C.accent]].map(([field,ph,col])=>(
+              {[["sad","I feel sad because…",C.textMid],["grateful","I'm grateful for…",C.mint],["nextTime","Next time I want to…",C.accent],["unforgettable","One thing I don't want to forget…",C.lavender],["nextSpark","My next spark is…",C.rose]].map(([field,ph,col])=>(
                 <div key={field} style={{ marginBottom:10 }}>
                   <Textarea value={note[field]} onChange={e=>setNote({...note,[field]:e.target.value})} placeholder={ph} style={{ height:64, borderColor:note[field]?col:C.border }} />
                 </div>
@@ -13299,6 +15195,10 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack, o
     ? (overrideFan.now_playing || null)
     : ls.get(`backstage_now_playing_${user?.id || 'anon'}`, null);
   const friends = isPublic ? [] : ls.get("backstage_friends",[]).filter(f=>f.status==="accepted").slice(0,4);
+  const fanIdentity = isPublic ? (overrideFan.fan_identity || null) : ls.get("backstage_fan_identity", null);
+  const concertResume = isPublic ? (overrideFan.concert_resume || []) : ls.get("backstage_concert_resume", []);
+  const tradePassport = isPublic ? (overrideFan.trade_passport || null) : ls.get("backstage_trade_passport", null);
+  const tradeHistory = isPublic ? (overrideFan.trade_history || null) : ls.get("backstage_trade_history", null);
   const publicTop5 = isPublic ? fandoms : top5;
   const publicBiases = isPublic ? (bias ? [bias] : []) : biases;
   const publicCards = isPublic ? [] : cards;
@@ -13315,18 +15215,34 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack, o
     ? (overrideFan?.city || '')
     : (_ownShowCity ? (user?.city || ls.get(`backstage_city_${user?.id || 'anon'}`, '')) : '');
 
+  // ── Stage Style — font, effect, section styles ──────────────────────────
+  const _stageSettings   = isPublic ? {} : (profileStyle || {});
+  const stageFontId      = _stageSettings.stageFont  || "classic";
+  const stageEffectId    = _stageSettings.stageEffect || "none";
+  const stageFontFamily  = STAGE_FONT_MAP[stageFontId] || "'Epilogue', sans-serif";
+  const stageEffectCfg   = STAGE_EFFECT_MAP[stageEffectId] || STAGE_EFFECT_MAP["none"];
+  const _sectionStyles   = isPublic ? {} : ls.get("backstage_section_styles", {});
+  const shrineLayout     = _sectionStyles.shrineLayout || "center";
+  const shrineEffect     = _sectionStyles.shrineEffect || "none";
+  const cardStyle        = _sectionStyles.cardStyle    || "default";
+  const SFF = { fontFamily: stageFontFamily }; // shorthand for font overrides
+
   return (
     <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden",position:"relative",background:skinGrad }}>
       {/* Full-page skin sparkles */}
       {skinChars.map((ch,i)=>(
         <div key={i} style={{ position:"absolute",top:`${PREVIEW_SPARKLE_POS[i]?.[0]??i*12}%`,left:`${PREVIEW_SPARKLE_POS[i]?.[1]??80}%`,fontSize:ch.length>1?15:10,opacity:0.14,animation:`sparkleFloat ${3.5+i*0.6}s ease-in-out infinite`,animationDelay:`${i*0.45}s`,color:"rgba(255,255,255,0.9)",pointerEvents:"none",zIndex:0 }}>{ch}</div>
       ))}
+      {/* Stage Effect overlay — subtle floating chars across the full page */}
+      {stageEffectCfg.chars.length>0 && stageEffectCfg.chars.map((ch,i)=>(
+        <div key={`eff-${i}`} style={{ position:"absolute",top:`${10+i*16}%`,left:`${5+i*19}%`,fontSize:ch.length>1?14:10,opacity:0.18,animation:`${stageEffectCfg.animation} ${3+i*0.7}s ease-in-out infinite`,animationDelay:`${i*0.5}s`,color:"rgba(255,255,255,0.9)",pointerEvents:"none",zIndex:0 }}>{ch}</div>
+      ))}
       {/* Header */}
       <div style={{ padding:"14px 20px 12px",display:"flex",gap:10,alignItems:"center",flexShrink:0,borderBottom:`1px solid ${C.border}`,position:"relative",zIndex:1 }}>
         <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
         <div style={{ flex:1 }}>
-          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15 }}>Profile Preview</p>
-          <p style={{ fontSize:9.5,color:C.textMid }}>How other fans see your profile</p>
+          <p style={{ ...SFF,fontWeight:800,fontSize:15 }}>{isPublic ? `@${name}'s Stage` : "My Stage"}</p>
+          <p style={{ fontSize:9.5,color:C.textMid }}>{isPublic ? "Fan profile" : "Your fandom. Your memories. Your stage."}</p>
         </div>
         <div style={{ ...VS.activePill(C.accent),fontSize:9 }}>👁 Viewer Mode</div>
       </div>
@@ -13341,7 +15257,7 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack, o
             <div key={i} style={{ position:"absolute",top:sp.t,left:sp.l,fontSize:sp.s,opacity:0.55,animation:`sparkleFloat 3.5s ease-in-out infinite`,animationDelay:sp.d,pointerEvents:"none",color:C.lavender }}>✦</div>
           ))}
           <div style={{ position:"relative" }}>
-            <p style={{ fontFamily:"'Epilogue',sans-serif",fontStyle:"italic",fontWeight:700,fontSize:16,color:"rgba(255,255,255,0.93)",lineHeight:1.45,marginBottom:6,textShadow:"0 2px 12px rgba(0,0,0,0.5)" }}>"{status}"</p>
+            <p style={{ ...SFF,fontStyle:"italic",fontWeight:700,fontSize:16,color:"rgba(255,255,255,0.93)",lineHeight:1.45,marginBottom:6,textShadow:"0 2px 12px rgba(0,0,0,0.5)" }}>"{status}"</p>
             <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
               {["★ CURRENT ERA",...(bias?[`BIAS: ${String(bias).toUpperCase()}`]:[])].map(tag=>(
                 <div key={tag} style={{ background:"rgba(6,6,15,0.45)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:99,padding:"3px 10px",fontSize:8.5,color:"rgba(255,255,255,0.75)",fontFamily:"'Epilogue',sans-serif",fontWeight:700,backdropFilter:"blur(8px)" }}>{tag}</div>
@@ -13359,7 +15275,7 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack, o
             <div style={{ position:"absolute",bottom:-2,right:-2,width:22,height:22,borderRadius:"50%",background:C.mint,border:`2px solid ${C.cosmic}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11 }}>●</div>
           </div>
           <div style={{ flex:1,minWidth:0 }}>
-            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18,marginBottom:3 }}>@{name}</p>
+            <p style={{ ...SFF,fontWeight:800,fontSize:18,marginBottom:3 }}>@{name}</p>
             {city
               ? <p style={{ fontSize:10.5,color:C.textDim,marginBottom:6 }}>📍 {city}</p>
               : !isPublic && <p style={{ fontSize:10.5,color:C.textMid,marginBottom:6 }}>Multi-fan · she/her</p>
@@ -13393,13 +15309,184 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack, o
           }
         </div>
 
-        {/* Now Playing — VIP-gated expandable card */}
-        <NowPlayingCard
-          nowPlaying={nowPlaying}
-          isVip={profileOwnerIsVip}
-          isPublicView={isPublic}
-          onUpgrade={!isPublic ? onUpgrade : null}
-        />
+        {/* ── BIAS SHRINE — emotion first ──────────────────────────────────── */}
+        {(publicBiases.length>0 || fanIdentity?.bias) && (
+          <div style={{ marginBottom:16 }}>
+            <p style={{ fontSize:9,color:C.textMid,...SFF,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em",marginBottom:10 }}>Bias Shrine</p>
+            {fanIdentity?.bias ? (() => {
+              // ── Shrine effect overlay helper ────────────────────────────
+              const shrineEffectChars = shrineEffect==="hearts"?["♡","♡","♡"]:shrineEffect==="sparkles"?["✦","✦","✦"]:shrineEffect==="holo"?["◈","◈"]:shrineEffect==="angel"?["◌","◌","◌"]:shrineEffect==="glow"?["★","★"]:[];
+              const shrineEffectAnim  = shrineEffect==="hearts"?"float":shrineEffect==="sparkles"?"sparkleFloat":shrineEffect==="holo"?"shimmer":"sparkleFloat";
+              // ── Trio Shrine layout ──────────────────────────────────────
+              if(shrineLayout==="trio") {
+                const trio = [
+                  {name:fanIdentity.bias, label:"ult bias", color:C.berry, size:72, crown:true},
+                  fanIdentity.biasWrecker ? {name:fanIdentity.biasWrecker, label:"wrecker", color:C.pink, size:62} : null,
+                  publicBiases.find(b=>b!==fanIdentity.bias) ? {name:publicBiases.find(b=>b!==fanIdentity.bias), label:"also biasing", color:C.lavender, size:62} : null,
+                ].filter(Boolean);
+                return (
+                  <div style={{ ...VS.glowCard(C.berry), padding:"18px 14px", textAlign:"center", position:"relative" }}>
+                    <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.berry}55,transparent)` }} />
+                    {shrineEffectChars.map((ch,i)=>(
+                      <div key={i} style={{ position:"absolute",top:`${15+i*22}%`,right:`${6+i*8}%`,fontSize:9,opacity:0.35,animation:`${shrineEffectAnim} ${2.5+i*0.6}s ease-in-out infinite`,animationDelay:`${i*0.4}s`,color:C.berry,pointerEvents:"none" }}>{ch}</div>
+                    ))}
+                    {fanIdentity.ult && <p style={{ fontSize:9,color:C.berry,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12,opacity:0.85 }}>ULT: {fanIdentity.ult}</p>}
+                    <div style={{ display:"flex",gap:14,justifyContent:"center",alignItems:"flex-end" }}>
+                      {trio.map((b,i)=>(
+                        <div key={b.name} style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:4 }}>
+                          {b.crown && <div style={{ fontSize:13,animation:"float 2s ease-in-out infinite",marginBottom:2 }}>👑</div>}
+                          <div style={{ width:b.size,height:b.size,borderRadius:"50%",background:`linear-gradient(135deg,${b.color}44,${b.color}22,${C.cosmic})`,border:`${i===0?"2.5px":"2px"} solid ${b.color}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:i===0?26:20,color:b.color,boxShadow:`0 0 ${i===0?26:14}px ${b.color}${i===0?"40":"28"}` }}>
+                            {b.name[0].toUpperCase()}
+                          </div>
+                          <p style={{ ...SFF,fontWeight:800,fontSize:i===0?13:11,color:b.color,marginTop:2 }}>{b.name}</p>
+                          <p style={{ fontSize:7.5,color:b.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",opacity:0.7 }}>{b.label}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              }
+              // ── Orbit layout ────────────────────────────────────────────
+              if(shrineLayout==="orbit") {
+                return (
+                  <div style={{ ...VS.glowCard(C.berry), padding:"20px 18px", textAlign:"center", position:"relative" }}>
+                    <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.berry}55,transparent)` }} />
+                    {shrineEffectChars.map((ch,i)=>(
+                      <div key={i} style={{ position:"absolute",top:`${15+i*22}%`,right:`${6+i*8}%`,fontSize:9,opacity:0.35,animation:`${shrineEffectAnim} ${2.5+i*0.6}s ease-in-out infinite`,color:C.berry,pointerEvents:"none" }}>{ch}</div>
+                    ))}
+                    {fanIdentity.ult && <p style={{ fontSize:9,color:C.berry,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:14,opacity:0.85 }}>ULT: {fanIdentity.ult}</p>}
+                    <div style={{ position:"relative",display:"inline-block" }}>
+                      <div style={{ position:"absolute",inset:-18,borderRadius:"50%",border:`1.5px dashed ${C.berry}30`,animation:"rotate 12s linear infinite",pointerEvents:"none" }} />
+                      <div style={{ position:"absolute",inset:-10,borderRadius:"50%",background:`radial-gradient(circle,${C.berry}15,transparent 68%)`,animation:"pulse 2.5s ease infinite",pointerEvents:"none" }} />
+                      <div style={{ position:"absolute",top:-16,left:"50%",transform:"translateX(-50%)",fontSize:14,animation:"float 2s ease-in-out infinite",zIndex:1 }}>👑</div>
+                      <div style={{ width:82,height:82,borderRadius:"50%",background:`linear-gradient(135deg,${C.berry}44,${C.berry}22,${C.cosmic})`,border:`2.5px solid ${C.berry}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:30,color:C.berry,boxShadow:`0 0 28px ${C.berry}40` }}>
+                        {(fanIdentity.bias||"?")[0].toUpperCase()}
+                      </div>
+                    </div>
+                    <p style={{ ...SFF,fontWeight:800,fontSize:15,color:C.berry,marginTop:20 }}>{fanIdentity.bias}</p>
+                    <p style={{ fontSize:8,color:C.berry,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em",opacity:0.7,marginTop:3 }}>current obsession</p>
+                  </div>
+                );
+              }
+              // ── Default: Center Bias layout ─────────────────────────────
+              return (
+                <div style={{ ...VS.glowCard(C.berry), padding:"18px 18px", textAlign:"center" }}>
+                  <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.berry}55,transparent)` }} />
+                  {shrineEffectChars.map((ch,i)=>(
+                    <div key={i} style={{ position:"absolute",top:`${15+i*22}%`,right:`${6+i*8}%`,fontSize:9,opacity:0.35,animation:`${shrineEffectAnim} ${2.5+i*0.6}s ease-in-out infinite`,animationDelay:`${i*0.4}s`,color:C.berry,pointerEvents:"none" }}>{ch}</div>
+                  ))}
+                  {fanIdentity.ult && <p style={{ fontSize:9,color:C.berry,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em",marginBottom:14,opacity:0.85 }}>ULT: {fanIdentity.ult}</p>}
+                  <div style={{ display:"flex",justifyContent:"center",marginBottom:14,position:"relative" }}>
+                    <div style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:5 }}>
+                      <div style={{ position:"relative" }}>
+                        <div style={{ position:"absolute",inset:-8,borderRadius:"50%",background:`radial-gradient(circle,${C.berry}20,transparent 68%)`,animation:"pulse 2.2s ease infinite",pointerEvents:"none" }} />
+                        <div style={{ position:"absolute",top:-14,left:"50%",transform:"translateX(-50%)",fontSize:14,animation:"float 2s ease-in-out infinite",zIndex:1 }}>👑</div>
+                        <div style={{ width:82,height:82,borderRadius:"50%",background:`linear-gradient(135deg,${C.berry}44,${C.berry}22,${C.cosmic})`,border:`2.5px solid ${C.berry}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:30,color:C.berry,position:"relative",boxShadow:`0 0 28px ${C.berry}40,0 0 8px ${C.berry}20` }}>
+                          <div style={{ position:"absolute",inset:0,borderRadius:"50%",background:`radial-gradient(circle at 35% 30%,rgba(255,255,255,0.13),transparent 55%)`,pointerEvents:"none" }} />
+                          {(fanIdentity.bias||"?")[0].toUpperCase()}
+                        </div>
+                      </div>
+                      <p style={{ ...SFF,fontSize:15,fontWeight:800,color:C.berry,marginTop:2 }}>{fanIdentity.bias}</p>
+                      <p style={{ fontSize:8,color:C.berry,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em",opacity:0.7 }}>current obsession</p>
+                    </div>
+                  </div>
+                  {(fanIdentity.biasWrecker || publicBiases[1]) && (
+                    <div style={{ display:"flex",gap:20,justifyContent:"center" }}>
+                      {[
+                        fanIdentity.biasWrecker && {name:fanIdentity.biasWrecker, label:"wrecker", color:C.pink},
+                        publicBiases.find(b=>b!==fanIdentity.bias) && {name:publicBiases.find(b=>b!==fanIdentity.bias), label:"also biasing", color:C.lavender},
+                      ].filter(Boolean).slice(0,2).map(b=>(
+                        <div key={b.name} style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
+                          <div style={{ width:54,height:54,borderRadius:"50%",background:`linear-gradient(135deg,${b.color}44,${b.color}22,${C.cosmic})`,border:`2px solid ${b.color}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:19,color:b.color,boxShadow:`0 0 14px ${b.color}33` }}>
+                            {b.name[0].toUpperCase()}
+                          </div>
+                          <p style={{ ...SFF,fontSize:11.5,fontWeight:700,color:b.color }}>{b.name}</p>
+                          <p style={{ fontSize:7.5,color:b.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",opacity:0.7 }}>{b.label}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })() : (
+              <div style={{ display:"flex",gap:10,flexWrap:"wrap" }}>
+                {publicBiases.map((b,i)=>{
+                  const col = COLORS[i%COLORS.length];
+                  return (
+                    <div key={b} style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:4,position:"relative" }}>
+                      {i===0&&<div style={{ position:"absolute",top:-10,left:"50%",transform:"translateX(-50%)",fontSize:12,animation:"float 2s ease-in-out infinite" }}>👑</div>}
+                      <div style={{ position:"absolute",top:-4,left:-4,right:-4,bottom:-4,borderRadius:"50%",background:`radial-gradient(circle,${col}18,transparent 70%)`,animation:`pulse ${2.2+i*0.3}s ease infinite`,pointerEvents:"none" }} />
+                      <div style={{ width:60,height:60,borderRadius:"50%",background:`linear-gradient(135deg,${col}44,${col}22,${C.cosmic})`,border:`2.5px solid ${col}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:21,color:col,position:"relative",boxShadow:`0 0 16px ${col}44` }}>
+                        <div style={{ position:"absolute",inset:0,borderRadius:"50%",background:`radial-gradient(circle at 35% 30%,rgba(255,255,255,0.12),transparent 55%)`,pointerEvents:"none" }} />
+                        {(b||"?")[0].toUpperCase()}
+                      </div>
+                      <div style={{ position:"absolute",top:5,right:4,fontSize:8,color:col,opacity:0.8,animation:`sparkleFloat ${2.8+i*0.5}s ease-in-out infinite`,animationDelay:`${i*0.4}s` }}>✦</div>
+                      <p style={{ fontSize:9,color:col,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textAlign:"center",maxWidth:60,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{b}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Fan Card — identity at a glance */}
+        {fanIdentity && (fanIdentity.ult || fanIdentity.bias || fanIdentity.currentEra) && (()=>{
+          // ── Card style variants ──────────────────────────────────────────
+          const isHolo    = cardStyle==="holo";
+          const isSleeve  = cardStyle==="sleeve";
+          const isPass    = cardStyle==="pass";
+          const isTrading = cardStyle==="trading";
+          const cardBg    = isHolo
+            ? `linear-gradient(135deg,${C.lavender}22,${C.pink}18,${C.accent}18,${C.mint}12,${C.lavender}22)`
+            : isSleeve ? `linear-gradient(140deg,${C.surfaceMid},${C.surfaceHi})`
+            : isPass   ? `linear-gradient(140deg,${C.accent}14,${C.cosmic})`
+            : VS.glowCard(C.lavender).background || `${C.surface}`;
+          const cardBorder= isHolo
+            ? `1.5px solid ${C.lavender}55`
+            : isSleeve ? `3px solid ${C.lavender}44`
+            : isPass   ? `1.5px solid ${C.accent}55`
+            : isTrading? `1.5px solid ${C.gold}44`
+            : `1.5px solid ${C.lavender}28`;
+          const cardLabel = isPass?"🎟️ Concert Pass":isTrading?"♟️ Trading Card":isSleeve?"📦 Photocard Sleeve":isHolo?"💿 Holo Fan Card":"🎴 Fan Card";
+          return (
+            <div style={{ ...VS.glowCard(C.lavender), background:cardBg, border:cardBorder, padding:"16px 18px", marginBottom:16, overflow:"hidden" }}>
+              {isHolo && <div style={{ position:"absolute",inset:0,background:`linear-gradient(135deg,${C.lavender}10,${C.pink}08,${C.mint}08,${C.accent}06)`,animation:"holoShift 4s ease infinite",backgroundSize:"200% 200%",pointerEvents:"none" }} />}
+              {isSleeve && <div style={{ position:"absolute",top:0,left:0,bottom:0,width:6,background:`linear-gradient(180deg,${C.lavender}66,${C.lavender}22)`,pointerEvents:"none" }} />}
+              {isTrading && <div style={{ position:"absolute",top:8,right:12,fontSize:9,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:700,opacity:0.6 }}>#0001</div>}
+              <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.lavender}44,transparent)` }} />
+              <p style={{ ...SFF,fontWeight:700,fontSize:13.5,marginBottom:12,position:"relative" }}>{cardLabel}</p>
+              <div style={{ display:"flex", flexDirection:"column", gap:7, position:"relative" }}>
+                {[
+                  ["ULT",fanIdentity.ult],
+                  ["Bias",fanIdentity.bias],
+                  ["Bias Wrecker",fanIdentity.biasWrecker],
+                  ["Fan Since",fanIdentity.since],
+                  ["Concert Count",fanIdentity.concertCount],
+                  ["Current Era",fanIdentity.currentEra],
+                  ["Favorite Song",fanIdentity.favoriteSong],
+                ].filter(([,v])=>v).map(([label,val])=>(
+                  <div key={label} style={{ display:"flex", justifyContent:"space-between", gap:10 }}>
+                    <p style={{ fontSize:10.5, color:C.textDim, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em" }}>{label}</p>
+                    <p style={{ ...SFF,fontSize:12.5, fontWeight:700, textAlign:"right" }}>{val}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Fan DNA — chip cloud */}
+        {fanIdentity?.fanDNA?.length>0 && (
+          <div style={{ marginBottom:16 }}>
+            <p style={{ ...SFF,fontWeight:700,fontSize:13.5,marginBottom:10 }}>🧬 Fan DNA</p>
+            <div style={{ display:"flex", gap:7, flexWrap:"wrap" }}>
+              {fanIdentity.fanDNA.map(tag=>(
+                <span key={tag} style={{ padding:"6px 13px", borderRadius:99, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:600, background:`${C.accent}16`, color:C.accent, border:`1.5px solid ${C.accent}33` }}>{tag}</span>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Top 5 / Top Groups */}
         {publicTop5.length>0&&(
@@ -13415,29 +15502,35 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack, o
           </div>
         )}
 
-        {/* Top Biases — full sparkle treatment */}
-        {publicBiases.length>0&&(
-          <div style={{ marginBottom:16 }}>
-            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5,marginBottom:14 }}>⭐ Top Biases</p>
-            <div style={{ display:"flex",gap:10,flexWrap:"wrap" }}>
-              {publicBiases.map((b,i)=>{
-                const col = COLORS[i%COLORS.length];
-                return (
-                  <div key={b} style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:4,position:"relative" }}>
-                    {i===0&&<div style={{ position:"absolute",top:-10,left:"50%",transform:"translateX(-50%)",fontSize:12,animation:"float 2s ease-in-out infinite" }}>👑</div>}
-                    <div style={{ position:"absolute",top:-4,left:-4,right:-4,bottom:-4,borderRadius:"50%",background:`radial-gradient(circle,${col}18,transparent 70%)`,animation:`pulse ${2.2+i*0.3}s ease infinite`,pointerEvents:"none" }} />
-                    <div style={{ width:60,height:60,borderRadius:"50%",background:`linear-gradient(135deg,${col}44,${col}22,${C.cosmic})`,border:`2.5px solid ${col}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:21,color:col,position:"relative",boxShadow:`0 0 16px ${col}44` }}>
-                      <div style={{ position:"absolute",inset:0,borderRadius:"50%",background:`radial-gradient(circle at 35% 30%,rgba(255,255,255,0.12),transparent 55%)`,pointerEvents:"none" }} />
-                      {(b||"?")[0].toUpperCase()}
-                    </div>
-                    <div style={{ position:"absolute",top:5,right:4,fontSize:8,color:col,opacity:0.8,animation:`sparkleFloat ${2.8+i*0.5}s ease-in-out infinite`,animationDelay:`${i*0.4}s` }}>✦</div>
-                    <p style={{ fontSize:9,color:col,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textAlign:"center",maxWidth:60,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{b}</p>
-                  </div>
-                );
-              })}
+        {/* Concert Resume — mini stack */}
+        {concertResume.length>0 && (
+          <div style={{ ...cosmicCard(C.mint), padding:"14px 16px", marginBottom:16 }}>
+            <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.mint}44,transparent)` }} />
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5,marginBottom:10,position:"relative" }}>✓ Concert Resume</p>
+            <div style={{ display:"flex", flexDirection:"column", gap:6, position:"relative" }}>
+              {concertResume.slice(0,5).map((show,i)=>(
+                <div key={i} style={{ display:"flex", alignItems:"center", gap:8 }}>
+                  <span style={{ color:C.mint, fontSize:12 }}>✓</span>
+                  <p style={{ fontSize:12 }}>{show}</p>
+                </div>
+              ))}
+              {concertResume.length>5 && <p style={{ fontSize:10, color:C.textDim, marginTop:2 }}>+{concertResume.length-5} more shows</p>}
             </div>
           </div>
         )}
+
+        {/* Trade Passport — trust layer (lower on regular profile) */}
+        {tradePassport && (
+          <TradePassportCard passport={tradePassport} history={tradeHistory} compact />
+        )}
+
+        {/* Now Playing — VIP-gated */}
+        <NowPlayingCard
+          nowPlaying={nowPlaying}
+          isVip={profileOwnerIsVip}
+          isPublicView={isPublic}
+          onUpgrade={!isPublic ? onUpgrade : null}
+        />
 
         {/* My Circle — own profile only */}
         {!isPublic&&friends.length>0&&(
@@ -13464,7 +15557,7 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack, o
               <button onClick={()=>go("chats")} style={{ width:"100%",padding:"13px",borderRadius:16,background:`linear-gradient(140deg,${C.accent}20,${C.pink}0e)`,border:`1.5px solid ${C.accent}33`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8,marginBottom:14 }}>
                 💬 Send Message
               </button>
-              <p style={{ fontSize:10.5,color:C.textDim,textAlign:"center" }}>This is exactly how your profile appears to other fans. Tap Studio ✦ to customize.</p>
+              <p style={{ fontSize:10.5,color:C.textDim,textAlign:"center" }}>This is exactly how your stage appears to the Fanverse. Tap Stage Studio to customize.</p>
             </>
         }
       </Screen>
@@ -13520,6 +15613,8 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
   });
   const [activeConvo, setActiveConvo] = useState(dmTarget ? convos.find(c=>c.fan.name===dmTarget?.name)||null : null);
   const [circleGuard, setCircleGuard] = useState(null); // fan not in Circle
+  const [showDmReportSheet, setShowDmReportSheet] = useState(false);
+  const [dmNotif, setDmNotif] = useState(null);
   const [dmSearch, setDmSearch] = useState("");
   const [dmSearchResults, setDmSearchResults] = useState([]);
   const [dmSearching, setDmSearching] = useState(false);
@@ -13536,6 +15631,8 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
   const [reactionPicker, setReactionPicker] = useState(null); // {convoId, msgIdx}
   const [msgDraft, setMsgDraft]       = useState("");
   const [attachPreview, setAttachPreview] = useState(null); // base64 image for attachment
+  const [gifPickerOpen, setGifPickerOpen] = useState(false);
+  const [selectedGif, setSelectedGif] = useState(null); // chosen GIF reaction, queued above send button
   const msgEndRef  = useRef(null);
   const attachRef  = useRef(null);
 
@@ -13634,8 +15731,8 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
   };
 
   const sendMessage = async () => {
-    if((!msgDraft.trim() && !attachPreview)||!activeConvo) return;
-    const msg = { from:"me", type:"text", text:msgDraft, time:"now", image:attachPreview||null };
+    if((!msgDraft.trim() && !attachPreview && !selectedGif)||!activeConvo) return;
+    const msg = { from:"me", type:selectedGif?"gif":"text", text:msgDraft, time:"now", image:attachPreview||null, gif:selectedGif||null };
     if (activeConvo.backend && msgDraft.trim()) {
       try {
         const saved = await api.post(`/api/messages/thread/${encodeURIComponent(activeConvo.id)}/send`, { body:msgDraft.trim() });
@@ -13643,10 +15740,14 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
         msg.time = saved?.message?.created_at ? new Date(saved.message.created_at).toLocaleTimeString([], { hour:"numeric", minute:"2-digit" }) : "now";
       } catch {}
     }
+    if (selectedGif) {
+      const sentGifs = ls.get(GIF_LS_MESSAGE_GIFS, []);
+      ls.set(GIF_LS_MESSAGE_GIFS, [{ ...selectedGif, sentAt:Date.now(), threadId:activeConvo.id }, ...sentGifs].slice(0,40));
+    }
     const updated = convos.map(c=>c.id===activeConvo.id ? {...c, messages:[...c.messages,msg], lastTime:"now"} : c);
     setConvos(updated);
     setActiveConvo(prev=>({...prev, messages:[...prev.messages,msg]}));
-    setMsgDraft(""); setAttachPreview(null);
+    setMsgDraft(""); setAttachPreview(null); setSelectedGif(null);
   };
 
   // Send a charm into the active conversation
@@ -13799,9 +15900,21 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
             </div>
           </div>
         </button>
+        {/* 🚩 report/block this conversation's fan */}
+        <button onClick={()=>setShowDmReportSheet(true)} title="Report or block" style={{ width:32,height:32,borderRadius:"50%",background:C.surfaceHi,border:`1.5px solid ${C.borderHi}`,color:C.textMid,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>🚩</button>
         {/* ⓘ opens Shared Space quick sheet */}
         <button onClick={()=>{ setViewProfileFan(activeConvo.fan); setViewSharedSpace(true); }} style={{ width:32,height:32,borderRadius:"50%",background:C.surfaceHi,border:`1.5px solid ${C.borderHi}`,color:C.textMid,fontSize:13,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>ⓘ</button>
       </div>
+      {dmNotif && <NotifBanner notif={dmNotif} onDismiss={()=>setDmNotif(null)} />}
+      {showDmReportSheet && (
+        <ReportSheet
+          type="user"
+          targetId={activeConvo.fan?.id || activeConvo.fan?.userId}
+          targetHandle={activeConvo.fan?.username || activeConvo.fan?.name}
+          onClose={()=>setShowDmReportSheet(false)}
+          onNotif={n=>{ setShowDmReportSheet(false); setDmNotif(n); setActiveConvo(null); }}
+        />
+      )}
 
       {/* Messages scroll area */}
       <div style={{ flex:1,overflowY:"auto",padding:"14px 16px",display:"flex",flexDirection:"column",gap:10,position:"relative" }}>
@@ -13862,10 +15975,15 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
                   <div
                     onClick={()=>{ setReactionPicker(isPickerOpen?null:{convoId:activeConvo.id,msgIdx:i}); setKitOpen(false); setCharmPickerOpen(false); }}
                     style={{ maxWidth:"78%",cursor:"pointer" }}>
-                    <div style={{ background:isMe?`linear-gradient(140deg,${C.accent},${C.accentDim})`:C.surfaceHi,borderRadius:isMe?"18px 18px 4px 18px":"18px 18px 18px 4px",padding:msg.image?"4px":"10px 14px",border:isMe?"none":`1px solid ${C.border}`,overflow:"hidden" }}>
+                    <div style={{ background:isMe?`linear-gradient(140deg,${C.accent},${C.accentDim})`:C.surfaceHi,borderRadius:isMe?"18px 18px 4px 18px":"18px 18px 18px 4px",padding:(msg.image||msg.gif)?"4px":"10px 14px",border:isMe?"none":`1px solid ${C.border}`,overflow:"hidden" }}>
                       {msg.image&&<img src={msg.image} alt="attachment" style={{ width:"100%",maxHeight:200,objectFit:"cover",borderRadius:msg.text?"8px 8px 0 0":"10px",display:"block" }} />}
-                      {msg.text&&<p style={{ fontSize:13,lineHeight:1.6,color:isMe?C.white:C.text,padding:msg.image?"6px 10px 2px":"0" }}>{msg.text}</p>}
-                      <p style={{ fontSize:8.5,color:isMe?"rgba(255,255,255,0.5)":C.textDim,padding:msg.image?"0 10px 6px":"3px 0 0" }}>{msg.time}</p>
+                      {msg.gif&&(
+                        msg.gif.previewUrl
+                          ? <img src={msg.gif.previewUrl} alt={msg.gif.title||"GIF reaction"} style={{ width:"100%",maxHeight:200,objectFit:"cover",borderRadius:msg.text?"8px 8px 0 0":"10px",display:"block" }} />
+                          : <GifPreviewBubble gif={msg.gif} size="100%" rounded={msg.text?0:10} />
+                      )}
+                      {msg.text&&<p style={{ fontSize:13,lineHeight:1.6,color:isMe?C.white:C.text,padding:(msg.image||msg.gif)?"6px 10px 2px":"0" }}>{msg.text}</p>}
+                      <p style={{ fontSize:8.5,color:isMe?"rgba(255,255,255,0.5)":C.textDim,padding:(msg.image||msg.gif)?"0 10px 6px":"3px 0 0" }}>{msg.time}</p>
                     </div>
                   </div>
                 )}
@@ -13907,6 +16025,16 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
         </div>
       )}
 
+      {/* Selected GIF — queued above the send button until message goes out */}
+      {selectedGif&&(
+        <div style={{ padding:"8px 16px 0",flexShrink:0,background:C.bg }}>
+          <div style={{ position:"relative",display:"inline-block" }}>
+            <GifPreviewBubble gif={selectedGif} size={72} rounded={12} />
+            <button onClick={()=>setSelectedGif(null)} style={{ position:"absolute",top:-6,right:-6,width:20,height:20,borderRadius:"50%",background:C.rose,border:"none",color:C.white,fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center" }}>✕</button>
+          </div>
+        </div>
+      )}
+
       {/* ── INPUT BAR ── */}
       <div style={{ padding:"10px 14px 14px",display:"flex",gap:8,alignItems:"center",borderTop:`1px solid ${C.border}`,flexShrink:0,background:C.bg }}>
         {/* Backstage Kit button */}
@@ -13916,23 +16044,38 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
           style={{ width:40,height:40,borderRadius:12,background:kitOpen?`linear-gradient(135deg,${C.accent}33,${C.berry}22)`:`${C.surfaceHi}`,border:`1.5px solid ${kitOpen?C.accent:C.borderHi}`,color:kitOpen?C.accent:C.silver,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,transition:"all .2s",boxShadow:kitOpen?`0 0 14px ${C.accent}28`:"none",fontSize:16,fontFamily:"'Epilogue',sans-serif",fontWeight:800 }}>
           {kitOpen?"✕":"✦"}
         </button>
+        {/* GIF / reaction button */}
+        <button
+          onClick={()=>{ setGifPickerOpen(true); setKitOpen(false); setCharmPickerOpen(false); }}
+          title="Send a reaction"
+          style={{ width:40,height:40,borderRadius:12,background:selectedGif?`linear-gradient(135deg,${C.accent}33,${C.berry}22)`:`${C.surfaceHi}`,border:`1.5px solid ${selectedGif?C.accent:C.borderHi}`,color:selectedGif?C.accent:C.silver,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,transition:"all .2s",fontSize:13,fontFamily:"'Epilogue',sans-serif",fontWeight:800 }}>
+          GIF
+        </button>
         <input ref={attachRef} type="file" accept="image/*,video/*" onChange={handleAttach} style={{ display:"none" }} />
         {/* Input — improved contrast: brighter border + placeholder, strong text */}
         <input
           value={msgDraft}
           onChange={e=>setMsgDraft(e.target.value)}
           onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); sendMessage(); }}}
-          placeholder={attachPreview?"Add a caption...":"Send a message..."}
+          placeholder={selectedGif?"Add a caption...":(attachPreview?"Add a caption...":"Send a message...")}
           style={{ flex:1,padding:"11px 14px",borderRadius:13,background:C.surfaceMid,border:`1.5px solid ${C.borderHi}`,color:C.text,fontSize:13,outline:"none",fontFamily:"'Instrument Sans',sans-serif","::placeholder":{color:C.textMid} }}
         />
         {/* Send button — glow when active, legible when muted */}
         <button
           onClick={sendMessage}
-          disabled={!msgDraft.trim()&&!attachPreview}
-          style={{ width:40,height:40,borderRadius:12,background:(msgDraft.trim()||attachPreview)?`linear-gradient(140deg,${C.accent},${C.pink})`:`${C.surfaceHi}`,border:(msgDraft.trim()||attachPreview)?"none":`1.5px solid ${C.border}`,color:(msgDraft.trim()||attachPreview)?C.bg:C.textMid,fontSize:15,fontWeight:700,cursor:(msgDraft.trim()||attachPreview)?"pointer":"default",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all .2s",boxShadow:(msgDraft.trim()||attachPreview)?`0 0 14px ${C.accent}40`:"none" }}>
+          disabled={!msgDraft.trim()&&!attachPreview&&!selectedGif}
+          style={{ width:40,height:40,borderRadius:12,background:(msgDraft.trim()||attachPreview||selectedGif)?`linear-gradient(140deg,${C.accent},${C.pink})`:`${C.surfaceHi}`,border:(msgDraft.trim()||attachPreview||selectedGif)?"none":`1.5px solid ${C.border}`,color:(msgDraft.trim()||attachPreview||selectedGif)?C.bg:C.textMid,fontSize:15,fontWeight:700,cursor:(msgDraft.trim()||attachPreview||selectedGif)?"pointer":"default",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all .2s",boxShadow:(msgDraft.trim()||attachPreview||selectedGif)?`0 0 14px ${C.accent}40`:"none" }}>
           →
         </button>
       </div>
+
+      {/* GIF picker bottom sheet */}
+      {gifPickerOpen&&(
+        <GifPicker
+          onSelect={(gif)=>setSelectedGif(gif)}
+          onClose={()=>setGifPickerOpen(false)}
+        />
+      )}
 
       {/* ── BACKSTAGE KIT TRAY ── */}
       {kitOpen&&(
@@ -14144,7 +16287,7 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
       {/* ── DM / GROUPS SEGMENTED TABS ── */}
       <div style={{ display:"flex",gap:0,padding:"10px 18px 0",flexShrink:0 }}>
         {[["dms","DMs"],["groups","Groups"]].map(([id,label])=>(
-          <button key={id} onClick={()=>setDmTab(id)} style={{ flex:1,padding:"8px",borderRadius:0,borderBottom:`2px solid ${dmTab===id?C.accent:"transparent"}`,background:"none",border:"none",borderBottom:`2px solid ${dmTab===id?C.accent:"transparent"}`,color:dmTab===id?C.accent:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:dmTab===id?800:500,fontSize:12.5,cursor:"pointer",transition:"all .18s" }}>{label}{id==="groups"&&groups.length>0&&<span style={{ marginLeft:5,background:`${C.mint}22`,border:`1px solid ${C.mint}44`,borderRadius:99,padding:"1px 6px",fontSize:9,color:C.mint }}>{groups.length}</span>}</button>
+          <button key={id} onClick={()=>setDmTab(id)} style={{ flex:1,padding:"8px",borderRadius:0,background:"none",border:"none",borderBottom:`2px solid ${dmTab===id?C.accent:"transparent"}`,color:dmTab===id?C.accent:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:dmTab===id?800:500,fontSize:12.5,cursor:"pointer",transition:"all .18s" }}>{label}{id==="groups"&&groups.length>0&&<span style={{ marginLeft:5,background:`${C.mint}22`,border:`1px solid ${C.mint}44`,borderRadius:99,padding:"1px 6px",fontSize:9,color:C.mint }}>{groups.length}</span>}</button>
         ))}
       </div>
       <div style={{ height:1,background:`linear-gradient(90deg,transparent,${C.borderHi},transparent)`,flexShrink:0 }} />
@@ -14715,11 +16858,136 @@ function AccountSettings({ user, isVip, go, onUpgrade, onBack, privacySettings, 
   const [subStatus, setSubStatus]   = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshMsg, setRefreshMsg] = useState("");
+  // ── Account & Security modals ──
+  const [showChangeUsername, setShowChangeUsername] = useState(false);
+  const [showChangeEmail,    setShowChangeEmail]    = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [modalLoading,  setModalLoading]  = useState(false);
+  const [modalErr,      setModalErr]      = useState("");
+  const [modalSuccess,  setModalSuccess]  = useState("");
+  const [newUsername,   setNewUsername]   = useState("");
+  const [usernameAvail, setUsernameAvail] = useState(null); // null | true | false
+  const [checkingUn,    setCheckingUn]    = useState(false);
+  const [newEmail,      setNewEmail]      = useState("");
+  const [currentPassForEmail, setCurrentPassForEmail] = useState("");
+  const [currentPassForPw,    setCurrentPassForPw]    = useState("");
+  const [newPass,       setNewPass]       = useState("");
+  const [newPassConfirm, setNewPassConfirm] = useState("");
+  const [verifSent,     setVerifSent]     = useState(false);
 
   useEffect(()=>{ setAccountProfile(user); }, [user]);
 
   const cachedProfile = ls.get('backstage_session')?.user;
   const authEmail    = auth.session?.user?.email || auth.user?.email || accountProfile?.email || cachedProfile?.email || "—";
+
+  // ── Modal helpers ──
+  const resetModal = () => {
+    setModalErr(""); setModalSuccess(""); setModalLoading(false);
+    setNewUsername(""); setUsernameAvail(null); setCheckingUn(false);
+    setNewEmail(""); setCurrentPassForEmail("");
+    setCurrentPassForPw(""); setNewPass(""); setNewPassConfirm("");
+  };
+  const handleCloseUsername = () => { setShowChangeUsername(false); resetModal(); };
+  const handleCloseEmail    = () => { setShowChangeEmail(false);    resetModal(); };
+  const handleClosePassword = () => { setShowChangePassword(false); resetModal(); };
+
+  // Username availability (debounced check)
+  useEffect(() => {
+    if (!newUsername.trim() || newUsername.trim().length < 2) { setUsernameAvail(null); return; }
+    if (isReservedUsername(newUsername.trim())) { setUsernameAvail(false); return; }
+    setCheckingUn(true);
+    const t = setTimeout(async () => {
+      try {
+        const res = await api.get(`/api/users/check-username?username=${encodeURIComponent(newUsername.trim())}`);
+        setUsernameAvail(res?.available === true);
+      } catch { setUsernameAvail(null); }
+      setCheckingUn(false);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [newUsername]);
+
+  const handleChangeUsername = async () => {
+    if (modalLoading) return;
+    // Normalize: lowercase, strip non-alphanumeric-underscore (mirrors backend + availability check)
+    const un = newUsername.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+    if (!un || un.length < 2) { setModalErr("Username must be at least 2 characters (letters, numbers, _)."); return; }
+    if (isReservedUsername(un)) { setModalErr("That username is reserved."); return; }
+    if (usernameAvail === false) { setModalErr("That username is already taken."); return; }
+    setModalLoading(true); setModalErr(""); setModalSuccess("");
+    try {
+      const res = await api.post('/api/profile/update', { username: un, handle: un });
+      if (res?.error) { setModalErr(res.error); }
+      else {
+        const updated = { ...(accountProfile||{}), username: un, handle: un };
+        setAccountProfile(updated);
+        const sess = ls.get('backstage_session');
+        ls.set('backstage_session', { ...(sess||{}), user: { ...(sess?.user||{}), username: un, handle: un } });
+        if (updated.id) ls.set(`backstage_profile_${updated.id}`, updated);
+        setModalSuccess("Username updated ✓");
+        setTimeout(handleCloseUsername, 1800);
+      }
+    } catch { setModalErr("Connection error. Try again."); }
+    setModalLoading(false);
+  };
+
+  const handleChangeEmail = async () => {
+    if (modalLoading) return;
+    if (!newEmail.trim()) { setModalErr("Enter a new email address."); return; }
+    if (!currentPassForEmail) { setModalErr("Enter your current password to confirm."); return; }
+    setModalLoading(true); setModalErr(""); setModalSuccess("");
+    try {
+      if (MOCK_AUTH) { setModalSuccess("Confirmation sent. Check your new inbox."); setModalLoading(false); return; }
+      const reauth = await _supabase.auth.signInWithPassword({ email: authEmail, password: currentPassForEmail });
+      if (reauth.error) {
+        const m = reauth.error.message?.toLowerCase() || '';
+        setModalErr(reauth.error.status === 429 || m.includes('too many') || m.includes('rate limit') || m.includes('security purposes')
+          ? "Too many attempts. Wait 1 minute and try again."
+          : "Incorrect password.");
+        setModalLoading(false); return;
+      }
+      const { error } = await _supabase.auth.updateUser({ email: newEmail.trim() });
+      if (error) { setModalErr(error.message); }
+      else { setModalSuccess("Confirmation sent to your new email. Check your inbox."); }
+    } catch { setModalErr("Connection error. Try again."); }
+    setModalLoading(false);
+  };
+
+  const handleChangePassword = async () => {
+    if (modalLoading) return;
+    if (!currentPassForPw) { setModalErr("Enter your current password."); return; }
+    if (newPass.length < 6) { setModalErr("New password must be at least 6 characters."); return; }
+    if (newPass !== newPassConfirm) { setModalErr("Passwords don't match."); return; }
+    setModalLoading(true); setModalErr(""); setModalSuccess("");
+    try {
+      if (MOCK_AUTH) { setModalSuccess("Password updated ✓"); setTimeout(handleClosePassword, 1800); setModalLoading(false); return; }
+      const reauth = await _supabase.auth.signInWithPassword({ email: authEmail, password: currentPassForPw });
+      if (reauth.error) {
+        const m = reauth.error.message?.toLowerCase() || '';
+        setModalErr(reauth.error.status === 429 || m.includes('too many') || m.includes('rate limit') || m.includes('security purposes')
+          ? "Too many attempts. Wait 1 minute and try again."
+          : "Current password is incorrect.");
+        setModalLoading(false); return;
+      }
+      const { error } = await _supabase.auth.updateUser({ password: newPass });
+      if (error) { setModalErr(error.message); }
+      else { setModalSuccess("Password updated ✓"); setTimeout(handleClosePassword, 1800); }
+    } catch { setModalErr("Connection error. Try again."); }
+    setModalLoading(false);
+  };
+
+  const handleResendVerification = async () => {
+    setVerifSent(false);
+    try {
+      if (!MOCK_AUTH && _supabase) await _supabase.auth.resend({ type: 'signup', email: authEmail });
+    } catch {}
+    setVerifSent(true);
+    setTimeout(() => setVerifSent(false), 4000);
+  };
+
+  const handleLogoutAll = async () => {
+    if (_supabase) await _supabase.auth.signOut({ scope: 'global' }).catch(()=>{});
+    go("signout");
+  };
   const profileEmail = accountProfile?.email || cachedProfile?.email || "—";
   const emailsDiffer = authEmail && profileEmail && authEmail !== "—" && profileEmail !== "—" && authEmail !== profileEmail;
 
@@ -14849,15 +17117,31 @@ function AccountSettings({ user, isVip, go, onUpgrade, onBack, privacySettings, 
           ))}
         </Card>
 
-        {/* SECURITY */}
-        <SectionHeader title="Security" />
-        <div style={{ display:"flex",flexDirection:"column",gap:8,marginBottom:24 }}>
+        {/* ACCOUNT & SECURITY */}
+        <SectionHeader title="Account & Security" />
+        <div style={{ display:"flex",flexDirection:"column",gap:8,marginBottom:8 }}>
+          {[
+            { label:"✏️ Change Username",  action:()=>setShowChangeUsername(true) },
+            { label:"📧 Change Email",      action:()=>setShowChangeEmail(true) },
+            { label:"🔑 Change Password",   action:()=>setShowChangePassword(true) },
+          ].map(({label,action})=>(
+            <button key={label} onClick={action} className="tap" style={{ width:"100%",padding:"13px 16px",borderRadius:14,background:C.surface,border:`1.5px solid ${C.border}`,color:C.text,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+              <span>{label}</span><span style={{ color:C.textDim,fontSize:16 }}>›</span>
+            </button>
+          ))}
+          <button onClick={handleResendVerification} className="tap" style={{ width:"100%",padding:"13px 16px",borderRadius:14,background:C.surface,border:`1.5px solid ${C.border}`,color:verifSent?C.mint:C.text,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+            <span>{verifSent?"✓ Verification email sent":"✉️ Resend Verification Email"}</span><span style={{ color:C.textDim,fontSize:16 }}>›</span>
+          </button>
+        </div>
+        <div style={{ display:"flex",flexDirection:"column",gap:8,marginBottom:8 }}>
           <button onClick={()=>go("signout")} className="tap" style={{ width:"100%",padding:"13px 16px",borderRadius:14,background:C.surface,border:`1.5px solid ${C.border}`,color:C.text,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
             <span>🚪 Log Out</span><span style={{ color:C.textDim,fontSize:16 }}>›</span>
           </button>
-          <a href={`mailto:support@backstagefanverse.com?subject=Password Reset&body=Account email: ${authEmail}`} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"13px 16px",borderRadius:14,background:C.surface,border:`1.5px solid ${C.border}`,color:C.text,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:13,textDecoration:"none",boxSizing:"border-box" }}>
-            <span>🔑 Reset Password</span><span style={{ color:C.textDim,fontSize:16 }}>›</span>
-          </a>
+          <button onClick={handleLogoutAll} className="tap" style={{ width:"100%",padding:"13px 16px",borderRadius:14,background:C.surface,border:`1.5px solid ${C.border}`,color:C.text,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+            <span>🔓 Log Out All Devices</span><span style={{ color:C.textDim,fontSize:16 }}>›</span>
+          </button>
+        </div>
+        <div style={{ marginBottom:24 }}>
           <button onClick={onShowDeleteModal} className="tap" style={{ width:"100%",padding:"13px 16px",borderRadius:14,background:"transparent",border:`1.5px solid ${C.rose}44`,color:C.rose,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
             <span>🗑 Delete Account</span><span style={{ color:C.rose,fontSize:16,opacity:0.5 }}>›</span>
           </button>
@@ -14865,6 +17149,75 @@ function AccountSettings({ user, isVip, go, onUpgrade, onBack, privacySettings, 
 
         <p style={{ textAlign:"center",fontSize:9.5,color:C.textDim,marginBottom:16 }}>Backstage v1.6.0 · Private account data only</p>
       </Screen>
+
+      {/* ── Change Username modal ── */}
+      {showChangeUsername&&(
+        <div onClick={()=>{if(!modalLoading)handleCloseUsername();}} style={{ position:"fixed",inset:0,zIndex:900,background:"rgba(0,0,0,0.72)",backdropFilter:"blur(6px)",display:"flex",alignItems:"flex-end",justifyContent:"center" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ width:"100%",maxWidth:540,background:"linear-gradient(160deg,#160822,#0e0620)",borderRadius:"24px 24px 0 0",padding:"28px 24px 48px",border:"1.5px solid rgba(184,162,255,0.22)",borderBottom:"none",animation:"slideUp .26s ease",boxShadow:"0 -20px 60px rgba(0,0,0,0.65)" }}>
+            <div style={{ width:36,height:4,borderRadius:2,background:"rgba(255,255,255,0.18)",margin:"0 auto 22px" }} />
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18,marginBottom:6 }}>Change Username</p>
+            <p style={{ fontSize:12,color:C.textMid,marginBottom:18 }}>Current: <span style={{ color:C.accent }}>@{accountProfile?.username||accountProfile?.handle||"—"}</span></p>
+            {modalErr&&<p style={{ fontSize:11.5,color:C.rose,marginBottom:12 }}>{modalErr}</p>}
+            {modalSuccess&&<p style={{ fontSize:11.5,color:C.mint,marginBottom:12 }}>{modalSuccess}</p>}
+            <Input label="New username" value={newUsername} onChange={e=>{setNewUsername(e.target.value);setModalErr("");}} placeholder="new_stan_name" style={{ marginBottom:6 }} />
+            {newUsername.trim().length>=2&&(
+              <p style={{ fontSize:11,marginBottom:14,color:checkingUn?C.textMid:usernameAvail===true?C.mint:usernameAvail===false?C.rose:C.textMid }}>
+                {checkingUn?"Checking…":usernameAvail===true?"✓ Available":usernameAvail===false?isReservedUsername(newUsername.trim())?"Reserved — try a different name":"Already taken":""}
+              </p>
+            )}
+            <div style={{ display:"flex",gap:10,marginTop:8 }}>
+              <button onClick={handleCloseUsername} disabled={modalLoading} style={{ flex:1,padding:"13px",borderRadius:14,background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.12)",color:"rgba(255,255,255,0.72)",fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer" }}>Cancel</button>
+              <button onClick={handleChangeUsername} disabled={modalLoading||!newUsername.trim()||usernameAvail===false||checkingUn} style={{ flex:1,padding:"13px",borderRadius:14,background:(!modalLoading&&newUsername.trim()&&usernameAvail!==false)?`${C.accent}22`:"rgba(255,255,255,0.03)",border:`1.5px solid ${(!modalLoading&&newUsername.trim()&&usernameAvail!==false)?C.accent:"rgba(255,255,255,0.08)"}`,color:(!modalLoading&&newUsername.trim()&&usernameAvail!==false)?C.accent:"rgba(255,255,255,0.22)",fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,cursor:(!modalLoading&&newUsername.trim()&&usernameAvail!==false)?"pointer":"default",transition:"all .18s" }}>
+                {modalLoading?"Saving…":"Save Username"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Change Email modal ── */}
+      {showChangeEmail&&(
+        <div onClick={()=>{if(!modalLoading)handleCloseEmail();}} style={{ position:"fixed",inset:0,zIndex:900,background:"rgba(0,0,0,0.72)",backdropFilter:"blur(6px)",display:"flex",alignItems:"flex-end",justifyContent:"center" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ width:"100%",maxWidth:540,background:"linear-gradient(160deg,#160822,#0e0620)",borderRadius:"24px 24px 0 0",padding:"28px 24px 48px",border:"1.5px solid rgba(184,162,255,0.22)",borderBottom:"none",animation:"slideUp .26s ease",boxShadow:"0 -20px 60px rgba(0,0,0,0.65)" }}>
+            <div style={{ width:36,height:4,borderRadius:2,background:"rgba(255,255,255,0.18)",margin:"0 auto 22px" }} />
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18,marginBottom:6 }}>Change Email</p>
+            <p style={{ fontSize:12,color:C.textMid,marginBottom:18 }}>Current: <span style={{ color:C.accent }}>{authEmail}</span></p>
+            {modalErr&&<p style={{ fontSize:11.5,color:C.rose,marginBottom:12 }}>{modalErr}</p>}
+            {modalSuccess&&<p style={{ fontSize:11.5,color:C.mint,marginBottom:12,lineHeight:1.55 }}>{modalSuccess}</p>}
+            <Input label="New email address" value={newEmail} onChange={e=>{setNewEmail(e.target.value);setModalErr("");}} placeholder="new@example.com" type="email" style={{ marginBottom:12 }} />
+            <Input label="Current password" value={currentPassForEmail} onChange={e=>{setCurrentPassForEmail(e.target.value);setModalErr("");}} placeholder="Confirm your identity" type="password" style={{ marginBottom:8 }} />
+            <p style={{ fontSize:10.5,color:C.textMid,marginBottom:18,lineHeight:1.55 }}>We'll send a confirmation link to your new email. Your current email stays active until you confirm.</p>
+            <div style={{ display:"flex",gap:10 }}>
+              <button onClick={handleCloseEmail} disabled={modalLoading} style={{ flex:1,padding:"13px",borderRadius:14,background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.12)",color:"rgba(255,255,255,0.72)",fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer" }}>Cancel</button>
+              <button onClick={handleChangeEmail} disabled={modalLoading||!newEmail.trim()||!currentPassForEmail} style={{ flex:1,padding:"13px",borderRadius:14,background:(!modalLoading&&newEmail.trim()&&currentPassForEmail)?`${C.accent}22`:"rgba(255,255,255,0.03)",border:`1.5px solid ${(!modalLoading&&newEmail.trim()&&currentPassForEmail)?C.accent:"rgba(255,255,255,0.08)"}`,color:(!modalLoading&&newEmail.trim()&&currentPassForEmail)?C.accent:"rgba(255,255,255,0.22)",fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,cursor:(!modalLoading&&newEmail.trim()&&currentPassForEmail)?"pointer":"default",transition:"all .18s" }}>
+                {modalLoading?"Sending…":"Send Confirmation"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Change Password modal ── */}
+      {showChangePassword&&(
+        <div onClick={()=>{if(!modalLoading)handleClosePassword();}} style={{ position:"fixed",inset:0,zIndex:900,background:"rgba(0,0,0,0.72)",backdropFilter:"blur(6px)",display:"flex",alignItems:"flex-end",justifyContent:"center" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ width:"100%",maxWidth:540,background:"linear-gradient(160deg,#160822,#0e0620)",borderRadius:"24px 24px 0 0",padding:"28px 24px 48px",border:"1.5px solid rgba(184,162,255,0.22)",borderBottom:"none",animation:"slideUp .26s ease",boxShadow:"0 -20px 60px rgba(0,0,0,0.65)" }}>
+            <div style={{ width:36,height:4,borderRadius:2,background:"rgba(255,255,255,0.18)",margin:"0 auto 22px" }} />
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18,marginBottom:18 }}>Change Password</p>
+            {modalErr&&<p style={{ fontSize:11.5,color:C.rose,marginBottom:12 }}>{modalErr}</p>}
+            {modalSuccess&&<p style={{ fontSize:11.5,color:C.mint,marginBottom:12 }}>{modalSuccess}</p>}
+            <Input label="Current password" value={currentPassForPw} onChange={e=>{setCurrentPassForPw(e.target.value);setModalErr("");}} placeholder="Your current password" type="password" style={{ marginBottom:12 }} />
+            <Input label="New password" value={newPass} onChange={e=>{setNewPass(e.target.value);setModalErr("");}} placeholder="At least 6 characters" type="password" style={{ marginBottom:12 }} />
+            <Input label="Confirm new password" value={newPassConfirm} onChange={e=>{setNewPassConfirm(e.target.value);setModalErr("");}} placeholder="Repeat new password" type="password" style={{ marginBottom:8 }} />
+            {newPass&&newPassConfirm&&newPass!==newPassConfirm&&<p style={{ fontSize:11,color:C.rose,marginBottom:12 }}>Passwords don't match</p>}
+            <div style={{ display:"flex",gap:10,marginTop:10 }}>
+              <button onClick={handleClosePassword} disabled={modalLoading} style={{ flex:1,padding:"13px",borderRadius:14,background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.12)",color:"rgba(255,255,255,0.72)",fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer" }}>Cancel</button>
+              <button onClick={handleChangePassword} disabled={modalLoading||!currentPassForPw||newPass.length<6||newPass!==newPassConfirm} style={{ flex:1,padding:"13px",borderRadius:14,background:(!modalLoading&&currentPassForPw&&newPass.length>=6&&newPass===newPassConfirm)?`${C.accent}22`:"rgba(255,255,255,0.03)",border:`1.5px solid ${(!modalLoading&&currentPassForPw&&newPass.length>=6&&newPass===newPassConfirm)?C.accent:"rgba(255,255,255,0.08)"}`,color:(!modalLoading&&currentPassForPw&&newPass.length>=6&&newPass===newPassConfirm)?C.accent:"rgba(255,255,255,0.22)",fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,cursor:(!modalLoading&&currentPassForPw&&newPass.length>=6&&newPass===newPassConfirm)?"pointer":"default",transition:"all .18s" }}>
+                {modalLoading?"Saving…":"Update Password"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -14963,6 +17316,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
   const [displayCity, setDisplayCity] = useState(user?.city || ls.get(`backstage_city_${user?.id || 'anon'}`, ''));
   const [editingCity, setEditingCity] = useState(false);
   const [cityDraft, setCityDraft] = useState(user?.city || ls.get(`backstage_city_${user?.id || 'anon'}`, ''));
+  const [citySuggestions, setCitySuggestions] = useState([]);
   const pushUserKey = user?.id || user?.email || "anon";
   const [notifOn, setNotifOn] = useState(()=>{
     const key = user?.id || user?.email || "anon";
@@ -14970,7 +17324,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
     const perm = window.Notification?.permission;
     return saved === true && perm === "granted";
   });
-  const [section, setSection] = useState("main");
+  const [section, setSection] = useState(()=>{ if(ls.get("backstage_open_studio",false)){ ls.set("backstage_open_studio",false); return "studio"; } return "main"; });
   const [profileStyle, setProfileStyle] = useState(ls.get("backstage_profile_style", DEFAULT_PROFILE_STYLE));
   const [privacySettings, setPrivacySettings] = useState(()=>{
     const cached = ls.get("backstage_privacy_settings", DEFAULT_PRIVACY);
@@ -15004,7 +17358,22 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
   const profileVip = isVip || hasVipEntitlement(user) || hasVipEntitlement(cachedUser) || getCachedVip(user || cachedUser);
   const founderVip = user?.vip_source === "founder" || cachedUser?.vip_source === "founder";
 
-  useEffect(()=>{ ls.set("backstage_top5", top5); }, [top5]);
+  const top5Mounted = useRef(false);
+  useEffect(() => {
+    ls.set("backstage_top5", top5);
+    // Sync top5 to user.fandoms in DB — skip the initial mount (that's the stored value,
+    // not a user action). Only fire when the user explicitly adds/removes/reorders a group.
+    if (!top5Mounted.current) { top5Mounted.current = true; return; }
+    if (!user?.id) return;
+    api.patch('/api/users/me', { fandoms: top5, favorite_groups: top5 }).catch(() => {});
+    // Mirror to localStorage so mergeStoredProfile sees the change immediately
+    const sess = ls.get('backstage_session');
+    if (sess?.user) {
+      const updated = { ...sess.user, fandoms: top5, favorite_groups: top5 };
+      ls.set('backstage_session', { user: updated });
+      ls.set(`backstage_profile_${user.id}`, updated);
+    }
+  }, [top5]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(()=>{ ls.set("backstage_profile_style", profileStyle); }, [profileStyle]);
   useEffect(()=>{ ls.set("backstage_privacy_settings", privacySettings); }, [privacySettings]);
   useEffect(()=>{ ls.set("backstage_notification_settings", notifSettings); }, [notifSettings]);
@@ -15024,22 +17393,50 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
     }
   };
 
-  const saveCity = () => {
-    const trimmed = cityDraft.trim();
-    setDisplayCity(trimmed);
-    setCityDraft(trimmed);
+  // saveCity — accepts an optional CITY_LIST entry for normalized storage.
+  // When a suggestion is clicked, pass the entry. When the user types a custom
+  // city and hits Save, entry is null and we just use the raw draft string.
+  const saveCity = (entry = null) => {
+    // display: short form for UI + DB ("San Antonio, TX" / "Seoul, South Korea")
+    const display = entry ? makeCityDisplay(entry) : cityDraft.trim();
+    if (!display) { setEditingCity(false); setCitySuggestions([]); return; }
+    setDisplayCity(display);
+    setCityDraft(display);
     setEditingCity(false);
-    ls.set(cityKey, trimmed);
+    setCitySuggestions([]);
+    ls.set(cityKey, display);
     const sess = ls.get('backstage_session');
-    if (sess?.user) ls.set('backstage_session', {...sess, user:{...sess.user, city:trimmed}});
-    if (API_URL) api.post('/api/profile/update', { city: trimmed }).catch(()=>{});
+    if (sess?.user) ls.set('backstage_session', {...sess, user:{...sess.user, city:display}});
+    if (user?.id) ls.set(`backstage_profile_${user.id}`, {...(ls.get(`backstage_profile_${user.id}`)||{}), city:display});
+    // Build normalized location payload — always includes city display string.
+    // When the user picked from the autocomplete list, include all Hub-ready fields.
+    const locationPayload = { city: display };
+    if (entry) {
+      const full = makeCityFull(entry);
+      const key  = makeCityKey(entry);
+      Object.assign(locationPayload, {
+        city_display: full,           // "San Antonio, TX, USA"
+        city_key:     key,            // "san_antonio_tx_us"
+        region:       entry.region,   // "Texas"
+        region_code:  entry.region_code, // "TX"
+        country:      entry.country,  // "United States"
+        country_code: entry.country_code, // "US"
+        continent:    entry.continent, // "North America"
+        city_lat:     entry.lat,      // 29.42
+        city_lng:     entry.lng,      // -98.49
+        timezone:     entry.timezone, // "America/Chicago"
+      });
+      // Mirror full meta into localStorage for offline/mock reads
+      if (user?.id) ls.set(`backstage_city_meta_${user.id}`, { ...locationPayload });
+    }
+    if (API_URL) api.post('/api/profile/update', locationPayload).catch(()=>{});
   };
 
   // ── SECTION: TOP 5 ──
   if(section==="top5") return <Top5Section top5={top5} setTop5={setTop5} onBack={()=>setSection("main")} />;
 
   // ── SECTION: MY SHOWS ──
-  if(section==="myshows") return <MyShowsPage onBack={()=>setSection("main")} isVip={isVip} onUpgrade={onUpgrade} />;
+  if(section==="myshows") return <MyShowsPage onBack={()=>setSection("main")} isVip={isVip} onUpgrade={onUpgrade} go={go} />;
 
   // ── SECTION: PROFILE STUDIO ──
   if(section==="studio") return <ProfileStudio profileStyle={profileStyle} setProfileStyle={setProfileStyle} isVip={isVip} onUpgrade={onUpgrade} onBack={()=>setSection("main")} user={user} />;
@@ -15087,9 +17484,12 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
         <div key={i} style={{ position:"absolute", top:`${SPARKLE_POS[i]?.[0]??i*12}%`, left:`${SPARKLE_POS[i]?.[1]??80}%`, fontSize:ch.length>1?16:11, opacity:0.15, animation:`sparkleFloat ${3.5+i*0.6}s ease-in-out infinite`, animationDelay:`${i*0.45}s`, color:"rgba(255,255,255,0.9)", pointerEvents:"none", zIndex:0 }}>{ch}</div>
       ))}
       <Screen style={{ position:"relative", zIndex:1 }}>
-        {/* Fan passport label */}
+        {/* My Stage label */}
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"18px 20px 0" }}>
-          <p style={{ fontSize:9, color:"rgba(255,255,255,0.25)", fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.18em" }}>✦ Your fan passport</p>
+          <div>
+            <p style={{ fontSize:9, color:"rgba(255,255,255,0.25)", fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.18em" }}>✦ My Stage</p>
+            <p style={{ fontSize:8.5, color:"rgba(255,255,255,0.15)", fontFamily:"'Epilogue',sans-serif", fontWeight:500, marginTop:2 }}>Your fandom. Your memories. Your stage.</p>
+          </div>
         </div>
         {/* STATUS BANNER — uses active skin gradient */}
         <div style={{ background:activeSkinGrad, borderRadius:28, padding:"22px 18px 18px", marginTop:18, marginBottom:18, position:"relative", minHeight:120, boxShadow:`0 16px 48px rgba(0,0,0,0.6), 0 4px 20px ${C.berry}18`, overflow:"hidden" }}>
@@ -15142,8 +17542,8 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
             </div>
           </div>
           <div style={{ position:"absolute",top:12,right:12,display:"flex",gap:6 }}>
-            <button onClick={()=>setSection("preview")} style={{ background:"rgba(6,6,15,0.5)",border:`1px solid ${C.borderHi}`,borderRadius:9,padding:"5px 10px",color:C.textMid,fontSize:10,cursor:"pointer",fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>👁 Preview</button>
-            <button onClick={()=>setSection("studio")} style={{ background:"rgba(6,6,15,0.5)",border:`1px solid ${C.borderHi}`,borderRadius:9,padding:"5px 10px",color:C.textMid,fontSize:10,cursor:"pointer",fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>Studio ✦</button>
+            <button onClick={()=>setSection("preview")} style={{ background:"rgba(6,6,15,0.5)",border:`1px solid ${C.borderHi}`,borderRadius:9,padding:"5px 10px",color:C.textMid,fontSize:10,cursor:"pointer",fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>👁 View My Stage</button>
+            <button onClick={()=>setSection("studio")} style={{ background:"rgba(6,6,15,0.5)",border:`1px solid ${C.borderHi}`,borderRadius:9,padding:"5px 10px",color:C.textMid,fontSize:10,cursor:"pointer",fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>Stage Studio ✦</button>
           </div>
         </div>
 
@@ -15179,31 +17579,67 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
             <div style={{ flex:1, minWidth:0 }}>
               <p style={{ fontSize:8.5, color:C.textDim, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.12em", marginBottom:4 }}>📍 Display City</p>
               {editingCity ? (
-                <div style={{ display:"flex", gap:6, alignItems:"center" }}>
-                  <input
-                    value={cityDraft}
-                    onChange={e=>setCityDraft(e.target.value)}
-                    onKeyDown={e=>e.key==="Enter"&&saveCity()}
-                    placeholder="e.g. Dallas, TX"
-                    maxLength={40}
-                    autoFocus
-                    style={{ flex:1, background:"transparent", border:`1px solid ${C.accent}`, borderRadius:7, padding:"5px 9px", color:C.text, fontSize:12.5, outline:"none" }}
-                  />
-                  <button onClick={saveCity} style={{ background:C.accent, border:"none", borderRadius:7, padding:"5px 12px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer", flexShrink:0 }}>Save</button>
-                  <button onClick={()=>{ setCityDraft(displayCity); setEditingCity(false); }} style={{ background:"none", border:"none", color:C.textMid, fontSize:14, cursor:"pointer", flexShrink:0, lineHeight:1 }}>✕</button>
+                <div style={{ position:"relative" }}>
+                  <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                    <input
+                      value={cityDraft}
+                      onChange={e=>{
+                        const v = e.target.value;
+                        setCityDraft(v);
+                        if (v.trim().length >= 2) {
+                          const q = v.toLowerCase();
+                          const matches = CITY_LIST.filter(c =>
+                            c.city.toLowerCase().startsWith(q) ||
+                            makeCityDisplay(c).toLowerCase().startsWith(q) ||
+                            c.country.toLowerCase().startsWith(q) ||
+                            makeCityDisplay(c).toLowerCase().includes(q)
+                          ).slice(0, 6);
+                          setCitySuggestions(matches);
+                        } else {
+                          setCitySuggestions([]);
+                        }
+                      }}
+                      onKeyDown={e=>{
+                        if (e.key==="Enter") { setCitySuggestions([]); saveCity(); }
+                        if (e.key==="Escape") { setCityDraft(displayCity); setEditingCity(false); setCitySuggestions([]); }
+                      }}
+                      placeholder="Search a city…"
+                      maxLength={50}
+                      autoFocus
+                      style={{ flex:1, background:"transparent", border:`1px solid ${C.accent}`, borderRadius:7, padding:"5px 9px", color:C.text, fontSize:12.5, outline:"none" }}
+                    />
+                    <button onClick={()=>{ setCitySuggestions([]); saveCity(); }} style={{ background:C.accent, border:"none", borderRadius:7, padding:"5px 12px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer", flexShrink:0 }}>Save</button>
+                    <button onClick={()=>{ setCityDraft(displayCity); setEditingCity(false); setCitySuggestions([]); }} style={{ background:"none", border:"none", color:C.textMid, fontSize:14, cursor:"pointer", flexShrink:0, lineHeight:1 }}>✕</button>
+                  </div>
+                  {citySuggestions.length > 0 && (
+                    <div style={{ position:"absolute", top:"100%", left:0, right:0, zIndex:50, background:C.surfaceMid, border:`1px solid ${C.borderHi}`, borderRadius:9, marginTop:3, overflow:"hidden", boxShadow:"0 6px 18px rgba(0,0,0,0.45)" }}>
+                      {citySuggestions.map(c=>{
+                        // secondary: state code for US/CA, country name for everyone else
+                        const secondary = c.region_code
+                          ? `${c.region_code}${c.country_code !== 'US' ? ', ' + c.country : ''}`
+                          : c.country;
+                        return (
+                          <button key={makeCityKey(c)} onMouseDown={e=>{e.preventDefault(); saveCity(c);}} style={{ display:"block", width:"100%", background:"none", border:"none", textAlign:"left", padding:"8px 12px", color:C.text, fontSize:12, cursor:"pointer", fontFamily:"'Epilogue',sans-serif", borderBottom:`1px solid ${C.border}` }}>
+                            <span style={{ fontWeight:600 }}>{c.city}</span>
+                            <span style={{ color:C.textMid, marginLeft:6, fontSize:11 }}>{secondary}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               ) : (
-                <p style={{ fontSize:13, color:displayCity?C.text:C.textDim, fontStyle:displayCity?"normal":"italic" }}>
+                <p style={{ fontSize:13, color:displayCity?C.text:C.textMid, fontStyle:displayCity?"normal":"italic" }}>
                   {displayCity || "Add your city"}
                 </p>
               )}
             </div>
             {!editingCity && (
-              <button onClick={()=>{ setCityDraft(displayCity); setEditingCity(true); }} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:7, padding:"3px 9px", color:C.textMid, fontSize:10, cursor:"pointer", fontFamily:"'Epilogue',sans-serif", fontWeight:600, flexShrink:0, marginLeft:10 }}>Edit</button>
+              <button onClick={()=>{ setCityDraft(displayCity); setEditingCity(true); setCitySuggestions([]); }} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:7, padding:"3px 9px", color:C.textMid, fontSize:10, cursor:"pointer", fontFamily:"'Epilogue',sans-serif", fontWeight:600, flexShrink:0, marginLeft:10 }}>Edit</button>
             )}
           </div>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:9, paddingTop:9, borderTop:`1px solid ${C.border}` }}>
-            <p style={{ fontSize:10, color:C.textDim }}>
+            <p style={{ fontSize:10, color:C.textMid }}>
               {privacySettings.showCity ? "Shown on public profile" : "Hidden from public profile"}
             </p>
             <Toggle on={!!privacySettings.showCity} onChange={v=>{
@@ -15221,21 +17657,28 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
           const fandoms = user?.fandoms?.length
             ? user.fandoms
             : ls.get('backstage_session')?.user?.fandoms || [];
-          if (!fandoms.length) return null;
           return (
             <div style={{ background:`linear-gradient(140deg,${C.surfaceMid},${C.surface})`, border:`1px solid ${C.borderHi}`, borderRadius:18, padding:"13px 15px", marginBottom:16 }}>
               <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:8 }}>
                 <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12.5,flex:1 }}>💜 My Groups</p>
                 <button onClick={()=>setSection("top5")} style={{ background:"none",border:"none",color:C.accentDim,fontSize:10.5,cursor:"pointer",fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>Edit →</button>
               </div>
-              <div style={{ display:"flex",flexWrap:"wrap",gap:6,marginBottom:8 }}>
-                {fandoms.map(f=>(
-                  <span key={f} style={{ padding:"4px 11px",borderRadius:99,background:`${C.accent}14`,border:`1px solid ${C.accent}30`,fontSize:10.5,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{f}</span>
-                ))}
-              </div>
-              <p style={{ fontSize:9.5,color:C.textDim,fontStyle:"italic",lineHeight:1.5 }}>
-                Backstage uses these to personalize concerts and fan signals.
-              </p>
+              {fandoms.length > 0 ? (
+                <>
+                  <div style={{ display:"flex",flexWrap:"wrap",gap:6,marginBottom:8 }}>
+                    {fandoms.map(f=>(
+                      <span key={f} style={{ padding:"4px 11px",borderRadius:99,background:`${C.accent}14`,border:`1px solid ${C.accent}30`,fontSize:10.5,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{f}</span>
+                    ))}
+                  </div>
+                  <p style={{ fontSize:9.5,color:C.textMid,fontStyle:"italic",lineHeight:1.5 }}>
+                    Backstage uses these to personalize concerts and fan signals.
+                  </p>
+                </>
+              ) : (
+                <button onClick={()=>setSection("top5")} style={{ background:"none",border:"none",padding:0,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:4 }}>
+                  <span style={{ fontSize:10,color:C.textDim,fontStyle:"italic" }}>+ Add your groups — used for discovery and concerts</span>
+                </button>
+              )}
             </div>
           );
         })()}
@@ -15260,8 +17703,17 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
         {profileVip && (
           <div style={{ background:`linear-gradient(140deg,#221000,#150a00)`, border:`1.5px solid ${C.gold}55`, borderRadius:20, padding:"16px 18px", marginBottom:18, position:"relative", overflow:"hidden", boxShadow:`0 8px 28px ${C.gold}14` }}>
             <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.gold}88,transparent)` }} />
-            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:16,color:C.gold,marginBottom:4 }}>{founderVip?"Founder Pass Active":"Backstage VIP Active"}</p>
-            <p style={{ fontSize:11,color:"rgba(240,204,136,0.7)",lineHeight:1.55 }}>Your VIP features are active.</p>
+            {[{t:"10%",l:"76%",s:11,d:"0s"},{t:"68%",l:"84%",s:8,d:"1.1s"},{t:"42%",l:"5%",s:7,d:"0.6s"}].map((sp,i)=>(
+              <div key={i} style={{ position:"absolute",top:sp.t,left:sp.l,fontSize:sp.s,opacity:0.4,animation:`sparkleFloat 3.5s ease-in-out infinite`,animationDelay:sp.d,pointerEvents:"none",color:C.gold }}>✦</div>
+            ))}
+            {founderVip ? (
+              <FounderPrestigeCard />
+            ) : (
+              <div style={{ position:"relative" }}>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:15,color:C.gold,marginBottom:4 }}>Backstage VIP Active ✦</p>
+                <p style={{ fontSize:11,color:"rgba(240,204,136,0.7)",lineHeight:1.55 }}>Full fan era unlocked. Every feature. Every concert — yours.</p>
+              </div>
+            )}
           </div>
         )}
 
@@ -15275,8 +17727,8 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
             <div style={{ position:"relative", display:"flex", gap:12, alignItems:"center" }}>
               <div style={{ fontSize:32 }}>✦</div>
               <div style={{ flex:1 }}>
-                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:16,color:C.gold,marginBottom:4,letterSpacing:"-0.01em" }}>Go Backstage VIP</p>
-                <p style={{ fontSize:11,color:"rgba(240,204,136,0.7)",lineHeight:1.55 }}>Unlimited binders · Trade analytics · VIP Heatmap · Priority matching · Early access</p>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:16,color:C.gold,marginBottom:4,letterSpacing:"-0.01em" }}>Unlock your full fan era</p>
+                <p style={{ fontSize:11,color:"rgba(240,204,136,0.7)",lineHeight:1.55 }}>Unlimited memories · Premium My Stage · Priority trade matching · Advanced fan discovery</p>
               </div>
             </div>
             <button onClick={onUpgrade} style={{ marginTop:12,width:"100%",padding:"11px",borderRadius:13,background:`linear-gradient(140deg,${C.gold}dd,${C.goldDim})`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer",position:"relative" }}>Unlock VIP Experience →</button>
@@ -15343,7 +17795,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
         <div style={{ marginBottom:18 }}>
           <SectionHeader title="My Content" />
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:9 }}>
-            {[["📸 My Shows","myshows"],["💬 Messages","chats"],["💸 Budget Tracker","budget"],["✨ Outfits","outfits"],["🎁 Invite Crew","invite"],["✦ Profile Studio","studio"]].map(([label,dest])=>(
+            {[["📸 My Shows","myshows"],["💬 Messages","chats"],["💸 Budget Tracker","budget"],["✨ Outfits","outfits"],["🎁 Invite Crew","invite"],["✦ Stage Studio","studio"]].map(([label,dest])=>(
               <button key={label} onClick={()=>["myshows","studio","kdramas"].includes(dest)?setSection(dest):go(dest)} className="tap" style={{ padding:"13px", borderRadius:16, background:dest==="studio"?`linear-gradient(140deg,${C.gold}14,${C.gold}06)`:C.surfaceHi, border:`1.5px solid ${dest==="studio"?C.gold:C.border}`, color:dest==="studio"?C.gold:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:600, fontSize:12, cursor:"pointer", textAlign:"center", boxShadow:dest==="studio"?`0 4px 14px ${C.gold}14`:"none" }}>{label}</button>
             ))}
             <button onClick={()=>go("signout")} className="tap" style={{ padding:"13px", borderRadius:16, background:"transparent", border:`1.5px solid ${C.rose}28`, color:C.rose, fontFamily:"'Epilogue',sans-serif", fontWeight:600, fontSize:12, cursor:"pointer", textAlign:"center" }}>🚪 Sign Out</button>
@@ -15828,11 +18280,26 @@ function ConcertCapsule({ concert, onBack, user, isVip=false, onUpgrade, isSigne
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState({category:"fit",caption:""});
   const [showAuthGate, setShowAuthGate] = useState(false);
-  const [myCount, setMyCount] = useState(()=>ls.get(`backstage_capsule_count_${CONCERT_ID}`,0));
+  const [myCount, setMyCount]         = useState(()=>ls.get(`backstage_capsule_count_${CONCERT_ID}`,0));
+  const [savedToWorld, setSavedToWorld] = useState(()=>ls.get(`backstage_saved_capsule_${CONCERT_ID}`,false));
+  const [capsuleToast, setCapsuleToast] = useState(null);
+  const [draftVibe, setDraftVibe]     = useState("");
   const atFreeLimit = !isVip && !isSignedOut && !!user && myCount >= FREE_CAP;
+
+  const showCapToast = (msg) => { setCapsuleToast(msg); setTimeout(()=>setCapsuleToast(null),3200); };
+  const saveToWorld  = () => {
+    if(savedToWorld) return;
+    const saved = ls.get("backstage_saved_capsules",[]);
+    if(!isVip && saved.length >= FREE_LIMITS.savedCapsules){ onUpgrade?.(); return; }
+    ls.set("backstage_saved_capsules",[...saved,{ id:CONCERT_ID, name:concert?.name||"BTS — Las Vegas Night 1", city:concert?.city||"Las Vegas, NV", savedAt:Date.now() }]);
+    ls.set(`backstage_saved_capsule_${CONCERT_ID}`,true);
+    setSavedToWorld(true);
+    showCapToast("Saved to My World ✨ This concert is part of your fan history now.");
+  };
 
   useEffect(()=>{ ls.set(KEY,entries); },[entries]);
   const filtered = activeCat==="all"?entries:entries.filter(e=>e.category===activeCat);
+  const trendingCat = CATS.filter(c=>c.id!=="all").map(c=>({ ...c, count:entries.filter(e=>e.category===c.id).length })).sort((a,b)=>b.count-a.count)[0];
   const like = id => setEntries(es=>es.map(e=>e.id===id?{...e,likes:e.likes+1}:e));
   const save = id => {
     setEntries(es=>es.map(e=>e.id===id?{...e,savedToScrapbook:!e.savedToScrapbook}:e));
@@ -15905,8 +18372,19 @@ function ConcertCapsule({ concert, onBack, user, isVip=false, onUpgrade, isSigne
             <p style={{ fontSize:9,color:C.textDim }}>from 284 fans</p>
           </div>
         </div>
-        <div style={{ background:`linear-gradient(140deg,${C.accent}10,${C.pink}08)`,border:`1px solid ${C.accent}22`,borderRadius:14,padding:"9px 14px",marginBottom:12 }}>
-          <p style={{ fontSize:11,color:C.lavender,fontStyle:"italic",lineHeight:1.6 }}>"One show. Thousands of memories. One shared capsule."</p>
+        <div style={{ background:`linear-gradient(135deg,${C.accent}0c,${C.pink}08)`,border:`1px solid ${C.accent}22`,borderRadius:14,padding:"11px 14px",marginBottom:10 }}>
+          <p style={{ fontSize:11,color:C.lavender,fontStyle:"italic",lineHeight:1.6,marginBottom:8 }}>"The show ended. The memories didn't."</p>
+          <div style={{ display:"flex",gap:8,alignItems:"center",flexWrap:"wrap" }}>
+            {trendingCat&&trendingCat.count>0&&(
+              <div style={{ display:"flex",alignItems:"center",gap:5,background:`${C.rose}16`,border:`1px solid ${C.rose}33`,borderRadius:99,padding:"4px 10px" }}>
+                <div style={{ width:5,height:5,borderRadius:"50%",background:C.rose,animation:"pulse 1.2s ease infinite",boxShadow:`0 0 4px ${C.rose}` }} />
+                <p style={{ fontSize:9,color:C.rose,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>Trending: {trendingCat.emoji} {trendingCat.label}</p>
+              </div>
+            )}
+            <button onClick={saveToWorld} className="tap" style={{ display:"flex",alignItems:"center",gap:5,background:savedToWorld?`${C.gold}18`:`${C.gold}10`,border:`1px solid ${C.gold}${savedToWorld?"55":"33"}`,borderRadius:99,padding:"4px 12px",cursor:savedToWorld?"default":"pointer",transition:"all .2s" }}>
+              <p style={{ fontSize:9,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{savedToWorld?"✓ Saved to My World":"⭐ Save to My World"}</p>
+            </button>
+          </div>
         </div>
         <div style={{ display:"flex",gap:0,background:C.surfaceHi,borderRadius:11,padding:3,marginBottom:10 }}>
           {[["scrapbook","📷 Scrapbook"],["binder","🃏 Binder"],["feed","✦ Feed"]].map(([id,label])=>(
@@ -15947,6 +18425,58 @@ function ConcertCapsule({ concert, onBack, user, isVip=false, onUpgrade, isSigne
         ):(
           <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10 }}>{filtered.map(e=><Card key={e.id} entry={e} />)}</div>
         )}
+
+        {/* ── Category breakdown cards ── */}
+        <div style={{ marginTop:22 }}>
+          <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em",marginBottom:12 }}>Capsule Categories</p>
+          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10 }}>
+            {CATS.filter(c=>c.id!=="all").map((cat,i)=>{
+              const catEntries = entries.filter(e=>e.category===cat.id);
+              const col = [C.accent,C.pink,C.mint,C.gold,C.lavender,C.berry,C.rose,C.teal,C.silver,C.blush][i%10];
+              const recentUser = catEntries[0]?.username;
+              return (
+                <div key={cat.id} onClick={()=>{ setActiveCat(cat.id); }} className="tap" style={{ ...VS.glowCard(col),cursor:"pointer",padding:"13px 13px 11px" }}>
+                  <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${col}44,transparent)` }} />
+                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:7,position:"relative" }}>
+                    <span style={{ fontSize:20 }}>{cat.emoji}</span>
+                    {catEntries.length>0&&<div style={{ width:6,height:6,borderRadius:"50%",background:C.rose,animation:"pulse 1.4s ease infinite",boxShadow:`0 0 5px ${C.rose}` }} />}
+                  </div>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,color:C.text,marginBottom:3,position:"relative",lineHeight:1.3 }}>{cat.label}</p>
+                  <p style={{ fontSize:10,color:col,fontFamily:"'Epilogue',sans-serif",fontWeight:700,marginBottom:3,position:"relative" }}>{catEntries.length} {catEntries.length===1?"memory":"memories"}</p>
+                  <p style={{ fontSize:8.5,color:C.textDim,position:"relative",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{recentUser?`Latest: ${recentUser}`:"Be first to add"}</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ── Afterglow CTA strip ── */}
+        <div style={{ marginTop:22,marginBottom:8 }}>
+          <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em",marginBottom:10 }}>Feeling the post-show drop?</p>
+          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14 }}>
+            {[
+              { emoji:"✍️", label:"Write an Afterglow note", color:C.blush,   action:()=>{ setDraft(d=>({...d,category:"afterglow"})); setAdding(true); } },
+              { emoji:"👥", label:"Find others who attended",color:C.lavender, action:()=>showCapToast("Fan discovery coming soon ✨") },
+              { emoji:"🔖", label:"Save a favorite moment",  color:C.gold,    action:()=>showCapToast("Tap 🔖 on any memory to save it to your Stage") },
+              { emoji:"🎤", label:"Plan your next show",     color:C.mint,    action:()=>showCapToast("Concert planner coming soon ✨") },
+            ].map(({emoji,label,color,action},i)=>(
+              <div key={i} onClick={action} className="tap" style={{ background:`${color}10`,border:`1.5px solid ${color}28`,borderRadius:14,padding:"13px 12px",cursor:"pointer" }}>
+                <p style={{ fontSize:18,marginBottom:6 }}>{emoji}</p>
+                <p style={{ fontSize:11,fontFamily:"'Epilogue',sans-serif",fontWeight:700,color:C.text,lineHeight:1.4 }}>{label}</p>
+              </div>
+            ))}
+          </div>
+          <p style={{ fontSize:10.5,color:C.textMid,textAlign:"center",lineHeight:1.65,fontStyle:"italic" }}>"Your view, your fit, your freebies, your people."</p>
+        </div>
+
+        {/* Emotional close */}
+        <div style={{ background:`${C.accent}08`,border:`1px solid ${C.accent}18`,borderRadius:14,padding:"12px 14px",marginBottom:6,textAlign:"center" }}>
+          <p style={{ fontSize:11,color:C.lavender,lineHeight:1.7,fontStyle:"italic" }}>Save the night before it becomes a blur.</p>
+          <button onClick={saveToWorld} className="tap" style={{ marginTop:10,padding:"9px 22px",borderRadius:99,background:savedToWorld?`${C.gold}20`:`linear-gradient(135deg,${C.gold}cc,${C.goldDim}aa)`,border:`1.5px solid ${C.gold}${savedToWorld?"55":"cc"}`,color:savedToWorld?C.gold:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:11.5,cursor:savedToWorld?"default":"pointer",transition:"all .2s" }}>
+            {savedToWorld?"✓ Saved to My World 💜":"⭐ Save to My World"}
+          </button>
+        </div>
+
       </Screen>
       {adding&&(
         <div onClick={()=>setAdding(false)} style={{ position:"fixed",inset:0,zIndex:600,background:"rgba(6,6,15,0.88)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
@@ -15960,7 +18490,14 @@ function ConcertCapsule({ concert, onBack, user, isVip=false, onUpgrade, isSigne
               ))}
             </div>
             <textarea value={draft.caption} onChange={e=>setDraft(d=>({...d,caption:e.target.value}))} placeholder="What do you want the Fanverse to remember from this night?" maxLength={160} rows={3} style={{ width:"100%",background:C.surfaceHi,border:`1.5px solid ${C.accent}44`,borderRadius:13,padding:"11px 14px",color:C.text,fontSize:12.5,fontStyle:"italic",fontFamily:"'Instrument Sans',sans-serif",resize:"none",boxSizing:"border-box",marginBottom:6 }} />
-            <p style={{ fontSize:9,color:C.textDim,textAlign:"right",marginBottom:12 }}>{draft.caption.length}/160</p>
+            <p style={{ fontSize:9,color:C.textDim,textAlign:"right",marginBottom:10 }}>{draft.caption.length}/160</p>
+            {/* Vibe tag row */}
+            <p style={{ fontSize:9.5,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,marginBottom:7 }}>Vibe tag (optional)</p>
+            <div style={{ display:"flex",gap:6,overflowX:"auto",marginBottom:14,paddingBottom:2 }}>
+              {["","✨ Floating","😭 Emotional","🔥 Hype","💜 Full hearts","🌟 Surreal","🫶 Love","🎉 Celebration"].map((v,i)=>(
+                <span key={i} onClick={()=>setDraftVibe(draftVibe===v?"":v)} className="tap" style={{ flexShrink:0,padding:"5px 11px",borderRadius:99,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:600,cursor:"pointer",background:draftVibe===v?C.berry:C.surfaceHi,color:draftVibe===v?C.white:C.textMid,border:`1px solid ${draftVibe===v?C.berry:C.border}`,whiteSpace:"nowrap" }}>{i===0?"No tag":v}</span>
+              ))}
+            </div>
             <div style={{ background:`${C.accent}08`,border:`1px solid ${C.accent}18`,borderRadius:11,padding:"8px 12px",marginBottom:14,display:"flex",gap:8,alignItems:"center" }}>
               <span style={{ fontSize:12 }}>👤</span>
               <p style={{ fontSize:9.5,color:C.textMid }}>Posted as <strong style={{ color:C.accent }}>@{user?.name||user?.username||"stan"}</strong> · {!isVip&&`${FREE_CAP-myCount} free moment${FREE_CAP-myCount!==1?"s":""} remaining`}</p>
@@ -15997,6 +18534,12 @@ function ConcertCapsule({ concert, onBack, user, isVip=false, onUpgrade, isSigne
               Keep browsing first
             </button>
           </div>
+        </div>
+      )}
+      {/* Capsule toast */}
+      {capsuleToast&&(
+        <div style={{ position:"fixed",top:72,left:16,right:16,zIndex:700,background:`linear-gradient(135deg,${C.accent}ee,${C.berry}bb)`,backdropFilter:"blur(16px)",borderRadius:14,padding:"12px 16px",border:`1.5px solid ${C.accent}66`,animation:"in .2s ease",boxShadow:`0 8px 28px ${C.plum}60` }}>
+          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,color:C.white,textAlign:"center" }}>{capsuleToast}</p>
         </div>
       )}
     </div>
@@ -16431,6 +18974,29 @@ function SkinThemeTab({ skinCategories, activeCat, setActiveCat, profileStyle, t
 // POST /api/profile/style | GET /api/profile/:userId
 function ProfileStudio({ profileStyle, setProfileStyle, isVip, onUpgrade, onBack, user }) {
   const [activeSection, setActiveSection] = useState("banner");
+  const FAN_DNA_OPTIONS = ["Music","K-Dramas","Photocards","Collecting","Travel","Freebies","Trading","Dance Challenges","Concert Fits","Fanchants","Bias Edits","Cupsleeves","Fan Projects","Lightsticks"];
+  const [fanIdentity, setFanIdentity] = useState(()=>ls.get("backstage_fan_identity", {ult:"",bias:"",biasWrecker:"",since:"",concertCount:"",currentEra:"",favoriteSong:"",fanRoles:"",fanDNA:[]}));
+  const [concertResume, setConcertResume] = useState(()=>ls.get("backstage_concert_resume", []));
+  const [resumeDraft, setResumeDraft] = useState("");
+  const saveFanIdentity = (next) => { setFanIdentity(next); ls.set("backstage_fan_identity", next); };
+  const addResumeEntry = () => {
+    const trimmed = resumeDraft.trim();
+    if(!trimmed) return;
+    const next = [...concertResume, trimmed];
+    setConcertResume(next);
+    ls.set("backstage_concert_resume", next);
+    setResumeDraft("");
+  };
+  const removeResumeEntry = (i) => {
+    const next = concertResume.filter((_,idx)=>idx!==i);
+    setConcertResume(next);
+    ls.set("backstage_concert_resume", next);
+  };
+  const toggleFanDNA = (tag) => {
+    const cur = fanIdentity.fanDNA||[];
+    const next = cur.includes(tag) ? cur.filter(t=>t!==tag) : [...cur, tag];
+    saveFanIdentity({...fanIdentity, fanDNA:next});
+  };
   const GRADIENTS = ["purple haze","pink aura","mint glow","midnight silver","golden hour"];
   const GRADIENT_CSS = {
     "purple haze":`linear-gradient(140deg,${C.accentDim},${C.accent}88)`,
@@ -16492,6 +19058,30 @@ function ProfileStudio({ profileStyle, setProfileStyle, isVip, onUpgrade, onBack
       { id:"galaxy",   name:"Galaxy Brain",      grad:"galaxy",         overlay:"cosmos",   emoji:"🌌", desc:"Deep space vibes",      price:"vip" },
       { id:"bling",    name:"Bling Bling",       grad:"bling",          overlay:"diamonds", emoji:"💎", desc:"Maximalist glam",       price:"vip" },
     ]},
+    { id:"concert_energy", label:"🎤 Concert Energy", skins:[
+      { id:"arenaglow",    name:"Arena Glow",       grad:"arenaglow",    overlay:"beams",    emoji:"🔮", desc:"Massive stage energy",   price:0 },
+      { id:"oceanlstick",  name:"Lightstick Ocean", grad:"oceanlstick",  overlay:"bubbles",  emoji:"🌊", desc:"Sea of purple light",    price:0 },
+      { id:"encorenight",  name:"Encore Night",     grad:"encorenight",  overlay:"cosmos",   emoji:"🌙", desc:"Post-show magic",        price:0 },
+      { id:"vipsound",     name:"VIP Soundcheck",   grad:"vipsound",     overlay:"shimmer",  emoji:"🎧", desc:"Backstage access only",  price:"vip" },
+    ]},
+    { id:"og_internet", label:"🌐 OG Internet", skins:[
+      { id:"myspaceglitter",name:"MySpace Glitter",  grad:"myspaceglitter",overlay:"glitter", emoji:"💻", desc:"2003 energy, no apology",price:0 },
+      { id:"pixelfanclub",  name:"Pixel Fanclub",    grad:"pixelfanclub",  overlay:"dots",    emoji:"🕹️", desc:"8-bit devotion",         price:0 },
+      { id:"stickerbomb",   name:"Sticker Bomb",     grad:"stickerbomb",   overlay:"sparkles",emoji:"🎪", desc:"All stickers, no regrets",price:0 },
+      { id:"diarypage",     name:"Diary Page",       grad:"diarypage",     overlay:"hearts",  emoji:"📓", desc:"Locked diary, fan edition",price:"vip" },
+    ]},
+    { id:"collector_core", label:"🃏 Collector Core", skins:[
+      { id:"bindersleeve",  name:"Binder Sleeve",   grad:"bindersleeve",  overlay:"cards",    emoji:"📦", desc:"Neat sleeves, organized", price:0 },
+      { id:"photocardhole", name:"Photocard Holo",  grad:"photocardhole", overlay:"shimmer",  emoji:"💿", desc:"Rainbow refraction",      price:0 },
+      { id:"tradingdesk",   name:"Trading Desk",    grad:"tradingdesk",   overlay:"diamonds", emoji:"♟️", desc:"Always dealing",          price:0 },
+      { id:"biasshrineSkin",name:"Bias Shrine",     grad:"biasshrineSkin",overlay:"aura",     emoji:"🛕", desc:"For the truly devoted",   price:"vip" },
+    ]},
+    { id:"emotional_soft", label:"🌙 Emotional / Soft", skins:[
+      { id:"afterglowskin", name:"Afterglow",       grad:"afterglowskin", overlay:"aura",     emoji:"🌅", desc:"Crying in the parking lot", price:0 },
+      { id:"rainyseoul",    name:"Rainy Seoul",     grad:"rainyseoul",    overlay:"dots",     emoji:"🌧️", desc:"Atmospheric and real",    price:0 },
+      { id:"lavenderroom",  name:"Lavender Room",   grad:"lavenderroom",  overlay:"hearts",   emoji:"💜", desc:"Soft hours only",         price:0 },
+      { id:"moonlightfan",  name:"Moonlight Fan",   grad:"moonlightfan",  overlay:"cosmos",   emoji:"🌕", desc:"Quiet devotion",          price:"vip" },
+    ]},
   ];
   const [activeCat, setActiveCat] = useState("bias");
 
@@ -16499,9 +19089,13 @@ function ProfileStudio({ profileStyle, setProfileStyle, isVip, onUpgrade, onBack
     setProfileStyle({...profileStyle,skinId:skin.id,bannerGradient:skin.grad,skinOverlay:skin.overlay});
     ls.set("backstage_profile_style",{...profileStyle,skinId:skin.id,bannerGradient:skin.grad,skinOverlay:skin.overlay});
   };
+  const [sectionStyles, setSectionStyles] = useState(()=>ls.get("backstage_section_styles",{}));
+  const saveSectionStyles = (next) => { setSectionStyles(next); ls.set("backstage_section_styles", next); };
   const SECTIONS_MAP = [
     {id:"banner",label:"🎨 Banner"},
-    {id:"theme",label:"🎭 Theme"},
+    {id:"identity",label:"🎴 Fan Card"},
+    {id:"theme",label:"🎭 Stage Skin"},
+    {id:"stage",label:"✦ Stage Style"},
     {id:"layout",label:"📐 Layout"},
     {id:"preview",label:"👁️ Preview"},
   ];
@@ -16515,7 +19109,7 @@ function ProfileStudio({ profileStyle, setProfileStyle, isVip, onUpgrade, onBack
       <div style={{ padding:"16px 20px", display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0 }}>
         <div style={{ display:"flex", gap:10, alignItems:"center" }}>
           <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
-          <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:19 }}>Profile Studio ✦</h2>
+          <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:19 }}>Stage Studio ✦</h2>
         </div>
         <button onClick={save} style={{ background:C.accent,border:"none",borderRadius:11,padding:"7px 16px",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>Save</button>
       </div>
@@ -16578,6 +19172,71 @@ function ProfileStudio({ profileStyle, setProfileStyle, isVip, onUpgrade, onBack
           </div>
         )}
 
+        {activeSection==="identity" && (
+          <div>
+            <SectionHeader title="Fan Card 🎴" />
+            <p style={{ fontSize:11, color:C.textMid, marginBottom:14, lineHeight:1.5 }}>This is your identity at a glance — shown on your profile and preview.</p>
+            <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>
+              {[
+                {key:"ult",label:"ULT Group",placeholder:"e.g. BTS"},
+                {key:"bias",label:"Bias",placeholder:"e.g. Jungkook"},
+                {key:"biasWrecker",label:"Bias Wrecker",placeholder:"e.g. Jimin"},
+                {key:"since",label:"Fandom Since",placeholder:"e.g. 2017"},
+                {key:"concertCount",label:"Concert Count",placeholder:"e.g. 6"},
+                {key:"currentEra",label:"Current Era",placeholder:"e.g. HYYH"},
+                {key:"favoriteSong",label:"Favorite Song",placeholder:"e.g. Spring Day"},
+                {key:"fanRoles",label:"Fan Role Tags",placeholder:"e.g. Collector, Trader, Fancam Editor"},
+              ].map(f=>(
+                <div key={f.key}>
+                  <p style={{ fontSize:9, color:C.textDim, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:5 }}>{f.label}</p>
+                  <input
+                    value={fanIdentity[f.key]||""}
+                    onChange={e=>e.target.value.length<=40&&saveFanIdentity({...fanIdentity,[f.key]:e.target.value})}
+                    placeholder={f.placeholder}
+                    maxLength={40}
+                    style={{ width:"100%", background:C.surfaceHi, border:`1.5px solid ${C.border}`, borderRadius:11, padding:"10px 13px", color:C.text, fontSize:12.5, fontFamily:"'Instrument Sans',sans-serif", boxSizing:"border-box" }}
+                  />
+                </div>
+              ))}
+            </div>
+
+            <SectionHeader title="Concert Resume ✓" />
+            <p style={{ fontSize:11, color:C.textMid, marginBottom:10 }}>Your proud checklist of shows attended.</p>
+            <div style={{ display:"flex", flexDirection:"column", gap:7, marginBottom:12 }}>
+              {concertResume.map((show,i)=>(
+                <div key={i} style={{ display:"flex", alignItems:"center", gap:10, background:C.surface, border:`1.5px solid ${C.border}`, borderRadius:13, padding:"10px 13px" }}>
+                  <span style={{ color:C.mint, fontSize:14 }}>✓</span>
+                  <p style={{ flex:1, fontSize:12.5 }}>{show}</p>
+                  <button onClick={()=>removeResumeEntry(i)} style={{ background:`${C.rose}18`, border:"none", borderRadius:8, width:26, height:26, color:C.rose, cursor:"pointer", fontSize:11 }}>✕</button>
+                </div>
+              ))}
+              {concertResume.length===0 && <p style={{ fontSize:11, color:C.textDim, fontStyle:"italic" }}>No shows added yet — add your first below.</p>}
+            </div>
+            <div style={{ display:"flex", gap:8, marginBottom:20 }}>
+              <input
+                value={resumeDraft}
+                onChange={e=>e.target.value.length<=40&&setResumeDraft(e.target.value)}
+                onKeyDown={e=>e.key==="Enter"&&addResumeEntry()}
+                placeholder="e.g. BTS Vegas 2026"
+                maxLength={40}
+                style={{ flex:1, background:C.surfaceHi, border:`1.5px solid ${C.border}`, borderRadius:11, padding:"10px 13px", color:C.text, fontSize:12.5, boxSizing:"border-box" }}
+              />
+              <button onClick={addResumeEntry} style={{ background:C.accent, border:"none", borderRadius:11, padding:"0 18px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, cursor:"pointer" }}>Add</button>
+            </div>
+
+            <SectionHeader title="Fan DNA 🧬" />
+            <p style={{ fontSize:11, color:C.textMid, marginBottom:10 }}>Pick what makes you, you. These show on your profile.</p>
+            <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:10 }}>
+              {FAN_DNA_OPTIONS.map(tag=>{
+                const active = (fanIdentity.fanDNA||[]).includes(tag);
+                return (
+                  <span key={tag} onClick={()=>toggleFanDNA(tag)} className="tap" style={{ padding:"7px 14px", borderRadius:99, fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:600, cursor:"pointer", background:active?`${C.accent}22`:C.surfaceHi, color:active?C.accent:C.textMid, border:`1.5px solid ${active?C.accent:C.border}` }}>{tag}</span>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {activeSection==="theme" && (
           <SkinThemeTab
             skinCategories={SKIN_CATEGORIES}
@@ -16627,6 +19286,117 @@ function ProfileStudio({ profileStyle, setProfileStyle, isVip, onUpgrade, onBack
             ))}
             <div style={{ background:`${C.gold}08`, border:`1px solid ${C.gold}22`, borderRadius:13, padding:12, marginTop:6 }}>
               <p style={{ fontSize:11.5, color:C.textMid }}>🛡️ Privacy controls are in Settings → Privacy & Discovery</p>
+            </div>
+          </div>
+        )}
+
+        {/* ── STAGE STYLE ──────────────────────────────────────────────────── */}
+        {activeSection==="stage" && (
+          <div>
+            {/* Intro */}
+            <div style={{ background:`linear-gradient(140deg,${C.accent}12,${C.pink}08)`, border:`1.5px solid ${C.accent}28`, borderRadius:16, padding:"12px 14px", marginBottom:18 }}>
+              <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:13, color:C.accent, marginBottom:4 }}>✦ Customize My Stage</p>
+              <p style={{ fontSize:11, color:C.textMid, lineHeight:1.55 }}>Your fandom. Your memories. Your stage. Make it yours.</p>
+            </div>
+
+            {/* ── FONT MOOD ──────────────────────────────────────────────── */}
+            <SectionHeader title="Font Mood" />
+            <p style={{ fontSize:10.5, color:C.textMid, marginBottom:12 }}>Applies to headings, section titles, and decorative labels on My Stage.</p>
+            {!isVip && <p style={{ fontSize:9.5,color:C.gold,marginBottom:8 }}>3 free moods included · <span style={{ cursor:"pointer",textDecoration:"underline" }} onClick={onUpgrade}>Unlock all 10 with VIP</span></p>}
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:20 }}>
+              {STAGE_FONTS.map((f,fi)=>{
+                const active = (profileStyle.stageFont||"classic")===f.id;
+                const locked = !isVip && fi >= FREE_LIMITS.stageFonts;
+                return (
+                  <div key={f.id} onClick={()=>locked?onUpgrade():setProfileStyle({...profileStyle,stageFont:f.id})} className="tap" style={{ borderRadius:13, padding:"11px 12px", cursor:"pointer", background:locked?`${C.gold}08`:active?`${C.accent}18`:C.surfaceHi, border:`1.5px solid ${locked?`${C.gold}33`:active?C.accent:C.border}`, display:"flex", gap:10, alignItems:"center", opacity:locked?0.72:1 }}>
+                    <span style={{ fontSize:18, flexShrink:0 }}>{f.emoji}</span>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <p style={{ fontFamily:f.font, fontWeight:700, fontSize:12, color:locked?C.gold:active?C.accent:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{f.label}</p>
+                      <p style={{ fontSize:9, color:C.textDim }}>{f.desc}</p>
+                    </div>
+                    {locked ? <span style={{ fontSize:7.5,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:800,padding:"2px 6px",borderRadius:99,background:`${C.gold}18`,border:`1px solid ${C.gold}33`,flexShrink:0,letterSpacing:"0.05em" }}>VIP</span>
+                     : active && <div style={{ width:8,height:8,borderRadius:"50%",background:C.accent,flexShrink:0 }} />}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* ── STAGE EFFECTS ──────────────────────────────────────────── */}
+            <SectionHeader title="Stage Effects" />
+            <p style={{ fontSize:10.5, color:C.textMid, marginBottom:12 }}>Subtle decorative layer over My Stage. Keep it tasteful.</p>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:20 }}>
+              {STAGE_EFFECTS.map((e,ei)=>{
+                const active = (profileStyle.stageEffect||"none")===e.id;
+                const locked = !isVip && ei >= FREE_LIMITS.stageEffects;
+                return (
+                  <div key={e.id} onClick={()=>locked?onUpgrade():setProfileStyle({...profileStyle,stageEffect:e.id})} className="tap" style={{ borderRadius:13, padding:"11px 10px", textAlign:"center", cursor:"pointer", background:locked?`${C.gold}08`:active?`${C.lavender}18`:C.surfaceHi, border:`1.5px solid ${locked?`${C.gold}33`:active?C.lavender:C.border}`, opacity:locked?0.72:1 }}>
+                    <div style={{ fontSize:20, marginBottom:4 }}>{e.emoji}</div>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:9.5, color:locked?C.gold:active?C.lavender:C.textMid, lineHeight:1.3 }}>{e.label}</p>
+                    {locked ? <div style={{ fontSize:7,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:800,marginTop:4,letterSpacing:"0.05em" }}>VIP</div>
+                     : active && <div style={{ width:6,height:6,borderRadius:"50%",background:C.lavender,margin:"5px auto 0" }} />}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* ── BIAS SHRINE STYLE ──────────────────────────────────────── */}
+            <SectionHeader title="Bias Shrine Style" />
+            <p style={{ fontSize:10.5, color:C.textMid, marginBottom:10 }}>Layout</p>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:12 }}>
+              {SHRINE_LAYOUTS.map((layout,li)=>{
+                const active = (sectionStyles.shrineLayout||"center")===layout.id;
+                const locked = !isVip && li >= 1;
+                return (
+                  <div key={layout.id} onClick={()=>locked?onUpgrade():saveSectionStyles({...sectionStyles,shrineLayout:layout.id})} className="tap" style={{ borderRadius:13, padding:"10px 12px", cursor:"pointer", background:locked?`${C.gold}08`:active?`${C.berry}18`:C.surfaceHi, border:`1.5px solid ${locked?`${C.gold}33`:active?C.berry:C.border}`, display:"flex", gap:8, alignItems:"center", opacity:locked?0.72:1 }}>
+                    <span style={{ fontSize:16 }}>{layout.emoji}</span>
+                    <div style={{ flex:1 }}>
+                      <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, color:locked?C.gold:active?C.berry:C.text }}>{layout.label}</p>
+                      <p style={{ fontSize:9, color:C.textDim, marginTop:1 }}>{layout.desc}</p>
+                    </div>
+                    {locked ? <span style={{ fontSize:7.5,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:800,padding:"2px 6px",borderRadius:99,background:`${C.gold}18`,border:`1px solid ${C.gold}33`,flexShrink:0,letterSpacing:"0.05em" }}>VIP</span>
+                     : active && <div style={{ width:7,height:7,borderRadius:"50%",background:C.berry,flexShrink:0 }} />}
+                  </div>
+                );
+              })}
+            </div>
+            <p style={{ fontSize:10.5, color:C.textMid, marginBottom:10 }}>Add sparkles to your Bias Shrine</p>
+            <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:20 }}>
+              {SECTION_EFFECTS.map(eff=>{
+                const active = (sectionStyles.shrineEffect||"none")===eff.id;
+                return (
+                  <span key={eff.id} onClick={()=>saveSectionStyles({...sectionStyles,shrineEffect:eff.id})} className="tap" style={{ padding:"7px 13px", borderRadius:99, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:600, cursor:"pointer", background:active?`${C.pink}22`:C.surfaceHi, color:active?C.pink:C.textMid, border:`1.5px solid ${active?C.pink:C.border}` }}>{eff.emoji} {eff.label}</span>
+                );
+              })}
+            </div>
+
+            {/* ── FAN CARD STYLE ─────────────────────────────────────────── */}
+            <SectionHeader title="Fan Card Style" />
+            <p style={{ fontSize:10.5, color:C.textMid, marginBottom:10 }}>Make your Fan Card holo, a sleeve, or a concert pass.</p>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:16 }}>
+              {CARD_STYLES.map((cs,ci)=>{
+                const active = (sectionStyles.cardStyle||"default")===cs.id;
+                const locked = !isVip && ci >= 1;
+                return (
+                  <div key={cs.id} onClick={()=>locked?onUpgrade():saveSectionStyles({...sectionStyles,cardStyle:cs.id})} className="tap" style={{ borderRadius:13, padding:"10px 12px", cursor:"pointer", background:locked?`${C.gold}08`:active?`${C.lavender}18`:C.surfaceHi, border:`1.5px solid ${locked?`${C.gold}33`:active?C.lavender:C.border}`, display:"flex", gap:8, alignItems:"center", opacity:locked?0.72:1 }}>
+                    <span style={{ fontSize:16 }}>{cs.emoji}</span>
+                    <div style={{ flex:1 }}>
+                      <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, color:locked?C.gold:active?C.lavender:C.text }}>{cs.label}</p>
+                      <p style={{ fontSize:9, color:C.textDim, marginTop:1 }}>{cs.desc}</p>
+                    </div>
+                    {locked ? <span style={{ fontSize:7.5,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:800,padding:"2px 6px",borderRadius:99,background:`${C.gold}18`,border:`1px solid ${C.gold}33`,flexShrink:0,letterSpacing:"0.05em" }}>VIP</span>
+                     : active && <div style={{ width:7,height:7,borderRadius:"50%",background:C.lavender,flexShrink:0 }} />}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Stage Skin shortcut */}
+            <div onClick={()=>setActiveSection("theme")} className="tap" style={{ background:`${C.gold}0a`, border:`1.5px solid ${C.gold}28`, borderRadius:14, padding:"12px 14px", cursor:"pointer", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <div>
+                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13, color:C.gold }}>🎭 Choose your Stage Skin</p>
+                <p style={{ fontSize:10.5, color:C.textMid, marginTop:2 }}>40+ skins across 7 mood groups</p>
+              </div>
+              <span style={{ color:C.textDim, fontSize:16 }}>›</span>
             </div>
           </div>
         )}
@@ -16890,7 +19660,15 @@ function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNot
                 }
                 <div style={{ flex:1,minWidth:0 }}>
                   <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,color:C.text,marginBottom:3 }}>{n.title}</p>
-                  <p style={{ fontSize:11.5,color:C.textMid,lineHeight:1.55 }}>{n.body}</p>
+                  <div style={{ display:"flex",gap:9,alignItems:"flex-start" }}>
+                    <p style={{ fontSize:11.5,color:C.textMid,lineHeight:1.55,flex:1 }}>{n.body}</p>
+                    {n.gif&&n.gif.previewUrl&&(
+                      <img src={n.gif.previewUrl} alt={n.gif.title||"GIF reaction"} style={{ width:44,height:44,borderRadius:10,objectFit:"cover",border:`1px solid ${C.borderHi}`,flexShrink:0 }} />
+                    )}
+                    {n.gif&&!n.gif.previewUrl&&(
+                      <GifPreviewBubble gif={n.gif} size={44} rounded={10} />
+                    )}
+                  </div>
                   <p style={{ fontSize:9.5,color:C.textDim,marginTop:4 }}>{n.time}</p>
                   {/* Action buttons by notification type */}
                   {n.type==="friend_req"&&!n.read&&(
@@ -16992,7 +19770,7 @@ function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNot
 }
 
 // ─── MY SHOWS PAGE ────────────────────────────────────────────────────────────
-function MyShowsPage({ onBack, isVip, onUpgrade }) {
+function MyShowsPage({ onBack, isVip, onUpgrade, go }) {
   const [shows, setShows] = useState(ls.get("backstage_myshows", MOCK_SHOWS));
   const [adding, setAdding] = useState(false);
   const [afterglowShow, setAfterglowShow] = useState(null);
@@ -17008,7 +19786,7 @@ function MyShowsPage({ onBack, isVip, onUpgrade }) {
     setAdding(false);
   };
 
-  if(afterglowShow) return <AfterglowPage onBack={()=>setAfterglowShow(null)} showName={afterglowShow} isVip={isVip} onUpgrade={onUpgrade} />;
+  if(afterglowShow) return <AfterglowPage onBack={()=>setAfterglowShow(null)} showName={afterglowShow} isVip={isVip} onUpgrade={onUpgrade} go={go} />;
 
   return(
     <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
@@ -18475,6 +21253,7 @@ function AppInner() {
     }
     if(dest==="collect"||dest==="shelf"){ setTab("collect"); setModal(null); return; }
     if(dest==="fanverse"){ setTab("community"); setModal(null); return; }
+    if(dest==="studio"){ ls.set("backstage_open_studio",true); setTab("profile"); setModal(null); return; }
     if(dest==="tools"){ setTab("fanverse"); setModal(null); return; }
     // Deep-link to specific concert sub-tabs
     if(dest==="concerts_meetups"){ ls.set("backstage_concerts_view","meetups"); setTab("concerts"); setModal(null); return; }
@@ -18610,7 +21389,7 @@ function AppInner() {
     {id:"community", icon:"community", label:"Fanverse"},
     {id:"collect",   icon:"shelf",     label:"My World"},
     {id:"fanverse",  icon:"fanverse",  label:"Tools"},
-    {id:"profile",   icon:"profile",   label:"Profile"},
+    {id:"profile",   icon:"profile",   label:"My Stage"},
   ];
 
   const ToolModalWrapper = ({ title, children }) => (
@@ -18712,7 +21491,7 @@ function AppInner() {
 
         {/* ── ALL MODALS ── */}
         {modal==="concertprep"&&<ToolModalWrapper title="Concert Prep Guide 📋"><ConcertPrep /></ToolModalWrapper>}
-        {modal==="myshows"&&<ModalWrapper><MyShowsPage onBack={()=>setModal(null)} isVip={isVip} onUpgrade={openUpgrade} /></ModalWrapper>}
+        {modal==="myshows"&&<ModalWrapper><MyShowsPage onBack={()=>setModal(null)} isVip={isVip} onUpgrade={openUpgrade} go={go} /></ModalWrapper>}
         {modal==="outfits"&&<ToolModalWrapper title="Outfit Generator ✨"><OutfitGenerator user={user} weather={weatherData} isVip={isVip} onUpgrade={openUpgrade} /></ToolModalWrapper>}
         {modal==="trip"&&<ToolModalWrapper title="Trip Planner ✈️"><TripPlanner isVip={isVip} onUpgrade={openUpgrade} /></ToolModalWrapper>}
         {modal==="scrapbook"&&<ModalWrapper><ScrapbookTab isVip={isVip} onUpgrade={openUpgrade} /></ModalWrapper>}
@@ -18758,7 +21537,8 @@ function AppInner() {
 
         {/* ── MAIN SCREENS ── */}
         <div style={{ flex:1, overflow:"hidden", position:"relative", paddingBottom:"calc(62px + max(env(safe-area-inset-bottom), 10px))" }}>
-          {(appState==="auth"||appState==="onboarding")&&<Onboarding onDone={data=>{
+          {auth.passwordRecovery&&<SetNewPasswordScreen />}
+          {!auth.passwordRecovery&&(appState==="auth"||appState==="onboarding")&&<Onboarding onDone={data=>{
             if (!data) { console.error('[App] onDone called with null — skipping'); return; }
             const profile = normalizeProfile(data);
             setUser(profile);
