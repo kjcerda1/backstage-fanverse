@@ -14952,9 +14952,13 @@ function GroupDetailEditor({ group, initial={}, statusOptions=[], statusColors={
 // ─── PUBLIC PROFILE PREVIEW ──────────────────────────────────────────────────
 // Compact profile card opened from DM avatar/name taps.
 // Fetches real data from GET /api/profile/:id. Clean identity card — not a passport form.
-function PublicProfilePreview({ fan, onBack, onBackToMessage, onViewFullProfile }) {
+function PublicProfilePreview({ fan, onBack, onBackToMessage, onViewFullProfile, onMessage }) {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading]  = useState(true);
+  const [circleStatus, setCircleStatus] = useState(()=>{
+    const s = ls.get("backstage_circle_statuses",{});
+    return s[fan?.id] || null;
+  });
 
   useEffect(() => {
     if (!fan?.id) { setLoading(false); return; }
@@ -14963,6 +14967,13 @@ function PublicProfilePreview({ fan, onBack, onBackToMessage, onViewFullProfile 
       setLoading(false);
     });
   }, [fan?.id]);
+
+  const addToCircle = () => {
+    const next = {...ls.get("backstage_circle_statuses",{}), [fan.id]:"sent"};
+    ls.set("backstage_circle_statuses", next);
+    setCircleStatus("sent");
+    api.post('/api/friends/request', { targetUserId: fan.id }).catch(()=>{});
+  };
 
   const username = profile?.username ? `@${profile.username}` : fan.name;
   const dispName = profile?.display_name;
@@ -15016,7 +15027,7 @@ function PublicProfilePreview({ fan, onBack, onBackToMessage, onViewFullProfile 
                       <span key={f} style={{ padding:"5px 12px",borderRadius:99,background:`${C.accent}18`,border:`1px solid ${C.accent}38`,fontSize:11,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{f}</span>
                     ))}
                   </div>
-                : <p style={{ fontSize:11,color:C.textDim,fontStyle:"italic" }}>No fandoms added yet</p>
+                : <p style={{ fontSize:11,color:C.textDim,fontStyle:"italic" }}>{dispName||username} hasn't added their fandoms yet — they're just getting started ✦</p>
               }
             </div>
 
@@ -15033,12 +15044,37 @@ function PublicProfilePreview({ fan, onBack, onBackToMessage, onViewFullProfile 
 
       {/* CTAs — pinned to bottom */}
       <div style={{ padding:"12px 20px",paddingBottom:"max(16px, calc(env(safe-area-inset-bottom) + 12px))",borderTop:`1px solid ${C.border}`,flexShrink:0,position:"relative",zIndex:1,background:C.bg,display:"flex",flexDirection:"column",gap:8 }}>
-        <button onClick={()=>onViewFullProfile?.(fan)} style={{ width:"100%",padding:"12px",borderRadius:14,background:`linear-gradient(140deg,${C.accent},${C.pink})`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer" }}>
-          View Full Profile →
-        </button>
-        <button onClick={onBackToMessage} style={{ width:"100%",padding:"10px",borderRadius:14,background:"transparent",border:`1px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}>
-          Back to Message
-        </button>
+        {fan.fromDM ? (
+          <>
+            <button onClick={()=>onViewFullProfile?.(fan)} style={{ width:"100%",padding:"12px",borderRadius:14,background:`linear-gradient(140deg,${C.accent},${C.pink})`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer" }}>
+              View Full Profile →
+            </button>
+            <button onClick={onBackToMessage} style={{ width:"100%",padding:"10px",borderRadius:14,background:"transparent",border:`1px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}>
+              Back to Message
+            </button>
+          </>
+        ) : (
+          <>
+            <div style={{ display:"flex",gap:8 }}>
+              <button
+                onClick={()=>{ if(!circleStatus) addToCircle(); }}
+                disabled={!!circleStatus}
+                style={{ flex:1,padding:"12px",borderRadius:14,background:circleStatus?`${C.mint}18`:`linear-gradient(140deg,${C.accent},${C.pink})`,border:circleStatus?`1.5px solid ${C.mint}`:"none",color:circleStatus?C.mint:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,cursor:circleStatus?"default":"pointer" }}
+              >
+                {circleStatus==="sent"?"✓ Requested":circleStatus==="accepted"?"In Circle ✦":"Add to Circle"}
+              </button>
+              <button
+                onClick={()=>onMessage?.(fan)}
+                style={{ flex:1,padding:"12px",borderRadius:14,background:`${C.accent}18`,border:`1.5px solid ${C.accent}33`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}
+              >
+                💬 Message
+              </button>
+            </div>
+            <button onClick={()=>onViewFullProfile?.(fan)} style={{ width:"100%",padding:"10px",borderRadius:14,background:"transparent",border:`1px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}>
+              View Stage →
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -15082,7 +15118,7 @@ function PublicProfileFull({ fan, onBack, onBackToMessage }) {
   };
 
   return (
-    <div style={{ position:"absolute",inset:0,zIndex:1,display:"flex",flexDirection:"column",overflow:"hidden" }}>
+    <div style={{ flex:1,display:"flex",flexDirection:"column",overflow:"hidden" }}>
       <ProfilePreview
         user={{}}
         profileStyle={{}}
@@ -15091,7 +15127,7 @@ function PublicProfileFull({ fan, onBack, onBackToMessage }) {
         biases={[]}
         go={()=>{}}
         onBack={onBack}
-        onBackToMessage={onBackToMessage}
+        onBackToMessage={fan.fromDM ? onBackToMessage : undefined}
         overrideFan={overrideFan}
       />
     </div>
@@ -15601,11 +15637,13 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack, o
           </div>
         )}
 
-        {/* CTA — Back to Message (public view) or Send Message (own preview) */}
+        {/* CTA — Back to Message (DM context only) or nothing for discovery context */}
         {isPublic
-          ? <button onClick={onBackToMessage||onBack} style={{ width:"100%",padding:"13px",borderRadius:16,background:`linear-gradient(140deg,${C.accent}20,${C.pink}0e)`,border:`1.5px solid ${C.accent}33`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8,marginBottom:14 }}>
-              💬 Back to Message
-            </button>
+          ? onBackToMessage
+            ? <button onClick={onBackToMessage} style={{ width:"100%",padding:"13px",borderRadius:16,background:`linear-gradient(140deg,${C.accent}20,${C.pink}0e)`,border:`1.5px solid ${C.accent}33`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8,marginBottom:14 }}>
+                💬 Back to Message
+              </button>
+            : null
           : <>
               <button onClick={()=>go("chats")} style={{ width:"100%",padding:"13px",borderRadius:16,background:`linear-gradient(140deg,${C.accent}20,${C.pink}0e)`,border:`1.5px solid ${C.accent}33`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8,marginBottom:14 }}>
                 💬 Send Message
@@ -21323,6 +21361,24 @@ function AppInner() {
     api.get('/api/cards').then(d=>{ if(d?.cards?.length) setCards(d.cards); }).catch(()=>{});
   },[user?.id, auth.tokenReady, appState]);
 
+  // Incomplete profile nudge — shown 24h after signup, max once per 72h, stops when fandoms set
+  useEffect(()=>{
+    if(!user?.id || !auth.tokenReady || appState!=="main") return;
+    const hasFandoms = (user.fandoms||user.favorite_groups||[]).length > 0;
+    if(hasFandoms) return;
+    const nudgeKey = `backstage_nudge_${user.id}`;
+    const lastNudge = ls.get(nudgeKey, 0);
+    const nowMs = Date.now();
+    const signupMs = user.created_at ? new Date(user.created_at).getTime() : nowMs;
+    if(nowMs - signupMs < 24*60*60*1000) return; // < 24h since signup
+    if(lastNudge && nowMs - lastNudge < 72*60*60*1000) return; // shown < 72h ago
+    ls.set(nudgeKey, nowMs);
+    setTimeout(()=>{
+      setNotif({ title:"Your Stage is waiting ✦", body:"Add your fandoms, bias, and concert era to complete your profile.", icon:"✦", color:C.accent });
+      setTimeout(()=>setNotif(null), 6000);
+    }, 3000); // delay so it doesn't clash with initial render
+  },[user?.id, auth.tokenReady, appState]);
+
   const handleUpgrade = async (selectedPlan = "annual") => {
     // Guard: already VIP — nothing to upgrade
     if (isVip || hasVipEntitlement(user)) return;
@@ -21631,7 +21687,7 @@ function AppInner() {
         {modal==="scrapbook"&&<ModalWrapper><ScrapbookTab isVip={isVip} onUpgrade={openUpgrade} /></ModalWrapper>}
         {modal==="friends"&&<ModalWrapper><FriendsPage onBack={()=>setModal(null)} onNotif={showNotif} /></ModalWrapper>}
         {modal==="fanmap"&&<ModalWrapper><FanverseMap onBack={()=>setModal(null)} /></ModalWrapper>}
-        {modal==="chats"&&<ModalWrapper><DirectMessages onBack={()=>setModal(null)} user={user} onViewProfile={setPublicProfileFan} /></ModalWrapper>}
+        {modal==="chats"&&<ModalWrapper><DirectMessages onBack={()=>setModal(null)} user={user} onViewProfile={(fan)=>setPublicProfileFan({...fan,fromDM:true})} /></ModalWrapper>}
         {modal==="qr"&&<ModalWrapper><QRPage onBack={()=>setModal(null)} user={user} onNotif={showNotif} /></ModalWrapper>}
         {modal==="safety"&&<ModalWrapper><SafetyCenter onBack={()=>setModal(null)} /></ModalWrapper>}
         {modal==="events"&&<ModalWrapper><EventDiscovery onBack={()=>setModal(null)} go={go} /></ModalWrapper>}
@@ -21752,12 +21808,13 @@ function AppInner() {
             onBack={()=>setPublicProfileFan(null)}
             onBackToMessage={()=>setPublicProfileFan(null)}
             onViewFullProfile={(f)=>setFullProfileFan(f)}
+            onMessage={(f)=>{ ls.set("backstage_dm_target",f); setPublicProfileFan(null); setModal("chats"); }}
           />
         </div>
       )}
       {/* ── FULL RICH PROFILE — step 2, z:650; ← back to compact card, Back to Message closes all */}
       {fullProfileFan&&(
-        <div style={{ position:"absolute",inset:0,zIndex:650,display:"flex",flexDirection:"column" }}>
+        <div style={{ position:"absolute",inset:0,zIndex:650,display:"flex",flexDirection:"column",background:C.bg,overflow:"hidden" }}>
           <PublicProfileFull
             fan={fullProfileFan}
             onBack={()=>setFullProfileFan(null)}
