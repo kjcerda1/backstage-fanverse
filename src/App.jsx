@@ -1389,26 +1389,30 @@ const FounderBadge = ({ inline, showAura }) => (
   </div>
 );
 
-function FounderPrestigeCard() {
-  if(!ls.get("backstage_founder_profile",null)){
-    const num=Math.floor(Math.random()*800)+1;
-    ls.set("backstage_founder_profile",{number:num,joinedDate:"May 2026",message:"I was here before launch."});
-  }
-  const [fp, setFp] = useState(()=>ls.get("backstage_founder_profile",{number:128,joinedDate:"May 2026",message:"I was here before launch."}));
+function FounderPrestigeCard({ user }) {
+  // founder_number comes from DB only — never generated on the client
+  const founderNum = user?.founder_number || null;
+  const joinedDate = user?.vip_since
+    ? new Date(user.vip_since).toLocaleDateString('en-US', {month:'long', year:'numeric'})
+    : "May 2026";
+  const savedMsg = ls.get("backstage_founder_profile",{}).message;
+  const [message, setMessage] = useState(savedMsg||"I was here before launch.");
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(fp.message||"I was here before launch.");
+  const [draft, setDraft] = useState(message);
   const saveMessage = () => {
-    const updated = {...fp, message:draft};
-    ls.set("backstage_founder_profile", updated);
-    setFp(updated);
+    ls.set("backstage_founder_profile", {...ls.get("backstage_founder_profile",{}), message:draft});
+    setMessage(draft);
     setEditing(false);
   };
   return (
     <div style={{ position:"relative" }}>
       <div style={{ display:"flex",gap:10,alignItems:"center",marginBottom:8 }}>
         <FounderBadge inline />
-        <span style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,color:C.gold }}>Founder #{fp.number}</span>
-        <span style={{ fontSize:9,color:"rgba(240,204,136,0.5)",marginLeft:"auto" }}>Joined {fp.joinedDate}</span>
+        {founderNum
+          ? <span style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,color:C.gold }}>Founder #{founderNum}</span>
+          : <span style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,color:C.gold }}>Founding Fan</span>
+        }
+        <span style={{ fontSize:9,color:"rgba(240,204,136,0.5)",marginLeft:"auto" }}>Joined {joinedDate}</span>
       </div>
       {editing ? (
         <div style={{ marginBottom:6 }}>
@@ -1416,12 +1420,12 @@ function FounderPrestigeCard() {
             style={{ width:"100%",background:"rgba(240,204,136,0.06)",border:"1.5px solid rgba(240,204,136,0.4)",borderRadius:10,color:"rgba(240,204,136,0.9)",fontFamily:"'Epilogue',sans-serif",fontSize:12,fontStyle:"italic",padding:"8px 10px",resize:"none",boxSizing:"border-box",outline:"none" }} />
           <div style={{ display:"flex",gap:8,marginTop:6 }}>
             <button onClick={saveMessage} style={{ flex:1,padding:"7px",borderRadius:9,background:"rgba(240,204,136,0.15)",border:"1px solid rgba(240,204,136,0.35)",color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>Save Message</button>
-            <button onClick={()=>{setDraft(fp.message);setEditing(false);}} style={{ padding:"7px 12px",borderRadius:9,background:"transparent",border:"1px solid rgba(240,204,136,0.2)",color:"rgba(240,204,136,0.5)",fontFamily:"'Epilogue',sans-serif",fontSize:11,cursor:"pointer" }}>Cancel</button>
+            <button onClick={()=>{setDraft(message);setEditing(false);}} style={{ padding:"7px 12px",borderRadius:9,background:"transparent",border:"1px solid rgba(240,204,136,0.2)",color:"rgba(240,204,136,0.5)",fontFamily:"'Epilogue',sans-serif",fontSize:11,cursor:"pointer" }}>Cancel</button>
           </div>
         </div>
       ) : (
         <>
-          <p style={{ fontSize:12,color:"rgba(240,204,136,0.85)",fontStyle:"italic",lineHeight:1.55,marginBottom:6 }}>"{fp.message}"</p>
+          <p style={{ fontSize:12,color:"rgba(240,204,136,0.85)",fontStyle:"italic",lineHeight:1.55,marginBottom:6 }}>"{message}"</p>
           <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
             <p style={{ fontSize:9.5,color:"rgba(240,204,136,0.5)" }}>Full VIP active · Early access to all new features</p>
             <button onClick={()=>setEditing(true)} style={{ background:"transparent",border:"1px solid rgba(240,204,136,0.28)",color:"rgba(240,204,136,0.6)",fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:9,padding:"3px 8px",borderRadius:8,cursor:"pointer",flexShrink:0,marginLeft:8,whiteSpace:"nowrap" }}>Edit Message</button>
@@ -17715,7 +17719,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
               <div key={i} style={{ position:"absolute",top:sp.t,left:sp.l,fontSize:sp.s,opacity:0.4,animation:`sparkleFloat 3.5s ease-in-out infinite`,animationDelay:sp.d,pointerEvents:"none",color:C.gold }}>✦</div>
             ))}
             {founderVip ? (
-              <FounderPrestigeCard />
+              <FounderPrestigeCard user={user} />
             ) : (
               <div style={{ position:"relative" }}>
                 <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:15,color:C.gold,marginBottom:4 }}>Backstage VIP Active ✦</p>
@@ -18943,7 +18947,7 @@ function SkinThemeTab({ skinCategories, activeCat, setActiveCat, profileStyle, t
           const grad=SKIN_GRADIENTS[skin.grad]||SKIN_GRADIENTS["purple haze"];
           const chars=(OVERLAY_CHARS[skin.overlay]||[]).slice(0,5);
           const card=(
-            <div key={skin.id} onClick={()=>!isVipSkin&&tryBuy(skin)} className="tap"
+            <div key={skin.id} onClick={()=>(isVip||!isVipSkin)&&tryBuy(skin)} className="tap"
               style={{ borderRadius:18,overflow:"hidden",position:"relative",cursor:"pointer",
                 border:`2px solid ${isActive?C.white:isVipSkin?`${C.gold}55`:"transparent"}`,
                 boxShadow:isActive?`0 0 20px ${C.accent}77`:isVipSkin?`0 0 8px ${C.gold}22`:"none" }}>
@@ -21142,14 +21146,18 @@ function AppInner() {
           return;
         }
         const active = hasVipEntitlement({is_vip:d.is_vip, vip_source:d.vip_source, vip_expires_at:d.vip_expires_at});
+        console.log('[VIP sync]', auth.user?.email, '| db is_vip:', d.is_vip, '| vip_source:', d.vip_source, '| founder_number:', d.founder_number, '| gate isVip:', active);
         setIsVip(active);
         setCachedVip(auth.user, active);
         setUser(u=>{
           if(!u) return u;
-          return {...u, is_vip:active, vip_source:d.vip_source||u.vip_source, vip_expires_at:d.vip_expires_at||u.vip_expires_at};
+          return {...u, is_vip:active, vip_source:d.vip_source||u.vip_source, vip_expires_at:d.vip_expires_at||u.vip_expires_at, founder_number:d.founder_number??u.founder_number};
         });
         const sess = ls.get('backstage_session');
-        if(sess?.user) ls.set('backstage_session', {...sess, user:{...sess.user, is_vip:active, vip_source:d.vip_source||sess.user.vip_source}});
+        if(sess?.user) ls.set('backstage_session', {...sess, user:{...sess.user, is_vip:active, vip_source:d.vip_source||sess.user.vip_source, founder_number:d.founder_number??sess.user.founder_number}});
+        // Evict any stale random founder number from localStorage — DB is the source of truth
+        const storedFp = ls.get('backstage_founder_profile', {});
+        if(storedFp.number !== undefined) ls.set('backstage_founder_profile', { message: storedFp.message });
 
         // ── Reconciliation: "paid before signup" recovery ─────────────────────
         // If DB says not VIP, check Stripe for a completed payment for this email.

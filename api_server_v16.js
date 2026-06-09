@@ -586,7 +586,7 @@ app.get('/api/subscriptions/status', optionalAuth, async (req, res) => {
     const db = req.userToken ? makeUserClient(req) : supabase;
     const { data, error } = await db
       .from('users')
-      .select('is_vip, vip_since, vip_source, vip_expires_at, stripe_customer_id')
+      .select('is_vip, vip_since, vip_source, vip_expires_at, stripe_customer_id, founder_number')
       .eq('id', req.userId)
       .single();
     if (error) throw error;
@@ -600,6 +600,7 @@ app.get('/api/subscriptions/status', optionalAuth, async (req, res) => {
       vip_source:     data?.vip_source || null,
       vip_expires_at: data?.vip_expires_at || null,
       stripe_customer_id: data?.stripe_customer_id || null,
+      founder_number: data?.founder_number || null,
     });
   } catch (err) {
     console.error('[Subscription Status] Error:', err.message);
