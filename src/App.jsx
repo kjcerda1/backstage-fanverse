@@ -941,6 +941,44 @@ const SKIN_ID_TO_GRAD = {
   afterglowskin:"afterglowskin", rainyseoul:"rainyseoul", lavenderroom:"lavenderroom", moonlightfan:"moonlightfan",
 };
 
+// ─── STAGE WORLDS — full-page banner/background themes ────────────────────────
+// Each world drives the banner gradient + page overlay on My Stage / Stage Studio.
+const STAGE_WORLDS = [
+  { id:"concert_night",  name:"Concert Night",    grad:"wrecker",        deco:"sparkles", desc:"Classic backstage darkness" },
+  { id:"purple_army",    name:"Purple Army",       grad:"purplearmy",     deco:"sparkles", desc:"Deep fandom energy" },
+  { id:"poster_wall",    name:"Poster Wall",       grad:"redcurtain",     deco:"beams",    desc:"Tour posters, raw energy" },
+  { id:"glitter_fan",    name:"Glitter Fanpage",   grad:"myspaceglitter", deco:"glitter",  desc:"Sparkles, glossy, iconic" },
+  { id:"diary_page",     name:"Diary Page",        grad:"diarypage",      deco:"hearts",   desc:"Personal, warm, yours" },
+  { id:"pixel_fanclub",  name:"Pixel Fanclub",     grad:"pixelfanclub",   deco:"cosmos",   desc:"Retro digital, arcade core" },
+  { id:"soft_pop",       name:"Soft Pop",          grad:"lavenderroom",   deco:"petals",   desc:"Pastel, dreamy, soft" },
+  { id:"neon_venue",     name:"Neon Venue",        grad:"neonmaniac",     deco:"neonbeam", desc:"Club lights, stage glow" },
+  { id:"shrine_board",   name:"Shrine Board",      grad:"biasshrineSkin", deco:"crown",    desc:"Devoted. That's it." },
+  { id:"silver_ai",      name:"Silver AI World",   grad:"silverai",       deco:"shimmer",  desc:"Chrome, digital, future" },
+  { id:"golden_era",     name:"Golden Solo Era",   grad:"goldensolo",     deco:"glitter",  desc:"Warm gold, triumphant" },
+  { id:"ocean_stick",    name:"Ocean Lightstick",  grad:"oceanlstick",    deco:"bubbles",  desc:"Concert sea of blue" },
+];
+
+const STAGE_WORLD_MAP = Object.fromEntries(STAGE_WORLDS.map(w=>[w.id, w]));
+
+// Resolve a stageWorld id to its gradient CSS string
+function resolveWorldGrad(stageWorldId) {
+  const w = STAGE_WORLD_MAP[stageWorldId];
+  return w ? SKIN_GRADIENTS[w.grad] : SKIN_GRADIENTS["wrecker"];
+}
+
+// ─── STAGE DECO OPTIONS — named overlay sets ──────────────────────────────────
+const STAGE_DECO_OPTIONS = [
+  { id:"none",     label:"Clean Stage",       chars:[] },
+  { id:"sparkles", label:"Star Dust",         chars:OVERLAY_CHARS.sparkles },
+  { id:"hearts",   label:"Fan Hearts",        chars:OVERLAY_CHARS.hearts },
+  { id:"glitter",  label:"Glitter Rain",      chars:OVERLAY_CHARS.glitter },
+  { id:"cosmos",   label:"Cosmos",            chars:OVERLAY_CHARS.cosmos },
+  { id:"petals",   label:"Cherry Blossoms",   chars:OVERLAY_CHARS.petals },
+  { id:"crown",    label:"Crown & ✦",         chars:OVERLAY_CHARS.crown },
+  { id:"shimmer",  label:"Holographic",       chars:OVERLAY_CHARS.shimmer },
+];
+const STAGE_DECO_MAP = Object.fromEntries(STAGE_DECO_OPTIONS.map(d=>[d.id, d]));
+
 // ─── STAGE FONT MOODS ──────────────────────────────────────────────────────────
 const STAGE_FONTS = [
   { id:"classic",  label:"Classic Backstage", emoji:"✦",  font:"'Epilogue', sans-serif",                      desc:"Bold editorial" },
@@ -2544,12 +2582,17 @@ const DEFAULT_PRIVACY = {
 
 // PROFILE STYLE
 const DEFAULT_PROFILE_STYLE = {
+  stageWorld: "concert_night",
+  stageDeco: "sparkles",
+  bgImageUrl: null,
   bannerGradient: "purple haze",
   bannerEmoji: "🎤",
   bannerText: "currently in my concert era",
   profileTheme: "Backstage Classic",
   skinId: "classic",
   skinOverlay: "sparkles",
+  stageFont: "classic",
+  stageEffect: "none",
   glowColor: C.accent,
   top5Visible: true, nowPlayingVisible: true, showsVisible: true,
   collectionVisible: true, discoveryVisible: true,
@@ -15211,6 +15254,12 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack, o
   const skinOv  = isPublic ? (overrideFan.profile_style?.skinOverlay||"sparkles") : (profileStyle?.skinOverlay||"sparkles");
   const skinGrad = SKIN_GRADIENTS[SKIN_ID_TO_GRAD[skinId]||"purple haze"];
   const skinChars = (OVERLAY_CHARS[skinOv]||[]).slice(0,8);
+  // Banner uses stageWorld; full page uses skinId (distinct layers)
+  const _stageWorldId = isPublic ? (overrideFan.profile_style?.stageWorld||"concert_night") : (profileStyle?.stageWorld||"concert_night");
+  const _stageBgUrl   = isPublic ? null : profileStyle?.bgImageUrl;
+  const bannerGradForPreview = _stageBgUrl ? `url(${_stageBgUrl}) center/cover` : resolveWorldGrad(_stageWorldId);
+  const _stageDecoId  = isPublic ? (overrideFan.profile_style?.stageDeco||"sparkles") : (profileStyle?.stageDeco||"sparkles");
+  const bannerDecoChars = (STAGE_DECO_MAP[_stageDecoId]?.chars || OVERLAY_CHARS.sparkles).slice(0,8);
   const PREVIEW_SPARKLE_POS = [[5,78],[20,90],[35,10],[50,68],[65,85],[78,22],[88,55],[14,42]];
   // For public view: city comes from API — already stripped server-side if show_city=false.
   // For own preview ("how others see you"): respect showCity so preview matches public reality.
@@ -15252,13 +15301,13 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack, o
       </div>
 
       <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))",position:"relative",zIndex:1 }}>
-        {/* Cinematic banner — matches active skin */}
-        <div style={{ background:skinGrad,borderRadius:26,padding:"20px 18px 18px",marginTop:16,marginBottom:18,position:"relative",minHeight:110,overflow:"hidden",boxShadow:`0 12px 40px rgba(0,0,0,0.5), 0 4px 16px ${C.berry}10` }}>
+        {/* Cinematic banner — uses stageWorld gradient */}
+        <div style={{ background:bannerGradForPreview,backgroundSize:"cover",backgroundPosition:"center",borderRadius:26,padding:"20px 18px 18px",marginTop:16,marginBottom:18,position:"relative",minHeight:110,overflow:"hidden",boxShadow:`0 12px 40px rgba(0,0,0,0.5), 0 4px 16px ${C.berry}10` }}>
           <div style={{ position:"absolute",inset:0,backgroundImage:`radial-gradient(circle,rgba(255,255,255,0.35) 1px,transparent 1px)`,backgroundSize:"28px 28px",opacity:0.05,pointerEvents:"none" }} />
           <div style={{ position:"absolute",inset:0,background:`radial-gradient(ellipse at 80% 20%,${C.blush}28,transparent 55%)`,pointerEvents:"none",animation:"ambientGlow 6s ease-in-out infinite" }} />
           <div style={{ position:"absolute",top:0,left:0,right:0,height:1.5,background:`linear-gradient(90deg,transparent,rgba(255,255,255,0.5),transparent)` }} />
-          {[{t:"12%",l:"72%",s:14,d:"0s"},{t:"68%",l:"86%",s:9,d:"1s"},{t:"28%",l:"8%",s:8,d:"1.5s"},{t:"78%",l:"22%",s:6,d:"2s"}].map((sp,i)=>(
-            <div key={i} style={{ position:"absolute",top:sp.t,left:sp.l,fontSize:sp.s,opacity:0.55,animation:`sparkleFloat 3.5s ease-in-out infinite`,animationDelay:sp.d,pointerEvents:"none",color:C.lavender }}>✦</div>
+          {bannerDecoChars.map((ch,i)=>(
+            <div key={i} style={{ position:"absolute",top:`${10+i*11}%`,right:`${5+i*11}%`,fontSize:ch.length>1?13:9,opacity:0.45,animation:`sparkleFloat ${3+i*0.5}s ease-in-out infinite`,animationDelay:`${i*0.4}s`,pointerEvents:"none",color:"rgba(255,255,255,0.9)" }}>{ch}</div>
           ))}
           <div style={{ position:"relative" }}>
             <p style={{ ...SFF,fontStyle:"italic",fontWeight:700,fontSize:16,color:"rgba(255,255,255,0.93)",lineHeight:1.45,marginBottom:6,textShadow:"0 2px 12px rgba(0,0,0,0.5)" }}>"{status}"</p>
@@ -17451,7 +17500,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
   if(section==="myshows") return <MyShowsPage onBack={()=>setSection("main")} isVip={isVip} onUpgrade={onUpgrade} go={go} />;
 
   // ── SECTION: PROFILE STUDIO ──
-  if(section==="studio") return <ProfileStudio profileStyle={profileStyle} setProfileStyle={setProfileStyle} isVip={isVip} onUpgrade={onUpgrade} onBack={()=>setSection("main")} user={user} />;
+  if(section==="studio") return <ProfileStudio profileStyle={profileStyle} setProfileStyle={setProfileStyle} isVip={isVip} onUpgrade={onUpgrade} onBack={()=>setSection("main")} onSaved={()=>setSection("preview")} user={user} />;
 
   // ── SECTION: PROFILE PREVIEW ──
   if(section==="preview") return <ProfilePreview user={user} profileStyle={profileStyle} cards={cards} top5={ls.get("backstage_top5",[])} biases={ls.get("backstage_top_biases",[])} go={go} onBack={()=>setSection("main")} isVip={isVip} onUpgrade={onUpgrade} />;
@@ -17479,15 +17528,13 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
   // ── MAIN PROFILE ──
   const activeSkinGrad = SKIN_GRADIENTS[SKIN_ID_TO_GRAD[profileStyle.skinId||"classic"]||"purple haze"];
   const activeSkinChars = (OVERLAY_CHARS[profileStyle.skinOverlay||"sparkles"]||[]).slice(0,8);
+  // Stage World drives the banner card; skinId drives full-page background
+  const activeBannerGrad = profileStyle.bgImageUrl
+    ? `url(${profileStyle.bgImageUrl}) center/cover`
+    : resolveWorldGrad(profileStyle.stageWorld || "concert_night");
+  const activeDecoChars = (STAGE_DECO_MAP[profileStyle.stageDeco || profileStyle.skinOverlay || "sparkles"]?.chars || []).slice(0,8);
   // Positions for full-page sparkle wallpaper (top%, left%)
   const SPARKLE_POS = [[6,80],[18,92],[32,12],[48,72],[62,88],[75,28],[88,60],[12,45]];
-  const BANNER_GRADIENTS = {
-    "purple haze": `linear-gradient(140deg,${C.accentDim},${C.accent}44,${C.bg})`,
-    "pink aura": `linear-gradient(140deg,${C.pinkDim},${C.pink}44,${C.bg})`,
-    "mint glow": `linear-gradient(140deg,${C.mintDim},${C.mint}44,${C.bg})`,
-    "midnight silver": `linear-gradient(140deg,${C.silverDim},${C.silver}22,${C.bg})`,
-    "golden hour": `linear-gradient(140deg,${C.goldDim},${C.gold}44,${C.bg})`,
-  };
 
   return(
     <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden", position:"relative", background:activeSkinGrad }}>
@@ -17503,22 +17550,20 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
             <p style={{ fontSize:8.5, color:"rgba(255,255,255,0.15)", fontFamily:"'Epilogue',sans-serif", fontWeight:500, marginTop:2 }}>Your fandom. Your memories. Your stage.</p>
           </div>
         </div>
-        {/* STATUS BANNER — uses active skin gradient */}
-        <div style={{ background:activeSkinGrad, borderRadius:28, padding:"22px 18px 18px", marginTop:18, marginBottom:18, position:"relative", minHeight:120, boxShadow:`0 16px 48px rgba(0,0,0,0.6), 0 4px 20px ${C.berry}18`, overflow:"hidden" }}>
+        {/* STATUS BANNER — uses stageWorld gradient */}
+        <div style={{ background:activeBannerGrad, backgroundSize:"cover", backgroundPosition:"center", borderRadius:28, padding:"22px 18px 18px", marginTop:18, marginBottom:18, position:"relative", minHeight:120, boxShadow:`0 16px 48px rgba(0,0,0,0.6), 0 4px 20px ${C.berry}18`, overflow:"hidden" }}>
           {/* Cosmic texture overlay */}
           <div style={{ position:"absolute",inset:0,backgroundImage:`radial-gradient(circle,rgba(255,255,255,0.4) 1px,transparent 1px)`,backgroundSize:"28px 28px",opacity:0.06,pointerEvents:"none" }} />
           {/* Animated mesh overlay */}
           <div style={{ position:"absolute",inset:0,background:`radial-gradient(ellipse at 80% 15%,${C.blush}30,transparent 50%),radial-gradient(ellipse at 15% 75%,${C.lavender}22,transparent 55%)`,pointerEvents:"none",animation:"ambientGlow 6s ease-in-out infinite" }} />
           {/* Shimmer top line */}
           <div style={{ position:"absolute",top:0,left:0,right:0,height:1.5,background:`linear-gradient(90deg,transparent,rgba(255,255,255,0.55),transparent)` }} />
-          {/* Stars constellation */}
-          {[{t:"12%",l:"72%",s:14,d:"0s"},{t:"70%",l:"84%",s:9,d:"0.9s"},{t:"28%",l:"9%",s:9,d:"1.5s"},{t:"78%",l:"20%",s:6,d:"2.2s"},{t:"45%",l:"58%",s:5,d:"0.4s"},{t:"15%",l:"48%",s:5,d:"1.8s"},{t:"60%",l:"38%",s:4,d:"2.6s"}].map((sp,i)=>(
-            <div key={i} style={{ position:"absolute",top:sp.t,left:sp.l,fontSize:sp.s,opacity:0.55,animation:`sparkleFloat 3.5s ease-in-out infinite`,animationDelay:sp.d,pointerEvents:"none",color:C.lavender }}>✦</div>
+          {/* Stage Deco overlay */}
+          {activeDecoChars.map((ch,i)=>(
+            <div key={i} style={{ position:"absolute",top:`${12+i*10}%`,right:`${6+i*12}%`,fontSize:ch.length>1?13:9,opacity:0.5,animation:`sparkleFloat ${2.5+i*0.4}s ease-in-out infinite`,animationDelay:`${i*0.3}s`,pointerEvents:"none",color:"rgba(255,255,255,0.85)" }}>{ch}</div>
           ))}
-          {/* Small star dots */}
-          {[{t:"55%",l:"50%"},{t:"35%",l:"92%"},{t:"82%",l:"55%"}].map((sp,i)=>(
-            <div key={`dot${i}`} style={{ position:"absolute",top:sp.t,left:sp.l,width:3,height:3,borderRadius:"50%",background:"rgba(255,255,255,0.7)",animation:`pulse ${2+i*0.6}s ease infinite`,animationDelay:`${i*0.5}s`,pointerEvents:"none" }} />
-          ))}
+          {/* Shimmer top line */}
+          <div style={{ position:"absolute",top:0,left:0,right:0,height:1.5,background:`linear-gradient(90deg,transparent,rgba(255,255,255,0.55),transparent)` }} />
           <div style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
             <div style={{ fontSize:28 }}>{profileStyle.bannerEmoji}</div>
             <div style={{ flex:1 }}>
@@ -18984,7 +19029,7 @@ function SkinThemeTab({ skinCategories, activeCat, setActiveCat, profileStyle, t
 
 // ─── PROFILE STUDIO ───────────────────────────────────────────────────────────
 // POST /api/profile/style | GET /api/profile/:userId
-function ProfileStudio({ profileStyle, setProfileStyle, isVip, onUpgrade, onBack, user }) {
+function ProfileStudio({ profileStyle, setProfileStyle, isVip, onUpgrade, onBack, onSaved, user }) {
   const [activeSection, setActiveSection] = useState("banner");
   const FAN_DNA_OPTIONS = ["Music","K-Dramas","Photocards","Collecting","Travel","Freebies","Trading","Dance Challenges","Concert Fits","Fanchants","Bias Edits","Cupsleeves","Fan Projects","Lightsticks"];
   const [fanIdentity, setFanIdentity] = useState(()=>ls.get("backstage_fan_identity", {ult:"",bias:"",biasWrecker:"",since:"",concertCount:"",currentEra:"",favoriteSong:"",fanRoles:"",fanDNA:[]}));
@@ -19112,8 +19157,36 @@ function ProfileStudio({ profileStyle, setProfileStyle, isVip, onUpgrade, onBack
     {id:"preview",label:"👁️ Preview"},
   ];
 
+  const [saveConfirm, setSaveConfirm] = useState(false);
+  const uploadBgRef = useRef(null);
+
   const save = () => {
     ls.set("backstage_profile_style", profileStyle);
+    setSaveConfirm(true);
+    setTimeout(() => { setSaveConfirm(false); if (onSaved) onSaved(); }, 1600);
+  };
+
+  const handleBgUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // Use existing upload-url pattern; fall back to local data URL for localStorage-only mode
+    try {
+      const ext = file.name.split('.').pop();
+      const res = await api.post('/api/profile/upload-url', { type: file.type, ext });
+      if (res?.uploadUrl && res?.publicUrl) {
+        await fetch(res.uploadUrl, { method:'PUT', body:file, headers:{'Content-Type':file.type} });
+        const next = {...profileStyle, bgImageUrl: res.publicUrl};
+        setProfileStyle(next); ls.set("backstage_profile_style", next);
+        return;
+      }
+    } catch(_) {}
+    // Fallback: base64 data URL (localStorage only)
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const next = {...profileStyle, bgImageUrl: ev.target.result};
+      setProfileStyle(next); ls.set("backstage_profile_style", next);
+    };
+    reader.readAsDataURL(file);
   };
 
   return (
@@ -19123,13 +19196,15 @@ function ProfileStudio({ profileStyle, setProfileStyle, isVip, onUpgrade, onBack
           <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
           <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:19 }}>Stage Studio ✦</h2>
         </div>
-        <button onClick={save} style={{ background:C.accent,border:"none",borderRadius:11,padding:"7px 16px",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>Save</button>
+        <button onClick={save} style={{ background:saveConfirm?C.mint:C.accent,border:"none",borderRadius:11,padding:"7px 16px",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer",transition:"background .3s" }}>
+          {saveConfirm ? "Stage saved ✦" : "Save"}
+        </button>
       </div>
 
       {/* Live Preview Banner */}
       <div style={{ padding:"0 20px 12px", flexShrink:0 }}>
-        <div style={{ background:SKIN_GRADIENTS[SKIN_ID_TO_GRAD[profileStyle.skinId||"classic"]||"purple haze"], borderRadius:18, padding:"16px 18px", position:"relative", minHeight:80, overflow:"hidden" }}>
-          {(OVERLAY_CHARS[profileStyle.skinOverlay||"sparkles"]||[]).map((ch,i)=>(
+        <div style={{ background:resolveWorldGrad(profileStyle.stageWorld||"concert_night"), backgroundSize:"cover", backgroundPosition:"center", borderRadius:18, padding:"16px 18px", position:"relative", minHeight:80, overflow:"hidden" }}>
+          {(STAGE_DECO_MAP[profileStyle.stageDeco||"sparkles"]?.chars||[]).map((ch,i)=>(
             <span key={i} style={{ position:"absolute",top:`${12+i*22}%`,right:`${8+i*14}%`,fontSize:ch.length>1?15:11,opacity:0.6,animation:`sparkleFloat ${2+i*0.4}s ease-in-out infinite`,animationDelay:`${i*0.25}s`,color:"rgba(255,255,255,0.85)",pointerEvents:"none" }}>{ch}</span>
           ))}
           <div style={{ fontSize:26,position:"relative" }}>{profileStyle.bannerEmoji}</div>
@@ -19147,31 +19222,72 @@ function ProfileStudio({ profileStyle, setProfileStyle, isVip, onUpgrade, onBack
       <Screen>
         {activeSection==="banner" && (
           <div>
-            <SectionHeader title="Banner Gradient" />
-            <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:18 }}>
-              {GRADIENTS.map(g=>(
-                <div key={g} onClick={()=>setProfileStyle({...profileStyle,bannerGradient:g})} className="tap" style={{ flex:"0 0 calc(50% - 4px)", height:50, borderRadius:13, background:GRADIENT_CSS[g], border:`2px solid ${profileStyle.bannerGradient===g?C.white:"transparent"}`, cursor:"pointer", display:"flex", alignItems:"flex-end", padding:"6px 10px" }}>
-                  <p style={{ fontSize:10, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:"rgba(255,255,255,0.9)" }}>{g}</p>
-                </div>
-              ))}
+            {/* ── STAGE WORLD ── */}
+            <SectionHeader title="Stage World" />
+            <p style={{ fontSize:11, color:C.textMid, marginBottom:12, lineHeight:1.5 }}>Your world. Every choice changes the banner and page background.</p>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:20 }}>
+              {STAGE_WORLDS.map(w=>{
+                const isActive = (profileStyle.stageWorld||"concert_night") === w.id;
+                return (
+                  <div key={w.id} onClick={()=>setProfileStyle({...profileStyle, stageWorld:w.id})} className="tap"
+                    style={{ borderRadius:16, overflow:"hidden", cursor:"pointer", border:`2px solid ${isActive?C.white:"transparent"}`, boxShadow:isActive?`0 0 18px ${C.accent}66`:"none", position:"relative" }}>
+                    <div style={{ height:72, background:SKIN_GRADIENTS[w.grad], position:"relative" }}>
+                      {isActive && <div style={{ position:"absolute",top:6,left:6,background:"rgba(255,255,255,0.92)",borderRadius:99,padding:"2px 8px",fontSize:7.5,color:"#06060f",fontFamily:"'Epilogue',sans-serif",fontWeight:800,letterSpacing:"0.05em" }}>● ACTIVE</div>}
+                      <div style={{ position:"absolute",bottom:0,right:0,fontSize:11,padding:"4px 8px",opacity:0.7 }}>{(OVERLAY_CHARS[w.deco]||[]).slice(0,3).join(" ")}</div>
+                    </div>
+                    <div style={{ padding:"8px 10px", background:C.surface }}>
+                      <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,marginBottom:2 }}>{w.name}</p>
+                      <p style={{ fontSize:8.5,color:C.textDim }}>{w.desc}</p>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-            <SectionHeader title="Banner Emoji" />
-            <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:18 }}>
-              {EMOJIS.map(e=>(
-                <div key={e} onClick={()=>setProfileStyle({...profileStyle,bannerEmoji:e})} className="tap" style={{ width:48, height:48, borderRadius:13, background:profileStyle.bannerEmoji===e?`${C.accent}22`:C.surface, border:`1.5px solid ${profileStyle.bannerEmoji===e?C.accent:C.border}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, cursor:"pointer" }}>{e}</div>
-              ))}
+
+            {/* ── UPLOAD YOUR OWN ── */}
+            <SectionHeader title="Upload Your Own Background" />
+            <div style={{ marginBottom:18 }}>
+              <div onClick={()=>uploadBgRef.current?.click()} className="tap"
+                style={{ borderRadius:14, border:`1.5px dashed ${C.border}`, padding:"16px", textAlign:"center", cursor:"pointer", background:profileStyle.bgImageUrl?`url(${profileStyle.bgImageUrl}) center/cover`:`${C.surfaceHi}`, minHeight:70, position:"relative", overflow:"hidden" }}>
+                {profileStyle.bgImageUrl
+                  ? <><div style={{ position:"absolute",inset:0,background:"rgba(6,6,15,0.55)" }} /><p style={{ position:"relative",fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,color:C.mint }}>✓ Custom background active</p></>
+                  : <><p style={{ fontSize:14, marginBottom:4 }}>📷</p><p style={{ fontSize:11,color:C.textMid }}>Upload a photo or wallpaper</p><p style={{ fontSize:9,color:C.textDim,marginTop:2 }}>Only upload images you own</p></>
+                }
+              </div>
+              <input ref={uploadBgRef} type="file" accept="image/*" style={{ display:"none" }} onChange={handleBgUpload} />
+              {profileStyle.bgImageUrl && (
+                <button onClick={()=>{const n={...profileStyle,bgImageUrl:null};setProfileStyle(n);ls.set("backstage_profile_style",n);}}
+                  style={{ marginTop:8,padding:"5px 12px",borderRadius:9,background:"transparent",border:`1px solid ${C.border}`,color:C.textMid,fontSize:10,cursor:"pointer" }}>Remove background</button>
+              )}
             </div>
+
+            {/* ── STAGE DECO ── */}
+            <SectionHeader title="Stage Deco" />
+            <p style={{ fontSize:11, color:C.textMid, marginBottom:10 }}>Overlay decoration across your banner.</p>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:18 }}>
+              {STAGE_DECO_OPTIONS.map(d=>{
+                const isActive = (profileStyle.stageDeco||"sparkles") === d.id;
+                return (
+                  <div key={d.id} onClick={()=>setProfileStyle({...profileStyle, stageDeco:d.id})} className="tap"
+                    style={{ padding:"11px 13px", borderRadius:13, cursor:"pointer", background:isActive?`${C.accent}18`:C.surface, border:`1.5px solid ${isActive?C.accent:C.border}` }}>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,color:isActive?C.accent:C.text,marginBottom:2 }}>{d.label}</p>
+                    <p style={{ fontSize:11, letterSpacing:3 }}>{(d.chars||[]).slice(0,4).join("")||"—"}</p>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* ── BANNER TEXT ── */}
             <SectionHeader title="Banner Text" />
-            {/* Custom text input */}
             <div style={{ position:"relative", marginBottom:10 }}>
               <input
-                value={profileStyle.bannerText}
+                value={profileStyle.bannerText||""}
                 onChange={e=>e.target.value.length<=80&&setProfileStyle({...profileStyle,bannerText:e.target.value})}
                 placeholder="What's on your mind? Type anything..."
                 maxLength={80}
                 style={{ width:"100%", background:C.surfaceHi, border:`1.5px solid ${C.accent}55`, borderRadius:13, padding:"11px 14px", color:C.text, fontSize:12.5, fontStyle:"italic", fontFamily:"'Instrument Sans',sans-serif", boxSizing:"border-box" }}
               />
-              <p style={{ position:"absolute", bottom:8, right:12, fontSize:9, color:C.textDim }}>{profileStyle.bannerText?.length||0}/80</p>
+              <p style={{ position:"absolute", bottom:8, right:12, fontSize:9, color:C.textDim }}>{(profileStyle.bannerText||"").length}/80</p>
             </div>
             <p style={{ fontSize:9.5, color:C.textDim, marginBottom:10 }}>Or pick a preset:</p>
             <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:18 }}>
