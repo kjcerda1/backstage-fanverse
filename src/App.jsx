@@ -4814,18 +4814,18 @@ function NotificationBell({ onOpen }) {
 // ─── ASK BACKSTAGE BUTTON ─────────────────────────────────────────────────────
 function AskBackstageButton({ go }) {
   return (
-    <div style={{ position:"absolute",bottom:92,right:16,zIndex:300 }}>
+    <div style={{ position:"absolute",bottom:108,right:16,zIndex:300 }}>
       <button
         onClick={()=>go("assistant")}
         className="tap"
         title="Ask Backstage AI"
         style={{
-          width:46,height:46,
-          borderRadius:14,
+          width:42,height:42,
+          borderRadius:13,
           background:`linear-gradient(140deg,${C.accent}ee,${C.pink}cc)`,
           border:`1px solid rgba(255,255,255,0.22)`,
           color:C.bg,
-          fontSize:22,
+          fontSize:20,
           cursor:"pointer",
           boxShadow:`0 4px 18px ${C.accent}44, 0 2px 8px rgba(0,0,0,0.35)`,
           animation:"shareGlow 4s ease infinite",
@@ -9605,13 +9605,16 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
         {scrolled && (
           <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 20px 0",animation:"in .15s ease" }}>
             <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontStyle:"italic",fontWeight:700,fontSize:15,background:`linear-gradient(135deg,${C.lavender},${C.blush})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent" }}>the Fanverse ✦</h2>
-            <StatusChip label="PREVIEW" style={{ fontSize:8 }} />
+            <div style={{ display:"flex",gap:5,alignItems:"center" }}>
+              <div style={{ width:4,height:4,borderRadius:"50%",background:C.rose,animation:"pulse 1.4s ease infinite" }} />
+              <p style={{ fontSize:9,color:C.rose,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>LIVE</p>
+            </div>
           </div>
         )}
 
         {/* ── SOCIAL STORY RAIL — personal/social bubbles (NOT pass categories) ── */}
         {/* Pass categories (Fit Check, Merch, etc.) stay in Backstage Passes page only */}
-        <div style={{ display:"flex",gap:8,overflowX:"auto",scrollbarWidth:"none",padding:`${scrolled?3:5}px 14px ${scrolled?3:5}px`,transition:"padding .28s ease",alignItems:"flex-start" }}>
+        <div style={{ display:"flex",gap:11,overflowX:"auto",scrollbarWidth:"none",padding:`${scrolled?3:5}px 14px ${scrolled?3:5}px`,transition:"padding .28s ease",alignItems:"flex-start" }}>
           {/* Your Pass — always first */}
           <div onClick={()=>go?.("passes")} className="tap" style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:2,cursor:"pointer" }}>
             <div style={{ width:scrolled?36:42,height:scrolled?36:42,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.berry})`,padding:2,boxShadow:`0 0 12px ${C.accent}50`,transition:"all .28s ease",flexShrink:0 }}>
@@ -9660,8 +9663,7 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
         {/* Active filter indicator */}
         {ringFilter&&(
           <div style={{ padding:"0 16px 8px",display:"flex",alignItems:"center",gap:8 }}>
-            <StatusChip label="PREVIEW" />
-            <p style={{ fontSize:10.5,color:C.textMid }}>Showing {ringFilter==="circle"?"My Circle":"local"} posts preview</p>
+            <p style={{ fontSize:10,color:C.textMid }}>Showing {ringFilter==="circle"?"My Circle":"nearby"} posts</p>
             <button onClick={()=>setRingFilter(null)} style={{ background:"none",border:"none",color:C.textDim,cursor:"pointer",fontSize:12,marginLeft:"auto" }}>✕</button>
           </div>
         )}
@@ -11701,7 +11703,10 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
           <div style={{ display:"flex", gap:8, alignItems:"center" }}>
             {onBack&&<button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:20,cursor:"pointer" }}>←</button>}
             <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13, color:C.text }}>Feed</p>
-            <StatusChip label="PREVIEW" style={{ fontSize:7.5 }} />
+            <div style={{ display:"flex",gap:4,alignItems:"center" }}>
+              <div style={{ width:4,height:4,borderRadius:"50%",background:C.rose,animation:"pulse 1.6s ease infinite" }} />
+              <p style={{ fontSize:9,color:C.textDim,fontFamily:"'Epilogue',sans-serif" }}>live-ish</p>
+            </div>
           </div>
           <button onClick={()=>setComposing(true)} style={{ background:`linear-gradient(135deg,${C.accent},${C.berry})`,border:"none",borderRadius:9,padding:"6px 13px",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer",boxShadow:`0 0 10px ${C.accent}30` }}>+ Moment</button>
         </div>
@@ -11800,7 +11805,7 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
         {/* FOMO microcopy */}
         <div style={{ background:`${C.accent}08`, border:`1px solid ${C.accent}18`, borderRadius:9, padding:"6px 12px", marginBottom:8, display:"flex", gap:7, alignItems:"center" }}>
           <span style={{ fontSize:12 }}>🌸</span>
-          <div style={{ fontSize:10.5, color:C.textMid, display:"flex", alignItems:"center", gap:0 }}><StatusChip label="PREVIEW" style={{ fontSize:7.5,marginRight:5 }} /><span style={{ color:C.textMid }}>Fan updates from your area · preview</span></div>
+          <p style={{ fontSize:10.5, color:C.textMid }}>Fan Pulse · energy from fans near you</p>
         </div>
 
         {/* Posts */}
