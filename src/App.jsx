@@ -2458,6 +2458,24 @@ const MOCK_COLLECTION_TEMPLATES = [
     cards:["Minji (Concept)","Hanni (Concept)","Danielle (Concept)","Haerin (Concept)","Hyein (Concept)","Minji (Unit)","Hanni (Unit)","Danielle (Unit)","Haerin (Unit)","Hyein (Unit)","Minji (Fansign)","Hanni (Fansign)","Danielle (Fansign)","Haerin (Fansign)","Hyein (Fansign)","NewJeans (Group)"] },
 ];
 
+// Lightweight set catalog — Group → Era → Album → Version → Members
+// Status per member slot stored in localStorage: backstage_photocard_sets
+const PC_CATALOG_SETS = [
+  { id:"bts-proof-standard",      group:"BTS",        era:"Proof",      album:"Proof",      version:"Standard Ver.",        emoji:"💜", color:C.pink,    cardType:"Album PC", members:["Jin","Suga","J-Hope","RM","Jimin","V","Jungkook"] },
+  { id:"bts-proof-compact",       group:"BTS",        era:"Proof",      album:"Proof",      version:"Compact Ver.",         emoji:"💜", color:C.pink,    cardType:"Album PC", members:["Jin","Suga","J-Hope","RM","Jimin","V","Jungkook"] },
+  { id:"skz-rockstar-limited",    group:"Stray Kids", era:"ROCK-STAR",  album:"ROCK-STAR",  version:"Limited Star Ver.",    emoji:"⭐", color:C.accent,  cardType:"Album PC", members:["Bang Chan","Lee Know","Changbin","Hyunjin","Han","Felix","Seungmin","I.N"] },
+  { id:"skz-rockstar-standard",   group:"Stray Kids", era:"ROCK-STAR",  album:"ROCK-STAR",  version:"Standard Ver.",        emoji:"🖤", color:C.silver,  cardType:"Album PC", members:["Bang Chan","Lee Know","Changbin","Hyunjin","Han","Felix","Seungmin","I.N"] },
+  { id:"skz-5star-a",             group:"Stray Kids", era:"5-STAR",     album:"5-STAR",     version:"A Ver.",               emoji:"🌟", color:C.gold,    cardType:"Album PC", members:["Bang Chan","Lee Know","Changbin","Hyunjin","Han","Felix","Seungmin","I.N"] },
+  { id:"skz-5star-b",             group:"Stray Kids", era:"5-STAR",     album:"5-STAR",     version:"B Ver.",               emoji:"🌟", color:C.silver,  cardType:"Album PC", members:["Bang Chan","Lee Know","Changbin","Hyunjin","Han","Felix","Seungmin","I.N"] },
+  { id:"aespa-drama-giant",       group:"aespa",      era:"Drama",      album:"Drama",      version:"Giant Ver.",           emoji:"🌌", color:C.mint,    cardType:"Album PC", members:["Karina","Giselle","Winter","Ningning"] },
+  { id:"aespa-drama-scene",       group:"aespa",      era:"Drama",      album:"Drama",      version:"Scene Ver.",           emoji:"🎬", color:C.teal,    cardType:"Album PC", members:["Karina","Giselle","Winter","Ningning"] },
+  { id:"aespa-armageddon-mypower",group:"aespa",      era:"Armageddon", album:"Armageddon", version:"MY Power Ver.",        emoji:"⚡", color:C.accent,  cardType:"Album PC", members:["Karina","Giselle","Winter","Ningning"] },
+  { id:"nj-getup-bunny",          group:"NewJeans",   era:"Get Up",     album:"Get Up",     version:"Bunny Beach Bag Ver.", emoji:"🐰", color:C.silver,  cardType:"Album PC", members:["Minji","Hanni","Danielle","Haerin","Hyein"] },
+  { id:"nj-how-sweet-standard",   group:"NewJeans",   era:"How Sweet",  album:"How Sweet",  version:"Standard Ver.",        emoji:"🍯", color:C.blush,   cardType:"Album PC", members:["Minji","Hanni","Danielle","Haerin","Hyein"] },
+  { id:"bp-bornpink-standard",    group:"BLACKPINK",  era:"Born Pink",  album:"Born Pink",  version:"Standard Ver.",        emoji:"🌸", color:C.rose,    cardType:"Album PC", members:["Jisoo","Jennie","Rosé","Lisa"] },
+  { id:"bp-bornpink-digipack",    group:"BLACKPINK",  era:"Born Pink",  album:"Born Pink",  version:"Digipack Ver.",        emoji:"🌸", color:C.berry,   cardType:"Album PC", members:["Jisoo","Jennie","Rosé","Lisa"] },
+];
+
 // localStorage: backstage_binders | backstage_card_slots
 // GET /api/collections/templates?group=
 // GET /api/collections/albums/:albumId/cards
@@ -2731,7 +2749,7 @@ function getDeliveryPrefs(user) {
 // ─── INVITE FRIENDS / REFERRAL HUB ────────────────────────────────────────────
 // POST /api/referrals/invite | GET /api/referrals/:userId | POST /api/referrals/claim
 // POST /api/circle/request | GET /api/circle/:userId | POST /api/circle/accept
-function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go }) {
+function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go, onViewProfile }) {
   const { tokenReady } = useAuth();
   const [tab, setTab] = useState("find");
   const [copied, setCopied] = useState(false);
@@ -3018,7 +3036,7 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go }) {
           <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
           <div style={{ flex:1,minWidth:0 }}>
             <div style={{ display:"flex",alignItems:"center",gap:7,marginBottom:2 }}>
-              <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:18,letterSpacing:"-0.02em",whiteSpace:"nowrap" }}>Bring Your Crew</h2>
+              <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:18,letterSpacing:"-0.02em",whiteSpace:"nowrap" }}>Build Your Crew</h2>
               {/* Concert-safe chip — inline with title so title stays on one line */}
               <div style={{ padding:"3px 8px",borderRadius:99,background:`${C.mint}14`,border:`1px solid ${C.mint}30`,fontSize:8,color:C.mint,fontFamily:"'Epilogue',sans-serif",fontWeight:700,flexShrink:0 }}>✦ Safe</div>
             </div>
@@ -3097,11 +3115,11 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go }) {
                     return (
                       <div key={fu.id} style={{ padding:"11px 14px",borderBottom:i<searchResults.length-1?`1px solid ${C.border}`:"none",position:"relative",background:st==="accepted"?`${C.mint}05`:"transparent" }}>
                         <div style={{ display:"flex",gap:10,alignItems:"flex-start" }}>
-                          <div style={{ position:"relative",flexShrink:0,marginTop:2 }}>
+                          <div onClick={()=>onViewProfile&&onViewProfile(fu)} className="tap" style={{ position:"relative",flexShrink:0,marginTop:2,cursor:"pointer" }}>
                             <div style={{ width:42,height:42,borderRadius:"50%",background:`linear-gradient(135deg,${fu.color||C.accent},${(fu.color||C.accent)}77)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,color:C.bg,border:`2px solid ${(fu.color||C.accent)}66`,boxShadow:`0 0 12px ${(fu.color||C.accent)}33` }}>{fu.avatar}</div>
                             {st==="accepted"&&<div style={{ position:"absolute",bottom:-1,right:-1,width:14,height:14,borderRadius:"50%",background:C.mint,border:`2px solid ${C.surface}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:7 }}>✦</div>}
                           </div>
-                          <div style={{ flex:1,minWidth:0,overflow:"hidden" }}>
+                          <div onClick={()=>onViewProfile&&onViewProfile(fu)} className="tap" style={{ flex:1,minWidth:0,overflow:"hidden",cursor:"pointer" }}>
                             <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12.5,color:C.text,marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{highlight(`@${fu.username}`)}</p>
                             <p style={{ fontSize:10,color:C.textMid,marginBottom:5,lineHeight:1.35,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{fu.bio||fu.displayName}</p>
                             <div style={{ display:"flex",gap:4,flexWrap:"nowrap",overflow:"hidden" }}>
@@ -3217,8 +3235,8 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go }) {
                   <p style={{ fontSize:10,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8 }}>Pending — {pendingReqs.length} sent</p>
                   {pendingReqs.map(req=>(
                     <div key={req.id} style={{ display:"flex",gap:10,alignItems:"center",background:C.surface,border:`1px solid ${C.accent}22`,borderRadius:14,padding:"10px 12px",marginBottom:8 }}>
-                      <div style={{ width:36,height:36,borderRadius:"50%",background:`linear-gradient(135deg,${req.color},${req.color}77)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.bg,flexShrink:0 }}>{req.avatar}</div>
-                      <div style={{ flex:1,minWidth:0 }}>
+                      <div onClick={()=>onViewProfile&&onViewProfile(req)} className="tap" style={{ width:36,height:36,borderRadius:"50%",background:`linear-gradient(135deg,${req.color},${req.color}77)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.bg,flexShrink:0,cursor:"pointer" }}>{req.avatar}</div>
+                      <div onClick={()=>onViewProfile&&onViewProfile(req)} className="tap" style={{ flex:1,minWidth:0,cursor:"pointer" }}>
                         <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12 }}>@{req.username}</p>
                         <p style={{ fontSize:10,color:C.textMid }}>{req.concertContext||req.fandoms?.[0]||""}</p>
                       </div>
@@ -3238,7 +3256,8 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go }) {
             <div style={{ background:`linear-gradient(140deg,${C.accent}18,${C.pink}12)`,border:`1.5px solid ${C.accent}40`,borderRadius:22,padding:20,marginBottom:18,textAlign:"center",position:"relative",overflow:"hidden",animation:"shareGlow 4s ease infinite" }}>
               <div style={{ position:"absolute",inset:0,background:`radial-gradient(ellipse at top,${C.accent}0a,transparent 70%)`,pointerEvents:"none" }} />
               <div style={{ fontSize:40,marginBottom:10,animation:"float 3s ease infinite",display:"inline-block" }}>🎤</div>
-              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:20,marginBottom:4 }}>Your Invite Code</p>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:20,marginBottom:2 }}>Your Invite Code</p>
+              <p style={{ fontSize:11,color:C.textMid,marginBottom:12 }}>Bring your crew to Backstage.</p>
               {!referralCode && !referralCodeError && (
                 <div style={{ background:C.surfaceHi,borderRadius:13,padding:"14px 16px",marginBottom:14,border:`1.5px solid ${C.accent}22`,textAlign:"center" }}>
                   <p style={{ fontSize:12,color:C.textMid }}>Getting your invite code…</p>
@@ -6135,6 +6154,138 @@ function ShowDetail({ concert, onBack, going, setGoing, go, isVip, onUpgrade, rs
 
 // ─── COLLECT ──────────────────────────────────────────────────────────────────
 // ─── LIBRARY TAB — rich collection shell ─────────────────────────────────────
+// ─── PHOTOCARD SETS VIEW — set-based catalog browser ─────────────────────────
+function PhotocardSetsView({ pcSetData, setPcSetData, groupFilter, setGroupFilter }) {
+  const [selectedSet, setSelectedSet] = useState(null);
+
+  const SET_GROUPS = ["all", ...new Set(PC_CATALOG_SETS.map(s=>s.group))];
+  const filteredSets = groupFilter==="all" ? PC_CATALOG_SETS : PC_CATALOG_SETS.filter(s=>s.group===groupFilter);
+
+  const getStats = (setId, members) => {
+    const d = pcSetData[setId]||{};
+    return {
+      owned:    members.filter(m=>d[m]==="owned").length,
+      wishlist: members.filter(m=>d[m]==="wishlist").length,
+      dupe:     members.filter(m=>d[m]==="dupe").length,
+      trade:    members.filter(m=>d[m]==="trade").length,
+      total:    members.length,
+    };
+  };
+
+  const updateStatus = (setId, member, status) => {
+    const next = { ...pcSetData, [setId]:{ ...(pcSetData[setId]||{}), [member]:status } };
+    setPcSetData(next);
+    ls.set("backstage_photocard_sets", next);
+  };
+
+  const STATUS_CYCLE = [null,"owned","wishlist","dupe","trade"];
+  const STATUS_META  = {
+    null:     { label:"Missing",  color:C.textDim, bg:C.surface,       border:C.border        },
+    owned:    { label:"✓ Owned",  color:C.mint,    bg:`${C.mint}18`,   border:`${C.mint}44`   },
+    wishlist: { label:"♡ ISO",    color:C.gold,    bg:`${C.gold}14`,   border:`${C.gold}44`   },
+    dupe:     { label:"×2 Dupe",  color:C.accent,  bg:`${C.accent}14`, border:`${C.accent}44` },
+    trade:    { label:"⇄ Trade",  color:C.rose,    bg:`${C.rose}14`,   border:`${C.rose}44`   },
+  };
+
+  return (
+    <div>
+      <div style={{ display:"flex",gap:6,marginBottom:14,overflowX:"auto",scrollbarWidth:"none" }}>
+        {SET_GROUPS.map(g=>(
+          <span key={g} onClick={()=>setGroupFilter(g)} className="tap" style={{ flexShrink:0,padding:"5px 12px",borderRadius:99,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:groupFilter===g?C.pink:`${C.pink}12`,color:groupFilter===g?C.bg:C.textMid,border:`1px solid ${groupFilter===g?C.pink:C.border}` }}>{g==="all"?"All Groups":g}</span>
+        ))}
+      </div>
+
+      <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10 }}>Photocard Sets — tap to track</p>
+
+      <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
+        {filteredSets.map(set=>{
+          const s = getStats(set.id, set.members);
+          const pct = s.total>0 ? Math.round((s.owned/s.total)*100) : 0;
+          return (
+            <div key={set.id} onClick={()=>setSelectedSet(set)} className="tap" style={{ background:`${set.color}0c`,border:`1.5px solid ${set.color}30`,borderRadius:18,padding:"14px 16px",cursor:"pointer",position:"relative",overflow:"hidden" }}>
+              <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${set.color}44,transparent)` }} />
+              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10 }}>
+                <div style={{ flex:1,minWidth:0,paddingRight:10 }}>
+                  <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:3 }}>
+                    <span style={{ fontSize:15,flexShrink:0 }}>{set.emoji}</span>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13.5,color:C.text,lineHeight:1.2 }}>{set.album}</p>
+                  </div>
+                  <p style={{ fontSize:10,color:set.color,marginBottom:1 }}>{set.group} · {set.era}</p>
+                  <p style={{ fontSize:9.5,color:C.textDim }}>{set.version}</p>
+                </div>
+                <div style={{ textAlign:"right",flexShrink:0 }}>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:18,color:set.color,lineHeight:1 }}>{s.owned}<span style={{ fontSize:11,color:C.textMid,fontWeight:400 }}>/{s.total}</span></p>
+                  <p style={{ fontSize:8.5,color:C.textMid }}>owned</p>
+                </div>
+              </div>
+              <ProgressBar value={pct} color={set.color} />
+              <div style={{ display:"flex",gap:6,marginTop:8,flexWrap:"wrap" }}>
+                {s.owned>0    && <div style={{ fontSize:8.5,padding:"2px 7px",borderRadius:99,background:`${C.mint}18`,border:`1px solid ${C.mint}33`,color:C.mint }}>{s.owned} owned</div>}
+                {s.wishlist>0 && <div style={{ fontSize:8.5,padding:"2px 7px",borderRadius:99,background:`${C.gold}18`,border:`1px solid ${C.gold}33`,color:C.gold }}>{s.wishlist} ISO</div>}
+                {s.dupe>0     && <div style={{ fontSize:8.5,padding:"2px 7px",borderRadius:99,background:`${C.accent}18`,border:`1px solid ${C.accent}33`,color:C.accent }}>{s.dupe} dupe</div>}
+                {s.trade>0    && <div style={{ fontSize:8.5,padding:"2px 7px",borderRadius:99,background:`${C.rose}18`,border:`1px solid ${C.rose}33`,color:C.rose }}>{s.trade} trade</div>}
+                {s.owned===0&&s.wishlist===0&&s.dupe===0&&s.trade===0 && <div style={{ fontSize:8.5,color:C.textDim }}>Not started · {s.total} cards</div>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {selectedSet&&(
+        <div onClick={()=>setSelectedSet(null)} style={{ position:"fixed",inset:0,zIndex:450,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:"22px 20px 36px",width:"100%",maxHeight:"85vh",overflowY:"auto",animation:"slideUp .25s ease" }}>
+            <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 18px" }} />
+            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14 }}>
+              <div>
+                <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2 }}>{selectedSet.group} · {selectedSet.era}</p>
+                <h3 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18,color:C.text,lineHeight:1.2,marginBottom:3 }}>{selectedSet.album}</h3>
+                <p style={{ fontSize:11,color:selectedSet.color }}>{selectedSet.version} · {selectedSet.cardType}</p>
+              </div>
+              <button onClick={()=>setSelectedSet(null)} style={{ background:"none",border:"none",color:C.textMid,fontSize:20,cursor:"pointer",flexShrink:0 }}>✕</button>
+            </div>
+            {(()=>{
+              const s = getStats(selectedSet.id, selectedSet.members);
+              const pct = s.total>0 ? Math.round((s.owned/s.total)*100) : 0;
+              return (
+                <div style={{ background:`${selectedSet.color}10`,border:`1px solid ${selectedSet.color}28`,borderRadius:14,padding:"12px 14px",marginBottom:18 }}>
+                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8 }}>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,color:C.text }}>Set Progress</p>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:selectedSet.color }}>{s.owned}/{s.total}</p>
+                  </div>
+                  <ProgressBar value={pct} color={selectedSet.color} />
+                  <div style={{ display:"flex",justifyContent:"space-around",textAlign:"center",marginTop:12 }}>
+                    {[{label:"Owned",val:s.owned,color:C.mint},{label:"ISO",val:s.wishlist,color:C.gold},{label:"Dupe",val:s.dupe,color:C.accent},{label:"Trade",val:s.trade,color:C.rose}].map(st=>(
+                      <div key={st.label}>
+                        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18,color:st.color,lineHeight:1 }}>{st.val}</p>
+                        <p style={{ fontSize:9,color:C.textMid,marginTop:2 }}>{st.label}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+            <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10 }}>Cards · Tap to cycle status</p>
+            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14 }}>
+              {selectedSet.members.map(member=>{
+                const status = (pcSetData[selectedSet.id]||{})[member]||null;
+                const meta   = STATUS_META[status]||STATUS_META[null];
+                const next   = STATUS_CYCLE[(STATUS_CYCLE.indexOf(status)+1)%STATUS_CYCLE.length];
+                return (
+                  <button key={member} onClick={()=>updateStatus(selectedSet.id,member,next)} style={{ padding:"10px 10px",borderRadius:13,background:meta.bg,border:`1.5px solid ${meta.border}`,cursor:"pointer",textAlign:"left",transition:"all .15s" }}>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,color:C.text,marginBottom:3,lineHeight:1.2 }}>{member}</p>
+                    <p style={{ fontSize:9.5,color:meta.color,fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>{meta.label}</p>
+                  </button>
+                );
+              })}
+            </div>
+            <p style={{ fontSize:10,color:C.textDim,textAlign:"center",lineHeight:1.6 }}>Tap a card to cycle: Missing → Owned → ISO → Dupe → Trade</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── PHOTOCARD GRID — visual, photo-upload, AI-identify placeholder ───────────
 function PhotocardGrid({ cards, groups, groupFilter, setGroupFilter, go, rarityColors, rarityGlow, rarityBg, rarityBadge }) {
   const CONDITION_TO_RAR = { mint:'UR', near_mint:'SR', good:'R', played:'N' };
@@ -6281,6 +6432,8 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
   const [showAchievements, setShowAchievements] = useState(false);
   const [showShrine, setShowShrine] = useState(false);
   const [showSmartMatch, setShowSmartMatch] = useState(false);
+  const [pcView, setPcView] = useState("sets");
+  const [pcSetData, setPcSetData] = useState(()=>ls.get("backstage_photocard_sets",{}));
   const WORLD_THEMES = [
     {id:"Purple Galaxy",  emoji:"🌌", color:C.lavender},
     {id:"Pink Lightstick",emoji:"🩷", color:C.pink    },
@@ -6517,7 +6670,19 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
           </div>
         )}
 
-        {section==="photocards" && <PhotocardGrid cards={filteredCards} groups={GROUPS} groupFilter={groupFilter} setGroupFilter={setGroupFilter} go={go} rarityColors={RARITY_COLORS} rarityGlow={RARITY_GLOW} rarityBg={RARITY_BG} rarityBadge={RARITY_BADGE} />}
+        {section==="photocards" && (
+          <div>
+            <div style={{ display:"flex",gap:0,background:C.surfaceHi,borderRadius:13,padding:3,marginBottom:14 }}>
+              {[["sets","📁 Sets"],["cards","🃏 My Cards"]].map(([id,label])=>(
+                <span key={id} onClick={()=>setPcView(id)} style={{ flex:1,textAlign:"center",padding:"8px 4px",borderRadius:10,fontSize:11.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:pcView===id?C.accent:"transparent",color:pcView===id?C.bg:C.textMid,transition:"all .18s" }}>{label}</span>
+              ))}
+            </div>
+            {pcView==="sets"
+              ? <PhotocardSetsView pcSetData={pcSetData} setPcSetData={setPcSetData} groupFilter={groupFilter} setGroupFilter={setGroupFilter} />
+              : <PhotocardGrid cards={filteredCards} groups={GROUPS} groupFilter={groupFilter} setGroupFilter={setGroupFilter} go={go} rarityColors={RARITY_COLORS} rarityGlow={RARITY_GLOW} rarityBg={RARITY_BG} rarityBadge={RARITY_BADGE} />
+            }
+          </div>
+        )}
 
         {section==="albums" && (
           <div style={{ paddingTop:4 }}>
@@ -16462,7 +16627,7 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
         <div style={{ width:64,height:64,borderRadius:"50%",background:`linear-gradient(135deg,${circleGuard.color||C.accent},${circleGuard.color||C.accent}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:24,color:C.bg,margin:"0 auto 16px" }}>{circleGuard.avatar||"?"}</div>
         <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:15,marginBottom:8 }}>{circleGuard.name||circleGuard.username}</p>
         <p style={{ fontSize:13.5,color:C.textMid,lineHeight:1.7,marginBottom:6 }}>Add them to your Circle before messaging.</p>
-        <p style={{ fontSize:11,color:C.textDim,lineHeight:1.6 }}>Messages are only available with fans you've accepted into your Circle. Find them in Bring Your Crew.</p>
+        <p style={{ fontSize:11,color:C.textDim,lineHeight:1.6 }}>Messages are only available with fans you've accepted into your Circle. Find them in Build Your Crew.</p>
       </div>
     </div>
   );
@@ -21992,7 +22157,7 @@ function AppInner() {
             else if (dest.tab) { setTimeout(()=>setTab(dest.tab), 60); }
           }}
         /></ModalWrapper>}
-        {modal==="invite"&&<ModalWrapper><InvitePage onBack={()=>setModal(null)} user={user} onNotif={showNotif} isVip={isVip} onUpgrade={openUpgrade} go={go} /></ModalWrapper>}
+        {modal==="invite"&&<ModalWrapper><InvitePage onBack={()=>setModal(null)} user={user} onNotif={showNotif} isVip={isVip} onUpgrade={openUpgrade} go={go} onViewProfile={setPublicProfileFan} /></ModalWrapper>}
         {modal==="contentgen"&&<ModalWrapper><ContentGenerator onBack={()=>setModal(null)} user={user} go={go} onNotif={showNotif} /></ModalWrapper>}
         {modal==="capsule"&&<ModalWrapper><ConcertCapsule concert={MOCK_CONCERTS[0]} onBack={()=>setModal(null)} user={user} isVip={isVip} onUpgrade={openUpgrade} /></ModalWrapper>}
         {modal==="passes"&&<ModalWrapper><BackstagePasses onBack={()=>setModal(null)} user={user} /></ModalWrapper>}
