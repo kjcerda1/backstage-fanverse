@@ -5103,8 +5103,10 @@ function Onboarding({ onDone }) {
         ls.set("backstage_fan_identity", { name:data.name, ult:data.ult||"", bias:data.bias, biasWrecker:data.biasWrecker||"", fanDNA:data.fanDNA||[], fandoms:data.groups, concertCount:data.concertCount||"", city:data.city, seededAt:Date.now() });
         if (data.discoveryPrefs?.length) ls.set("backstage_discovery_preferences", data.discoveryPrefs);
         if (data.concertCount && data.concertCount !== "") {
-          const cResume = ls.get("backstage_concert_resume", {});
-          ls.set("backstage_concert_resume", { ...cResume, concertCount:data.concertCount, seededFromOnboarding:true });
+          // concertCount is already stored in backstage_fan_identity above.
+          // Ensure concert_resume is initialized as an array (not object) for future show entries.
+          const cResume = ls.get("backstage_concert_resume", null);
+          if (cResume === null || !Array.isArray(cResume)) ls.set("backstage_concert_resume", []);
         }
       } catch(e) { console.warn("[Onboarding] fan identity seed failed:", e?.message); }
     } catch(e) {
@@ -19081,32 +19083,59 @@ function SkinThemeTab({ skinCategories, activeCat, setActiveCat, profileStyle, t
 function ProfileStudio({ profileStyle, setProfileStyle, isVip, onUpgrade, onBack, onSaved, user }) {
   const [activeSection, setActiveSection] = useState("banner");
   const FAN_DNA_OPTIONS = ["Music","K-Dramas","Photocards","Collecting","Travel","Freebies","Trading","Dance Challenges","Concert Fits","Fanchants","Bias Edits","Cupsleeves","Fan Projects","Lightsticks"];
-  const FAN_ROLE_TAG_OPTIONS = ["Trading","Freebies","Travel Buddy","Concert Buddy","Collector","Fancam Editor","K-Drama Fan","Outfit Inspo","Fan Project Lead","Chant Master","Merch Maker","Local Fan"];
+  const FAN_ROLE_TAG_OPTIONS = ["Trading","Freebies","Travel Buddy","Concert Buddy","Solo Concert Buddy","Collector","Photocard Trader","Fancam Editor","K-Drama Fan","Outfit Inspo","Local Fans","Cupsleeve Events","Fan Projects","Lightstick Crew","Merch Line Buddy","Giveaway Host","Bias Editor","Dance Challenge","New to Fandom","Multi-stan"];
   const [fanIdentity, setFanIdentity] = useState(()=>{
     const stored = ls.get("backstage_fan_identity", null);
+    // Discovery prefs → fan role tags mapping
+    const discPrefs = ls.get("backstage_discovery_preferences", []);
+    const DISC_MAP = {
+      "Concert buddies 👯":"Concert Buddy","Concert buddies":"Concert Buddy",
+      "Trades":"Trading","Trading":"Trading","Freebies":"Freebies",
+      "Travel buddies":"Travel Buddy","Travel buddy":"Travel Buddy",
+      "K-drama friends":"K-Drama Fan","K-drama fan 📺":"K-Drama Fan",
+      "Outfit inspo":"Outfit Inspo","Merch collector 🃏":"Collector",
+      "Light stick army 💡":"Lightstick Crew","Local fans":"Local Fans",
+    };
+    const seedRoleTags = Array.isArray(discPrefs)
+      ? [...new Set(discPrefs.map(p=>DISC_MAP[p]).filter(Boolean))]
+      : [];
+    // Normalize concert resume — onboarding may have written object shape
+    const rawResume = ls.get("backstage_concert_resume", []);
+    const resumeCount = (!Array.isArray(rawResume) && rawResume?.concertCount) ? rawResume.concertCount : "";
     const hasStored = stored && Object.keys(stored).filter(k=>k!=="seededAt").length > 0;
     if (hasStored) {
-      // Existing identity — preserve all, just ensure new fields exist
-      const base = { ult:"",bias:"",biasWrecker:"",since:"",concertCount:"",currentEra:"",favoriteSong:"",fanRoles:"", ...stored };
+      // Existing identity — preserve all, fill blank key fields from other sources
+      const base = { ult:"",bias:"",biasWrecker:"",since:"",concertCount:"",currentEra:"",favoriteSong:"",fanRoles:"",city:"",fandoms:[], ...stored };
       base.fanDNA = Array.isArray(stored.fanDNA) ? stored.fanDNA : [];
-      base.fanRoleTags = Array.isArray(stored.fanRoleTags) ? stored.fanRoleTags : [];
+      // Fill fan role tags from discovery prefs if empty (additive, non-destructive)
+      const existingTags = Array.isArray(stored.fanRoleTags) ? stored.fanRoleTags : [];
+      base.fanRoleTags = existingTags.length > 0 ? existingTags : seedRoleTags;
+      // Fill individual blank fields from other sources (never overwrite non-empty)
+      if (!base.biasWrecker) base.biasWrecker = user?.bias_wrecker || user?.biasWrecker || "";
+      if (!base.city) base.city = user?.city || "";
+      if (!base.concertCount) base.concertCount = resumeCount || "";
       return base;
     }
-    // No identity yet — seed from user/onboarding data
+    // No identity yet — seed from all available sources
     return {
       ult: user?.fandoms?.[0] || "",
       bias: user?.bias || "",
-      biasWrecker: "",
+      biasWrecker: user?.bias_wrecker || user?.biasWrecker || "",
       since: "",
-      concertCount: "",
+      concertCount: resumeCount || "",
       currentEra: "",
       favoriteSong: "",
       fanRoles: "",
+      city: user?.city || "",
+      fandoms: Array.isArray(user?.fandoms) ? user.fandoms : [],
       fanDNA: [],
-      fanRoleTags: [],
+      fanRoleTags: seedRoleTags,
     };
   });
-  const [concertResume, setConcertResume] = useState(()=>ls.get("backstage_concert_resume", []));
+  const [concertResume, setConcertResume] = useState(()=>{
+    const raw = ls.get("backstage_concert_resume", []);
+    return Array.isArray(raw) ? raw : []; // normalize: onboarding may have written object shape
+  });
   const [resumeDraft, setResumeDraft] = useState("");
   const saveFanIdentity = (next) => { setFanIdentity(next); ls.set("backstage_fan_identity", next); };
   const addResumeEntry = () => {
@@ -19276,6 +19305,8 @@ function ProfileStudio({ profileStyle, setProfileStyle, isVip, onUpgrade, onBack
 
       {/* Live Preview — mini full My Stage */}
       <div style={{ padding:"0 20px 12px", flexShrink:0 }}>
+        <p style={{ fontSize:9.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.textMid, marginBottom:2, letterSpacing:"0.08em", textTransform:"uppercase" }}>My Stage Preview</p>
+        <p style={{ fontSize:9, color:C.textDim, marginBottom:7 }}>See how your full profile will feel.</p>
         <div style={{
           background: profileStyle.bgImageUrl ? `url(${profileStyle.bgImageUrl}) center/cover` : resolveWorldGrad(profileStyle.stageWorld||"concert_night"),
           backgroundSize:"cover", backgroundPosition:"center",
@@ -19319,7 +19350,7 @@ function ProfileStudio({ profileStyle, setProfileStyle, isVip, onUpgrade, onBack
           <div>
             {/* ── STAGE WORLD ── */}
             <SectionHeader title="Stage World" />
-            <p style={{ fontSize:11, color:C.textMid, marginBottom:12, lineHeight:1.5 }}>Your world. Every choice changes the banner and page background.</p>
+            <p style={{ fontSize:11, color:C.textMid, marginBottom:12, lineHeight:1.5 }}>Your world. Sets the full page background anyone sees when they visit your Stage.</p>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:20 }}>
               {STAGE_WORLDS.map(w=>{
                 const isActive = (profileStyle.stageWorld||"concert_night") === w.id;
