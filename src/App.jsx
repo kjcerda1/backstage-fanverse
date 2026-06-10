@@ -9591,16 +9591,12 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
       <div style={{ flexShrink:0, zIndex:20, position:"relative", background:scrolled?`rgba(7,5,15,0.97)`:`rgba(7,5,15,0.82)`, backdropFilter:"blur(18px)", borderBottom:scrolled?`1px solid ${C.borderHi}`:"1px solid transparent", transition:"background .3s ease, border-color .3s ease" }}>
 
         {/* EXPANDED title — hides on scroll */}
-        <div style={{ overflow:"hidden", maxHeight:scrolled?0:54, opacity:scrolled?0:1, paddingTop:scrolled?0:14, paddingInline:20, transition:"max-height .28s ease, opacity .22s ease, padding-top .28s ease" }}>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", paddingBottom:4 }}>
-            <div>
-              <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:1 }}>Your Fanverse</p>
-              <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontStyle:"italic",fontWeight:700,fontSize:20,background:`linear-gradient(135deg,${C.lavender},${C.blush})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",lineHeight:1 }}>the Fanverse ✦</h2>
-              <p style={{ fontSize:9.5,color:C.textDim,marginTop:3 }}>People, circles, hubs, and what's happening today.</p>
-            </div>
+        <div style={{ overflow:"hidden", maxHeight:scrolled?0:36, opacity:scrolled?0:1, paddingTop:scrolled?0:8, paddingInline:20, transition:"max-height .28s ease, opacity .22s ease, padding-top .28s ease" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", paddingBottom:3 }}>
+            <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontStyle:"italic",fontWeight:700,fontSize:17,background:`linear-gradient(135deg,${C.lavender},${C.blush})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",lineHeight:1 }}>the Fanverse ✦</h2>
             <div style={{ display:"flex",gap:6,alignItems:"center" }}>
-              <div style={{ width:6,height:6,borderRadius:"50%",background:C.rose,animation:"pulse 1.2s ease infinite",boxShadow:`0 0 5px ${C.rose}` }} />
-              <p style={{ fontSize:10,color:C.rose,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>LIVE</p>
+              <div style={{ width:5,height:5,borderRadius:"50%",background:C.rose,animation:"pulse 1.2s ease infinite",boxShadow:`0 0 4px ${C.rose}` }} />
+              <p style={{ fontSize:9,color:C.rose,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>LIVE</p>
             </div>
           </div>
         </div>
@@ -9615,27 +9611,27 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
 
         {/* ── SOCIAL STORY RAIL — personal/social bubbles (NOT pass categories) ── */}
         {/* Pass categories (Fit Check, Merch, etc.) stay in Backstage Passes page only */}
-        <div style={{ display:"flex",gap:10,overflowX:"auto",scrollbarWidth:"none",padding:`${scrolled?6:10}px 16px ${scrolled?4:8}px`,transition:"padding .28s ease",alignItems:"flex-start" }}>
+        <div style={{ display:"flex",gap:8,overflowX:"auto",scrollbarWidth:"none",padding:`${scrolled?3:5}px 14px ${scrolled?3:5}px`,transition:"padding .28s ease",alignItems:"flex-start" }}>
           {/* Your Pass — always first */}
-          <div onClick={()=>go?.("passes")} className="tap" style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:3,cursor:"pointer" }}>
-            <div style={{ width:scrolled?44:50,height:scrolled?44:50,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.berry})`,padding:2.5,boxShadow:`0 0 16px ${C.accent}50`,transition:"all .28s ease",flexShrink:0 }}>
-              <div style={{ width:"100%",height:"100%",borderRadius:"50%",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:scrolled?16:20 }}>✦</div>
+          <div onClick={()=>go?.("passes")} className="tap" style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:2,cursor:"pointer" }}>
+            <div style={{ width:scrolled?36:42,height:scrolled?36:42,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.berry})`,padding:2,boxShadow:`0 0 12px ${C.accent}50`,transition:"all .28s ease",flexShrink:0 }}>
+              <div style={{ width:"100%",height:"100%",borderRadius:"50%",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:scrolled?13:16 }}>✦</div>
             </div>
-            <p style={{ fontSize:7,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap" }}>Your Pass</p>
+            <p style={{ fontSize:6.5,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap" }}>Your Pass</p>
           </div>
           {/* Social rings — filter bubbles + user bubbles */}
           {SOCIAL_RINGS.map(r=>{
             const isActive = r.isFilter && ringFilter===r.filterType;
-            const sz = scrolled?44:50;
+            const sz = scrolled?36:42;
             return (
               <div key={r.key} onClick={()=>{
                 if(r.isFilter) { setRingFilter(ringFilter===r.filterType?null:r.filterType); }
                 else if(r.isUser) { setShowUserMoment(r); }
               }} className="tap" style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:3,cursor:"pointer" }}>
-                <div style={{ width:sz,height:sz,borderRadius:"50%",background:isActive?r.color:`linear-gradient(135deg,${r.color}44,${r.color}22)`,padding:isActive?0:2,boxShadow:`0 0 ${isActive?18:10}px ${r.color}${isActive?"77":"33"}`,border:`${isActive?"2.5":"1.5"}px solid ${r.color}${isActive?"cc":"55"}`,transition:"all .25s ease",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:r.isUser?sz*0.35:sz*0.4,color:isActive?C.bg:r.color }}>
+                <div style={{ width:sz,height:sz,borderRadius:"50%",background:isActive?r.color:`linear-gradient(135deg,${r.color}44,${r.color}22)`,padding:isActive?0:2,boxShadow:`0 0 ${isActive?14:8}px ${r.color}${isActive?"77":"33"}`,border:`${isActive?"2":"1.5"}px solid ${r.color}${isActive?"cc":"55"}`,transition:"all .25s ease",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:r.isUser?sz*0.36:sz*0.42,color:isActive?C.bg:r.color }}>
                   {r.avatar}
                 </div>
-                <p style={{ fontSize:7,color:isActive?r.color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap",maxWidth:54,overflow:"hidden",textOverflow:"ellipsis",textAlign:"center",transition:"color .2s" }}>{r.label}</p>
+                <p style={{ fontSize:6.5,color:isActive?r.color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap",maxWidth:46,overflow:"hidden",textOverflow:"ellipsis",textAlign:"center",transition:"color .2s" }}>{r.label}</p>
               </div>
             );
           })}
@@ -9671,10 +9667,10 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
         )}
 
         {/* ── STICKY TABS — compress on scroll ── */}
-        <div style={{ padding:`${scrolled?2:0}px 14px ${scrolled?5:8}px`,transition:"padding .28s ease" }}>
-          <div style={{ display:"flex",gap:0,background:C.surfaceHi,borderRadius:scrolled?10:13,padding:scrolled?2:3,transition:"all .28s ease" }}>
+        <div style={{ padding:`${scrolled?2:0}px 14px ${scrolled?4:5}px`,transition:"padding .28s ease" }}>
+          <div style={{ display:"flex",gap:0,background:C.surfaceHi,borderRadius:scrolled?10:11,padding:scrolled?2:2,transition:"all .28s ease" }}>
             {[["feed","🌐","Feed"],["map","🗺️","Map"],["hubs","🏙️","Hubs"],["fans","👥","Fans"],["leaders","🏆","Leaders"],["circles","✦","Circles"]].map(([id,icon,name])=>(
-              <span key={id} onClick={()=>changeView(id)} style={{ flex:1,textAlign:"center",padding:scrolled?"5px 2px":"7px 2px",borderRadius:scrolled?8:10,fontSize:scrolled?9:10,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:view===id?C.accent:"transparent",color:view===id?C.bg:C.textMid,transition:"all .18s",whiteSpace:"nowrap" }}>{scrolled?`${icon} ${name}`:`${icon} ${name}`}</span>
+              <span key={id} onClick={()=>changeView(id)} style={{ flex:1,textAlign:"center",padding:scrolled?"4px 2px":"5px 2px",borderRadius:scrolled?8:9,fontSize:scrolled?9:9.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:view===id?C.accent:"transparent",color:view===id?C.bg:C.textMid,transition:"all .18s",whiteSpace:"nowrap" }}>{icon} {name}</span>
             ))}
           </div>
         </div>
@@ -9685,8 +9681,13 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
       {/* LIVE FEED */}
       {view==="feed" && (
         <div style={{ flex:1,overflow:"hidden",display:"flex",flexDirection:"column" }}>
-          <FanversePulse go={go} />
-          <FansVibeStrip fans={discoverFans} onViewProfile={onViewProfile} />
+          {/* Slim pulse line — keeps feed dominant */}
+          <div style={{ flexShrink:0,padding:"6px 18px 7px",borderBottom:`1px solid ${C.border}28`,display:"flex",alignItems:"center",gap:7 }}>
+            <div style={{ width:5,height:5,borderRadius:"50%",background:C.rose,animation:"pulse 1.4s ease infinite",flexShrink:0 }} />
+            <p style={{ fontSize:10,color:C.textDim,fontFamily:"'Epilogue',sans-serif",lineHeight:1 }}>
+              <span style={{ color:C.accent,fontWeight:700,fontFamily:"'Epilogue',sans-serif" }}>55</span> fans posted · <span style={{ color:C.lavender,fontWeight:700,fontFamily:"'Epilogue',sans-serif" }}>12</span> checked in · <span style={{ color:C.gold,fontWeight:700,fontFamily:"'Epilogue',sans-serif" }}>8</span> new traders nearby
+            </p>
+          </div>
           <LiveFeedTab user={user} go={go} hideStoryRail onScrollNotify={y=>setScrolled(y>48)} />
         </div>
       )}
@@ -9908,7 +9909,10 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
 
       {/* FANS */}
       {view==="fans" && (
-        <FanDiscoverySection user={user} fans={discoverFans} loading={discoverLoading} onViewProfile={onViewProfile} />
+        <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden" }}>
+          <FansVibeStrip fans={discoverFans} onViewProfile={onViewProfile} />
+          <FanDiscoverySection user={user} fans={discoverFans} loading={discoverLoading} onViewProfile={onViewProfile} />
+        </div>
       )}
 
       {/* LEADERS */}
@@ -11692,50 +11696,45 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
   return (
     <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
       {/* Header */}
-      <div style={{ padding:"18px 20px 0", flexShrink:0 }}>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
-          <div style={{ display:"flex", gap:10, alignItems:"center" }}>
-            {onBack&&<button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>}
-            <div>
-              <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22 }}>Fanverse Feed</h2>
-              <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:2 }}>
-                <StatusChip label="PREVIEW" style={{ fontSize:8 }} />
-                <p style={{ fontSize:10.5, color:C.textMid }}>Preview posts from fans across the Fanverse</p>
-              </div>
-            </div>
+      <div style={{ padding:"6px 16px 0", flexShrink:0 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
+          <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+            {onBack&&<button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:20,cursor:"pointer" }}>←</button>}
+            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13, color:C.text }}>Feed</p>
+            <StatusChip label="PREVIEW" style={{ fontSize:7.5 }} />
           </div>
-          <button onClick={()=>setComposing(true)} style={{ background:`linear-gradient(135deg,${C.accent},${C.berry})`,border:"none",borderRadius:11,padding:"8px 16px",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer",boxShadow:`0 0 14px ${C.accent}30` }}>+ Moment</button>
+          <button onClick={()=>setComposing(true)} style={{ background:`linear-gradient(135deg,${C.accent},${C.berry})`,border:"none",borderRadius:9,padding:"6px 13px",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer",boxShadow:`0 0 10px ${C.accent}30` }}>+ Moment</button>
         </div>
 
         {/* Era / tag search */}
-        <div style={{ marginBottom:10, position:"relative" }}>
+        <div style={{ marginBottom:5, position:"relative" }}>
           <div style={{ display:"flex", gap:8, alignItems:"center" }}>
             <div style={{ position:"relative", flex:1 }}>
-              <svg style={{ position:"absolute",left:10,top:"50%",transform:"translateY(-50%)" }} width="13" height="13" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="8" stroke={C.textDim} strokeWidth="1.8"/><path d="m21 21-4.35-4.35" stroke={C.textDim} strokeWidth="1.8" strokeLinecap="round"/></svg>
+              <svg style={{ position:"absolute",left:9,top:"50%",transform:"translateY(-50%)" }} width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="8" stroke={C.textDim} strokeWidth="1.8"/><path d="m21 21-4.35-4.35" stroke={C.textDim} strokeWidth="1.8" strokeLinecap="round"/></svg>
               <input
                 value={eraSearch}
                 onChange={e=>{setEraSearch(e.target.value);setEraSearchOpen(!!e.target.value);}}
                 onFocus={()=>setEraSearchOpen(true)}
                 placeholder="#search eras, groups, concerts..."
-                style={{ width:"100%", padding:"8px 10px 8px 30px", borderRadius:10, background:C.surfaceHi, border:`1.5px solid ${eraSearch?C.pink:C.border}`, color:C.text, fontSize:11.5, fontFamily:"'Instrument Sans',sans-serif", outline:"none" }}
+                style={{ width:"100%", padding:"6px 10px 6px 27px", borderRadius:9, background:C.surfaceHi, border:`1.5px solid ${eraSearch?C.pink:C.border}`, color:C.text, fontSize:11, fontFamily:"'Instrument Sans',sans-serif", outline:"none" }}
               />
-              {eraSearch&&<button onClick={()=>{setEraSearch("");setEraSearchOpen(false);}} style={{ position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:C.textMid,cursor:"pointer",fontSize:14 }}>✕</button>}
+              {eraSearch&&<button onClick={()=>{setEraSearch("");setEraSearchOpen(false);}} style={{ position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:C.textMid,cursor:"pointer",fontSize:13 }}>✕</button>}
             </div>
           </div>
           {/* Quick era tag chips */}
-          <div style={{ display:"flex", gap:5, overflowX:"auto", paddingTop:8, scrollbarWidth:"none" }}>
+          <div style={{ display:"flex", gap:4, overflowX:"auto", paddingTop:5, scrollbarWidth:"none" }}>
             {ERA_TAGS.slice(0,8).map(tag=>(
-              <span key={tag} onClick={()=>{setEraSearch(tag);setEraSearchOpen(false);}} className="tap" style={{ flexShrink:0, padding:"4px 10px", borderRadius:99, fontSize:9.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:eraSearch===tag?C.pink:`${C.pink}14`, color:eraSearch===tag?C.bg:C.textMid, border:`1px solid ${eraSearch===tag?C.pink:C.border}` }}>#{tag}</span>
+              <span key={tag} onClick={()=>{setEraSearch(tag);setEraSearchOpen(false);}} className="tap" style={{ flexShrink:0, padding:"3px 8px", borderRadius:99, fontSize:9, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:eraSearch===tag?C.pink:`${C.pink}14`, color:eraSearch===tag?C.bg:C.textMid, border:`1px solid ${eraSearch===tag?C.pink:C.border}` }}>#{tag}</span>
             ))}
           </div>
         </div>
 
         {/* Sort + Filter — sort pills + type dropdown */}
-        <div style={{ display:"flex", gap:8, marginBottom:12, alignItems:"center" }}>
+        <div style={{ display:"flex", gap:6, marginBottom:6, alignItems:"center" }}>
           {/* Sort pills */}
-          <div style={{ display:"flex", gap:6, flex:1, overflowX:"auto", scrollbarWidth:"none" }}>
+          <div style={{ display:"flex", gap:5, flex:1, overflowX:"auto", scrollbarWidth:"none" }}>
             {[["trending","🔥"],["recent","⏱"],["liked","♥"]].map(([id,icon])=>(
-              <span key={id} onClick={()=>setSort(id)} className="tap" style={{ flexShrink:0, padding:"6px 12px", borderRadius:99, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:sort===id?C.accent:C.surfaceHi, color:sort===id?C.bg:C.textMid, border:`1px solid ${sort===id?C.accent:C.border}` }}>{icon} {id}</span>
+              <span key={id} onClick={()=>setSort(id)} className="tap" style={{ flexShrink:0, padding:"5px 10px", borderRadius:99, fontSize:10, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:sort===id?C.accent:C.surfaceHi, color:sort===id?C.bg:C.textMid, border:`1px solid ${sort===id?C.accent:C.border}` }}>{icon} {id}</span>
             ))}
           </div>
           {/* Type dropdown */}
@@ -11799,9 +11798,9 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
         {!hideStoryRail && <FanStories user={user} />}
 
         {/* FOMO microcopy */}
-        <div style={{ background:`${C.accent}08`, border:`1px solid ${C.accent}18`, borderRadius:11, padding:"9px 14px", marginBottom:14, display:"flex", gap:8, alignItems:"center" }}>
-          <span style={{ fontSize:14 }}>🌸</span>
-          <div style={{ fontSize:11.5, color:C.textMid, display:"flex", alignItems:"center", gap:0 }}><StatusChip label="PREVIEW" style={{ fontSize:8,marginRight:5 }} /><span style={{ color:C.textMid }}>Fan updates from your area · preview</span></div>
+        <div style={{ background:`${C.accent}08`, border:`1px solid ${C.accent}18`, borderRadius:9, padding:"6px 12px", marginBottom:8, display:"flex", gap:7, alignItems:"center" }}>
+          <span style={{ fontSize:12 }}>🌸</span>
+          <div style={{ fontSize:10.5, color:C.textMid, display:"flex", alignItems:"center", gap:0 }}><StatusChip label="PREVIEW" style={{ fontSize:7.5,marginRight:5 }} /><span style={{ color:C.textMid }}>Fan updates from your area · preview</span></div>
         </div>
 
         {/* Posts */}
@@ -12747,13 +12746,13 @@ function ReportSheet({ type, targetId, targetHandle, onClose, onNotif }) {
   );
 }
 
-function SafetyCenter({ onBack }) {
+function SafetyCenter({ onBack, initialSection = "main", initialShowReport = false }) {
   const { getBlockedUsers, unblockUser } = useModeration();
-  const [section, setSection] = useState("main"); // main | report | blocked
+  const [section, setSection] = useState(initialSection); // main | report | blocked
   const [reportType, setReportType] = useState("user");
   const [reportHandle, setReportHandle] = useState("");
   const [reportId, setReportId] = useState("");
-  const [showReportSheet, setShowReportSheet] = useState(false);
+  const [showReportSheet, setShowReportSheet] = useState(initialShowReport);
   const [notif, setNotif] = useState(null);
   const [checkIn, setCheckIn] = useState({contact:"",plan:"",checkedIn:false});
   const [isAdmin, setIsAdmin] = useState(false);
@@ -19679,6 +19678,16 @@ function ProfileStudio({ profileStyle, setProfileStyle, isVip, onUpgrade, onBack
 // ─── PRIVACY & DISCOVERY SETTINGS ────────────────────────────────────────────
 // GET /api/privacy/:userId | POST /api/privacy/update | POST /api/privacy/block | POST /api/report
 function PrivacySettings({ settings, setSettings, onBack }) {
+  const [safetySub, setSafetySub] = useState(null); // null | { section, showReport }
+
+  if (safetySub) return (
+    <SafetyCenter
+      onBack={() => setSafetySub(null)}
+      initialSection={safetySub.section}
+      initialShowReport={safetySub.showReport || false}
+    />
+  );
+
   const MODES = [
     {id:"off",label:"Off",desc:"No one can find you. Full anonymity.",icon:"🔒"},
     {id:"city_only",label:"City Only",desc:"Visible in your city hub only.",icon:"🏙️"},
@@ -19739,8 +19748,12 @@ function PrivacySettings({ settings, setSettings, onBack }) {
 
         <SectionHeader title="Safety" />
         <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-          {[["🚫 Blocked Users","Manage blocked accounts"],["🚨 Report a User","Report bad actors"],["🛡️ Safety Resources","Meetup safety tips"]].map(([label,sub])=>(
-            <div key={label} className="tap" style={{ background:C.surface, border:`1.5px solid ${C.border}`, borderRadius:13, padding:"12px 14px", cursor:"pointer", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+          {[
+            { label:"🚫 Blocked Users",    sub:"Manage blocked accounts",  action:{ section:"blocked",   showReport:false } },
+            { label:"🚨 Report a User",    sub:"Report bad actors",         action:{ section:"main",      showReport:true  } },
+            { label:"🛡️ Safety Resources", sub:"Meetup safety tips",        action:{ section:"main",      showReport:false } },
+          ].map(({ label, sub, action }) => (
+            <div key={label} onClick={() => setSafetySub(action)} className="tap" style={{ background:C.surface, border:`1.5px solid ${C.border}`, borderRadius:13, padding:"12px 14px", cursor:"pointer", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
               <div>
                 <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:600, fontSize:13 }}>{label}</p>
                 <p style={{ fontSize:10.5, color:C.textMid }}>{sub}</p>
