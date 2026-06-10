@@ -6277,6 +6277,10 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
   const [shelfDraft, setShelfDraft] = useState("");
   const saveTheme = (t)=>{ setMyWorldTheme(t); ls.set("backstage_my_world_theme",t); };
   const saveFeatured = (key,val)=>{ const next={...featuredShelf,[key]:val}; setFeaturedShelf(next); ls.set("backstage_featured_shelf",next); };
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [showAchievements, setShowAchievements] = useState(false);
+  const [showShrine, setShowShrine] = useState(false);
+  const [showSmartMatch, setShowSmartMatch] = useState(false);
   const WORLD_THEMES = [
     {id:"Purple Galaxy",  emoji:"🌌", color:C.lavender},
     {id:"Pink Lightstick",emoji:"🩷", color:C.pink    },
@@ -6366,7 +6370,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
           </div>
           <div style={{ display:"flex", gap:8, alignItems:"center" }}>
             {isVip&&<VipBadge />}
-            <button onClick={()=>go("collect")} style={{ background:`linear-gradient(140deg,${C.accent}cc,${C.accentDim})`, border:"none", borderRadius:11, padding:"8px 13px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10.5, cursor:"pointer" }}>+ Add</button>
+            <button onClick={()=>setShowQuickAdd(true)} style={{ background:`linear-gradient(140deg,${C.accent}cc,${C.accentDim})`, border:"none", borderRadius:11, padding:"8px 13px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10.5, cursor:"pointer" }}>+ Add</button>
           </div>
         </div>
         {/* Sub-nav */}
@@ -6471,7 +6475,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
             )}
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16 }}>
               {MUSEUM_TILES.map(tile=>(
-                <div key={tile.id} onClick={({albums:()=>setSection("albums"),pcs:()=>setSection("photocards"),memories:()=>go("scrapbook"),concerts:()=>go("myshows"),capsules:()=>go("capsule"),scrapbook:()=>setSection("scrapbook")})[tile.id]} className="tap" style={{ borderRadius:16, padding:"14px 14px", background:`${tile.color}0d`, border:`1.5px solid ${tile.color}30`, cursor:"pointer", position:"relative", overflow:"hidden" }}>
+                <div key={tile.id} onClick={({albums:()=>setSection("albums"),pcs:()=>setSection("photocards"),memories:()=>go("scrapbook"),concerts:()=>go("myshows"),capsules:()=>go("capsule"),scrapbook:()=>setSection("scrapbook"),achievements:()=>setShowAchievements(true),shrine:()=>setShowShrine(true)})[tile.id]} className="tap" style={{ borderRadius:16, padding:"14px 14px", background:`${tile.color}0d`, border:`1.5px solid ${tile.color}30`, cursor:"pointer", position:"relative", overflow:"hidden" }}>
                   <div style={{ position:"absolute",top:-10,right:-10,width:44,height:44,borderRadius:"50%",background:`${tile.color}10`,pointerEvents:"none" }} />
                   <div style={{ fontSize:22, marginBottom:5 }}>{tile.emoji}</div>
                   <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:24,color:tile.color,lineHeight:1 }}>{tile.stat}</p>
@@ -6535,7 +6539,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                 )}
               </div>
             </div>
-            <CollectTab cards={cards} setCards={setCards} isVip={isVip} onUpgrade={onUpgrade} user={user} />
+            <CollectTab cards={cards} setCards={setCards} isVip={isVip} onUpgrade={onUpgrade} user={user} onAddMemory={()=>setSection("scrapbook")} />
           </div>
         )}
 
@@ -6562,10 +6566,158 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                 <button onClick={()=>go("collect")} style={{ background:`${C.gold}18`, border:`1.5px solid ${C.gold}44`, borderRadius:10, padding:"7px 12px", color:C.gold, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10, cursor:"pointer" }}>Find →</button>
               </div>
             ))}
-            <button onClick={onUpgrade} style={{ width:"100%", marginTop:8, padding:14, borderRadius:14, background:`${C.gold}08`, border:`1.5px dashed ${C.gold}33`, color:C.gold, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, cursor:"pointer" }}>✦ VIP: Unlimited Wishlist + Smart Matching</button>
+            {isVip ? (
+              <button onClick={()=>setShowSmartMatch(true)} style={{ width:"100%", marginTop:8, padding:14, borderRadius:14, background:`${C.mint}0a`, border:`1.5px solid ${C.mint}44`, color:C.mint, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, cursor:"pointer" }}>✦ Smart Matching — Find My ISOs</button>
+            ) : (
+              <button onClick={onUpgrade} style={{ width:"100%", marginTop:8, padding:14, borderRadius:14, background:`${C.gold}08`, border:`1.5px dashed ${C.gold}33`, color:C.gold, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, cursor:"pointer" }}>✦ VIP: Unlimited Wishlist + Smart Matching</button>
+            )}
           </div>
         )}
       </Screen>
+
+      {/* ── Quick Add sheet ── */}
+      {showQuickAdd&&(
+        <div onClick={()=>setShowQuickAdd(false)} style={{ position:"fixed",inset:0,zIndex:400,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:"22px 20px 36px",width:"100%",animation:"slideUp .25s ease" }}>
+            <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 18px" }} />
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17,marginBottom:18 }}>What do you want to add?</p>
+            <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
+              {[
+                {emoji:"📸",label:"Add Memory",sub:"Save a moment to a scrapbook",color:C.sky,action:()=>{setSection("scrapbook");setShowQuickAdd(false);}},
+                {emoji:"🃏",label:"Add Photocard",sub:"Log a card to your collection",color:C.pink,action:()=>{setSection("photocards");setShowQuickAdd(false);}},
+                {emoji:"📁",label:"New Binder",sub:"Start a new era tracker",color:C.accent,action:()=>{setSection("albums");setShowQuickAdd(false);}},
+              ].map(opt=>(
+                <div key={opt.label} onClick={opt.action} className="tap" style={{ display:"flex",gap:14,alignItems:"center",padding:"13px 14px",borderRadius:16,background:`${opt.color}12`,border:`1.5px solid ${opt.color}30`,cursor:"pointer" }}>
+                  <span style={{ fontSize:22 }}>{opt.emoji}</span>
+                  <div>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,color:C.text,marginBottom:2 }}>{opt.label}</p>
+                    <p style={{ fontSize:11,color:C.textMid }}>{opt.sub}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Achievements sheet ── */}
+      {showAchievements&&(
+        <div onClick={()=>setShowAchievements(false)} style={{ position:"fixed",inset:0,zIndex:400,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:"22px 20px 36px",width:"100%",maxHeight:"80vh",overflowY:"auto",animation:"slideUp .25s ease" }}>
+            <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 18px" }} />
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18,marginBottom:6 }}>🏅 Achievements</p>
+            <p style={{ fontSize:11.5,color:C.textMid,marginBottom:18 }}>Your fan milestones, unlocked one era at a time.</p>
+            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10 }}>
+              {[
+                {emoji:"📁",label:"First Binder",sub:"Start your first era binder",unlocked:binders.length>0,color:C.accent},
+                {emoji:"🃏",label:"First Photocard",sub:"Log your first card",unlocked:allCards.length>0,color:C.pink},
+                {emoji:"⭐",label:"Wishlist Watcher",sub:"Add a card to ISO",unlocked:wishlist.length>0,color:C.gold},
+                {emoji:"📸",label:"Memory Keeper",sub:"Save your first concert memory",unlocked:false,color:C.sky},
+                {emoji:"💊",label:"Capsule Keeper",sub:"Drop a moment in a capsule",unlocked:ls.get("backstage_capsules_count",0)>0,color:C.mint},
+                {emoji:"🏆",label:"Trade Passport",sub:"List a card for trade",unlocked:tradeable.length>0,color:C.rose},
+                {emoji:"💜",label:"Bias Shrine",sub:"Set your bias in Stage Studio",unlocked:!!_fanIdentity?.bias,color:C.berry},
+                {emoji:"✦",label:"VIP Collector",sub:"Unlock Backstage VIP",unlocked:isVip,color:C.gold},
+                {emoji:"🌟",label:"Founder Fan",sub:"Joined in the founding era",unlocked:isVip,color:C.gold},
+                {emoji:"🎤",label:"First Show",sub:"Log your first concert",unlocked:_concertResume.length>0,color:C.berry},
+                {emoji:"🤝",label:"Local Fan Found",sub:"Connect with a fan nearby",unlocked:false,color:C.sky},
+                {emoji:"🌍",label:"Multi-Era Collector",sub:"Own cards from 3+ eras",unlocked:new Set(allCards.map(c=>c.era).filter(Boolean)).size>=3,color:C.lavender},
+              ].map(a=>(
+                <div key={a.label} style={{ borderRadius:14,padding:"13px 12px",background:a.unlocked?`${a.color}16`:C.surface,border:`1.5px solid ${a.unlocked?a.color+"44":C.border}`,opacity:a.unlocked?1:0.55 }}>
+                  <p style={{ fontSize:20,marginBottom:5 }}>{a.unlocked?"✅":a.emoji}</p>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,color:a.unlocked?C.text:C.textMid,marginBottom:3,lineHeight:1.3 }}>{a.label}</p>
+                  <p style={{ fontSize:9.5,color:C.textDim,lineHeight:1.4 }}>{a.sub}</p>
+                  {a.unlocked&&<div style={{ marginTop:5,...VS.activePill(a.color),fontSize:8 }}>Unlocked</div>}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Bias Shrine sheet ── */}
+      {showShrine&&(
+        <div onClick={()=>setShowShrine(false)} style={{ position:"fixed",inset:0,zIndex:400,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:"22px 20px 36px",width:"100%",maxHeight:"80vh",overflowY:"auto",animation:"slideUp .25s ease" }}>
+            <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 18px" }} />
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18,marginBottom:16 }}>💜 Bias Shrine</p>
+            {_fanIdentity?.bias ? (
+              <div>
+                <div style={{ background:`linear-gradient(140deg,${C.rose}18,${C.berry}0a)`,border:`1.5px solid ${C.rose}33`,borderRadius:18,padding:"18px 16px",marginBottom:14,textAlign:"center" }}>
+                  <p style={{ fontSize:28,marginBottom:8 }}>💜</p>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:20,color:C.text,marginBottom:4 }}>{_fanIdentity.bias}</p>
+                  {_fanIdentity.ult&&<p style={{ fontSize:12,color:C.textMid,marginBottom:4 }}>in {_fanIdentity.ult}</p>}
+                  {_fanIdentity.biasWrecker&&<p style={{ fontSize:11,color:C.rose }}>Bias Wrecker: {_fanIdentity.biasWrecker}</p>}
+                </div>
+                {allCards.filter(c=>c.member===_fanIdentity.bias||c.name===_fanIdentity.bias).length>0&&(
+                  <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14 }}>
+                    {allCards.filter(c=>c.member===_fanIdentity.bias||c.name===_fanIdentity.bias).slice(0,4).map((c,i)=>(
+                      <div key={i} style={{ borderRadius:14,padding:12,background:`${C.rose}10`,border:`1.5px solid ${C.rose}28`,textAlign:"center" }}>
+                        <p style={{ fontSize:18,marginBottom:4 }}>🃏</p>
+                        <p style={{ fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:700,color:C.text }}>{c.member||c.name}</p>
+                        <p style={{ fontSize:9,color:C.textMid }}>{c.era}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div style={{ background:`${C.lavender}10`,border:`1px solid ${C.lavender}28`,borderRadius:14,padding:"12px 14px",textAlign:"center" }}>
+                  <p style={{ fontSize:11,color:C.textMid,lineHeight:1.6 }}>Edit your bias and shrine details in Stage Studio</p>
+                  <button onClick={()=>{setShowShrine(false);go("profile");}} style={{ marginTop:8,padding:"7px 18px",borderRadius:99,background:`${C.lavender}20`,border:`1px solid ${C.lavender}44`,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>Edit in Stage Studio →</button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ textAlign:"center",padding:"24px 16px" }}>
+                <p style={{ fontSize:30,marginBottom:12 }}>💜</p>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14,marginBottom:8 }}>No bias set yet</p>
+                <p style={{ fontSize:12,color:C.textMid,marginBottom:16,lineHeight:1.6 }}>Set your bias and bias wrecker in Stage Studio to build your shrine.</p>
+                <button onClick={()=>{setShowShrine(false);go("profile");}} style={{ padding:"9px 22px",borderRadius:99,background:`linear-gradient(140deg,${C.accent}cc,${C.accentDim})`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}>Set Up in Stage Studio →</button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Smart Match sheet (VIP only) ── */}
+      {showSmartMatch&&(
+        <div onClick={()=>setShowSmartMatch(false)} style={{ position:"fixed",inset:0,zIndex:400,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:"22px 20px 36px",width:"100%",maxHeight:"80vh",overflowY:"auto",animation:"slideUp .25s ease" }}>
+            <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 18px" }} />
+            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6 }}>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18 }}>✦ Smart Matching</p>
+              <div style={{ ...VS.activePill(C.gold),fontSize:9 }}>VIP</div>
+            </div>
+            <p style={{ fontSize:11.5,color:C.textMid,marginBottom:16 }}>Your ISO list is queued. We'll match you with traders in the Fanverse.</p>
+            {wishlist.length===0 ? (
+              <div style={{ textAlign:"center",padding:"20px 16px",background:`${C.accent}08`,border:`1.5px dashed ${C.border}`,borderRadius:16 }}>
+                <p style={{ fontSize:24,marginBottom:10 }}>🔍</p>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,marginBottom:6 }}>No ISO cards yet</p>
+                <p style={{ fontSize:11.5,color:C.textMid }}>Mark cards as ISO in a binder to enable smart matching.</p>
+              </div>
+            ) : (
+              <div>
+                <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10 }}>Potential Matches</p>
+                {[
+                  {user:"@trademaster",card:wishlist[0]?.member||"Felix",group:wishlist[0]?.group_name||"SKZ",reason:"Has dupe for trade",match:94,color:C.mint},
+                  {user:"@kpopswap",card:wishlist[0]?.member||"Felix",group:wishlist[0]?.group_name||"SKZ",reason:"Listed ISO match",match:87,color:C.accent},
+                ].map((m,i)=>(
+                  <div key={i} style={{ display:"flex",gap:12,alignItems:"center",padding:"12px 13px",borderRadius:14,background:`${m.color}0c`,border:`1.5px solid ${m.color}28`,marginBottom:10 }}>
+                    <div style={{ width:38,height:38,borderRadius:"50%",background:`${m.color}22`,border:`1.5px solid ${m.color}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:m.color,flexShrink:0 }}>{m.user[1].toUpperCase()}</div>
+                    <div style={{ flex:1 }}>
+                      <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,color:C.text,marginBottom:2 }}>{m.user}</p>
+                      <p style={{ fontSize:10.5,color:C.textMid }}>{m.card} · {m.group}</p>
+                      <p style={{ fontSize:9.5,color:C.textDim,marginTop:2 }}>{m.reason}</p>
+                    </div>
+                    <div style={{ textAlign:"center",flexShrink:0 }}>
+                      <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,color:m.color }}>{m.match}%</p>
+                      <p style={{ fontSize:8.5,color:C.textDim }}>match</p>
+                    </div>
+                  </div>
+                ))}
+                <p style={{ fontSize:10,color:C.textDim,textAlign:"center",marginTop:6,lineHeight:1.6 }}>Full matching launches with Trade Hub V2 · Your ISO list is queued</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -8211,7 +8363,7 @@ function TradeHub({ onBack, onNotif, user }) {
   );
 }
 
-function CollectTab({ cards, setCards, isVip, onUpgrade, user }) {
+function CollectTab({ cards, setCards, isVip, onUpgrade, user, onAddMemory }) {
   const [view, setView] = useState("shelf");
   const [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState(null);
@@ -8268,7 +8420,7 @@ function CollectTab({ cards, setCards, isVip, onUpgrade, user }) {
                 </div>
               ))}
               {/* Add memory card */}
-              <div className="tap" style={{ borderRadius:16, border:`2px dashed ${C.border}`, cursor:"pointer", aspectRatio:"1", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:6 }}>
+              <div onClick={onAddMemory} className="tap" style={{ borderRadius:16, border:`2px dashed ${C.border}`, cursor:"pointer", aspectRatio:"1", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:6 }}>
                 <div style={{ width:36,height:36,borderRadius:"50%",background:`${C.accent}18`,border:`1.5px solid ${C.accent}33`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:C.accent }}>+</div>
                 <p style={{ fontSize:10, color:C.textDim, fontFamily:"'Epilogue',sans-serif", fontWeight:600, textAlign:"center" }}>Add Memory</p>
               </div>
@@ -20544,7 +20696,6 @@ function ScrapbookDetail({ book, onBack, isVip, onUpgrade }) {
             );
           })}
         </div>
-        {filtered.length===0&&<Empty emoji="📸" title="No memories here yet" sub="Add your first memory to this scrapbook." action="+ Add Memory" onAction={()=>setAdding(true)} />}
         {filtered.length===0&&<Empty emoji="📸" title="No memories here yet" sub="Add your first memory to this scrapbook." action="+ Add Memory" onAction={()=>setAdding(true)} />}
       </Screen>
 
