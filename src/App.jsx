@@ -2476,6 +2476,21 @@ const PC_CATALOG_SETS = [
   { id:"bp-bornpink-digipack",    group:"BLACKPINK",  era:"Born Pink",  album:"Born Pink",  version:"Digipack Ver.",        emoji:"🌸", color:C.berry,   cardType:"Album PC", members:["Jisoo","Jennie","Rosé","Lisa"] },
 ];
 
+// Summarise per-member statuses across all sets from localStorage
+const getSetStatsSummary = (setData={}) => {
+  let owned=0, wishlist=0, dupe=0, trade=0;
+  PC_CATALOG_SETS.forEach(s => {
+    const d = setData[s.id]||{};
+    s.members.forEach(m => {
+      if(d[m]==="owned") owned++;
+      else if(d[m]==="wishlist") wishlist++;
+      else if(d[m]==="dupe") dupe++;
+      else if(d[m]==="trade") trade++;
+    });
+  });
+  return { owned, wishlist, dupe, trade };
+};
+
 // localStorage: backstage_binders | backstage_card_slots
 // GET /api/collections/templates?group=
 // GET /api/collections/albums/:albumId/cards
@@ -6157,9 +6172,35 @@ function ShowDetail({ concert, onBack, going, setGoing, go, isVip, onUpgrade, rs
 // ─── PHOTOCARD SETS VIEW — set-based catalog browser ─────────────────────────
 function PhotocardSetsView({ pcSetData, setPcSetData, groupFilter, setGroupFilter }) {
   const [selectedSet, setSelectedSet] = useState(null);
+  const [showExplore, setShowExplore] = useState(false);
+  const [exploreSearch, setExploreSearch] = useState("");
+  const [trackedSets, setTrackedSets] = useState(()=>ls.get("backstage_tracked_photocard_sets",[]));
 
-  const SET_GROUPS = ["all", ...new Set(PC_CATALOG_SETS.map(s=>s.group))];
-  const filteredSets = groupFilter==="all" ? PC_CATALOG_SETS : PC_CATALOG_SETS.filter(s=>s.group===groupFilter);
+  const _fanIdentity = ls.get("backstage_fan_identity",{});
+  const myGroupNames = [...new Set([...(_fanIdentity.fandoms||[]),_fanIdentity.ult].filter(Boolean))];
+  const hasMyGroups  = myGroupNames.length > 0;
+
+  const SET_GROUPS = ["all", ...(hasMyGroups?["My Groups"]:[]), ...new Set(PC_CATALOG_SETS.map(s=>s.group))];
+
+  const sortedCatalog = [...PC_CATALOG_SETS].sort((a,b)=>{
+    const aIsMe = myGroupNames.includes(a.group);
+    const bIsMe = myGroupNames.includes(b.group);
+    if(aIsMe && !bIsMe) return -1;
+    if(!aIsMe && bIsMe) return 1;
+    return 0;
+  });
+
+  const trackSet = (setId) => {
+    const next = trackedSets.includes(setId) ? trackedSets : [...trackedSets, setId];
+    setTrackedSets(next);
+    ls.set("backstage_tracked_photocard_sets", next);
+  };
+
+  const filteredSets = groupFilter==="all"
+    ? sortedCatalog
+    : groupFilter==="My Groups"
+      ? sortedCatalog.filter(s=>myGroupNames.includes(s.group))
+      : PC_CATALOG_SETS.filter(s=>s.group===groupFilter);
 
   const getStats = (setId, members) => {
     const d = pcSetData[setId]||{};
@@ -6189,13 +6230,17 @@ function PhotocardSetsView({ pcSetData, setPcSetData, groupFilter, setGroupFilte
 
   return (
     <div>
+      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10 }}>
+        <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em" }}>Photocard Sets</p>
+        <button onClick={()=>setShowExplore(true)} style={{ background:`${C.pink}18`,border:`1.5px solid ${C.pink}44`,borderRadius:99,padding:"5px 12px",color:C.pink,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10,cursor:"pointer" }}>+ Add Set</button>
+      </div>
       <div style={{ display:"flex",gap:6,marginBottom:14,overflowX:"auto",scrollbarWidth:"none" }}>
         {SET_GROUPS.map(g=>(
-          <span key={g} onClick={()=>setGroupFilter(g)} className="tap" style={{ flexShrink:0,padding:"5px 12px",borderRadius:99,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:groupFilter===g?C.pink:`${C.pink}12`,color:groupFilter===g?C.bg:C.textMid,border:`1px solid ${groupFilter===g?C.pink:C.border}` }}>{g==="all"?"All Groups":g}</span>
+          <span key={g} onClick={()=>setGroupFilter(g)} className="tap" style={{ flexShrink:0,padding:"5px 12px",borderRadius:99,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:groupFilter===g?(g==="My Groups"?C.accent:C.pink):`${C.pink}12`,color:groupFilter===g?C.bg:C.textMid,border:`1px solid ${groupFilter===g?(g==="My Groups"?C.accent:C.pink):C.border}` }}>{g==="all"?"All Groups":g}</span>
         ))}
       </div>
 
-      <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10 }}>Photocard Sets — tap to track</p>
+      <p style={{ fontSize:8.5,color:C.textDim,marginBottom:12 }}>Starter catalog · add more sets anytime</p>
 
       <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
         {filteredSets.map(set=>{
@@ -6279,6 +6324,41 @@ function PhotocardSetsView({ pcSetData, setPcSetData, groupFilter, setGroupFilte
               })}
             </div>
             <p style={{ fontSize:10,color:C.textDim,textAlign:"center",lineHeight:1.6 }}>Tap a card to cycle: Missing → Owned → ISO → Dupe → Trade</p>
+          </div>
+        </div>
+      )}
+
+      {/* Explore Sets sheet */}
+      {showExplore&&(
+        <div onClick={()=>{setShowExplore(false);setExploreSearch("");}} style={{ position:"fixed",inset:0,zIndex:460,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:"22px 20px 36px",width:"100%",maxHeight:"88vh",overflowY:"auto",animation:"slideUp .25s ease" }}>
+            <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 16px" }} />
+            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14 }}>
+              <h3 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17,color:C.text }}>Explore Sets</h3>
+              <button onClick={()=>{setShowExplore(false);setExploreSearch("");}} style={{ background:"none",border:"none",color:C.textMid,fontSize:20,cursor:"pointer" }}>✕</button>
+            </div>
+            <p style={{ fontSize:11,color:C.textMid,marginBottom:14,lineHeight:1.5 }}>Track sets you're actively collecting. Your tracked sets show up in Photocards, Wishlist, and Bias Shrine.</p>
+            <input value={exploreSearch} onChange={e=>setExploreSearch(e.target.value)} placeholder="Search group or era…" style={{ width:"100%",background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:12,padding:"10px 14px",fontSize:13,color:C.text,fontFamily:"'Epilogue',sans-serif",marginBottom:14,boxSizing:"border-box",outline:"none" }} />
+            <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+              {PC_CATALOG_SETS.filter(s=>!exploreSearch||`${s.group} ${s.era} ${s.album} ${s.version}`.toLowerCase().includes(exploreSearch.toLowerCase())).map(s=>{
+                const tracked = trackedSets.includes(s.id);
+                return (
+                  <div key={s.id} style={{ display:"flex",gap:12,alignItems:"center",padding:"12px 14px",borderRadius:14,background:`${s.color}0c`,border:`1.5px solid ${tracked?s.color:s.color+"33"}` }}>
+                    <span style={{ fontSize:18,flexShrink:0 }}>{s.emoji}</span>
+                    <div style={{ flex:1,minWidth:0 }}>
+                      <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12.5,color:C.text,marginBottom:1 }}>{s.album}</p>
+                      <p style={{ fontSize:10,color:s.color }}>{s.group} · {s.version}</p>
+                    </div>
+                    {tracked ? (
+                      <div style={{ fontSize:9.5,padding:"4px 10px",borderRadius:99,background:`${s.color}22`,color:s.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,flexShrink:0 }}>✓ Tracking</div>
+                    ) : (
+                      <button onClick={()=>trackSet(s.id)} style={{ background:s.color,border:"none",borderRadius:99,padding:"5px 12px",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10,cursor:"pointer",flexShrink:0 }}>Track</button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <p style={{ fontSize:10,color:C.textDim,textAlign:"center",marginTop:20,lineHeight:1.5 }}>More sets coming soon · Request a set via Feedback</p>
           </div>
         </div>
       )}
@@ -6458,8 +6538,11 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
   const allCards  = cards || MOCK_CARDS;
   const dupes     = allCards.filter(c=>c.status==='duplicate'||c.dupe);
   const tradeable = allCards.filter(c=>c.status==='for_trade'||c.tradeable);
-  const totalOwned = allCards.length;
-  const completion = Math.round((totalOwned / Math.max(totalOwned + wishlist.length, 1)) * 100);
+  const setStats  = getSetStatsSummary(pcSetData);
+  const totalOwned = allCards.length + setStats.owned;
+  const wishlistTotal = wishlist.length + setStats.wishlist;
+  const tradeableTotal = tradeable.length + setStats.dupe + setStats.trade;
+  const completion = Math.round((totalOwned / Math.max(totalOwned + wishlistTotal, 1)) * 100);
 
   const GROUPS = ["all", ...new Set(allCards.map(c=>c.group_name||c.group).filter(Boolean))].slice(0,6);
 
@@ -6518,7 +6601,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
               <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:1 }}>My World</p>
               <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontStyle:"italic",fontWeight:700,fontSize:20,background:`linear-gradient(135deg,${C.lavender},${C.blush})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",lineHeight:1.1 }}>My Universe ✦</h2>
               <p style={{ fontSize:9.5,color:C.textDim,marginTop:2 }}>Collections, capsules, memories, and scrapbooks.</p>
-              <p style={{ fontSize:9.5,color:C.textMid,marginTop:1 }}>{totalOwned} owned · {wishlist.length} wanted · {tradeable.length} tradeable</p>
+              <p style={{ fontSize:9.5,color:C.textMid,marginTop:1 }}>{totalOwned} owned · {wishlistTotal} wanted · {tradeableTotal} tradeable</p>
             </div>
           </div>
           <div style={{ display:"flex", gap:8, alignItems:"center" }}>
@@ -6558,8 +6641,8 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
           <div style={{ height:1, background:C.border, margin:"12px 0" }} />
           <div style={{ display:"flex", gap:0 }}>
             {[
-              { val:wishlist.length, label:"Wishlist", color:C.gold },
-              { val:tradeable.length, label:"Tradeable", color:C.rose },
+              { val:wishlistTotal, label:"Wishlist", color:C.gold },
+              { val:tradeableTotal, label:"Tradeable", color:C.rose },
               { val:`${completion}%`, label:"Complete", color:C.mint },
             ].map((s,i)=>(
               <div key={s.label} style={{ flex:1, textAlign:"center", borderRight:i<2?`1px solid ${C.border}`:"none" }}>
@@ -6578,11 +6661,11 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
         </div>
 
         {/* Smart nudge */}
-        {wishlist.length > 0 && (
+        {wishlistTotal > 0 && (
           <div style={{ background:`linear-gradient(140deg,${C.rose}18,${C.rose}06)`, border:`1.5px solid ${C.rose}38`, borderRadius:14, padding:"10px 14px", marginBottom:12, display:"flex", gap:10, alignItems:"center" }}>
             <span style={{ fontSize:18 }}>🔥</span>
             <div style={{ flex:1 }}>
-              <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, color:C.text }}>So close! <span style={{ color:C.rose }}>{wishlist.length} card{wishlist.length>1?"s":""}</span> away</p>
+              <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, color:C.text }}>So close! <span style={{ color:C.rose }}>{wishlistTotal} card{wishlistTotal>1?"s":""}</span> away</p>
               <p style={{ fontSize:10, color:C.textMid }}>Finish your collection — check Trade Hub</p>
             </div>
             <button onClick={()=>go("collect")} style={{ background:C.rose, border:"none", borderRadius:9, padding:"6px 11px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10, cursor:"pointer" }}>Trade →</button>
@@ -6712,11 +6795,11 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
 
         {section==="wishlist" && (
           <div style={{ paddingTop:4 }}>
-            {wishlist.length===0 ? (
+            {wishlistTotal===0 ? (
               <div style={{ textAlign:"center",padding:"32px 16px",background:`${C.gold}08`,border:`1.5px dashed ${C.gold}33`,borderRadius:20,marginBottom:14 }}>
                 <p style={{ fontSize:30,marginBottom:10 }}>♡</p>
                 <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14,marginBottom:5 }}>No wishlist cards yet</p>
-                <p style={{ fontSize:12,color:C.textMid,lineHeight:1.6 }}>Open a binder and set cards to ISO to track what you're looking for.</p>
+                <p style={{ fontSize:12,color:C.textMid,lineHeight:1.6 }}>Open a binder and set cards to ISO, or mark set members as Wishlist to track what you're hunting.</p>
               </div>
             ) : wishlist.map((w,i)=>(
               <div key={w.id||i} className="tap" style={{ ...VS.glowCard(C.gold), padding:14, marginBottom:10, cursor:"pointer", display:"flex", gap:12, alignItems:"center" }}>
@@ -6729,6 +6812,21 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                   <div style={{ ...VS.activePill(C.gold), fontSize:8.5 }}>♡ ISO</div>
                 </div>
                 <button onClick={()=>go("collect")} style={{ background:`${C.gold}18`, border:`1.5px solid ${C.gold}44`, borderRadius:10, padding:"7px 12px", color:C.gold, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10, cursor:"pointer" }}>Find →</button>
+              </div>
+            ))}
+            {/* Set ISO cards */}
+            {PC_CATALOG_SETS.flatMap(s=>s.members.filter(m=>(pcSetData[s.id]||{})[m]==="wishlist").map(m=>({setId:s.id,group:s.group,era:s.era,version:s.version,emoji:s.emoji,color:s.color,member:m}))).map((w,i)=>(
+              <div key={`set-iso-${w.setId}-${w.member}`} className="tap" style={{ ...VS.glowCard(w.color), padding:14, marginBottom:10, cursor:"pointer", display:"flex", gap:12, alignItems:"center" }}>
+                <div style={{ width:48,height:64,borderRadius:10,background:`linear-gradient(160deg,${w.color}44,${w.color}18)`,border:`1.5px solid ${w.color}55`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0 }}>{w.emoji}</div>
+                <div style={{ flex:1 }}>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:14, color:C.text, marginBottom:3 }}>{w.member}</p>
+                  <p style={{ fontSize:11, color:C.textMid, marginBottom:4 }}>{w.group} · {w.era} · {w.version}</p>
+                  <div style={{ display:"flex", gap:5 }}>
+                    <div style={{ ...VS.activePill(w.color), fontSize:8.5 }}>♡ ISO</div>
+                    <div style={{ fontSize:8.5, color:C.textDim, padding:"3px 7px", borderRadius:99, background:C.surfaceHi }}>Set</div>
+                  </div>
+                </div>
+                <button onClick={()=>setSection("photocards")} style={{ background:`${w.color}18`, border:`1.5px solid ${w.color}44`, borderRadius:10, padding:"7px 12px", color:w.color, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10, cursor:"pointer" }}>Sets →</button>
               </div>
             ))}
             {isVip ? (
@@ -6776,10 +6874,10 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
               {[
                 {emoji:"📁",label:"First Binder",sub:"Start your first era binder",unlocked:binders.length>0,color:C.accent},
                 {emoji:"🃏",label:"First Photocard",sub:"Log your first card",unlocked:allCards.length>0,color:C.pink},
-                {emoji:"⭐",label:"Wishlist Watcher",sub:"Add a card to ISO",unlocked:wishlist.length>0,color:C.gold},
+                {emoji:"⭐",label:"Wishlist Watcher",sub:"Add a card to ISO",unlocked:wishlistTotal>0,color:C.gold},
                 {emoji:"📸",label:"Memory Keeper",sub:"Save your first concert memory",unlocked:false,color:C.sky},
                 {emoji:"💊",label:"Capsule Keeper",sub:"Drop a moment in a capsule",unlocked:ls.get("backstage_capsules_count",0)>0,color:C.mint},
-                {emoji:"🏆",label:"Trade Passport",sub:"List a card for trade",unlocked:tradeable.length>0,color:C.rose},
+                {emoji:"🏆",label:"Trade Passport",sub:"List a card for trade",unlocked:tradeableTotal>0,color:C.rose},
                 {emoji:"💜",label:"Bias Shrine",sub:"Set your bias in Stage Studio",unlocked:!!_fanIdentity?.bias,color:C.berry},
                 {emoji:"✦",label:"VIP Collector",sub:"Unlock Backstage VIP",unlocked:isVip,color:C.gold},
                 {emoji:"🌟",label:"Founder Fan",sub:"Joined in the founding era",unlocked:isVip,color:C.gold},
@@ -6824,6 +6922,31 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                     ))}
                   </div>
                 )}
+                {(()=>{
+                  const biasSetCards = PC_CATALOG_SETS.flatMap(s=>s.members.filter(m=>m===_fanIdentity.bias).map(m=>({set:s,member:m,status:(pcSetData[s.id]||{})[m]||null})));
+                  if(!biasSetCards.length) return null;
+                  const STATUS_META_SHRINE = {null:{label:"Missing",color:C.textDim},owned:{label:"✓ Owned",color:C.mint},wishlist:{label:"♡ ISO",color:C.gold},dupe:{label:"×2 Dupe",color:C.accent},trade:{label:"⇄ Trade",color:C.rose}};
+                  return (
+                    <div style={{ marginBottom:14 }}>
+                      <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10 }}>Set Cards · {_fanIdentity.bias}</p>
+                      <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+                        {biasSetCards.map((bc,i)=>{
+                          const m = STATUS_META_SHRINE[bc.status]||STATUS_META_SHRINE[null];
+                          return (
+                            <div key={i} style={{ display:"flex",gap:10,alignItems:"center",padding:"10px 12px",borderRadius:13,background:`${bc.set.color}0c`,border:`1.5px solid ${bc.set.color}28` }}>
+                              <span style={{ fontSize:16,flexShrink:0 }}>{bc.set.emoji}</span>
+                              <div style={{ flex:1 }}>
+                                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,color:C.text,marginBottom:1 }}>{bc.set.album}</p>
+                                <p style={{ fontSize:9.5,color:bc.set.color }}>{bc.set.group} · {bc.set.version}</p>
+                              </div>
+                              <div style={{ fontSize:9,padding:"3px 8px",borderRadius:99,color:m.color,background:`${m.color}18`,border:`1px solid ${m.color}33`,fontFamily:"'Epilogue',sans-serif",fontWeight:700,flexShrink:0 }}>{m.label}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
                 <div style={{ background:`${C.lavender}10`,border:`1px solid ${C.lavender}28`,borderRadius:14,padding:"12px 14px",textAlign:"center" }}>
                   <p style={{ fontSize:11,color:C.textMid,lineHeight:1.6 }}>Edit your bias and shrine details in Stage Studio</p>
                   <button onClick={()=>{setShowShrine(false);go("profile");}} style={{ marginTop:8,padding:"7px 18px",borderRadius:99,background:`${C.lavender}20`,border:`1px solid ${C.lavender}44`,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>Edit in Stage Studio →</button>
@@ -6851,7 +6974,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
               <div style={{ ...VS.activePill(C.gold),fontSize:9 }}>VIP</div>
             </div>
             <p style={{ fontSize:11.5,color:C.textMid,marginBottom:16 }}>Your ISO list is queued. We'll match you with traders in the Fanverse.</p>
-            {wishlist.length===0 ? (
+            {wishlistTotal===0 ? (
               <div style={{ textAlign:"center",padding:"20px 16px",background:`${C.accent}08`,border:`1.5px dashed ${C.border}`,borderRadius:16 }}>
                 <p style={{ fontSize:24,marginBottom:10 }}>🔍</p>
                 <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,marginBottom:6 }}>No ISO cards yet</p>
@@ -17965,15 +18088,17 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
               ) : (
                 <div>
                   <p className="bs-title" style={{ fontSize:15, color:"rgba(255,255,255,0.92)", lineHeight:1.45, minHeight:20, textShadow:"0 2px 12px rgba(0,0,0,0.4)" }}>"{profileStyle.bannerText || "tap to set your status..."}"</p>
-                  <button onClick={()=>{ setStatusDraft(profileStyle.bannerText||""); setEditingStatus(true); }} style={{ marginTop:6, background:"rgba(6,6,15,0.35)", border:`1px solid rgba(255,255,255,0.15)`, borderRadius:7, padding:"3px 9px", color:"rgba(255,255,255,0.6)", fontSize:9.5, cursor:"pointer", fontFamily:"'Epilogue',sans-serif", fontWeight:600 }}>✏️ Edit status</button>
                 </div>
               )}
             </div>
           </div>
-          <div style={{ position:"absolute",top:12,right:12,display:"flex",gap:6 }}>
-            <button onClick={()=>setSection("preview")} style={{ background:"rgba(6,6,15,0.5)",border:`1px solid ${C.borderHi}`,borderRadius:9,padding:"5px 10px",color:C.textMid,fontSize:10,cursor:"pointer",fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>👁 View My Stage</button>
-            <button onClick={()=>setSection("studio")} style={{ background:"rgba(6,6,15,0.5)",border:`1px solid ${C.borderHi}`,borderRadius:9,padding:"5px 10px",color:C.textMid,fontSize:10,cursor:"pointer",fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>Stage Studio ✦</button>
-          </div>
+        </div>
+
+        {/* Banner action row */}
+        <div style={{ display:"flex", gap:8, alignItems:"center", marginTop:10, marginBottom:4 }}>
+          <button onClick={()=>setSection("studio")} style={{ flex:1, background:`linear-gradient(140deg,${C.accent}cc,${C.accentDim})`, border:"none", borderRadius:10, padding:"9px 14px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>Stage Studio ✦</button>
+          <button onClick={()=>setSection("preview")} style={{ background:C.surfaceHi, border:`1.5px solid ${C.border}`, borderRadius:10, padding:"9px 14px", color:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>👁 View My Stage</button>
+          {!editingStatus&&<button onClick={()=>{ setStatusDraft(profileStyle.bannerText||""); setEditingStatus(true); }} style={{ background:C.surfaceHi, border:`1.5px solid ${C.border}`, borderRadius:10, padding:"9px 12px", color:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>✏️</button>}
         </div>
 
         {/* HEADER */}
