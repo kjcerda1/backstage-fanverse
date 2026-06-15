@@ -6367,7 +6367,7 @@ function PhotocardSetsView({ pcSetData, setPcSetData, groupFilter, setGroupFilte
 }
 
 // ─── PHOTOCARD GRID — visual, photo-upload, AI-identify placeholder ───────────
-function PhotocardGrid({ cards, groups, groupFilter, setGroupFilter, go, rarityColors, rarityGlow, rarityBg, rarityBadge }) {
+function PhotocardGrid({ cards, groups, groupFilter, setGroupFilter, go, onAddCard, rarityColors, rarityGlow, rarityBg, rarityBadge }) {
   const CONDITION_TO_RAR = { mint:'UR', near_mint:'SR', good:'R', played:'N' };
   const [cardPhotos, setCardPhotos] = useState(()=>ls.get("backstage_card_photos",{}));
   const [aiResult, setAiResult]     = useState(null);
@@ -6488,7 +6488,7 @@ function PhotocardGrid({ cards, groups, groupFilter, setGroupFilter, go, rarityC
           );
         })}
         {/* Add card slot */}
-        <div onClick={()=>go?.("collect")} className="tap" style={{ borderRadius:12,aspectRatio:"2/3",border:`2px dashed ${C.border}`,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,cursor:"pointer" }}>
+        <div onClick={()=>onAddCard?.()} className="tap" style={{ borderRadius:12,aspectRatio:"2/3",border:`2px dashed ${C.border}`,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,cursor:"pointer" }}>
           <p style={{ fontSize:18,color:C.accent }}>+</p>
           <p style={{ fontSize:7,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textAlign:"center",lineHeight:1.3 }}>Add Card</p>
         </div>
@@ -6514,6 +6514,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
   const [showSmartMatch, setShowSmartMatch] = useState(false);
   const [pcView, setPcView] = useState("sets");
   const [pcSetData, setPcSetData] = useState(()=>ls.get("backstage_photocard_sets",{}));
+  const [showAddCard, setShowAddCard] = useState(false);
   const WORLD_THEMES = [
     {id:"Purple Galaxy",  emoji:"🌌", color:C.lavender},
     {id:"Pink Lightstick",emoji:"🩷", color:C.pink    },
@@ -6532,6 +6533,8 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
   };
 
   const { binders } = useBinders();
+  const [eraBoards] = useState(() => { try { const all = JSON.parse(localStorage.getItem("backstage_era_boards_v2")||"{}"); return Object.values(all); } catch { return []; } });
+  const [eraRoomDeep, setEraRoomDeep] = useState(null);
   const [isoCards, setIsoCards] = useState([]);
   useEffect(()=>{ api.get('/api/cards?status=iso').then(d=>{ if(d?.cards) setIsoCards(d.cards); }).catch(()=>{}); },[]);
   const wishlist  = isoCards;
@@ -6569,6 +6572,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
     {id:"scrapbook",    emoji:"🗂️", label:"Scrapbooks",  stat:1,                        unit:"book",     color:C.lavender},
     {id:"achievements", emoji:"🏅", label:"Achievements", stat:7,                        unit:"unlocked", color:C.gold    },
     {id:"shrine",       emoji:"💜", label:"Bias Shrine",  stat:_fanIdentity?.bias?1:0,   unit:"set",      color:C.rose    },
+    {id:"eraboards",    emoji:"🎭", label:"Era Boards",   stat:eraBoards.length,         unit:"boards",   color:C.mint    },
   ];
   const FEATURED_OPTIONS = [
     {key:"photocard",  label:"Favorite Photocard",    emoji:"🃏", placeholder:"Felix — MANIAC era",        color:C.pink    },
@@ -6582,12 +6586,20 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
     { id:"museum",     label:"Museum",     icon:"🏛️" },
     { id:"photocards", label:"Photocards", icon:"🃏" },
     { id:"albums",     label:"Albums",     icon:"📁" },
+    { id:"eraboards",  label:"Era Boards", icon:"🎭" },
     { id:"scrapbook",  label:"Scrapbook",  icon:"📸" },
     { id:"wishlist",   label:"Wishlist",   icon:"⭐" },
   ];
 
   return (
-    <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
+    <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden", position:"relative" }}>
+      {/* EraRoom deep-link overlay from Era Boards */}
+      {eraRoomDeep && <EraRoom group={eraRoomDeep.group} era={eraRoomDeep.era} color={eraRoomDeep.color} onBack={()=>setEraRoomDeep(null)} />}
+      {showAddCard && (
+        <div style={{ position:"absolute",inset:0,zIndex:50,background:C.bg,overflowY:"auto" }}>
+          <AddCardForm onBack={()=>setShowAddCard(false)} onSaved={card=>{ setCards(cs=>[card,...cs]); setShowAddCard(false); }} />
+        </div>
+      )}
       {/* Atmospheric bg */}
       <div style={{ position:"absolute",inset:0,background:`radial-gradient(ellipse at 80% 10%,${C.pink}06,transparent 45%),radial-gradient(ellipse at 10% 85%,${C.accent}05,transparent 50%)`,pointerEvents:"none",zIndex:0 }} />
       {/* Theme overlay — changes with Decorate selection */}
@@ -6711,7 +6723,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
             )}
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16 }}>
               {MUSEUM_TILES.map(tile=>(
-                <div key={tile.id} onClick={({albums:()=>setSection("albums"),pcs:()=>setSection("photocards"),memories:()=>go("scrapbook"),concerts:()=>go("myshows"),capsules:()=>go("capsule"),scrapbook:()=>setSection("scrapbook"),achievements:()=>setShowAchievements(true),shrine:()=>setShowShrine(true)})[tile.id]} className="tap" style={{ borderRadius:16, padding:"14px 14px", background:`${tile.color}0d`, border:`1.5px solid ${tile.color}30`, cursor:"pointer", position:"relative", overflow:"hidden" }}>
+                <div key={tile.id} onClick={({albums:()=>setSection("albums"),pcs:()=>setSection("photocards"),memories:()=>go("scrapbook"),concerts:()=>go("myshows"),capsules:()=>go("capsule"),scrapbook:()=>setSection("scrapbook"),achievements:()=>setShowAchievements(true),shrine:()=>setShowShrine(true),eraboards:()=>setSection("eraboards")})[tile.id]} className="tap" style={{ borderRadius:16, padding:"14px 14px", background:`${tile.color}0d`, border:`1.5px solid ${tile.color}30`, cursor:"pointer", position:"relative", overflow:"hidden" }}>
                   <div style={{ position:"absolute",top:-10,right:-10,width:44,height:44,borderRadius:"50%",background:`${tile.color}10`,pointerEvents:"none" }} />
                   <div style={{ fontSize:22, marginBottom:5 }}>{tile.emoji}</div>
                   <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:24,color:tile.color,lineHeight:1 }}>{tile.stat}</p>
@@ -6755,6 +6767,17 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
 
         {section==="photocards" && (
           <div>
+            {/* Era Boards cross-link — shown when boards exist */}
+            {eraBoards.length > 0 && (
+              <div onClick={()=>setSection("eraboards")} className="tap" style={{ display:"flex",alignItems:"center",gap:10,background:`${C.mint}0a`,border:`1px solid ${C.mint}28`,borderRadius:13,padding:"10px 14px",marginBottom:12,cursor:"pointer" }}>
+                <span style={{ fontSize:16 }}>🎭</span>
+                <div style={{ flex:1 }}>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,color:C.text }}>Browse Era Boards</p>
+                  <p style={{ fontSize:10,color:C.textMid }}>Templates, fits, and wishlist linked to your saved eras</p>
+                </div>
+                <span style={{ color:C.mint,fontSize:16 }}>→</span>
+              </div>
+            )}
             <div style={{ display:"flex",gap:0,background:C.surfaceHi,borderRadius:13,padding:3,marginBottom:14 }}>
               {[["sets","📁 Sets"],["cards","🃏 My Cards"]].map(([id,label])=>(
                 <span key={id} onClick={()=>setPcView(id)} style={{ flex:1,textAlign:"center",padding:"8px 4px",borderRadius:10,fontSize:11.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:pcView===id?C.accent:"transparent",color:pcView===id?C.bg:C.textMid,transition:"all .18s" }}>{label}</span>
@@ -6762,7 +6785,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
             </div>
             {pcView==="sets"
               ? <PhotocardSetsView pcSetData={pcSetData} setPcSetData={setPcSetData} groupFilter={groupFilter} setGroupFilter={setGroupFilter} />
-              : <PhotocardGrid cards={filteredCards} groups={GROUPS} groupFilter={groupFilter} setGroupFilter={setGroupFilter} go={go} rarityColors={RARITY_COLORS} rarityGlow={RARITY_GLOW} rarityBg={RARITY_BG} rarityBadge={RARITY_BADGE} />
+              : <PhotocardGrid cards={filteredCards} groups={GROUPS} groupFilter={groupFilter} setGroupFilter={setGroupFilter} go={go} onAddCard={()=>setShowAddCard(true)} rarityColors={RARITY_COLORS} rarityGlow={RARITY_GLOW} rarityBg={RARITY_BG} rarityBadge={RARITY_BADGE} />
             }
           </div>
         )}
@@ -6770,14 +6793,14 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
         {section==="albums" && (
           <div style={{ paddingTop:4 }}>
             {/* Albums hero banner */}
-            <div style={{ background:`linear-gradient(140deg,${C.plum},${C.cosmic})`,border:`1.5px solid ${C.accent}28`,borderRadius:20,padding:"16px 18px",marginBottom:16,position:"relative",overflow:"hidden" }}>
+            <div style={{ background:`linear-gradient(140deg,${C.plum},${C.cosmic})`,border:`1.5px solid ${C.accent}28`,borderRadius:20,padding:"16px 18px",marginBottom:12,position:"relative",overflow:"hidden" }}>
               <div style={{ position:"absolute",inset:0,background:`radial-gradient(ellipse at 80% 20%,${C.lavender}12,transparent 55%)`,pointerEvents:"none" }} />
               <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.accent}44,transparent)` }} />
               <div style={{ position:"relative" }}>
                 <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:C.text,marginBottom:3 }}>📁 My Binders</p>
-                <p style={{ fontSize:11,color:C.textMid,lineHeight:1.55,marginBottom:12 }}>Track your complete photocard sets, era by era.</p>
+                <p style={{ fontSize:11,color:C.textMid,lineHeight:1.55,marginBottom:isVip?0:12 }}>Track your complete photocard sets, era by era. Every version, every member, every pull.</p>
                 {!isVip&&(
-                  <div onClick={onUpgrade} className="tap" style={{ background:`${C.gold}14`,border:`1px solid ${C.gold}33`,borderRadius:10,padding:"8px 12px",cursor:"pointer",display:"inline-flex",gap:8,alignItems:"center" }}>
+                  <div onClick={onUpgrade} className="tap" style={{ marginTop:10,background:`${C.gold}14`,border:`1px solid ${C.gold}33`,borderRadius:10,padding:"8px 12px",cursor:"pointer",display:"inline-flex",gap:8,alignItems:"center" }}>
                     <span style={{ fontSize:14 }}>✦</span>
                     <div>
                       <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,color:C.gold }}>Unlock your fan era</p>
@@ -6787,11 +6810,83 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                 )}
               </div>
             </div>
+            {/* Era Boards cross-link */}
+            {eraBoards.length > 0 && (
+              <div onClick={()=>setSection("eraboards")} className="tap" style={{ display:"flex",alignItems:"center",gap:10,background:`${C.mint}0a`,border:`1px solid ${C.mint}28`,borderRadius:13,padding:"10px 14px",marginBottom:14,cursor:"pointer" }}>
+                <span style={{ fontSize:16 }}>🎭</span>
+                <div style={{ flex:1 }}>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,color:C.text }}>You have {eraBoards.length} Era Board{eraBoards.length!==1?"s":""}</p>
+                  <p style={{ fontSize:10,color:C.textMid }}>Templates, fits, trades, and wishlist — saved from Eras Explorer</p>
+                </div>
+                <span style={{ color:C.mint,fontSize:16 }}>→</span>
+              </div>
+            )}
             <CollectTab cards={cards} setCards={setCards} isVip={isVip} onUpgrade={onUpgrade} user={user} onAddMemory={()=>setSection("scrapbook")} />
           </div>
         )}
 
         {section==="scrapbook" && <ScrapbookTab isVip={isVip} onUpgrade={onUpgrade} />}
+
+        {section==="eraboards" && (
+          <div style={{ paddingTop:4 }}>
+            {/* Section header */}
+            <div style={{ background:`linear-gradient(140deg,${C.plum},${C.cosmic})`,border:`1.5px solid ${C.mint}20`,borderRadius:18,padding:"14px 16px",marginBottom:16,position:"relative",overflow:"hidden" }}>
+              <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.mint}44,transparent)` }} />
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:C.text,marginBottom:4 }}>🎭 Era Boards</p>
+              <p style={{ fontSize:11,color:C.textMid,lineHeight:1.6 }}>Your saved eras, templates, pulls, fits, trades, and memories — all in one place.</p>
+            </div>
+            {eraBoards.length === 0 ? (
+              <div style={{ textAlign:"center", padding:"40px 20px", color:C.textDim }}>
+                <p style={{ fontSize:32, marginBottom:12 }}>🎭</p>
+                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:14, color:C.text, marginBottom:6 }}>No Era Boards yet</p>
+                <p style={{ fontSize:12, lineHeight:1.7 }}>Go to Tools → Eras Explorer. Save templates, fits, start a binder, or add to wishlist to build your first board.</p>
+              </div>
+            ) : (
+              <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+                {eraBoards.map(board => {
+                  const pal = board.palette || [C.mint, C.accent, C.rose];
+                  const grpData = ERA_SEARCH_GROUPS.find(g=>g.group===board.group);
+                  const boardColor = grpData?.color || pal[0];
+                  const tmplCount = (board.savedTemplates||[]).length;
+                  const outfitCount = (board.savedOutfits||[]).length;
+                  const wishCount  = (board.wishlist||[]).length;
+                  return (
+                    <div key={board.eraKey} style={{ borderRadius:18, overflow:"hidden", background:C.surface, border:`1px solid ${boardColor}28`, boxShadow:`0 6px 24px ${boardColor}12` }}>
+                      {/* Palette strip */}
+                      <div style={{ height:6, background:`linear-gradient(90deg,${pal[0]},${pal[1]},${pal[2]})` }} />
+                      <div style={{ padding:"14px 16px 16px" }}>
+                        {/* Title row */}
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
+                          <div>
+                            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:16, color:C.text, lineHeight:1.1 }}>{board.era}</p>
+                            <p style={{ fontSize:10.5, color:boardColor, fontFamily:"'Epilogue',sans-serif", fontWeight:700, marginTop:3, textTransform:"uppercase", letterSpacing:"0.04em" }}>{board.group}</p>
+                          </div>
+                          {board.binderStarted && <span style={{ background:`${C.mint}18`, border:`1px solid ${C.mint}40`, borderRadius:99, padding:"4px 10px", fontSize:8.5, color:C.mint, fontFamily:"'Epilogue',sans-serif", fontWeight:700, letterSpacing:"0.04em" }}>📁 BINDER ✓</span>}
+                        </div>
+                        {/* Stat chips */}
+                        <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:12 }}>
+                          {tmplCount > 0 && <span style={{ background:`${boardColor}14`, border:`1px solid ${boardColor}30`, borderRadius:99, padding:"4px 10px", fontSize:9.5, color:boardColor, fontFamily:"'Epilogue',sans-serif", fontWeight:700 }}>{tmplCount} template{tmplCount!==1?"s":""}</span>}
+                          {outfitCount > 0 && <span style={{ background:`${C.lavender}14`, border:`1px solid ${C.lavender}30`, borderRadius:99, padding:"4px 10px", fontSize:9.5, color:C.lavender, fontFamily:"'Epilogue',sans-serif", fontWeight:700 }}>{outfitCount} fit{outfitCount!==1?"s":""}</span>}
+                          {wishCount > 0 && <span style={{ background:`${C.pink}14`, border:`1px solid ${C.pink}30`, borderRadius:99, padding:"4px 10px", fontSize:9.5, color:C.pink, fontFamily:"'Epilogue',sans-serif", fontWeight:700 }}>{wishCount} wishlist</span>}
+                          {board.isoCount > 0 && <span style={{ background:`${C.rose}14`, border:`1px solid ${C.rose}30`, borderRadius:99, padding:"4px 10px", fontSize:9.5, color:C.rose, fontFamily:"'Epilogue',sans-serif", fontWeight:700 }}>{board.isoCount} ISO</span>}
+                        </div>
+                        {/* Footer row */}
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                          {board.updatedAt
+                            ? <p style={{ fontSize:9, color:C.textDim }}>Updated {new Date(board.updatedAt).toLocaleDateString()}</p>
+                            : <span />}
+                          <button onClick={()=>setEraRoomDeep({group:board.group,era:board.era,color:boardColor})} className="tap" style={{ background:`linear-gradient(140deg,${boardColor}cc,${boardColor}88)`,border:"none",borderRadius:10,padding:"8px 14px",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:10.5,cursor:"pointer",letterSpacing:"-0.01em" }}>
+                            Open Era Room →
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
         {section==="wishlist" && (
           <div style={{ paddingTop:4 }}>
@@ -11010,12 +11105,24 @@ function EraRoom({ group, era, color, onBack }) {
 
   const showToast = msg => { setToast(msg); setTimeout(()=>setToast(null), 2400); };
 
+  const syncToEraBoard = (patch) => {
+    try {
+      const all = JSON.parse(localStorage.getItem("backstage_era_boards_v2")||"{}");
+      const existing = all[eraKey] || { eraKey, group, era, palette:data.palette, savedTemplates:[], savedOutfits:[], wishlist:[], binderStarted:false, isoCount:0, updatedAt:null };
+      const updated = { ...existing, ...patch, updatedAt:new Date().toISOString() };
+      all[eraKey] = updated;
+      localStorage.setItem("backstage_era_boards_v2", JSON.stringify(all));
+    } catch {}
+  };
+
   const saveItem = (id, label, type, itemType) => {
     if (saves[id]) { showToast("Already saved to My World"); return; }
     const entry = { label, type, itemType:itemType||"template", eraKey, group, era, savedAt:new Date().toISOString() };
     const u = { ...saves, [id]:entry };
     setSaves(u);
     localStorage.setItem("backstage_era_saves", JSON.stringify(u));
+    const field = (itemType||"template")==="outfit" ? "savedOutfits" : "savedTemplates";
+    syncToEraBoard({ [field]: [...(JSON.parse(localStorage.getItem("backstage_era_boards_v2")||"{}")[eraKey]?.[field]||[]), id] });
     showToast(`Saved to My World ✦`);
   };
 
@@ -11025,6 +11132,7 @@ function EraRoom({ group, era, color, onBack }) {
     const u = [...binders, entry];
     setBinders(u);
     localStorage.setItem("backstage_era_boards", JSON.stringify(u));
+    syncToEraBoard({ binderStarted:true });
     showToast(`${era} binder started in My World!`);
   };
 
@@ -11034,6 +11142,8 @@ function EraRoom({ group, era, color, onBack }) {
     const u = [...wishlist, entry];
     setWishlist(u);
     localStorage.setItem("backstage_card_wishlist", JSON.stringify(u));
+    const prev = JSON.parse(localStorage.getItem("backstage_era_boards_v2")||"{}")[eraKey]?.wishlist || [];
+    syncToEraBoard({ wishlist:[...prev, id] });
     showToast(`Added to wishlist`);
   };
 
@@ -11373,10 +11483,32 @@ function EraRoom({ group, era, color, onBack }) {
   );
 }
 
+// ─── ERAS EXPLORER SEARCH DATABASE ───────────────────────────────────────────
+const ERA_SEARCH_GROUPS = [
+  { group:"aespa",       color:C.mint,     eras:["Black Mamba","Forever & Always","Savage","My World","Drama","Whiplash"],                                  members:["Karina","Winter","Giselle","Ningning"] },
+  { group:"Stray Kids",  color:C.rose,     eras:["I Am NOT","Clé 1","Clé 2","Go生","IN生","NOEASY","MAXIDENT","5-STAR","ATE"],                              members:["Bang Chan","Lee Know","Changbin","Hyunjin","Han","Felix","Seungmin","I.N"] },
+  { group:"BTS",         color:C.accent,   eras:["HYYH","Wings","Love Yourself","Map of the Soul","BE","Butter","GOLDEN"],                                   members:["RM","Jin","Suga","J-Hope","Jimin","V","Jungkook"] },
+  { group:"NewJeans",    color:C.sky,      eras:["NewJeans","OMG","Get Up","How Sweet","Bubble Gum","Right Now"],                                            members:["Minji","Hanni","Danielle","Haerin","Hyein"] },
+  { group:"BLACKPINK",   color:C.pink,     eras:["Square One","Kill This Love","The Album","Born Pink","Deadline"],                                          members:["Jisoo","Jennie","Rosé","Lisa"] },
+  { group:"SEVENTEEN",   color:C.gold,     eras:["17 Carat","Boys Be","You Make My Day","An Ode","Attacca","Face the Sun","Spill the Feels"],                members:["S.Coups","Jeonghan","Joshua","Jun","Hoshi","Wonwoo","Woozi","DK","Mingyu","The8","Seungkwan","Vernon","Dino"] },
+  { group:"ATEEZ",       color:C.berry,    eras:["Wave","Treasure","Fireworks","Zero: Fever","Spin Off: From the Outlaw","The World EP.2"],                  members:["Hongjoong","Seonghwa","Yunho","Yeosang","San","Mingi","Wooyoung","Jongho"] },
+  { group:"TWICE",       color:C.pink,     eras:["The Story Begins","Page Two","TWICEcoaster","What is Love","YES or YES","Formula of Love","Ready to Be"],  members:["Nayeon","Jeongyeon","Momo","Sana","Jihyo","Mina","Dahyun","Chaeyoung","Tzuyu"] },
+  { group:"TXT",         color:C.sky,      eras:["The Dream Chapter","The Chaos Chapter","Minisode","Fight or Escape","Temptation","The Name Chapter"],       members:["Yeonjun","Soobin","Beomgyu","Taehyun","Huening Kai"] },
+  { group:"ENHYPEN",     color:C.lavender, eras:["Border: Day One","Border: Carnival","Dimension: Dilemma","Manifesto: Day 1","Orange Blood","ROMANCE: UNTOLD"],members:["Jungwon","Heeseung","Jay","Jake","Sunghoon","Sunoo","Ni-ki"] },
+  { group:"IVE",         color:C.rose,     eras:["ELEVEN","LOVE DIVE","After Like","I've IVE","Baddie","Accendio"],                                          members:["Yujin","Gaeul","Rei","Wonyoung","Liz","Leeseo"] },
+  { group:"LE SSERAFIM", color:C.gold,     eras:["FEARLESS","ANTIFRAGILE","UNFORGIVEN","EASY","HOT"],                                                        members:["Chaewon","Sakura","Yunjin","Kazuha","Eunchae"] },
+  { group:"ITZY",        color:C.mint,     eras:["DALLA DALLA","ICY","Wannabe","LOCO","Checkmate","Born To Be"],                                             members:["Yeji","Lia","Ryujin","Chaeryeong","Yuna"] },
+  { group:"NCT 127",     color:C.sky,      eras:["Limitless","Cherry Bomb","Regular","Kick It","Sticker","2 Baddies"],                                       members:["Taeil","Johnny","Taeyong","Yuta","Doyoung","Jaehyun","Jungwoo","Mark","Haechan"] },
+  { group:"EXO",         color:C.accent,   eras:["MAMA","Growl","Call Me Baby","Monster","Ko Ko Bop","Don't Mess Up My Tempo"],                              members:["Xiumin","Suho","Lay","Baekhyun","Chen","Chanyeol","D.O.","Kai","Sehun"] },
+  { group:"Red Velvet",  color:C.rose,     eras:["Happiness","Ice Cream Cake","Dumb Dumb","Red Flavor","Power Up","Psycho","Feel My Rhythm"],                 members:["Irene","Seulgi","Wendy","Joy","Yeri"] },
+  { group:"SHINee",      color:C.teal||C.sky,eras:["Replay","Ring Ding Dong","Lucifer","Sherlock","Married to the Music","View","Don't Call Me"],             members:["Onew","Key","Minho","Taemin"] },
+];
+
 function ExploreTab({ user, weather, isVip, onUpgrade, go, onBack }) {
   const [view, setView] = useState("grid");
   const [eraModal, setEraModal] = useState(null);
   const [eraRoom, setEraRoom] = useState(null);
+  const [eraSearch, setEraSearch] = useState("");
 
   const TOOL_CARDS = [
     { id:"buildday", icon:"🗓️", label:"Build My Day",     sub:"AI-planned fan day with food, cafes & meetups",         color:C.pink,   wide:true, soon:false },
@@ -11401,39 +11533,132 @@ function ExploreTab({ user, weather, isVip, onUpgrade, go, onBack }) {
       {/* Era search modal */}
       {eraModal && (
         <div style={{ position:"absolute",inset:0,zIndex:400,background:"rgba(6,6,15,0.96)",display:"flex",flexDirection:"column",animation:"in .2s ease" }}>
-          <div style={{ padding:"18px 20px",display:"flex",alignItems:"center",gap:12,flexShrink:0 }}>
-            <button onClick={()=>setEraModal(null)} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
-            <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18 }}>🎭 Eras Explorer</h2>
+          {/* Header */}
+          <div style={{ padding:"16px 20px 12px",flexShrink:0,borderBottom:`1px solid ${C.border}` }}>
+            <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:12 }}>
+              <button onClick={()=>{ setEraModal(null); setEraSearch(""); }} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer",flexShrink:0 }}>←</button>
+              <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18 }}>🎭 Eras Explorer</h2>
+            </div>
+            {/* Search input */}
+            <div style={{ position:"relative" }}>
+              <input
+                value={eraSearch}
+                onChange={e=>setEraSearch(e.target.value)}
+                placeholder="Search group, idol, era, album, or photocard…"
+                style={{ width:"100%",boxSizing:"border-box",padding:"11px 36px 11px 14px",borderRadius:13,background:C.surfaceHi,border:`1.5px solid ${eraSearch?C.accent:C.border}`,color:C.text,fontSize:13,fontFamily:"'Instrument Sans',sans-serif",outline:"none" }}
+              />
+              {eraSearch
+                ? <button onClick={()=>setEraSearch("")} style={{ position:"absolute",top:"50%",right:12,transform:"translateY(-50%)",background:"none",border:"none",color:C.textMid,cursor:"pointer",fontSize:15,lineHeight:1 }}>✕</button>
+                : <span style={{ position:"absolute",top:"50%",right:13,transform:"translateY(-50%)",fontSize:14,pointerEvents:"none",color:C.textDim }}>🔍</span>
+              }
+            </div>
           </div>
-          <div style={{ flex:1,overflowY:"auto",padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
-            <p style={{ fontSize:11.5,color:C.textMid,marginBottom:18,lineHeight:1.7 }}>Explore every comeback era. Tap an era to discover outfits, photocards, and fan culture from that era.</p>
-            {[
-              { group:"aespa",      eras:["Black Mamba","Forever & Always","Savage","My World","Drama","Whiplash"],          color:C.mint },
-              { group:"Stray Kids", eras:["I Am NOT","Clé 1","Clé 2","Go生","IN生","NOEASY","MAXIDENT","5-STAR","ATE"],      color:C.rose },
-              { group:"BTS",        eras:["HYYH","Wings","Love Yourself","Map of the Soul","BE","Butter","GOLDEN"],         color:C.accent },
-              { group:"NewJeans",   eras:["NewJeans","OMG","Get Up","How Sweet","Bubble Gum","Right Now"],                  color:C.sky },
-              { group:"BLACKPINK",  eras:["Square One","Kill This Love","The Album","Born Pink","Deadline"],                color:C.pink },
-              { group:"SEVENTEEN",  eras:["17 Carat","Boys Be","You Make My Day","An Ode","Attacca","Face the Sun","Spill the Feels"], color:C.gold },
-            ].map(g=>(
-              <div key={g.group} style={{ marginBottom:22 }}>
-                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:g.color,marginBottom:10,letterSpacing:"-0.01em" }}>{g.group}</p>
-                <div style={{ display:"flex",flexWrap:"wrap",gap:7 }}>
-                  {g.eras.map(era=>(
-                    <button key={era} onClick={()=>setEraRoom({group:g.group,era,color:g.color})} className="tap" style={{
-                      padding:"7px 13px",borderRadius:99,
-                      background:`${g.color}14`,
-                      border:`1.5px solid ${g.color}38`,
-                      color:g.color,
-                      fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,
-                      cursor:"pointer",
-                      boxShadow:`0 2px 8px ${g.color}10`,
-                    }}>{era}</button>
-                  ))}
+
+          {/* Content */}
+          <div style={{ flex:1,overflowY:"auto",padding:"14px 20px calc(120px + env(safe-area-inset-bottom))" }}>
+            {eraSearch.trim() ? (() => {
+              const tokens = eraSearch.toLowerCase().trim().split(/\s+/).filter(Boolean);
+              const anyMatch = (str) => tokens.some(t => str.toLowerCase().includes(t));
+              const gMatches = ERA_SEARCH_GROUPS.filter(g => anyMatch(g.group));
+              const iMatches = ERA_SEARCH_GROUPS.flatMap(g =>
+                g.members.filter(m => anyMatch(m)).map(m => ({group:g.group,idol:m,color:g.color,eras:g.eras}))
+              );
+              const eMatches = ERA_SEARCH_GROUPS.flatMap(g =>
+                g.eras.filter(e => anyMatch(e)).map(e => ({group:g.group,era:e,color:g.color}))
+              );
+              // Smart cross-ref: era from same group as an idol match → "Best Match"
+              const iGroups = new Set(iMatches.map(r => r.group));
+              const xMatches = eMatches.filter(r => iGroups.has(r.group));
+              const hasResults = gMatches.length || iMatches.length || eMatches.length;
+              if (!hasResults) return (
+                <div style={{ textAlign:"center",padding:"40px 20px",color:C.textDim }}>
+                  <p style={{ fontSize:28,marginBottom:12 }}>🔍</p>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:C.text,marginBottom:6 }}>No results for "{eraSearch}"</p>
+                  <p style={{ fontSize:11.5,lineHeight:1.7 }}>Try a group name, idol, era, or album.<br/>Examples: "Karina", "Savage", "GOLDEN", "Born Pink"</p>
                 </div>
+              );
+              return (
+                <div>
+                  {/* Smart cross-reference: idol + era tokens from same group */}
+                  {xMatches.length > 0 && (
+                    <div style={{ marginBottom:20,padding:"12px 14px",borderRadius:14,background:`${xMatches[0].color}10`,border:`1.5px solid ${xMatches[0].color}30` }}>
+                      <p style={{ fontSize:9,color:xMatches[0].color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8 }}>✦ Best Match</p>
+                      <div style={{ display:"flex",flexWrap:"wrap",gap:7 }}>
+                        {xMatches.map(r=>(
+                          <button key={`x-${r.group}-${r.era}`} onClick={()=>setEraRoom({group:r.group,era:r.era,color:r.color})} className="tap" style={{ padding:"8px 14px",borderRadius:99,background:`${r.color}20`,border:`1.5px solid ${r.color}55`,color:r.color,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,cursor:"pointer" }}>
+                            {r.era} <span style={{ opacity:0.6,fontSize:9.5 }}>· {r.group}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {gMatches.length > 0 && (
+                    <div style={{ marginBottom:20 }}>
+                      <p style={{ fontSize:9,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8 }}>GROUP</p>
+                      <div style={{ display:"flex",flexWrap:"wrap",gap:7 }}>
+                        {gMatches.map(g=>(
+                          <button key={g.group} onClick={()=>setEraRoom({group:g.group,era:g.eras[0],color:g.color})} className="tap" style={{ padding:"8px 14px",borderRadius:99,background:`${g.color}18`,border:`1.5px solid ${g.color}44`,color:g.color,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,cursor:"pointer" }}>
+                            {g.group}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {iMatches.length > 0 && (
+                    <div style={{ marginBottom:20 }}>
+                      <p style={{ fontSize:9,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8 }}>IDOL</p>
+                      <div style={{ display:"flex",flexWrap:"wrap",gap:7 }}>
+                        {iMatches.slice(0,12).map(r=>(
+                          <button key={`${r.group}-${r.idol}`} onClick={()=>setEraRoom({group:r.group,era:r.eras[0],color:r.color})} className="tap" style={{ padding:"7px 12px",borderRadius:99,background:`${r.color}14`,border:`1.5px solid ${r.color}38`,color:r.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>
+                            {r.idol} <span style={{ opacity:0.6,fontSize:9.5 }}>· {r.group}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {eMatches.length > 0 && (
+                    <div style={{ marginBottom:20 }}>
+                      <p style={{ fontSize:9,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8 }}>ERA / ALBUM</p>
+                      <div style={{ display:"flex",flexWrap:"wrap",gap:7 }}>
+                        {eMatches.slice(0,12).map(r=>(
+                          <button key={`${r.group}-${r.era}`} onClick={()=>setEraRoom({group:r.group,era:r.era,color:r.color})} className="tap" style={{ padding:"7px 12px",borderRadius:99,background:`${r.color}14`,border:`1.5px solid ${r.color}38`,color:r.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>
+                            {r.era} <span style={{ opacity:0.6,fontSize:9.5 }}>· {r.group}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })() : (
+              <div>
+                {/* Popular shortcuts */}
+                <p style={{ fontSize:9.5,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10 }}>Popular Groups</p>
+                <div style={{ display:"flex",flexWrap:"wrap",gap:7,marginBottom:20 }}>
+                  {ERA_SEARCH_GROUPS.slice(0,8).map(g=>(
+                    <button key={g.group} onClick={()=>{ setEraSearch(g.group); }} className="tap" style={{ padding:"7px 13px",borderRadius:99,background:`${g.color}14`,border:`1.5px solid ${g.color}38`,color:g.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>
+                      {g.group}
+                    </button>
+                  ))}
+                  <button onClick={()=>setEraSearch(" ")} className="tap" style={{ padding:"7px 13px",borderRadius:99,background:C.surfaceHi,border:`1px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>
+                    All →
+                  </button>
+                </div>
+                {/* Full group list */}
+                {ERA_SEARCH_GROUPS.map(g=>(
+                  <div key={g.group} style={{ marginBottom:22 }}>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:g.color,marginBottom:10,letterSpacing:"-0.01em" }}>{g.group}</p>
+                    <div style={{ display:"flex",flexWrap:"wrap",gap:7 }}>
+                      {g.eras.map(era=>(
+                        <button key={era} onClick={()=>setEraRoom({group:g.group,era,color:g.color})} className="tap" style={{ padding:"7px 13px",borderRadius:99,background:`${g.color}14`,border:`1.5px solid ${g.color}38`,color:g.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,cursor:"pointer",boxShadow:`0 2px 8px ${g.color}10` }}>{era}</button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
           </div>
-        {eraRoom && <EraRoom group={eraRoom.group} era={eraRoom.era} color={eraRoom.color} onBack={()=>setEraRoom(null)} />}
+          {eraRoom && <EraRoom group={eraRoom.group} era={eraRoom.era} color={eraRoom.color} onBack={()=>setEraRoom(null)} />}
         </div>
       )}
 
@@ -21159,8 +21384,8 @@ function MyShowsPage({ onBack, isVip, onUpgrade, go }) {
 // ─── SCRAPBOOK SYSTEM ─────────────────────────────────────────────────────────
 // GET /api/scrapbooks/:id/memories | POST /api/scrapbooks/memory | POST /api/scrapbooks/upload | DELETE /api/scrapbooks/memory/:id
 const MOCK_SCRAPBOOKS = [
-  { id:"sb1", name:"BTS PTD Tour 2021", concert:"BTS PTD Tour", color:C.pink, emoji:"💜", coverPhoto:null, memoriesCount:4 },
-  { id:"sb2", name:"SKZ MANIAC 2022", concert:"Stray Kids MANIAC", color:C.accent, emoji:"🖤", coverPhoto:null, memoriesCount:2 },
+  { id:"sb1", name:"BTS PTD Tour 2021", concert:"BTS PTD Tour", color:C.pink, emoji:"💜", coverPhoto:null, memoriesCount:4, collabCode:"BTS2021" },
+  { id:"sb2", name:"SKZ MANIAC 2022", concert:"Stray Kids MANIAC", color:C.accent, emoji:"🖤", coverPhoto:null, memoriesCount:2, collabCode:"SKZ2022" },
 ];
 
 function ScrapbookTab({ isVip, onUpgrade }) {
@@ -21173,19 +21398,28 @@ function ScrapbookTab({ isVip, onUpgrade }) {
   const [showJoin, setShowJoin]   = useState(false);
   const [joinDraft, setJoinDraft] = useState("");
   const [form, setForm] = useState({ name:"", concert:"", emoji:"📸", color:C.accent, template:null, collaborators:[] });
+  const [codeCopied, setCodeCopied] = useState(false);
+  useEffect(()=>{ ls.set("backstage_scrapbooks", books); }, [books]);
 
   const saveBook = () => {
     if(!form.name.trim())return;
     const tpl = SCRAPBOOK_TEMPLATES.find(t=>t.id===form.template);
-    setBooks([...books, { ...form, id:`sb-${Date.now()}`, coverPhoto:null, memoriesCount:0, templateBg:tpl?.bg||null, templateColor:tpl?.color||form.color }]);
+    const stableCode = Math.random().toString(36).substring(2,8).toUpperCase();
+    setBooks([...books, { ...form, id:`sb-${Date.now()}`, coverPhoto:null, memoriesCount:0, templateBg:tpl?.bg||null, templateColor:tpl?.color||form.color, collabCode:stableCode }]);
     setForm({ name:"", concert:"", emoji:"📸", color:C.accent, template:null, collaborators:[] });
     setAdding(false); setChooseTemplate(false);
   };
 
   const generateCollabCode = (bookId) => {
-    // TODO: POST /api/scrapbooks/:id/collab — create share token, store in Supabase
-    const code = Math.random().toString(36).substring(2,8).toUpperCase();
-    setCollabCode(code);
+    let book = books.find(b=>b.id===bookId);
+    if(!book) return;
+    if(!book.collabCode) {
+      const code = Math.random().toString(36).substring(2,8).toUpperCase();
+      const updated = books.map(b=>b.id===bookId?{...b,collabCode:code}:b);
+      setBooks(updated);
+      book = updated.find(b=>b.id===bookId);
+    }
+    setCollabCode(book.collabCode);
     setCollab(bookId);
   };
 
@@ -21260,18 +21494,19 @@ function ScrapbookTab({ isVip, onUpgrade }) {
 
         {/* Collab share code modal */}
         {collab&&(
-          <div onClick={()=>setCollab(null)} style={{ position:"fixed",inset:0,zIndex:400,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+          <div onClick={()=>{ setCollab(null); setCodeCopied(false); }} style={{ position:"fixed",inset:0,zIndex:400,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
             <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:24,width:"100%",animation:"slideUp .25s ease" }}>
-              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18,marginBottom:8 }}>🤝 Share Scrapbook</p>
-              <p style={{ fontSize:12,color:C.textMid,marginBottom:16,lineHeight:1.6 }}>Share this code with your concert buddy. Both of you can add memories to this scrapbook.</p>
-              <div style={{ background:C.surface,border:`2px solid ${C.mint}44`,borderRadius:16,padding:"18px",textAlign:"center",marginBottom:16 }}>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18,marginBottom:4 }}>🤝 Share Scrapbook</p>
+              <p style={{ fontSize:11.5,color:C.textMid,marginBottom:16,lineHeight:1.6 }}>Share this code with your concert buddy — they enter it to join and add memories.</p>
+              <div style={{ background:C.surface,border:`2px solid ${C.mint}44`,borderRadius:16,padding:"18px",textAlign:"center",marginBottom:12 }}>
                 <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:32,color:C.mint,letterSpacing:"0.15em" }}>{collabCode}</p>
-                <p style={{ fontSize:10,color:C.textDim,marginTop:6 }}>
-                  {/* TODO: POST /api/scrapbooks/:id/collab — Supabase share token */}
-                  Code expires in 24 hours · 1 use only
-                </p>
+                <p style={{ fontSize:10,color:C.textDim,marginTop:6 }}>Permanent code · one per scrapbook · share anytime</p>
               </div>
-              <button onClick={()=>setCollab(null)} style={{ width:"100%",padding:"12px",borderRadius:14,background:C.surfaceMid,border:`1px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer" }}>Done</button>
+              <button
+                onClick={()=>{ navigator.clipboard.writeText(collabCode).catch(()=>{}); setCodeCopied(true); setTimeout(()=>setCodeCopied(false),2000); }}
+                style={{ width:"100%",padding:"11px",borderRadius:14,background:codeCopied?`${C.mint}28`:C.mint,border:`1px solid ${codeCopied?C.mint:"transparent"}`,color:codeCopied?C.mint:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",marginBottom:8,transition:"all .2s" }}
+              >{codeCopied?"✓ Copied!":"📋 Copy Code"}</button>
+              <button onClick={()=>{ setCollab(null); setCodeCopied(false); }} style={{ width:"100%",padding:"11px",borderRadius:14,background:C.surfaceMid,border:`1px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer" }}>Done</button>
             </div>
           </div>
         )}
