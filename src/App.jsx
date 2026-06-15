@@ -6532,7 +6532,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
     "Midnight Arena": `radial-gradient(ellipse at 65% 5%,#6699dd22,transparent 55%),radial-gradient(ellipse at 15% 80%,#44668820,transparent 50%)`,
   };
 
-  const { binders } = useBinders();
+  const { binders, refresh: refreshBinderCount } = useBinders();
   const readEraBoards = () => { try { return Object.values(JSON.parse(localStorage.getItem("backstage_era_boards_v2")||"{}")); } catch { return []; } };
   const [eraBoards, setEraBoards] = useState(readEraBoards);
   useEffect(() => {
@@ -6600,7 +6600,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
   return (
     <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden", position:"relative" }}>
       {/* EraRoom deep-link overlay from Era Boards */}
-      {eraRoomDeep && <EraRoom group={eraRoomDeep.group} era={eraRoomDeep.era} color={eraRoomDeep.color} onBack={()=>setEraRoomDeep(null)} />}
+      {eraRoomDeep && <EraRoom group={eraRoomDeep.group} era={eraRoomDeep.era} color={eraRoomDeep.color} onBack={()=>setEraRoomDeep(null)} onBinderCreated={()=>{ refreshBinderCount(); setEraRoomDeep(null); setSection("albums"); }} />}
       {showAddCard && (
         <div style={{ position:"absolute",inset:0,zIndex:50,background:C.bg,overflowY:"auto" }}>
           <AddCardForm onBack={()=>setShowAddCard(false)} onSaved={card=>{ setCards(cs=>[card,...cs]); setShowAddCard(false); }} />
@@ -11085,10 +11085,16 @@ function getEraData(group, era, color) {
 }
 
 // ─── ERA ROOM COMPONENT ───────────────────────────────────────────────────────
-function EraRoom({ group, era, color, onBack }) {
+function EraRoom({ group, era, color, onBack, onBinderCreated }) {
   const [tab, setTab] = useState("templates");
   const [toast, setToast] = useState(null);
   const [likedPosts, setLikedPosts] = useState({});
+  const [binderLoading, setBinderLoading] = useState(false);
+  // Persists across reloads — seeded from v2 localStorage so "Open Albums" survives page refresh
+  const [hasRealBinder, setHasRealBinder] = useState(() => {
+    try { return !!JSON.parse(localStorage.getItem("backstage_era_boards_v2")||"{}")[`${group}::${era}`]?.realBinderId; }
+    catch { return false; }
+  });
 
   // ── Supabase-ready localStorage shapes ──
   const eraKey = `${group}::${era}`;
@@ -11135,14 +11141,30 @@ function EraRoom({ group, era, color, onBack }) {
     showToast(`Saved to My World ✦`);
   };
 
-  const addToBinder = () => {
-    if (hasBinder) { showToast("Binder already started"); return; }
+  const addToBinder = async () => {
+    if (hasBinder || binderLoading || hasRealBinder) { showToast("Binder already started"); return; }
+    setBinderLoading(true);
+    // Write to legacy localStorage immediately for backward compat
     const entry = { key:eraKey, group, era, binderStartedAt:new Date().toISOString() };
     const u = [...binders, entry];
     setBinders(u);
     localStorage.setItem("backstage_era_boards", JSON.stringify(u));
     syncToEraBoard({ binderStarted:true });
-    showToast(`${era} binder started in My World!`);
+    // Create real binder in backend
+    try {
+      const res = await api.post('/api/binders', { name:`${group} — ${era}`, group_name:group, cover_color:color, emoji:"📁" });
+      if (res?.binder?.id) {
+        syncToEraBoard({ binderStarted:true, realBinderId:res.binder.id });
+        setHasRealBinder(true);
+        showToast(`${era} binder created in My World!`);
+      } else {
+        showToast(`${era} binder started locally`);
+      }
+    } catch {
+      showToast(`${era} binder started locally`);
+    } finally {
+      setBinderLoading(false);
+    }
   };
 
   const addToWishlist = (id, label, tmplType) => {
@@ -11219,12 +11241,23 @@ function EraRoom({ group, era, color, onBack }) {
           </div>
 
           {/* Binder CTA */}
-          <button onClick={addToBinder} className="tap" style={{ width:"100%",padding:"11px 16px",borderRadius:14,background:hasBinder?`${color}22`:`${color}18`,border:`2px solid ${hasBinder?color:color+"50"}`,color:hasBinder?color:C.text,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer",marginBottom:12,display:"flex",alignItems:"center",justifyContent:"center",gap:8,transition:"all .15s" }}>
-            {hasBinder
-              ? <><span style={{ fontSize:16 }}>✓</span> Binder started in My World</>
-              : <><span style={{ fontSize:16 }}>＋</span> Start {era} Binder</>
-            }
-          </button>
+          <div style={{ marginBottom:12 }}>
+            <button onClick={addToBinder} disabled={binderLoading} className="tap" style={{ width:"100%",padding:"11px 16px",borderRadius:14,background:(hasBinder||hasRealBinder)?`${color}22`:`${color}18`,border:`2px solid ${(hasBinder||hasRealBinder)?color:color+"50"}`,color:(hasBinder||hasRealBinder)?color:C.text,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:(hasBinder||hasRealBinder||binderLoading)?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8,transition:"all .15s",opacity:binderLoading?0.6:1 }}>
+              {binderLoading
+                ? <><span style={{ fontSize:16 }}>⏳</span> Creating binder…</>
+                : hasRealBinder
+                  ? <><span style={{ fontSize:16 }}>✓</span> Binder created in My World</>
+                  : hasBinder
+                    ? <><span style={{ fontSize:16 }}>✓</span> Binder started locally</>
+                    : <><span style={{ fontSize:16 }}>＋</span> Start {era} Binder</>
+              }
+            </button>
+            {hasRealBinder && (
+              <button onClick={()=>onBinderCreated?.()} className="tap" style={{ width:"100%",padding:"9px 16px",borderRadius:12,background:`${C.mint}18`,border:`1.5px solid ${C.mint}44`,color:C.mint,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginTop:6,transition:"all .15s" }}>
+                <span>📁</span> Open Albums in My World →
+              </button>
+            )}
+          </div>
 
           {/* Progress stats */}
           <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:14 }}>
