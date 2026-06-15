@@ -6541,6 +6541,11 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
     return () => window.removeEventListener("backstage:eraBoardsUpdated", handler);
   }, []);
   const [eraRoomDeep, setEraRoomDeep] = useState(null);
+  useEffect(() => {
+    const handler = (e) => { setSection("eraboards"); setEraRoomDeep(e.detail); };
+    window.addEventListener("backstage:openEraRoom", handler);
+    return () => window.removeEventListener("backstage:openEraRoom", handler);
+  }, []);
   const [isoCards, setIsoCards] = useState([]);
   useEffect(()=>{ api.get('/api/cards?status=iso').then(d=>{ if(d?.cards) setIsoCards(d.cards); }).catch(()=>{}); },[]);
   const wishlist  = isoCards;
@@ -7677,6 +7682,27 @@ function BinderDetail({ binder, onBack }) {
     for_trade: { label:"⇄",  color:C.rose,    badge:"For Trade" },
   };
 
+  // Detect linked Era Board — match by realBinderId first, then by name pattern
+  const linkedEraBoard = (() => {
+    try {
+      const all = JSON.parse(localStorage.getItem("backstage_era_boards_v2")||"{}");
+      const byId = Object.values(all).find(b => b.realBinderId === binder.id);
+      if (byId) return byId;
+      if (binder.name && binder.group_name) {
+        const eraGuess = binder.name.replace(`${binder.group_name} — `, "").trim();
+        const byName = all[`${binder.group_name}::${eraGuess}`];
+        if (byName?.binderStarted) return byName;
+      }
+      return null;
+    } catch { return null; }
+  })();
+
+  const openLinkedEraRoom = () => {
+    if (!linkedEraBoard) return;
+    const pal = linkedEraBoard.palette || [];
+    window.dispatchEvent(new CustomEvent("backstage:openEraRoom", { detail:{ group:linkedEraBoard.group, era:linkedEraBoard.era, color:pal[0]||C.accent } }));
+  };
+
   const [cards, setCards]               = useState([]);
   const [loading, setLoading]           = useState(true);
   const [showAddCard, setShowAddCard]   = useState(false);
@@ -7730,14 +7756,90 @@ function BinderDetail({ binder, onBack }) {
       </div>
 
       <Screen style={{ padding:"0 18px calc(120px + env(safe-area-inset-bottom))" }}>
+        {/* ── Linked Era Board header ── */}
+        {linkedEraBoard && (() => {
+          const pal = linkedEraBoard.palette || [C.accent];
+          const savedTmpls = (linkedEraBoard.savedTemplates||[]).length;
+          const savedWish  = (linkedEraBoard.wishlist||[]).length;
+          const savedFits  = (linkedEraBoard.savedOutfits||[]).length;
+          return (
+            <div style={{ marginBottom:14,borderRadius:18,overflow:"hidden",background:C.surface,border:`1.5px solid ${pal[0]}33`,boxShadow:`0 4px 18px ${pal[0]}12` }}>
+              <div style={{ height:5,background:`linear-gradient(90deg,${pal[0]},${pal[1]||pal[0]},${pal[2]||pal[0]})` }} />
+              <div style={{ padding:"12px 14px" }}>
+                <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8 }}>
+                  <div>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:13,color:C.text,lineHeight:1.1 }}>{linkedEraBoard.era}</p>
+                    <p style={{ fontSize:10,color:pal[0],fontFamily:"'Epilogue',sans-serif",fontWeight:700,marginTop:2,textTransform:"uppercase",letterSpacing:"0.05em" }}>{linkedEraBoard.group}</p>
+                  </div>
+                  <span style={{ background:`${pal[0]}18`,border:`1px solid ${pal[0]}44`,borderRadius:99,padding:"3px 9px",fontSize:8.5,color:pal[0],fontFamily:"'Epilogue',sans-serif",fontWeight:700,letterSpacing:"0.04em" }}>🎭 Era Board</span>
+                </div>
+                <div style={{ display:"flex",gap:8,marginBottom:10 }}>
+                  {[[savedTmpls,"templates",C.accent],[savedWish,"wishlist",C.gold],[savedFits,"fits",C.lavender]].map(([val,label,col])=>(
+                    <span key={label} style={{ fontSize:9.5,color:val>0?col:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{val} {label}</span>
+                  ))}
+                </div>
+                <button onClick={openLinkedEraRoom} className="tap" style={{ width:"100%",padding:"8px",borderRadius:11,background:`${pal[0]}14`,border:`1.5px solid ${pal[0]}44`,color:pal[0],fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>
+                  Open Era Room →
+                </button>
+                {/* Saved templates quick-list */}
+                {savedTmpls > 0 && (
+                  <div style={{ marginTop:10,borderTop:`1px solid ${C.border}`,paddingTop:10 }}>
+                    <p style={{ fontSize:9,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6 }}>Saved templates</p>
+                    <div style={{ display:"flex",flexDirection:"column",gap:5 }}>
+                      {(linkedEraBoard.savedTemplates||[]).slice(0,5).map(id => {
+                        const label = id.split("-").slice(2).join(" ");
+                        return (
+                          <div key={id} style={{ display:"flex",alignItems:"center",gap:8,padding:"5px 8px",borderRadius:9,background:`${pal[0]}0a`,border:`1px solid ${pal[0]}20` }}>
+                            <span style={{ fontSize:12 }}>🎴</span>
+                            <p style={{ fontSize:10.5,color:C.text,fontFamily:"'Epilogue',sans-serif",fontWeight:600,flex:1,lineHeight:1.2 }}>{label}</p>
+                          </div>
+                        );
+                      })}
+                      {savedTmpls > 5 && <p style={{ fontSize:9.5,color:C.textDim,paddingLeft:4 }}>+{savedTmpls-5} more in Era Room</p>}
+                    </div>
+                  </div>
+                )}
+                {/* Wishlist quick-list */}
+                {savedWish > 0 && (
+                  <div style={{ marginTop:10,borderTop:`1px solid ${C.border}`,paddingTop:10 }}>
+                    <p style={{ fontSize:9,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6 }}>Wishlist from this era</p>
+                    <div style={{ display:"flex",gap:5,flexWrap:"wrap" }}>
+                      {(linkedEraBoard.wishlist||[]).slice(0,6).map(id => {
+                        const label = typeof id === "string" ? id.split("-").slice(2).join(" ") : (id.label || String(id));
+                        return (
+                          <span key={String(id)} style={{ padding:"3px 9px",borderRadius:8,background:`${C.gold}14`,border:`1px solid ${C.gold}33`,color:C.gold,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>⭐ {label}</span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
         {loading && <div style={{ textAlign:"center",padding:40,color:C.textMid,fontSize:13 }}>Loading...</div>}
 
         {!loading && cards.length===0 && (
           <div style={{ textAlign:"center",padding:"40px 20px" }}>
             <p style={{ fontSize:36,marginBottom:12 }}>🃏</p>
-            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:15,marginBottom:6 }}>No cards yet</p>
-            <p style={{ fontSize:12,color:C.textMid,marginBottom:20 }}>Tap + Add to start tracking your collection.</p>
-            <Btn small onClick={()=>setShowAddCard(true)}>+ Add First Card</Btn>
+            {linkedEraBoard ? (
+              <>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:15,marginBottom:6 }}>Binder linked — no cards yet</p>
+                <p style={{ fontSize:12,color:C.textMid,marginBottom:16,lineHeight:1.7 }}>This binder is linked to your {linkedEraBoard.group} {linkedEraBoard.era} Era Board. Open the Era Room to save templates or wishlist cards — they'll show up here.</p>
+                <button onClick={openLinkedEraRoom} className="tap" style={{ padding:"10px 18px",borderRadius:12,background:`${linkedEraBoard.palette?.[0]||C.accent}18`,border:`1.5px solid ${linkedEraBoard.palette?.[0]||C.accent}44`,color:linkedEraBoard.palette?.[0]||C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer",marginBottom:12 }}>
+                  Open Era Room →
+                </button>
+                <br />
+                <Btn small onClick={()=>setShowAddCard(true)}>+ Add Card Manually</Btn>
+              </>
+            ) : (
+              <>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:15,marginBottom:6 }}>No cards yet</p>
+                <p style={{ fontSize:12,color:C.textMid,marginBottom:20 }}>Tap + Add to start tracking your collection.</p>
+                <Btn small onClick={()=>setShowAddCard(true)}>+ Add First Card</Btn>
+              </>
+            )}
           </div>
         )}
 
@@ -11047,7 +11149,7 @@ function getEraData(group, era, color) {
   const key = `${group}::${era}`;
   const vibe = ERA_VIBES[key] || { subtitle:`${era} comeback era`, palette:[color,"#1a1a2e","#2d3436"], mood:"K-pop · Fandom · Fan culture", outfitVibe:`Concert-ready fan fit inspired by the ${era} era` };
   const members = ERA_MEMBERS[group] || ["Member 1","Member 2","Member 3","Member 4"];
-  const m = members.slice(0,4);
+  const m4 = members.slice(0,4); // outfits/posts/trades only reference first few members
 
   // Album versions differ per era — generic fallback set
   const versions = ["Ver. A","Ver. B","Ver. C","POB","Fansign","Dupe"];
@@ -11056,7 +11158,7 @@ function getEraData(group, era, color) {
     { id:`${key}-checklist`, label:`${era} Album Checklist`,     type:"checklist", memberName:null,  versions:["Ver. A","Ver. B","Ver. C","POB"],         totalCards:24, desc:`All versions and variants in one tracker` },
     { id:`${key}-wishlist`,  label:`${era} Wishlist Board`,      type:"wishlist",  memberName:null,  versions:["POB","Fansign","Season's Greetings"],      totalCards:12, desc:`Mark your most-wanted ${era} cards` },
     { id:`${key}-pob`,       label:`${era} POB Tracker`,         type:"pob",       memberName:null,  versions:["Pre-order","Fansign","Store POB","Online"], totalCards:16, desc:`Every pre-order benefit in one place` },
-    ...m.map((n,i)=>({ id:`${key}-${n}`, label:`${n}`, type:"member", memberName:n, versions:versions.slice(0,4), totalCards:18+i*2, desc:`${n}'s ${era} versions — all variants` })),
+    ...members.map((n,i)=>({ id:`${key}-${n}`, label:`${n}`, type:"member", memberName:n, versions:versions.slice(0,4), totalCards:18+i*2, desc:`${n}'s ${era} versions — all variants` })),
     { id:`${key}-dupe`,      label:`${era} Dupe Board`,          type:"dupe",      memberName:null,  versions:["Official Dupe","Community Dupe","Self-made"],totalCards:10, desc:`Verified dupes the community trusts` },
     { id:`${key}-fansign`,   label:`${era} Fansign Cards`,       type:"fansign",   memberName:null,  versions:["Fansign","Event","Café Bingo","Lucky Draw"], totalCards:8,  desc:`Offline-only cards from events` },
   ];
@@ -11064,24 +11166,24 @@ function getEraData(group, era, color) {
   const moodWords = vibe.mood.split("·").map(s=>s.trim()).filter(Boolean);
   const outfits = [
     { id:`out-${key}-1`, label:`${era}-coded concert fit`,            tags:moodWords.slice(0,2), vibe:vibe.outfitVibe.split(",")[0]?.trim()||"Era-coded",    fitType:"full look" },
-    { id:`out-${key}-2`, label:`${m[0]} bias-matching fit`,           tags:["biascode","matching"], vibe:`Match ${m[0]}'s ${era} palette`,                   fitType:"bias look" },
+    { id:`out-${key}-2`, label:`${m4[0]} bias-matching fit`,          tags:["biascode","matching"], vibe:`Match ${m4[0]}'s ${era} palette`,                  fitType:"bias look" },
     { id:`out-${key}-3`, label:`${era} gender-neutral aesthetic`,     tags:["neutral","minimal","versatile"], vibe:"Works for any body, any budget",           fitType:"casual" },
     { id:`out-${key}-4`, label:`Fan-coded ${era} board aesthetic`,    tags:["aesthetic","fandom","iconic"],   vibe:"What the fans are actually wearing",       fitType:"fan look" },
   ];
 
   const fanPosts = [
     { id:`post-${key}-1`, user:"springroadfan",   initial:"S", text:`just finished my ${era} binder 🥹 every single slot filled. took me 3 months`, likes:84,  tag:`#${era.replace(/\s+/g,"")}`,  timeAgo:"2h" },
-    { id:`post-${key}-2`, user:"kpoptrader_nyc",  initial:"K", text:`ISO ${m[0]} ${era} POB — have dupes and extras to trade. DM me! 🫶`,             likes:31,  tag:`#${era.replace(/\s+/g,"")}ISO`, timeAgo:"5h" },
+    { id:`post-${key}-2`, user:"kpoptrader_nyc",  initial:"K", text:`ISO ${m4[0]} ${era} POB — have dupes and extras to trade. DM me! 🫶`,            likes:31,  tag:`#${era.replace(/\s+/g,"")}ISO`, timeAgo:"5h" },
     { id:`post-${key}-3`, user:"collectingeras",  initial:"C", text:`${era} era was everything. the photocards hit different when you're at the show`, likes:127, tag:`#${era.replace(/\s+/g,"")}`,  timeAgo:"1d" },
-    { id:`post-${key}-4`, user:"photocardheaven", initial:"P", text:`FINALLY got my ${m[1]||m[0]} ${era} fansign card after 6 months of searching !!`, likes:56,  tag:`#${era.replace(/\s+/g,"")}`,  timeAgo:"3d" },
+    { id:`post-${key}-4`, user:"photocardheaven", initial:"P", text:`FINALLY got my ${m4[1]||m4[0]} ${era} fansign card after 6 months of searching !!`, likes:56, tag:`#${era.replace(/\s+/g,"")}`, timeAgo:"3d" },
   ];
 
   const trades = [
-    { id:`trade-${key}-1`, have:`${m[0]} ${era} dupe`,          want:`${m[1]||m[0]} ${era} POB`, condition:"Near Mint", tradeType:"DM trade",      urgency:"ISO" },
-    { id:`trade-${key}-2`, have:`${era} fansign extra`,          want:`${era} POB any member`,    condition:"Mint",      tradeType:"Online",         urgency:"LF"  },
-    { id:`trade-${key}-3`, have:`${m[2]||m[0]} ${era} bundle`,  want:`${era} Season's Greetings`, condition:"Good",     tradeType:"In-person / DM", urgency:"FT"  },
+    { id:`trade-${key}-1`, have:`${m4[0]} ${era} dupe`,         want:`${m4[1]||m4[0]} ${era} POB`, condition:"Near Mint", tradeType:"DM trade",      urgency:"ISO" },
+    { id:`trade-${key}-2`, have:`${era} fansign extra`,          want:`${era} POB any member`,      condition:"Mint",      tradeType:"Online",         urgency:"LF"  },
+    { id:`trade-${key}-3`, have:`${m4[2]||m4[0]} ${era} bundle`,want:`${era} Season's Greetings`,   condition:"Good",      tradeType:"In-person / DM", urgency:"FT"  },
   ];
-  return { ...vibe, templates, outfits, fanPosts, trades, group, era, color };
+  return { ...vibe, templates, outfits, fanPosts, trades, group, era, color, members };
 }
 
 // ─── ERA ROOM COMPONENT ───────────────────────────────────────────────────────
@@ -11094,6 +11196,10 @@ function EraRoom({ group, era, color, onBack, onBinderCreated }) {
   const [hasRealBinder, setHasRealBinder] = useState(() => {
     try { return !!JSON.parse(localStorage.getItem("backstage_era_boards_v2")||"{}")[`${group}::${era}`]?.realBinderId; }
     catch { return false; }
+  });
+  const [memberBinders, setMemberBinders] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("backstage_era_boards_v2")||"{}")[`${group}::${era}`]?.memberBinders || {}; }
+    catch { return {}; }
   });
 
   // ── Supabase-ready localStorage shapes ──
@@ -11167,6 +11273,15 @@ function EraRoom({ group, era, color, onBack, onBinderCreated }) {
     }
   };
 
+  const toggleMemberBinder = (memberName) => {
+    const mb = memberBinders[memberName];
+    const next = mb ? { ...mb, started:!mb.started } : { member:memberName, group, era, started:true, ownedCount:0, wishlistCount:0, dupeCount:0, tradeCount:0, startedAt:new Date().toISOString() };
+    const u = { ...memberBinders, [memberName]:next };
+    setMemberBinders(u);
+    syncToEraBoard({ memberBinders:u });
+    showToast(next.started ? `${memberName} binder started!` : `${memberName} binder removed`);
+  };
+
   const addToWishlist = (id, label, tmplType) => {
     if (wishlist.some(w => (typeof w==="string"?w:w.id)===id)) { showToast("Already on wishlist"); return; }
     const entry = { id, label, eraKey, group, era, itemType:tmplType||"template", addedAt:new Date().toISOString() };
@@ -11188,6 +11303,7 @@ function EraRoom({ group, era, color, onBack, onBinderCreated }) {
 
   const TABS = [
     { id:"templates", label:"📋 Templates" },
+    { id:"members",   label:"👥 Members"   },
     { id:"outfits",   label:"✨ Fits"      },
     { id:"posts",     label:"💬 Posts"     },
     { id:"trades",    label:"🔁 Trades"    },
@@ -11228,7 +11344,7 @@ function EraRoom({ group, era, color, onBack, onBinderCreated }) {
 
           {/* Era title */}
           <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:26,letterSpacing:"-0.03em",lineHeight:1.05,marginBottom:4 }}>{era}</h2>
-          <p style={{ fontSize:12,color:C.textMid,lineHeight:1.5,marginBottom:10 }}>Templates, pulls, fits, trades, and fan inspo from this era.</p>
+          <p style={{ fontSize:12,color:C.textMid,lineHeight:1.5,marginBottom:10 }}>Build this era from templates to trades. Start a binder, track every member, save your wants, and keep it all in My World.</p>
 
           {/* Palette strip + mood */}
           <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:14 }}>
@@ -11249,7 +11365,7 @@ function EraRoom({ group, era, color, onBack, onBinderCreated }) {
                   ? <><span style={{ fontSize:16 }}>✓</span> Binder created in My World</>
                   : hasBinder
                     ? <><span style={{ fontSize:16 }}>✓</span> Binder started locally</>
-                    : <><span style={{ fontSize:16 }}>＋</span> Start {era} Binder</>
+                    : <><span style={{ fontSize:16 }}>＋</span> Start {era} Era Binder</>
               }
             </button>
             {hasRealBinder && (
@@ -11516,6 +11632,44 @@ function EraRoom({ group, era, color, onBack, onBinderCreated }) {
             <div style={{ background:`${C.gold}08`,border:`1px solid ${C.gold}22`,borderRadius:14,padding:"13px 15px" }}>
               <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,marginBottom:4 }}>Live trade matching is coming</p>
               <p style={{ fontSize:11,color:C.textMid,lineHeight:1.7 }}>When it's live, you'll see real ISO / FT / LF posts from fans hunting the same {era} cards as you. Matches based on your collection and wishlist.</p>
+            </div>
+          </div>
+        )}
+
+        {/* ──── MEMBERS ──── */}
+        {tab==="members" && (
+          <div>
+            <div style={{ background:`${color}08`,border:`1px solid ${color}22`,borderRadius:12,padding:"10px 14px",marginBottom:14,display:"flex",gap:8,alignItems:"flex-start" }}>
+              <span style={{ fontSize:16,flexShrink:0 }}>👥</span>
+              <p style={{ fontSize:11,color:C.textMid,lineHeight:1.5 }}>Start a member binder for your bias or the whole group. Tracks their cards separately from the era binder.</p>
+            </div>
+            <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
+              {data.members.map(memberName => {
+                const mb = memberBinders[memberName];
+                const started = mb?.started;
+                return (
+                  <div key={memberName} style={{ background:C.surface,border:`1.5px solid ${started?color:color+"28"}`,borderRadius:16,padding:"13px 14px",display:"flex",alignItems:"center",gap:12,boxShadow:started?`0 0 12px ${color}18`:"none",transition:"all .2s" }}>
+                    {/* Avatar circle */}
+                    <div style={{ width:44,height:44,borderRadius:"50%",background:`${color}22`,border:`2px solid ${started?color:color+"44"}`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:started?`0 0 10px ${color}33`:"none" }}>
+                      <span style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:15,color:started?color:C.textMid }}>{memberName[0]}</span>
+                    </div>
+                    <div style={{ flex:1,minWidth:0 }}>
+                      <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13.5,color:C.text,lineHeight:1.2 }}>{memberName}</p>
+                      <p style={{ fontSize:10,color:C.textMid,marginTop:2 }}>{started ? `${era} · Binder active` : `${era} · No binder yet`}</p>
+                      {started && (
+                        <div style={{ display:"flex",gap:8,marginTop:5 }}>
+                          {[{val:mb.ownedCount||0,label:"Owned",color:C.mint},{val:mb.wishlistCount||0,label:"ISO",color:C.gold},{val:mb.dupeCount||0,label:"Dupes",color:C.sky}].map(s=>(
+                            <span key={s.label} style={{ fontSize:9,color:s.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{s.val} {s.label}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <button onClick={()=>toggleMemberBinder(memberName)} className="tap" style={{ padding:"7px 12px",borderRadius:11,background:started?`${color}22`:`${color}14`,border:`1.5px solid ${started?color:color+"44"}`,color:started?color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:10,cursor:"pointer",flexShrink:0,transition:"all .15s" }}>
+                      {started ? "✓ Started" : "+ Start"}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
