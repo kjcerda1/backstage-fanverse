@@ -6668,7 +6668,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
               <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, color:C.text }}>So close! <span style={{ color:C.rose }}>{wishlistTotal} card{wishlistTotal>1?"s":""}</span> away</p>
               <p style={{ fontSize:10, color:C.textMid }}>Finish your collection — check Trade Hub</p>
             </div>
-            <button onClick={()=>go("collect")} style={{ background:C.rose, border:"none", borderRadius:9, padding:"6px 11px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10, cursor:"pointer" }}>Trade →</button>
+            <button onClick={()=>setSection("wishlist")} style={{ background:C.rose, border:"none", borderRadius:9, padding:"6px 11px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10, cursor:"pointer" }}>Trade →</button>
           </div>
         )}
 
@@ -10887,9 +10887,496 @@ function BuildMyDay({ go }) {
   );
 }
 
+// ─── ERA ROOM DATA ────────────────────────────────────────────────────────────
+const ERA_VIBES = {
+  "aespa::Black Mamba":    { subtitle:"Dark fantasy debut era",                 palette:["#6c5ce7","#1a1a2e","#a29bfe"], mood:"Dark · Fantasy · Neon · Black/Purple",          outfitVibe:"Dark sequins, neon purple, glitch aesthetic, black & chrome latex" },
+  "aespa::Forever & Always":{ subtitle:"Dreamy synth-pop love era",             palette:["#a8d8b9","#2d3436","#74b9ff"], mood:"Dreamy · Synth · Love · Pastels",              outfitVibe:"Pastel sets, soft glam, sheer layers, iridescent accessories" },
+  "aespa::Savage":         { subtitle:"The avatar awakening era",               palette:["#a8d8b9","#1a1a2e","#4ecdc4"], mood:"Cyber · Avatar · Kwangya · Silver/Black",       outfitVibe:"Cyber chic, metallic silver, holographic, black latex, futuristic" },
+  "aespa::My World":       { subtitle:"Welcome to MY world",                    palette:["#fd79a8","#1a1a2e","#e84393"], mood:"Vivid · Pink · Bold · Maximalist",              outfitVibe:"Hot pink, bold prints, oversized, maximalist accessories" },
+  "aespa::Drama":          { subtitle:"K-drama meets pop perfection",           palette:["#fd79a8","#ffffff","#fab1d3"], mood:"Romantic · Pastel · Drama · Pink/White",       outfitVibe:"Pastel sets, bow details, soft glam, lace, pink & white" },
+  "aespa::Whiplash":       { subtitle:"Chaotic girl energy era",                palette:["#ff6b6b","#2d3436","#fdcb6e"], mood:"Fierce · Chaotic · Energy · Red/Gold",         outfitVibe:"Red power looks, gold accents, streetwear edge, statement boots" },
+  "Stray Kids::I Am NOT":  { subtitle:"The defiant debut stance",               palette:["#6c5ce7","#2d3436","#a29bfe"], mood:"Defiant · Raw · Debut · Purple/Dark",          outfitVibe:"Dark streetwear, purple accents, raw denim, edgy casual" },
+  "Stray Kids::Clé 1":     { subtitle:"Miroh — power and identity",             palette:["#e17055","#2d3436","#fdcb6e"], mood:"Identity · Power · Orange/Black",              outfitVibe:"Bold orange accents, black layering, structured streetwear" },
+  "Stray Kids::Clé 2":     { subtitle:"Yellow Wood — dreaming and magic",       palette:["#fdcb6e","#2d3436","#f9ca24"], mood:"Dream · Magic · Yellow · Soft power",          outfitVibe:"Yellow and black contrast, casual luxe, chain accessories" },
+  "Stray Kids::Go生":       { subtitle:"District 9 — raw survival era",         palette:["#ff6b6b","#2d3436","#e17055"], mood:"Survival · Raw · Red/Dark · Intense",          outfitVibe:"Black combat looks, red splatters, boots, dark utility" },
+  "Stray Kids::IN生":       { subtitle:"I N生 — world-building era",            palette:["#00b894","#2d3436","#55efc4"], mood:"World · Nature · Green/Black · Ethereal",      outfitVibe:"Dark nature aesthetic, forest tones, layered textures" },
+  "Stray Kids::NOEASY":    { subtitle:"No easy route — difficulty is power",    palette:["#6c5ce7","#2d3436","#a29bfe"], mood:"Difficult · Power · Purple · Dark energy",     outfitVibe:"Purple-tinged black, punk layers, chain accessories, boots" },
+  "Stray Kids::MAXIDENT":  { subtitle:"Maximum identity era",                   palette:["#6c5ce7","#a29bfe","#000000"], mood:"Intense · Identity · Purple/Black",            outfitVibe:"Experimental dark glam, purple accessories, bold graphic prints" },
+  "Stray Kids::5-STAR":    { subtitle:"Five stars, infinite power",             palette:["#ff6b6b","#2d3436","#dfe6e9"], mood:"Powerful · Rock · Black/Red · Star",           outfitVibe:"Black streetwear, red accents, star graphics, punk-edge boots" },
+  "Stray Kids::ATE":       { subtitle:"ATE — style-coded chaos era",            palette:["#fd79a8","#2d3436","#e84393"], mood:"Fashionable · Chaotic · Pink · Dark edge",     outfitVibe:"High fashion dark looks, pink details, oversized blazers" },
+  "BTS::HYYH":             { subtitle:"The youth era that started it all",      palette:["#fdcb6e","#e17055","#74b9ff"], mood:"Youth · Coming-of-age · Blue/Yellow",          outfitVibe:"Ripped jeans, white tees, denim, skate-casual youth energy" },
+  "BTS::Wings":            { subtitle:"Fragmented, dark, artistic Wings",       palette:["#6c5ce7","#2d3436","#a29bfe"], mood:"Artistic · Dark · Solo · Cinematic",           outfitVibe:"Dark academia, layered coats, high-fashion editorial" },
+  "BTS::Love Yourself":    { subtitle:"Tear, Answer — self-love arc",           palette:["#fd79a8","#e84393","#ffffff"], mood:"Love · Pink · Self · Emotional",               outfitVibe:"Soft pink, white suits, romantic florals, pastel sets" },
+  "BTS::Map of the Soul":  { subtitle:"Psychological and cinematic era",        palette:["#2d3436","#6c5ce7","#dfe6e9"], mood:"Deep · Philosophical · Dark · Cinematic",      outfitVibe:"Structured suits, monochrome, artistic editorial looks" },
+  "BTS::BE":               { subtitle:"Pandemic comfort — cozy and raw",        palette:["#fdcb6e","#dfe6e9","#ffffff"], mood:"Comfort · Raw · Pandemic · Cream/White",       outfitVibe:"Oversized sweaters, cream tones, cozy knits, minimal" },
+  "BTS::Butter":           { subtitle:"Smooth summer butter energy",            palette:["#ffeaa7","#fdcb6e","#fff5b1"], mood:"Summer · Pop · Yellow/Cream",                  outfitVibe:"Yellow, cream, butter tones, retro pop, matching sets" },
+  "BTS::GOLDEN":           { subtitle:"Jungkook's golden solo debut",           palette:["#f9ca24","#f0932b","#ffffff"], mood:"Golden · Warm · Solo · JK",                   outfitVibe:"Gold tones, soft luxe, warm neutrals, boyfriend blazer" },
+  "NewJeans::NewJeans":    { subtitle:"The debut that changed everything",      palette:["#74b9ff","#dfe6e9","#a29bfe"], mood:"Casual · Y2K · Denim · Pastel",               outfitVibe:"Low-rise jeans, tank tops, Y2K accessories, pastel mini bags" },
+  "NewJeans::OMG":         { subtitle:"Hypnotic and obsessive love era",        palette:["#a29bfe","#6c5ce7","#dfe6e9"], mood:"Hypnotic · Love · Purple · Y2K",               outfitVibe:"Purple plaid, schoolgirl chic, varsity jackets, platform shoes" },
+  "NewJeans::Get Up":      { subtitle:"Summer brat energy, carefree",           palette:["#74b9ff","#00b894","#dfe6e9"], mood:"Brat · Summer · Carefree · Blue/Green",        outfitVibe:"Bright blues, sporty sets, crop tops, sneakers, casual confidence" },
+  "NewJeans::How Sweet":   { subtitle:"Sweet summer girl crush",                palette:["#fd79a8","#ffeaa7","#74b9ff"], mood:"Sweet · Summer · Girl crush · Pastel",         outfitVibe:"Pastel co-ords, bow details, tennis skirts, white sneakers" },
+  "NewJeans::Bubble Gum":  { subtitle:"Bubbly, playful, sweet energy",         palette:["#fd79a8","#fff5b1","#e84393"], mood:"Playful · Bubbly · Sweet · Pink/Yellow",       outfitVibe:"Bright pink, candy tones, cute accessories, bubble pops" },
+  "NewJeans::Right Now":   { subtitle:"Right now — present and electric",       palette:["#fdcb6e","#74b9ff","#dfe6e9"], mood:"Electric · Present · Bold · Mixed pastels",    outfitVibe:"Mix of pastels, eclectic styling, statement pieces, layering" },
+  "BLACKPINK::Square One": { subtitle:"The iconic K-pop debut",                 palette:["#e84393","#2d3436","#ff6b6b"], mood:"Debut · Fierce · Pink/Black · Power",          outfitVibe:"Girl-crush power looks, black crop tops, statement accessories" },
+  "BLACKPINK::Kill This Love":{ subtitle:"The era of fierce power",             palette:["#e84393","#2d3436","#ff6b6b"], mood:"Fierce · Red · Black · Power",                outfitVibe:"Military-inspired, red accents, all-black silhouettes, boots" },
+  "BLACKPINK::The Album":  { subtitle:"Full album — luxury girl-crush",         palette:["#fd79a8","#2d3436","#e84393"], mood:"Luxury · Pink · Dark · Sophisticated",         outfitVibe:"High fashion, dark luxe, velvet, gold accessories, killer heels" },
+  "BLACKPINK::Born Pink":  { subtitle:"Born to be iconic",                      palette:["#fd79a8","#2d3436","#e84393"], mood:"Iconic · Dark pink · Power · Born",            outfitVibe:"Dark pink, black leather, crop tops, boots, statement pieces" },
+  "BLACKPINK::Deadline":   { subtitle:"Deadline — time is up, we win",          palette:["#ff6b6b","#2d3436","#fdcb6e"], mood:"Fierce · Deadline · Red/Gold · Power",         outfitVibe:"Red power suits, gold accents, fierce editorial, bold color" },
+  "SEVENTEEN::17 Carat":   { subtitle:"The debut — 17 boys, one dream",         palette:["#74b9ff","#2d3436","#dfe6e9"], mood:"Debut · Unity · Blue/Silver · Pure",           outfitVibe:"Clean white, casual-fresh youth, matching colour palette" },
+  "SEVENTEEN::Boys Be":    { subtitle:"Boys coming of age",                     palette:["#fdcb6e","#74b9ff","#dfe6e9"], mood:"Youth · Soft · Blue/Yellow · Bright",          outfitVibe:"Bright casual youth, pastel mix, sneakers, light layering" },
+  "SEVENTEEN::You Make My Day":{ subtitle:"You make everything brighter",       palette:["#ffeaa7","#fdcb6e","#fd79a8"], mood:"Bright · Happy · Summer · Yellow/Pink",        outfitVibe:"Pastel summer sets, bright accessories, light fabrics" },
+  "SEVENTEEN::An Ode":     { subtitle:"An ode to growth and maturity",          palette:["#6c5ce7","#a29bfe","#2d3436"], mood:"Artistic · Deep · Purple/Navy",                outfitVibe:"Dark purple, artistic prints, sophisticated sophisticated layering" },
+  "SEVENTEEN::Attacca":    { subtitle:"Attacca — connected and powerful",       palette:["#2d3436","#dfe6e9","#6c5ce7"], mood:"Powerful · Connected · Dark/Silver · Unity",   outfitVibe:"Monochrome sleek, black and silver, structured minimalism" },
+  "SEVENTEEN::Face the Sun":{ subtitle:"Seventeen faces the blazing sun",       palette:["#f9ca24","#e17055","#fdcb6e"], mood:"Mature · Sun · Power · Gold",                  outfitVibe:"Warm gold tones, structured blazers, luxury streetwear, warmth" },
+  "SEVENTEEN::Spill the Feels":{ subtitle:"Spill every emotion, unfiltered",    palette:["#74b9ff","#fd79a8","#a29bfe"], mood:"Emotional · Unfiltered · Mixed pastel · Soft", outfitVibe:"Soft tones, comfort casual, cozy layering, pastel mixing" },
+};
+
+const ERA_MEMBERS = {
+  "aespa":     ["Karina","Winter","Giselle","Ningning"],
+  "Stray Kids":["Bang Chan","Lee Know","Changbin","Hyunjin","Han","Felix","Seungmin","I.N"],
+  "BTS":       ["RM","Jin","Suga","J-Hope","Jimin","V","Jungkook"],
+  "NewJeans":  ["Minji","Hanni","Danielle","Haerin","Hyein"],
+  "BLACKPINK": ["Jisoo","Jennie","Rosé","Lisa"],
+  "SEVENTEEN": ["S.Coups","Jeonghan","Joshua","Jun","Hoshi","Wonwoo","Woozi","DK","Mingyu","The8","Seungkwan","Vernon","Dino"],
+};
+
+function getEraData(group, era, color) {
+  const key = `${group}::${era}`;
+  const vibe = ERA_VIBES[key] || { subtitle:`${era} comeback era`, palette:[color,"#1a1a2e","#2d3436"], mood:"K-pop · Fandom · Fan culture", outfitVibe:`Concert-ready fan fit inspired by the ${era} era` };
+  const members = ERA_MEMBERS[group] || ["Member 1","Member 2","Member 3","Member 4"];
+  const m = members.slice(0,4);
+
+  // Album versions differ per era — generic fallback set
+  const versions = ["Ver. A","Ver. B","Ver. C","POB","Fansign","Dupe"];
+
+  const templates = [
+    { id:`${key}-checklist`, label:`${era} Album Checklist`,     type:"checklist", memberName:null,  versions:["Ver. A","Ver. B","Ver. C","POB"],         totalCards:24, desc:`All versions and variants in one tracker` },
+    { id:`${key}-wishlist`,  label:`${era} Wishlist Board`,      type:"wishlist",  memberName:null,  versions:["POB","Fansign","Season's Greetings"],      totalCards:12, desc:`Mark your most-wanted ${era} cards` },
+    { id:`${key}-pob`,       label:`${era} POB Tracker`,         type:"pob",       memberName:null,  versions:["Pre-order","Fansign","Store POB","Online"], totalCards:16, desc:`Every pre-order benefit in one place` },
+    ...m.map((n,i)=>({ id:`${key}-${n}`, label:`${n}`, type:"member", memberName:n, versions:versions.slice(0,4), totalCards:18+i*2, desc:`${n}'s ${era} versions — all variants` })),
+    { id:`${key}-dupe`,      label:`${era} Dupe Board`,          type:"dupe",      memberName:null,  versions:["Official Dupe","Community Dupe","Self-made"],totalCards:10, desc:`Verified dupes the community trusts` },
+    { id:`${key}-fansign`,   label:`${era} Fansign Cards`,       type:"fansign",   memberName:null,  versions:["Fansign","Event","Café Bingo","Lucky Draw"], totalCards:8,  desc:`Offline-only cards from events` },
+  ];
+
+  const moodWords = vibe.mood.split("·").map(s=>s.trim()).filter(Boolean);
+  const outfits = [
+    { id:`out-${key}-1`, label:`${era}-coded concert fit`,            tags:moodWords.slice(0,2), vibe:vibe.outfitVibe.split(",")[0]?.trim()||"Era-coded",    fitType:"full look" },
+    { id:`out-${key}-2`, label:`${m[0]} bias-matching fit`,           tags:["biascode","matching"], vibe:`Match ${m[0]}'s ${era} palette`,                   fitType:"bias look" },
+    { id:`out-${key}-3`, label:`${era} gender-neutral aesthetic`,     tags:["neutral","minimal","versatile"], vibe:"Works for any body, any budget",           fitType:"casual" },
+    { id:`out-${key}-4`, label:`Fan-coded ${era} board aesthetic`,    tags:["aesthetic","fandom","iconic"],   vibe:"What the fans are actually wearing",       fitType:"fan look" },
+  ];
+
+  const fanPosts = [
+    { id:`post-${key}-1`, user:"springroadfan",   initial:"S", text:`just finished my ${era} binder 🥹 every single slot filled. took me 3 months`, likes:84,  tag:`#${era.replace(/\s+/g,"")}`,  timeAgo:"2h" },
+    { id:`post-${key}-2`, user:"kpoptrader_nyc",  initial:"K", text:`ISO ${m[0]} ${era} POB — have dupes and extras to trade. DM me! 🫶`,             likes:31,  tag:`#${era.replace(/\s+/g,"")}ISO`, timeAgo:"5h" },
+    { id:`post-${key}-3`, user:"collectingeras",  initial:"C", text:`${era} era was everything. the photocards hit different when you're at the show`, likes:127, tag:`#${era.replace(/\s+/g,"")}`,  timeAgo:"1d" },
+    { id:`post-${key}-4`, user:"photocardheaven", initial:"P", text:`FINALLY got my ${m[1]||m[0]} ${era} fansign card after 6 months of searching !!`, likes:56,  tag:`#${era.replace(/\s+/g,"")}`,  timeAgo:"3d" },
+  ];
+
+  const trades = [
+    { id:`trade-${key}-1`, have:`${m[0]} ${era} dupe`,          want:`${m[1]||m[0]} ${era} POB`, condition:"Near Mint", tradeType:"DM trade",      urgency:"ISO" },
+    { id:`trade-${key}-2`, have:`${era} fansign extra`,          want:`${era} POB any member`,    condition:"Mint",      tradeType:"Online",         urgency:"LF"  },
+    { id:`trade-${key}-3`, have:`${m[2]||m[0]} ${era} bundle`,  want:`${era} Season's Greetings`, condition:"Good",     tradeType:"In-person / DM", urgency:"FT"  },
+  ];
+  return { ...vibe, templates, outfits, fanPosts, trades, group, era, color };
+}
+
+// ─── ERA ROOM COMPONENT ───────────────────────────────────────────────────────
+function EraRoom({ group, era, color, onBack }) {
+  const [tab, setTab] = useState("templates");
+  const [toast, setToast] = useState(null);
+  const [likedPosts, setLikedPosts] = useState({});
+
+  // ── Supabase-ready localStorage shapes ──
+  const eraKey = `${group}::${era}`;
+
+  const [saves, setSaves] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("backstage_era_saves")||"{}"); } catch { return {}; }
+  });
+  const [binders, setBinders] = useState(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem("backstage_era_boards")||"[]");
+      // migrate old string-array format → object-array
+      return raw.map(r => typeof r === "string" ? { key:r, group:r.split("::")[0], era:r.split("::")[1]||r, binderStartedAt:new Date().toISOString() } : r);
+    } catch { return []; }
+  });
+  const [wishlist, setWishlist] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("backstage_card_wishlist")||"[]"); } catch { return []; }
+  });
+
+  const data = getEraData(group, era, color);
+  const palette = data.palette || [color, "#1a1a2e", "#2d3436"];
+  const hasBinder = binders.some(b => b.key === eraKey);
+
+  const showToast = msg => { setToast(msg); setTimeout(()=>setToast(null), 2400); };
+
+  const saveItem = (id, label, type, itemType) => {
+    if (saves[id]) { showToast("Already saved to My World"); return; }
+    const entry = { label, type, itemType:itemType||"template", eraKey, group, era, savedAt:new Date().toISOString() };
+    const u = { ...saves, [id]:entry };
+    setSaves(u);
+    localStorage.setItem("backstage_era_saves", JSON.stringify(u));
+    showToast(`Saved to My World ✦`);
+  };
+
+  const addToBinder = () => {
+    if (hasBinder) { showToast("Binder already started"); return; }
+    const entry = { key:eraKey, group, era, binderStartedAt:new Date().toISOString() };
+    const u = [...binders, entry];
+    setBinders(u);
+    localStorage.setItem("backstage_era_boards", JSON.stringify(u));
+    showToast(`${era} binder started in My World!`);
+  };
+
+  const addToWishlist = (id, label, tmplType) => {
+    if (wishlist.some(w => (typeof w==="string"?w:w.id)===id)) { showToast("Already on wishlist"); return; }
+    const entry = { id, label, eraKey, group, era, itemType:tmplType||"template", addedAt:new Date().toISOString() };
+    const u = [...wishlist, entry];
+    setWishlist(u);
+    localStorage.setItem("backstage_card_wishlist", JSON.stringify(u));
+    showToast(`Added to wishlist`);
+  };
+
+  const toggleLike = id => setLikedPosts(p => ({...p, [id]:!p[id]}));
+
+  // ── Progress stats ──
+  const eraTemplateIds = data.templates.map(t=>t.id);
+  const savedCount  = eraTemplateIds.filter(id=>saves[id]).length;
+  const wishCount   = wishlist.filter(w=>{const id=typeof w==="string"?w:w.id; return eraTemplateIds.includes(id);}).length;
+  const isoCount    = data.trades.filter(t=>t.urgency==="ISO").length;
+
+  const TABS = [
+    { id:"templates", label:"📋 Templates" },
+    { id:"outfits",   label:"✨ Fits"      },
+    { id:"posts",     label:"💬 Posts"     },
+    { id:"trades",    label:"🔁 Trades"    },
+  ];
+
+  const typeColors = { checklist:C.mint, wishlist:C.pink, pob:C.gold, member:color, dupe:C.sky, fansign:C.rose };
+  const urgColors  = { ISO:C.rose, LF:C.gold, FT:C.mint };
+
+  return (
+    <div style={{ position:"absolute",inset:0,zIndex:401,background:"rgba(6,6,15,0.99)",display:"flex",flexDirection:"column",animation:"in .2s ease" }}>
+
+      {/* ── Toast ── */}
+      {toast && (
+        <div style={{ position:"absolute",bottom:130,left:"50%",transform:"translateX(-50%)",background:C.surface,border:`1px solid ${color}66`,borderRadius:14,padding:"10px 18px",fontSize:12.5,color:C.text,zIndex:502,whiteSpace:"nowrap",boxShadow:`0 8px 30px ${color}40`,fontFamily:"'Epilogue',sans-serif",fontWeight:800,pointerEvents:"none",letterSpacing:"-0.01em" }}>
+          ✦ {toast}
+        </div>
+      )}
+
+      {/* ── Hero header ── */}
+      <div style={{ flexShrink:0,position:"relative",overflow:"hidden" }}>
+        {/* Gradient bg */}
+        <div style={{ position:"absolute",inset:0,background:`linear-gradient(160deg,${palette[0]}28 0%,${palette[1]||"#1a1a2e"}44 50%,rgba(6,6,15,0) 100%)`,pointerEvents:"none" }} />
+        <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${color}66,transparent)` }} />
+
+        <div style={{ padding:"14px 20px 0",position:"relative" }}>
+          {/* Back + group label */}
+          <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:12 }}>
+            <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer",flexShrink:0,lineHeight:1 }}>←</button>
+            <span style={{ fontSize:10,color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,letterSpacing:"0.09em",textTransform:"uppercase" }}>{group}</span>
+            <span style={{ fontSize:10,color:C.textDim }}>·</span>
+            <span style={{ fontSize:10,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>Era Room</span>
+            <div style={{ marginLeft:"auto" }}>
+              <button onClick={()=>window.open(`https://www.google.com/search?q=${encodeURIComponent(group+" "+era+" era kpop")}+photocard+fan`,"_blank")} className="tap" style={{ padding:"5px 10px",borderRadius:9,background:C.surfaceHi,border:`1px solid ${C.border}`,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10,cursor:"pointer" }}>
+                Web ↗
+              </button>
+            </div>
+          </div>
+
+          {/* Era title */}
+          <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:26,letterSpacing:"-0.03em",lineHeight:1.05,marginBottom:4 }}>{era}</h2>
+          <p style={{ fontSize:12,color:C.textMid,lineHeight:1.5,marginBottom:10 }}>Templates, pulls, fits, trades, and fan inspo from this era.</p>
+
+          {/* Palette strip + mood */}
+          <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:14 }}>
+            <div style={{ display:"flex",gap:3 }}>
+              {palette.map((p,i)=>(
+                <div key={i} style={{ width:18,height:6,borderRadius:3,background:p,boxShadow:`0 0 8px ${p}66` }} />
+              ))}
+            </div>
+            <p style={{ fontSize:9.5,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:600,letterSpacing:"0.03em" }}>{data.mood}</p>
+          </div>
+
+          {/* Binder CTA */}
+          <button onClick={addToBinder} className="tap" style={{ width:"100%",padding:"11px 16px",borderRadius:14,background:hasBinder?`${color}22`:`${color}18`,border:`2px solid ${hasBinder?color:color+"50"}`,color:hasBinder?color:C.text,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer",marginBottom:12,display:"flex",alignItems:"center",justifyContent:"center",gap:8,transition:"all .15s" }}>
+            {hasBinder
+              ? <><span style={{ fontSize:16 }}>✓</span> Binder started in My World</>
+              : <><span style={{ fontSize:16 }}>＋</span> Start {era} Binder</>
+            }
+          </button>
+
+          {/* Progress stats */}
+          <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:14 }}>
+            {[
+              { label:"Saved",     value:savedCount,   color:color,   icon:"💾" },
+              { label:"Wishlist",  value:wishCount,    color:C.gold,  icon:"⭐" },
+              { label:"Binder",    value:hasBinder?1:0,color:C.mint,  icon:"📁" },
+              { label:"ISO",       value:isoCount,     color:C.rose,  icon:"🔁" },
+            ].map(s=>(
+              <div key={s.label} style={{ background:C.surface,border:`1px solid ${s.color}25`,borderRadius:12,padding:"7px 6px",textAlign:"center" }}>
+                <p style={{ fontSize:16,marginBottom:2 }}>{s.icon}</p>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:15,color:s.value>0?s.color:C.textDim,lineHeight:1 }}>{s.value}</p>
+                <p style={{ fontSize:8.5,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:600,marginTop:2,textTransform:"uppercase",letterSpacing:"0.06em" }}>{s.label}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Tabs */}
+          <div style={{ display:"flex",gap:5,overflowX:"auto",scrollbarWidth:"none",paddingBottom:12 }}>
+            {TABS.map(t=>(
+              <button key={t.id} onClick={()=>setTab(t.id)} className="tap" style={{ flexShrink:0,padding:"7px 13px",borderRadius:99,border:`1.5px solid ${tab===t.id?color:C.border}`,background:tab===t.id?`${color}22`:C.surfaceHi,color:tab===t.id?color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer",transition:"all .15s" }}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Scrollable content ── */}
+      <div style={{ flex:1,overflowY:"auto",padding:"6px 20px calc(120px + env(safe-area-inset-bottom))" }}>
+
+        {/* ──── TEMPLATES ──── */}
+        {tab==="templates" && (
+          <div>
+            {savedCount === 0 && (
+              <div style={{ background:`${color}08`,border:`1px dashed ${color}30`,borderRadius:14,padding:"12px 14px",marginBottom:14,display:"flex",gap:10,alignItems:"flex-start" }}>
+                <span style={{ fontSize:20,flexShrink:0 }}>🎴</span>
+                <div>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,marginBottom:3 }}>Start collecting this era</p>
+                  <p style={{ fontSize:11,color:C.textMid,lineHeight:1.6 }}>Save a template to track your pulls, mark wants, and start building your {era} binder.</p>
+                </div>
+              </div>
+            )}
+            <div style={{ columns:2,gap:10 }}>
+              {data.templates.map((tmpl,i)=>{
+                const tc = typeColors[tmpl.type]||color;
+                const saved = saves[tmpl.id];
+                const wished = wishlist.some(w=>(typeof w==="string"?w:w.id)===tmpl.id);
+                const isMember = tmpl.type === "member";
+                // Mini checklist grid slots
+                const slotCount = Math.min(tmpl.totalCards, 12);
+                const filledSlots = saved ? Math.floor(slotCount * 0.35) : 0;
+                return (
+                  <div key={tmpl.id} style={{ breakInside:"avoid",marginBottom:10,background:C.surface,border:`1.5px solid ${saved?tc:tc+"30"}`,borderRadius:16,overflow:"hidden",transition:"border-color .2s",boxShadow:saved?`0 0 12px ${tc}22`:"none" }}>
+                    {/* Card visual area — photocard checklist board */}
+                    <div style={{ background:`linear-gradient(145deg,${tc}20,${palette[1]||"#1a1a2e"}55,${tc}10)`,padding:"10px 10px 7px",position:"relative" }}>
+                      {/* Holo shimmer overlay */}
+                      <div style={{ position:"absolute",inset:0,background:"linear-gradient(135deg,rgba(255,255,255,0.06) 0%,transparent 40%,rgba(255,255,255,0.04) 70%,transparent 100%)",pointerEvents:"none" }} />
+                      {/* Saved badge */}
+                      {saved && (
+                        <div style={{ position:"absolute",top:7,right:7,background:tc,borderRadius:8,padding:"2px 7px",fontSize:8,fontFamily:"'Epilogue',sans-serif",fontWeight:900,color:"#fff",letterSpacing:"0.06em",display:"flex",alignItems:"center",gap:3 }}>
+                          <span>✓</span> MY WORLD
+                        </div>
+                      )}
+                      {/* Type label */}
+                      <p style={{ fontSize:8.5,color:tc,fontFamily:"'Epilogue',sans-serif",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:isMember?2:6 }}>
+                        {{ checklist:"Album Checklist", wishlist:"Wishlist Board", pob:"POB Tracker", member:"Member Template", dupe:"Dupe Board", fansign:"Fansign Cards" }[tmpl.type]||tmpl.type}
+                      </p>
+                      {isMember && (
+                        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:13,color:C.text,marginBottom:5,lineHeight:1 }}>{tmpl.memberName}</p>
+                      )}
+                      {/* Version chips */}
+                      <div style={{ display:"flex",gap:3,flexWrap:"wrap",marginBottom:6 }}>
+                        {tmpl.versions.slice(0,3).map(v=>(
+                          <span key={v} style={{ padding:"1px 5px",borderRadius:5,background:`${tc}20`,border:`1px solid ${tc}40`,color:tc,fontSize:7.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{v}</span>
+                        ))}
+                        {tmpl.versions.length>3 && <span style={{ fontSize:7.5,color:C.textDim,alignSelf:"center" }}>+{tmpl.versions.length-3}</span>}
+                      </div>
+                      {/* Mini slot grid */}
+                      <div style={{ display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:2 }}>
+                        {Array.from({length:slotCount}).map((_,si)=>(
+                          <div key={si} style={{ height:9,borderRadius:3,background:si<filledSlots?`${tc}88`:`${tc}20`,border:`1px solid ${tc}${si<filledSlots?"66":"28"}`,transition:"background .3s" }} />
+                        ))}
+                      </div>
+                      <p style={{ fontSize:8,color:C.textDim,marginTop:4,fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>{tmpl.totalCards} cards total</p>
+                    </div>
+                    {/* Actions */}
+                    <div style={{ padding:"8px 10px 9px" }}>
+                      <p style={{ fontSize:9.5,color:C.textMid,marginBottom:7,lineHeight:1.4 }}>{tmpl.desc}</p>
+                      <div style={{ display:"flex",gap:5,flexWrap:"wrap" }}>
+                        <button onClick={()=>saveItem(tmpl.id,tmpl.label,"template",tmpl.type)} className="tap" style={{ padding:"4px 9px",borderRadius:8,background:saved?`${tc}22`:`${tc}18`,border:`1px solid ${saved?tc:tc+"44"}`,color:saved?tc:C.textMid,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>
+                          {saved?"✓ Saved":"Save"}
+                        </button>
+                        <button onClick={()=>addToWishlist(tmpl.id,tmpl.label,tmpl.type)} className="tap" style={{ padding:"4px 9px",borderRadius:8,background:`${C.gold}14`,border:`1px solid ${wished?C.gold:C.gold+"33"}`,color:wished?C.gold:C.textMid,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>
+                          {wished?"⭐ Wishlisted":"Wishlist"}
+                        </button>
+                        <button onClick={addToBinder} className="tap" style={{ padding:"4px 9px",borderRadius:8,background:`${C.mint}14`,border:`1px solid ${C.mint}33`,color:C.mint,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>
+                          + Binder
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ──── OUTFIT INSPO ──── */}
+        {tab==="outfits" && (
+          <div>
+            {/* Era vibe summary */}
+            <div style={{ background:`linear-gradient(135deg,${palette[0]}18,${palette[1]||"#1a1a2e"}30)`,border:`1px solid ${color}28`,borderRadius:14,padding:"12px 14px",marginBottom:14 }}>
+              <p style={{ fontSize:9,color,fontFamily:"'Epilogue',sans-serif",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:4 }}>Era Aesthetic</p>
+              <p style={{ fontSize:12,color:C.text,lineHeight:1.7 }}>{data.outfitVibe}</p>
+            </div>
+            <div style={{ columns:2,gap:10 }}>
+              {data.outfits.map((out,i)=>{
+                const saved = saves[out.id];
+                const grad = [
+                  `linear-gradient(145deg,${palette[0]}66,${palette[1]||"#1a1a2e"}99)`,
+                  `linear-gradient(145deg,${palette[1]||color}55,${palette[2]||"#2d3436"}77)`,
+                  `linear-gradient(145deg,${color}44,${palette[0]}66)`,
+                  `linear-gradient(145deg,${palette[2]||"#2d3436"}66,${color}44)`,
+                ][i%4];
+                return (
+                  <div key={out.id} style={{ breakInside:"avoid",marginBottom:10,background:C.surface,border:`1.5px solid ${color}${saved?"55":"22"}`,borderRadius:16,overflow:"hidden",boxShadow:saved?`0 0 12px ${color}20`:"none" }}>
+                    {/* Palette strip at top */}
+                    <div style={{ display:"flex",height:5 }}>
+                      {palette.map((p,pi)=><div key={pi} style={{ flex:1,background:p }} />)}
+                    </div>
+                    {/* Moodboard image area */}
+                    <div style={{ height:i%2===0?96:76,background:grad,position:"relative",display:"flex",alignItems:"center",justifyContent:"center" }}>
+                      <div style={{ position:"absolute",inset:0,background:"linear-gradient(135deg,rgba(255,255,255,0.05) 0%,transparent 60%)" }} />
+                      <div style={{ textAlign:"center",position:"relative" }}>
+                        <span style={{ fontSize:24,display:"block",marginBottom:2 }}>✨</span>
+                        <span style={{ fontSize:7.5,color:"rgba(255,255,255,0.7)",fontFamily:"'Epilogue',sans-serif",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.08em" }}>CONCERT FIT IDEA</span>
+                      </div>
+                      {saved && (
+                        <div style={{ position:"absolute",top:6,right:6,background:color,borderRadius:8,padding:"2px 7px",fontSize:8,fontFamily:"'Epilogue',sans-serif",fontWeight:900,color:"#fff" }}>✓ MY WORLD</div>
+                      )}
+                    </div>
+                    <div style={{ padding:"9px 10px 9px" }}>
+                      <p style={{ fontSize:7.5,color,fontFamily:"'Epilogue',sans-serif",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:3 }}>{out.fitType}</p>
+                      <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:11,color:C.text,marginBottom:4,lineHeight:1.3 }}>{out.label}</p>
+                      <p style={{ fontSize:10,color:C.textMid,lineHeight:1.4,marginBottom:7 }}>{out.vibe}</p>
+                      <div style={{ display:"flex",gap:4,flexWrap:"wrap",marginBottom:7 }}>
+                        {out.tags.map(tag=>(
+                          <span key={tag} style={{ padding:"2px 7px",borderRadius:6,background:`${color}18`,border:`1px solid ${color}30`,color,fontSize:8.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{tag}</span>
+                        ))}
+                      </div>
+                      <button onClick={()=>saveItem(out.id,out.label,"outfit","outfit")} className="tap" style={{ padding:"4px 10px",borderRadius:8,background:saved?`${color}22`:`${color}18`,border:`1px solid ${saved?color:color+"44"}`,color:saved?color:C.textMid,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>
+                        {saved?"✓ Saved to My World":"Save"}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ──── FAN POSTS ──── */}
+        {tab==="posts" && (
+          <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
+            <div style={{ background:`${color}08`,border:`1px solid ${color}22`,borderRadius:12,padding:"10px 12px",marginBottom:4,display:"flex",gap:8,alignItems:"center" }}>
+              <span style={{ fontSize:16 }}>💬</span>
+              <p style={{ fontSize:11,color:C.textMid,lineHeight:1.5 }}>Fan posts filtered to <span style={{ color,fontWeight:700 }}>{era}</span> — live community content coming soon.</p>
+            </div>
+            {data.fanPosts.map(post=>{
+              const saved = !!saves[post.id];
+              const liked = likedPosts[post.id];
+              // Seeded avatar color from username
+              const avatarColors = [C.mint,C.pink,C.gold,C.sky,C.rose,C.accent];
+              const avatarColor = avatarColors[post.user.charCodeAt(0)%avatarColors.length];
+              return (
+                <div key={post.id} style={{ background:C.surface,border:`1.5px solid ${saved?color+"44":color+"18"}`,borderRadius:16,overflow:"hidden",boxShadow:saved?`0 0 10px ${color}18`:"none" }}>
+                  {/* Era tag strip */}
+                  <div style={{ height:3,background:`linear-gradient(90deg,${color}66,${palette[0]}44,transparent)` }} />
+                  <div style={{ padding:"11px 13px 11px" }}>
+                    <div style={{ display:"flex",alignItems:"center",gap:9,marginBottom:8 }}>
+                      {/* Avatar */}
+                      <div style={{ width:32,height:32,borderRadius:"50%",background:`${avatarColor}30`,border:`2px solid ${avatarColor}55`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
+                        <span style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:13,color:avatarColor }}>{post.initial}</span>
+                      </div>
+                      <div style={{ flex:1,minWidth:0 }}>
+                        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,color:C.text }}>@{post.user}</p>
+                        <p style={{ fontSize:9.5,color:C.textDim }}>{post.timeAgo} ago</p>
+                      </div>
+                      {/* Era tag */}
+                      <span style={{ padding:"3px 8px",borderRadius:7,background:`${color}18`,border:`1px solid ${color}33`,color,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,flexShrink:0 }}>{post.tag}</span>
+                    </div>
+                    <p style={{ fontSize:13,color:C.text,lineHeight:1.65,marginBottom:10 }}>{post.text}</p>
+                    <div style={{ display:"flex",alignItems:"center",gap:10 }}>
+                      <button onClick={()=>toggleLike(post.id)} className="tap" style={{ display:"flex",alignItems:"center",gap:4,padding:"4px 9px",borderRadius:9,background:liked?`${C.rose}20`:"transparent",border:`1px solid ${liked?C.rose+"55":C.border}`,color:liked?C.rose:C.textMid,fontSize:11,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>
+                        {liked?"♥":"♡"} {post.likes + (liked?1:0)}
+                      </button>
+                      <button onClick={()=>saveItem(post.id,post.text.slice(0,40),"post","fanpost")} className="tap" style={{ padding:"4px 9px",borderRadius:9,background:saved?`${color}20`:`${color}10`,border:`1px solid ${saved?color+"55":color+"22"}`,color:saved?color:C.textMid,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>
+                        {saved?"✓ Saved":"Save"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            <div style={{ textAlign:"center",padding:"16px 0 4px",fontSize:11,color:C.textDim,lineHeight:1.8 }}>
+              When Backstage fan posts go live, you'll see real pulls, ISOs, and concert recaps here — filtered to {era} only.
+            </div>
+          </div>
+        )}
+
+        {/* ──── TRADES ──── */}
+        {tab==="trades" && (
+          <div>
+            <div style={{ background:`${color}08`,border:`1px solid ${color}22`,borderRadius:12,padding:"10px 12px",marginBottom:14,display:"flex",gap:8,alignItems:"center" }}>
+              <span style={{ fontSize:16 }}>🔁</span>
+              <p style={{ fontSize:11,color:C.textMid,lineHeight:1.5 }}><span style={{ color,fontWeight:700 }}>{era}</span> trade listings — live matching coming soon.</p>
+            </div>
+            <div style={{ display:"flex",flexDirection:"column",gap:10,marginBottom:18 }}>
+              {data.trades.map(t=>{
+                const uc = urgColors[t.urgency]||color;
+                return (
+                  <div key={t.id} style={{ background:C.surface,border:`1.5px solid ${uc}28`,borderRadius:16,overflow:"hidden" }}>
+                    {/* Top accent line */}
+                    <div style={{ height:3,background:`linear-gradient(90deg,${uc}88,${uc}22,transparent)` }} />
+                    <div style={{ padding:"11px 13px 12px" }}>
+                      {/* Header row */}
+                      <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:10 }}>
+                        <span style={{ padding:"3px 10px",borderRadius:8,background:`${uc}22`,border:`1.5px solid ${uc}55`,color:uc,fontSize:10.5,fontFamily:"'Epilogue',sans-serif",fontWeight:900,letterSpacing:"0.04em" }}>{t.urgency}</span>
+                        <div style={{ display:"flex",gap:5,flex:1,flexWrap:"wrap" }}>
+                          <span style={{ padding:"2px 7px",borderRadius:6,background:C.surfaceHi,border:`1px solid ${C.border}`,color:C.textDim,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{t.condition}</span>
+                          <span style={{ padding:"2px 7px",borderRadius:6,background:C.surfaceHi,border:`1px solid ${C.border}`,color:C.textDim,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{t.tradeType}</span>
+                        </div>
+                      </div>
+                      {/* Have / Want */}
+                      <div style={{ display:"grid",gridTemplateColumns:"1fr 28px 1fr",gap:6,alignItems:"stretch",marginBottom:11 }}>
+                        <div style={{ background:`${C.mint}12`,border:`1px solid ${C.mint}30`,borderRadius:11,padding:"9px 10px" }}>
+                          <p style={{ fontSize:8.5,color:C.mint,fontFamily:"'Epilogue',sans-serif",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:4 }}>🃏 Have</p>
+                          <p style={{ fontSize:12,color:C.text,lineHeight:1.4,fontWeight:600 }}>{t.have}</p>
+                        </div>
+                        <div style={{ display:"flex",alignItems:"center",justifyContent:"center",color:C.textDim,fontSize:16 }}>⇄</div>
+                        <div style={{ background:`${C.rose}12`,border:`1px solid ${C.rose}30`,borderRadius:11,padding:"9px 10px" }}>
+                          <p style={{ fontSize:8.5,color:C.rose,fontFamily:"'Epilogue',sans-serif",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:4 }}>🎯 Want</p>
+                          <p style={{ fontSize:12,color:C.text,lineHeight:1.4,fontWeight:600 }}>{t.want}</p>
+                        </div>
+                      </div>
+                      <button className="tap" style={{ width:"100%",padding:"9px",borderRadius:11,background:`${uc}18`,border:`1.5px solid ${uc}44`,color:uc,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,cursor:"pointer" }}>
+                        Create Trade Listing
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {/* Coming soon notice */}
+            <div style={{ background:`${C.gold}08`,border:`1px solid ${C.gold}22`,borderRadius:14,padding:"13px 15px" }}>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,marginBottom:4 }}>Live trade matching is coming</p>
+              <p style={{ fontSize:11,color:C.textMid,lineHeight:1.7 }}>When it's live, you'll see real ISO / FT / LF posts from fans hunting the same {era} cards as you. Matches based on your collection and wishlist.</p>
+            </div>
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
+}
+
 function ExploreTab({ user, weather, isVip, onUpgrade, go, onBack }) {
   const [view, setView] = useState("grid");
   const [eraModal, setEraModal] = useState(null);
+  const [eraRoom, setEraRoom] = useState(null);
 
   const TOOL_CARDS = [
     { id:"buildday", icon:"🗓️", label:"Build My Day",     sub:"AI-planned fan day with food, cafes & meetups",         color:C.pink,   wide:true, soon:false },
@@ -10932,7 +11419,7 @@ function ExploreTab({ user, weather, isVip, onUpgrade, go, onBack }) {
                 <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:g.color,marginBottom:10,letterSpacing:"-0.01em" }}>{g.group}</p>
                 <div style={{ display:"flex",flexWrap:"wrap",gap:7 }}>
                   {g.eras.map(era=>(
-                    <button key={era} onClick={()=>window.open(`https://www.google.com/search?q=${encodeURIComponent(g.group+" "+era+" era kpop")}+outfit+photocard+fan`,"_blank")} className="tap" style={{
+                    <button key={era} onClick={()=>setEraRoom({group:g.group,era,color:g.color})} className="tap" style={{
                       padding:"7px 13px",borderRadius:99,
                       background:`${g.color}14`,
                       border:`1.5px solid ${g.color}38`,
@@ -10946,6 +11433,7 @@ function ExploreTab({ user, weather, isVip, onUpgrade, go, onBack }) {
               </div>
             ))}
           </div>
+        {eraRoom && <EraRoom group={eraRoom.group} era={eraRoom.era} color={eraRoom.color} onBack={()=>setEraRoom(null)} />}
         </div>
       )}
 
@@ -20680,8 +21168,10 @@ function ScrapbookTab({ isVip, onUpgrade }) {
   const [selected, setSelected] = useState(null);
   const [adding, setAdding] = useState(false);
   const [chooseTemplate, setChooseTemplate] = useState(false);
-  const [collab, setCollab]     = useState(null); // scrapbook ID for collab modal
+  const [collab, setCollab]       = useState(null); // scrapbook ID for collab modal
   const [collabCode, setCollabCode] = useState("");
+  const [showJoin, setShowJoin]   = useState(false);
+  const [joinDraft, setJoinDraft] = useState("");
   const [form, setForm] = useState({ name:"", concert:"", emoji:"📸", color:C.accent, template:null, collaborators:[] });
 
   const saveBook = () => {
@@ -20721,10 +21211,29 @@ function ScrapbookTab({ isVip, onUpgrade }) {
       </div>
       <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
         {/* Collab join banner */}
-        <div style={{ background:`${C.mint}08`,border:`1px solid ${C.mint}22`,borderRadius:14,padding:"9px 13px",marginBottom:13,display:"flex",gap:10,alignItems:"center" }}>
-          <span style={{ fontSize:15 }}>🤝</span>
-          <p style={{ flex:1,fontSize:11,color:C.textMid }}>Got a collab code from a concert buddy?</p>
-          <button onClick={()=>{ const code=prompt("Enter collab code:"); if(code) joinCollab(code); }} style={{ background:`${C.mint}18`,border:`1px solid ${C.mint}33`,borderRadius:9,padding:"5px 10px",color:C.mint,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>Join →</button>
+        <div style={{ background:`${C.mint}08`,border:`1px solid ${C.mint}22`,borderRadius:14,padding:"9px 13px",marginBottom:13 }}>
+          <div style={{ display:"flex",gap:10,alignItems:"center" }}>
+            <span style={{ fontSize:15 }}>🤝</span>
+            <p style={{ flex:1,fontSize:11,color:C.textMid }}>Got a collab code from a concert buddy?</p>
+            <button onClick={()=>setShowJoin(j=>!j)} style={{ background:`${C.mint}18`,border:`1px solid ${C.mint}33`,borderRadius:9,padding:"5px 10px",color:C.mint,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>{showJoin?"Cancel":"Join →"}</button>
+          </div>
+          {showJoin&&(
+            <div style={{ display:"flex",gap:7,alignItems:"center",marginTop:9 }}>
+              <input
+                value={joinDraft}
+                onChange={e=>setJoinDraft(e.target.value.toUpperCase())}
+                placeholder="Enter code e.g. A3KF92"
+                maxLength={8}
+                style={{ flex:1,padding:"7px 10px",borderRadius:9,background:"rgba(6,6,15,0.6)",border:`1.5px solid ${C.mint}44`,color:C.text,fontSize:12,fontFamily:"'Epilogue',sans-serif",outline:"none",letterSpacing:"0.1em" }}
+                autoFocus
+              />
+              <button
+                onClick={()=>{ if(joinDraft.trim()){ joinCollab(joinDraft.trim()); setJoinDraft(""); setShowJoin(false); }}}
+                disabled={!joinDraft.trim()}
+                style={{ padding:"7px 13px",borderRadius:9,background:joinDraft.trim()?C.mint:`${C.mint}33`,border:"none",color:joinDraft.trim()?C.bg:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:joinDraft.trim()?"pointer":"default" }}
+              >Join</button>
+            </div>
+          )}
         </div>
 
         {books.map(book=>{
@@ -20771,23 +21280,53 @@ function ScrapbookTab({ isVip, onUpgrade }) {
       </Screen>
 
       {adding&&(
-        <div onClick={()=>setAdding(false)} style={{ position:"fixed",inset:0,zIndex:400,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
-          <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:22,width:"100%",animation:"slideUp .25s ease" }}>
+        <div onClick={()=>{ setAdding(false); setChooseTemplate(false); setForm({ name:"", concert:"", emoji:"📸", color:C.accent, template:null, collaborators:[] }); }} style={{ position:"fixed",inset:0,zIndex:400,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:22,width:"100%",animation:"slideUp .25s ease",maxHeight:"88vh",overflowY:"auto" }}>
             <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 18px" }} />
-            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:17, marginBottom:16 }}>Create Scrapbook</p>
+            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:17, marginBottom:chooseTemplate?12:16 }}>
+              {chooseTemplate ? "🎭 Pick a Template" : "Create Scrapbook"}
+            </p>
+
+            {/* Template picker — only when in template mode */}
+            {chooseTemplate && (
+              <div style={{ marginBottom:14 }}>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:4 }}>
+                  {SCRAPBOOK_TEMPLATES.map(tpl=>(
+                    <div
+                      key={tpl.id}
+                      onClick={()=>setForm({...form, template:tpl.id, color:tpl.color, emoji:tpl.emoji})}
+                      className="tap"
+                      style={{ borderRadius:14, padding:"12px 10px", background:form.template===tpl.id?`${tpl.color}28`:tpl.bg||`${tpl.color}10`, border:`1.5px solid ${form.template===tpl.id?tpl.color:tpl.color+"33"}`, cursor:"pointer", textAlign:"center", transition:"all .18s" }}
+                    >
+                      <div style={{ fontSize:22, marginBottom:4 }}>{tpl.emoji}</div>
+                      <p style={{ fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:form.template===tpl.id?tpl.color:C.textMid, lineHeight:1.3 }}>{tpl.label}</p>
+                      {form.template===tpl.id&&<div style={{ width:6,height:6,borderRadius:"50%",background:tpl.color,margin:"5px auto 0" }} />}
+                    </div>
+                  ))}
+                </div>
+                {form.template&&<p style={{ fontSize:9.5,color:C.textMid,textAlign:"center",marginTop:2 }}>Template selected · fill in the details below</p>}
+              </div>
+            )}
+
+            {/* Name / concert fields — always shown */}
             <div style={{ marginBottom:12 }}><Input label="Name *" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder="e.g. BTS Dallas 2026" /></div>
             <div style={{ marginBottom:12 }}><Input label="Linked Concert" value={form.concert} onChange={e=>setForm({...form,concert:e.target.value})} placeholder="Concert name..." /></div>
-            <div style={{ marginBottom:18 }}>
-              <p style={{ fontSize:9.5,color:C.textMid,marginBottom:7,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em" }}>Color</p>
-              <div style={{ display:"flex", gap:10 }}>
-                {[C.pink,C.accent,C.mint,C.silver,C.gold].map(col=>(
-                  <div key={col} onClick={()=>setForm({...form,color:col})} style={{ width:36,height:36,borderRadius:"50%",background:col,border:`3px solid ${form.color===col?C.white:"transparent"}`,cursor:"pointer",transition:"border-color .2s" }} />
-                ))}
+
+            {/* Color picker — only when not using a template */}
+            {!form.template && (
+              <div style={{ marginBottom:18 }}>
+                <p style={{ fontSize:9.5,color:C.textMid,marginBottom:7,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em" }}>Color</p>
+                <div style={{ display:"flex", gap:10 }}>
+                  {[C.pink,C.accent,C.mint,C.silver,C.gold].map(col=>(
+                    <div key={col} onClick={()=>setForm({...form,color:col})} style={{ width:36,height:36,borderRadius:"50%",background:col,border:`3px solid ${form.color===col?C.white:"transparent"}`,cursor:"pointer",transition:"border-color .2s" }} />
+                  ))}
+                </div>
               </div>
-            </div>
-            <div style={{ display:"flex", gap:10 }}>
-              <Btn onClick={saveBook} disabled={!form.name.trim()} style={{ flex:1 }} small>Create</Btn>
-              <Btn ghost color={C.textMid} onClick={()=>setAdding(false)} style={{ width:82,flex:"none" }} small>Cancel</Btn>
+            )}
+
+            <div style={{ display:"flex", gap:10, marginTop:chooseTemplate&&!form.template?4:0 }}>
+              <Btn onClick={saveBook} disabled={!form.name.trim()||(chooseTemplate&&!form.template)} style={{ flex:1 }} small>Create</Btn>
+              <Btn ghost color={C.textMid} onClick={()=>{ setAdding(false); setChooseTemplate(false); setForm({ name:"", concert:"", emoji:"📸", color:C.accent, template:null, collaborators:[] }); }} style={{ width:82,flex:"none" }} small>Cancel</Btn>
             </div>
           </div>
         </div>
@@ -22364,8 +22903,8 @@ function AppInner() {
               })()}
               {/* Ask Backstage AI — hidden on profile (has its own Studio/Preview actions) */}
               {tab!=="profile"&&<AskBackstageButton go={go} />}
-              {/* Notification Bell — floating, hidden on home (has its own bell) and profile (has section nav) */}
-              {tab!=="home"&&tab!=="profile"&&<NotificationBell onOpen={()=>setModal("notifications")} />}
+              {/* Notification Bell — floating, hidden on home (own bell), profile (section nav), collect (own + Add button) */}
+              {tab!=="home"&&tab!=="profile"&&tab!=="collect"&&<NotificationBell onOpen={()=>setModal("notifications")} />}
             </>
           )}
         </div>
