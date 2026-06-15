@@ -6533,7 +6533,13 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
   };
 
   const { binders } = useBinders();
-  const [eraBoards] = useState(() => { try { const all = JSON.parse(localStorage.getItem("backstage_era_boards_v2")||"{}"); return Object.values(all); } catch { return []; } });
+  const readEraBoards = () => { try { return Object.values(JSON.parse(localStorage.getItem("backstage_era_boards_v2")||"{}")); } catch { return []; } };
+  const [eraBoards, setEraBoards] = useState(readEraBoards);
+  useEffect(() => {
+    const handler = () => setEraBoards(readEraBoards());
+    window.addEventListener("backstage:eraBoardsUpdated", handler);
+    return () => window.removeEventListener("backstage:eraBoardsUpdated", handler);
+  }, []);
   const [eraRoomDeep, setEraRoomDeep] = useState(null);
   const [isoCards, setIsoCards] = useState([]);
   useEffect(()=>{ api.get('/api/cards?status=iso').then(d=>{ if(d?.cards) setIsoCards(d.cards); }).catch(()=>{}); },[]);
@@ -6872,9 +6878,11 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                         </div>
                         {/* Footer row */}
                         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                          {board.updatedAt
-                            ? <p style={{ fontSize:9, color:C.textDim }}>Updated {new Date(board.updatedAt).toLocaleDateString()}</p>
-                            : <span />}
+                          {board.updatedAt ? (() => {
+                            const secsAgo = (Date.now() - new Date(board.updatedAt).getTime()) / 1000;
+                            const label = secsAgo < 60 ? "Updated just now ✦" : secsAgo < 3600 ? `Updated ${Math.floor(secsAgo/60)}m ago` : new Date(board.updatedAt).toLocaleDateString();
+                            return <p style={{ fontSize:9, color:secsAgo<60?boardColor:C.textDim, fontFamily:"'Epilogue',sans-serif", fontWeight:secsAgo<60?700:400 }}>{label}</p>;
+                          })() : <span />}
                           <button onClick={()=>setEraRoomDeep({group:board.group,era:board.era,color:boardColor})} className="tap" style={{ background:`linear-gradient(140deg,${boardColor}cc,${boardColor}88)`,border:"none",borderRadius:10,padding:"8px 14px",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:10.5,cursor:"pointer",letterSpacing:"-0.01em" }}>
                             Open Era Room →
                           </button>
@@ -11112,6 +11120,7 @@ function EraRoom({ group, era, color, onBack }) {
       const updated = { ...existing, ...patch, updatedAt:new Date().toISOString() };
       all[eraKey] = updated;
       localStorage.setItem("backstage_era_boards_v2", JSON.stringify(all));
+      window.dispatchEvent(new CustomEvent("backstage:eraBoardsUpdated"));
     } catch {}
   };
 
