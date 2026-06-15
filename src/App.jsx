@@ -15532,6 +15532,7 @@ function PublicProfilePreview({ fan, onBack, onBackToMessage, onViewFullProfile,
 // PublicProfileFull: fetches real profile data then renders the SAME ProfilePreview UI
 // with overrideFan so the experience is identical to viewing your own profile preview.
 function PublicProfileFull({ fan, onBack, onBackToMessage, onMessage }) {
+  const isSelf = fan?.isSelf || false;
   const [apiData, setApiData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [circleStatus, setCircleStatus] = useState(()=>{
@@ -15587,8 +15588,8 @@ function PublicProfileFull({ fan, onBack, onBackToMessage, onMessage }) {
         onBackToMessage={fan.fromDM ? onBackToMessage : undefined}
         overrideFan={overrideFan}
       />
-      {/* Sticky social actions — shown for non-DM taps */}
-      {!fan.fromDM && (
+      {/* Sticky social actions — shown for non-DM, non-self taps */}
+      {!fan.fromDM && !isSelf && (
         <div style={{ position:"absolute",bottom:0,left:0,right:0,padding:"12px 20px",paddingBottom:"max(16px, calc(env(safe-area-inset-bottom) + 12px))",background:"rgba(6,6,15,0.92)",backdropFilter:"blur(20px)",borderTop:"1px solid rgba(255,255,255,0.08)",display:"flex",gap:8,zIndex:10 }}>
           <button
             onClick={()=>{ if(!circleStatus) addToCircle(); }}
@@ -15603,6 +15604,12 @@ function PublicProfileFull({ fan, onBack, onBackToMessage, onMessage }) {
           >
             💬 Message
           </button>
+        </div>
+      )}
+      {/* Public preview indicator — shown only when owner previews their own Stage */}
+      {isSelf && (
+        <div style={{ position:"absolute",bottom:0,left:0,right:0,padding:"10px 20px",paddingBottom:"max(12px, calc(env(safe-area-inset-bottom) + 10px))",background:"rgba(6,6,15,0.88)",backdropFilter:"blur(20px)",borderTop:`1px solid ${C.accent}22`,textAlign:"center",zIndex:10 }}>
+          <p style={{ fontSize:10.5,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,letterSpacing:"0.04em" }}>👁 Public Preview — how fans see your Stage</p>
         </div>
       )}
     </div>
@@ -18029,6 +18036,9 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
   // ── SECTION: PROFILE PREVIEW ──
   if(section==="preview") return <ProfilePreview user={user} profileStyle={profileStyle} cards={cards} top5={ls.get("backstage_top5",[])} biases={ls.get("backstage_top_biases",[])} go={go} onBack={()=>setSection("main")} isVip={isVip} onUpgrade={onUpgrade} />;
 
+  // ── SECTION: SELF PUBLIC VIEW — same experience fans see ──
+  if(section==="selfview") return <PublicProfileFull fan={{id:user?.id, name:user?.username||user?.name, isSelf:true}} onBack={()=>setSection("main")} />;
+
   // ── SECTION: PRIVACY ──
   if(section==="privacy") return <PrivacySettings settings={privacySettings} setSettings={setPrivacySettings} onBack={()=>setSection("main")} />;
 
@@ -18091,34 +18101,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
           <div style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
             <div style={{ fontSize:28 }}>{profileStyle.bannerEmoji}</div>
             <div style={{ flex:1 }}>
-              {editingStatus ? (
-                <div style={{ animation:"up .15s ease" }}>
-                  <div style={{ position:"relative", marginBottom:8 }}>
-                    <input
-                      value={statusDraft}
-                      onChange={e=>{ if(e.target.value.length<=60) setStatusDraft(e.target.value); }}
-                      placeholder="What's your vibe right now?"
-                      style={{ width:"100%", background:"rgba(6,6,15,0.5)", border:`1px solid ${C.borderHi}`, borderRadius:9, padding:"7px 10px", color:C.text, fontSize:12.5, outline:"none" }}
-                      autoFocus
-                    />
-                    <p style={{ position:"absolute", bottom:-18, right:0, fontSize:9, color:C.textDim }}>{statusDraft.length}/60</p>
-                  </div>
-                  {/* Preset quick-select */}
-                  <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginBottom:10, marginTop:20 }}>
-                    {["in my concert era 🎤","recovering from post concert depression 😭","ult era loading","collecting chaos beautifully ✨","currently obsessed 💜","concert broke but happy 🙃","bias wrecked again 🤡"].map(preset=>(
-                      <span key={preset} onClick={()=>setStatusDraft(preset)} style={{ background:"rgba(6,6,15,0.5)", border:`1px solid ${C.borderHi}`, borderRadius:8, padding:"5px 9px", fontSize:10, color:C.silver, cursor:"pointer", whiteSpace:"nowrap" }}>{preset}</span>
-                    ))}
-                  </div>
-                  <div style={{ display:"flex", gap:6 }}>
-                    <button onClick={()=>{ setProfileStyle({...profileStyle, bannerText:statusDraft}); setEditingStatus(false); }} style={{ background:C.accent, border:"none", borderRadius:8, padding:"7px 14px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>Save</button>
-                    <button onClick={()=>{ setStatusDraft(profileStyle.bannerText); setEditingStatus(false); }} style={{ background:"rgba(6,6,15,0.5)", border:"none", borderRadius:8, padding:"7px 10px", color:C.textMid, fontSize:11, cursor:"pointer" }}>Cancel</button>
-                  </div>
-                </div>
-              ) : (
-                <div>
-                  <p className="bs-title" style={{ fontSize:15, color:"rgba(255,255,255,0.92)", lineHeight:1.45, minHeight:20, textShadow:"0 2px 12px rgba(0,0,0,0.4)" }}>"{profileStyle.bannerText || "tap to set your status..."}"</p>
-                </div>
-              )}
+              <p className="bs-title" style={{ fontSize:15, color:"rgba(255,255,255,0.92)", lineHeight:1.45, minHeight:20, textShadow:"0 2px 12px rgba(0,0,0,0.4)" }}>"{profileStyle.bannerText || "tap ✏️ to set your vibe..."}"</p>
             </div>
           </div>
         </div>
@@ -18126,9 +18109,34 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
         {/* Banner action row */}
         <div style={{ display:"flex", gap:8, alignItems:"center", marginTop:10, marginBottom:4 }}>
           <button onClick={()=>setSection("studio")} style={{ flex:1, background:`linear-gradient(140deg,${C.accent}cc,${C.accentDim})`, border:"none", borderRadius:10, padding:"9px 14px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>Stage Studio ✦</button>
-          <button onClick={()=>setSection("preview")} style={{ background:C.surfaceHi, border:`1.5px solid ${C.border}`, borderRadius:10, padding:"9px 14px", color:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>👁 View My Stage</button>
+          <button onClick={()=>setSection("selfview")} style={{ background:C.surfaceHi, border:`1.5px solid ${C.border}`, borderRadius:10, padding:"9px 14px", color:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>👁 View My Stage</button>
           {!editingStatus&&<button onClick={()=>{ setStatusDraft(profileStyle.bannerText||""); setEditingStatus(true); }} style={{ background:C.surfaceHi, border:`1.5px solid ${C.border}`, borderRadius:10, padding:"9px 12px", color:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>✏️</button>}
         </div>
+
+        {/* Status editing panel — outside the banner, below the action row */}
+        {editingStatus && (
+          <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, padding:"14px 14px 12px", marginBottom:4, animation:"up .15s ease" }}>
+            <div style={{ position:"relative", marginBottom:18 }}>
+              <input
+                value={statusDraft}
+                onChange={e=>{ if(e.target.value.length<=60) setStatusDraft(e.target.value); }}
+                placeholder="What's your vibe right now?"
+                style={{ width:"100%", background:"rgba(6,6,15,0.5)", border:`1px solid ${C.borderHi}`, borderRadius:9, padding:"7px 10px", color:C.text, fontSize:12.5, outline:"none", boxSizing:"border-box" }}
+                autoFocus
+              />
+              <p style={{ position:"absolute", bottom:-16, right:0, fontSize:9, color:C.textDim }}>{statusDraft.length}/60</p>
+            </div>
+            <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginBottom:10 }}>
+              {["in my concert era 🎤","recovering from post concert depression 😭","ult era loading","collecting chaos beautifully ✨","currently obsessed 💜","concert broke but happy 🙃","bias wrecked again 🤡"].map(preset=>(
+                <span key={preset} onClick={()=>setStatusDraft(preset)} style={{ background:"rgba(6,6,15,0.5)", border:`1px solid ${C.borderHi}`, borderRadius:8, padding:"5px 9px", fontSize:10, color:C.silver, cursor:"pointer", whiteSpace:"nowrap" }}>{preset}</span>
+              ))}
+            </div>
+            <div style={{ display:"flex", gap:6 }}>
+              <button onClick={()=>{ setProfileStyle({...profileStyle, bannerText:statusDraft}); setEditingStatus(false); }} style={{ background:C.accent, border:"none", borderRadius:8, padding:"7px 14px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>Save</button>
+              <button onClick={()=>{ setStatusDraft(profileStyle.bannerText||""); setEditingStatus(false); }} style={{ background:"rgba(6,6,15,0.5)", border:"none", borderRadius:8, padding:"7px 10px", color:C.textMid, fontSize:11, cursor:"pointer" }}>Cancel</button>
+            </div>
+          </div>
+        )}
 
         {/* HEADER */}
         <div style={{ display:"flex", gap:14, alignItems:"center", marginBottom:20 }}>
