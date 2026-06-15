@@ -3223,7 +3223,7 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go, onViewProfile
                   ))}
                   <div style={{ display:"flex",gap:12,overflowX:"auto",paddingBottom:4,scrollbarWidth:"none" }}>
                     {circleMembers.slice(0,8).map((m,i)=>(
-                      <div key={m.id||i} style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:5 }}>
+                      <div key={m.id||i} onClick={()=>onViewProfile&&onViewProfile(m)} className="tap" style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:5,cursor:"pointer" }}>
                         <div style={{ position:"relative" }}>
                           <div style={{ width:52,height:52,borderRadius:"50%",background:`linear-gradient(135deg,${m.color},${m.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19,color:C.bg,border:`2.5px solid ${m.color}`,boxShadow:`0 0 16px ${m.color}44` }}>{m.avatar}</div>
                           <div style={{ position:"absolute",top:2,right:2,width:12,height:12,borderRadius:"50%",background:C.mint,border:`2px solid ${C.surfaceMid}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:6.5 }}>✦</div>
@@ -15531,9 +15531,20 @@ function PublicProfilePreview({ fan, onBack, onBackToMessage, onViewFullProfile,
 // Used as the second step from the DM compact card "View Full Profile" action.
 // PublicProfileFull: fetches real profile data then renders the SAME ProfilePreview UI
 // with overrideFan so the experience is identical to viewing your own profile preview.
-function PublicProfileFull({ fan, onBack, onBackToMessage }) {
+function PublicProfileFull({ fan, onBack, onBackToMessage, onMessage }) {
   const [apiData, setApiData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [circleStatus, setCircleStatus] = useState(()=>{
+    const s = ls.get("backstage_circle_statuses",{});
+    return s[fan?.id] || null;
+  });
+
+  const addToCircle = () => {
+    const next = {...ls.get("backstage_circle_statuses",{}), [fan.id]:"sent"};
+    ls.set("backstage_circle_statuses", next);
+    setCircleStatus("sent");
+    api.post('/api/friends/request', { targetUserId: fan.id }).catch(()=>{});
+  };
 
   useEffect(() => {
     if (!fan?.id) { setLoading(false); return; }
@@ -15564,7 +15575,7 @@ function PublicProfileFull({ fan, onBack, onBackToMessage }) {
   };
 
   return (
-    <div style={{ flex:1,display:"flex",flexDirection:"column",overflow:"hidden" }}>
+    <div style={{ flex:1,display:"flex",flexDirection:"column",overflow:"hidden",position:"relative" }}>
       <ProfilePreview
         user={{}}
         profileStyle={{}}
@@ -15576,6 +15587,24 @@ function PublicProfileFull({ fan, onBack, onBackToMessage }) {
         onBackToMessage={fan.fromDM ? onBackToMessage : undefined}
         overrideFan={overrideFan}
       />
+      {/* Sticky social actions — shown for non-DM taps */}
+      {!fan.fromDM && (
+        <div style={{ position:"absolute",bottom:0,left:0,right:0,padding:"12px 20px",paddingBottom:"max(16px, calc(env(safe-area-inset-bottom) + 12px))",background:"rgba(6,6,15,0.92)",backdropFilter:"blur(20px)",borderTop:"1px solid rgba(255,255,255,0.08)",display:"flex",gap:8,zIndex:10 }}>
+          <button
+            onClick={()=>{ if(!circleStatus) addToCircle(); }}
+            disabled={!!circleStatus}
+            style={{ flex:1,padding:"12px",borderRadius:14,background:circleStatus?`${C.mint}18`:`linear-gradient(140deg,${C.accent},${C.pink})`,border:circleStatus?`1.5px solid ${C.mint}`:"none",color:circleStatus?C.mint:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,cursor:circleStatus?"default":"pointer" }}
+          >
+            {circleStatus==="sent"?"✓ Requested":circleStatus==="accepted"?"In Circle ✦":"Add to Circle"}
+          </button>
+          <button
+            onClick={()=>onMessage?.(fan)}
+            style={{ flex:1,padding:"12px",borderRadius:14,background:`${C.accent}18`,border:`1.5px solid ${C.accent}33`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}
+          >
+            💬 Message
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -22282,7 +22311,7 @@ function AppInner() {
             else if (dest.tab) { setTimeout(()=>setTab(dest.tab), 60); }
           }}
         /></ModalWrapper>}
-        {modal==="invite"&&<ModalWrapper><InvitePage onBack={()=>setModal(null)} user={user} onNotif={showNotif} isVip={isVip} onUpgrade={openUpgrade} go={go} onViewProfile={setPublicProfileFan} /></ModalWrapper>}
+        {modal==="invite"&&<ModalWrapper><InvitePage onBack={()=>setModal(null)} user={user} onNotif={showNotif} isVip={isVip} onUpgrade={openUpgrade} go={go} onViewProfile={setFullProfileFan} /></ModalWrapper>}
         {modal==="contentgen"&&<ModalWrapper><ContentGenerator onBack={()=>setModal(null)} user={user} go={go} onNotif={showNotif} /></ModalWrapper>}
         {modal==="capsule"&&<ModalWrapper><ConcertCapsule concert={MOCK_CONCERTS[0]} onBack={()=>setModal(null)} user={user} isVip={isVip} onUpgrade={openUpgrade} /></ModalWrapper>}
         {modal==="passes"&&<ModalWrapper><BackstagePasses onBack={()=>setModal(null)} user={user} /></ModalWrapper>}
@@ -22318,7 +22347,7 @@ function AppInner() {
                   <>
               {tab==="home"&&<HomeFeed user={user} go={go} weather={weatherData} isVip={effectiveIsVip} onUpgrade={openUpgrade} onSmartNotifs={()=>setShowSmartNotifs(true)} />}
               {tab==="concerts"&&<ConcertsPage go={go} isVip={effectiveIsVip} onUpgrade={openUpgrade} user={user} />}
-              {tab==="community"&&<FanverseTab go={go} user={user} isVip={effectiveIsVip} onUpgrade={openUpgrade} onViewProfile={setPublicProfileFan} />}
+              {tab==="community"&&<FanverseTab go={go} user={user} isVip={effectiveIsVip} onUpgrade={openUpgrade} onViewProfile={setFullProfileFan} />}
               {tab==="collect"&&<LibraryTab cards={cards} setCards={setCards} isVip={effectiveIsVip} onUpgrade={openUpgrade} go={go} user={user} weather={weatherData} />}
               {tab==="fanverse"&&<ExploreTab user={user} weather={weatherData} isVip={effectiveIsVip} onUpgrade={openUpgrade} go={go} />}
               {tab==="profile"&&<ProfileTab user={user} cards={cards} go={go} isVip={effectiveIsVip} onUpgrade={openUpgrade} onReplayTour={()=>setShowVipTour(true)} onAccountRefresh={handleAccountRefresh} />}
@@ -22376,13 +22405,14 @@ function AppInner() {
           />
         </div>
       )}
-      {/* ── FULL RICH PROFILE — step 2, z:650; ← back to compact card, Back to Message closes all */}
+      {/* ── FULL RICH PROFILE — z:650; direct from any fan tap or step 2 from DM compact card */}
       {fullProfileFan&&(
         <div style={{ position:"absolute",inset:0,zIndex:650,display:"flex",flexDirection:"column",background:C.bg,overflow:"hidden" }}>
           <PublicProfileFull
             fan={fullProfileFan}
             onBack={()=>setFullProfileFan(null)}
             onBackToMessage={()=>{ setFullProfileFan(null); setPublicProfileFan(null); }}
+            onMessage={(f)=>{ ls.set("backstage_dm_target",f); setFullProfileFan(null); setPublicProfileFan(null); setModal("chats"); }}
           />
         </div>
       )}
