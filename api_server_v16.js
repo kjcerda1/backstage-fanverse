@@ -3074,7 +3074,7 @@ app.get('/api/messages/threads', requireAuth, async (req, res) => {
 
     const [{ data: allMembers }, { data: messages }] = await Promise.all([
       supabase.from('message_thread_members').select('thread_id, user_id').in('thread_id', threadIds),
-      supabase.from('messages').select('id, thread_id, sender_user_id, body, created_at').in('thread_id', threadIds).order('created_at', { ascending: true }),
+      supabase.from('messages').select('id, thread_id, sender_user_id, body, gif, created_at').in('thread_id', threadIds).order('created_at', { ascending: true }),
     ]);
     const otherIds = [...new Set((allMembers || []).map(m => m.user_id).filter(id => id !== req.userId))];
     const { data: profiles } = otherIds.length
@@ -3148,7 +3148,7 @@ app.get('/api/messages/thread/:id', requireAuth, async (req, res) => {
     if (!membership) return res.status(403).json({ error: 'Forbidden' });
     const { data: messages, error } = await supabase
       .from('messages')
-      .select('id, thread_id, sender_user_id, body, created_at')
+      .select('id, thread_id, sender_user_id, body, gif, created_at')
       .eq('thread_id', req.params.id)
       .order('created_at', { ascending: true });
     if (error) throw error;

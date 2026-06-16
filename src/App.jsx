@@ -17896,7 +17896,7 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
     if (convo.backend) {
       try {
         const d = await api.get(`/api/messages/thread/${encodeURIComponent(convo.id)}`);
-        next = normalizeDmThread({ ...convo, member:{ id:convo.fan.id, handle:convo.fan.name } }, Array.isArray(d?.messages) ? d.messages : []);
+        next = normalizeDmThread({ ...convo, member:{ id:convo.fan.id, handle:convo.fan.name } }, Array.isArray(d?.thread?.messages) ? d.thread.messages : []);
       } catch {}
     }
     setActiveConvo(next);
