@@ -11817,6 +11817,126 @@ function EraRoom({ group, era, color, onBack, onBinderCreated }) {
   );
 }
 
+// ─── ARTIST / FANDOM DIRECTORY ───────────────────────────────────────────────
+// Central source of truth for search, watch, and discovery.
+// dataStatus: "verified" = full era+member data, "partial" = members only, "stub" = discoverable only
+const ARTIST_DIRECTORY = [
+  // ── VERIFIED (full era + member data in ERA_SEARCH_GROUPS) ──────────────────
+  { id:"aespa",         name:"aespa",         aliases:["에스파"],                                    type:"group",   region:"korea",       color:C.mint,     dataStatus:"verified" },
+  { id:"stray-kids",    name:"Stray Kids",    aliases:["SKZ","스트레이키즈"],                         type:"group",   region:"korea",       color:C.rose,     dataStatus:"verified" },
+  { id:"bts",           name:"BTS",           aliases:["방탄소년단","Bangtan","Bangtan Boys"],         type:"group",   region:"korea",       color:C.accent,   dataStatus:"verified" },
+  { id:"newjeans",      name:"NewJeans",      aliases:["뉴진스"],                                     type:"group",   region:"korea",       color:C.sky,      dataStatus:"verified" },
+  { id:"blackpink",     name:"BLACKPINK",     aliases:["블랙핑크","BP"],                              type:"group",   region:"korea",       color:C.pink,     dataStatus:"verified" },
+  { id:"seventeen",     name:"SEVENTEEN",     aliases:["세븐틴","SVT"],                               type:"group",   region:"korea",       color:C.gold,     dataStatus:"verified" },
+  { id:"ateez",         name:"ATEEZ",         aliases:["에이티즈"],                                   type:"group",   region:"korea",       color:C.berry,    dataStatus:"verified" },
+  { id:"twice",         name:"TWICE",         aliases:["트와이스"],                                   type:"group",   region:"korea",       color:C.pink,     dataStatus:"verified" },
+  { id:"txt",           name:"TXT",           aliases:["투모로우바이투게더","Tomorrow X Together"],    type:"group",   region:"korea",       color:C.sky,      dataStatus:"verified" },
+  { id:"enhypen",       name:"ENHYPEN",       aliases:["엔하이픈"],                                   type:"group",   region:"korea",       color:C.lavender, dataStatus:"verified" },
+  { id:"ive",           name:"IVE",           aliases:["아이브"],                                     type:"group",   region:"korea",       color:C.rose,     dataStatus:"verified" },
+  { id:"le-sserafim",   name:"LE SSERAFIM",   aliases:["르세라핌"],                                   type:"group",   region:"korea",       color:C.gold,     dataStatus:"verified" },
+  { id:"itzy",          name:"ITZY",          aliases:["있지"],                                       type:"group",   region:"korea",       color:C.mint,     dataStatus:"verified" },
+  { id:"nct-127",       name:"NCT 127",       aliases:["엔시티127","NCT127"],                         type:"group",   region:"korea",       color:C.sky,      dataStatus:"verified" },
+  { id:"exo",           name:"EXO",           aliases:["엑소"],                                       type:"group",   region:"korea",       color:C.accent,   dataStatus:"verified" },
+  { id:"red-velvet",    name:"Red Velvet",    aliases:["레드벨벳","RV"],                               type:"group",   region:"korea",       color:C.rose,     dataStatus:"verified" },
+  { id:"shinee",        name:"SHINee",        aliases:["샤이니"],                                     type:"group",   region:"korea",       color:C.teal,     dataStatus:"verified" },
+  // ── PARTIAL (member data available, no deep era data) ───────────────────────
+  { id:"nct-dream",     name:"NCT DREAM",     aliases:["엔시티드림","NCT Dream"],                     type:"group",   region:"korea",       color:C.mint,     dataStatus:"partial", members:["Mark","Renjun","Jeno","Haechan","Jaemin","Chenle","Jisung"] },
+  { id:"wayv",          name:"WayV",          aliases:["威神V","웨이션브이"],                          type:"unit",    region:"china",       color:C.sky,      dataStatus:"partial", members:["Kun","Ten","WinWin","Xiaojun","Hendery","Yangyang"] },
+  { id:"got7",          name:"GOT7",          aliases:["갓세븐"],                                     type:"group",   region:"korea",       color:C.accent,   dataStatus:"partial", members:["Jay B","Mark","Jackson","Jinyoung","Youngjae","BamBam","Yugyeom"] },
+  { id:"mamamoo",       name:"MAMAMOO",       aliases:["마마무"],                                     type:"group",   region:"korea",       color:C.gold,     dataStatus:"partial", members:["Solar","Moonbyul","Wheein","Hwasa"] },
+  { id:"monsta-x",      name:"MONSTA X",      aliases:["몬스타엑스","Monsta X","MX"],                  type:"group",   region:"korea",       color:C.rose,     dataStatus:"partial", members:["Shownu","Minhyuk","Kihyun","Hyungwon","Joohoney","I.M"] },
+  { id:"dreamcatcher",  name:"Dreamcatcher",  aliases:["드림캐쳐","DC"],                              type:"group",   region:"korea",       color:C.berry,    dataStatus:"partial", members:["JiU","SuA","Siyeon","Handong","Yoohyeon","Dami","Gahyeon"] },
+  { id:"day6",          name:"DAY6",          aliases:["데이식스"],                                   type:"band",    region:"korea",       color:C.rose,     dataStatus:"partial", members:["Sungjin","Young K","Wonpil","Dowoon"] },
+  { id:"the-rose",      name:"The Rose",      aliases:["더로즈"],                                     type:"band",    region:"korea",       color:C.rose,     dataStatus:"partial", members:["Woosung","Jaehyeong","Dojoon","Hajoon"] },
+  { id:"bigbang",       name:"BIGBANG",       aliases:["빅뱅","Big Bang","Big Bang G-Dragon"],         type:"group",   region:"korea",       color:C.accent,   dataStatus:"partial", members:["G-Dragon","T.O.P","Taeyang","Daesung"] },
+  { id:"2ne1",          name:"2NE1",          aliases:["투애니원"],                                   type:"group",   region:"korea",       color:C.pink,     dataStatus:"partial", members:["CL","Minzy","Park Bom","Sandara Park"] },
+  { id:"girls-generation", name:"Girls' Generation", aliases:["소녀시대","SNSD","Girls Generation"],  type:"group",   region:"korea",       color:C.mint,     dataStatus:"partial", members:["Taeyeon","Sunny","Tiffany","Hyoyeon","Yuri","Sooyoung","Yoona","Seohyun"] },
+  { id:"super-junior",  name:"Super Junior",  aliases:["슈퍼주니어","SJ","Super Junior"],             type:"group",   region:"korea",       color:C.accent,   dataStatus:"partial", members:["Leeteuk","Heechul","Yesung","Shindong","Eunhyuk","Donghae","Siwon","Ryeowook","Kyuhyun"] },
+  { id:"tvxq",          name:"TVXQ",          aliases:["동방신기","DBSK","TVXQ!","Tohoshinki"],       type:"group",   region:"korea",       color:C.sky,      dataStatus:"partial", members:["U-Know Yunho","Max Changmin"] },
+  { id:"ikon",          name:"iKON",          aliases:["아이콘","IKON"],                              type:"group",   region:"korea",       color:C.rose,     dataStatus:"partial", members:["Bobby","Jay","Song","DK","Yunhyeong","Chan"] },
+  { id:"winner",        name:"WINNER",        aliases:["위너"],                                       type:"group",   region:"korea",       color:C.gold,     dataStatus:"partial", members:["Jinwoo","Seungyoon","Mino","Seunghoon"] },
+  { id:"btob",          name:"BTOB",          aliases:["비투비"],                                     type:"group",   region:"korea",       color:C.sky,      dataStatus:"partial", members:["Eunkwang","Minhyuk","Changsub","Hyunsik","Peniel","Sungjae"] },
+  { id:"apink",         name:"Apink",         aliases:["에이핑크"],                                   type:"group",   region:"korea",       color:C.pink,     dataStatus:"partial", members:["Chorong","Bomi","Eunji","Namjoo","Hayoung"] },
+  { id:"exid",          name:"EXID",          aliases:["이엑스아이디"],                               type:"group",   region:"korea",       color:C.gold,     dataStatus:"partial", members:["Solji","LE","Hani","Hyerin","Jeonghwa"] },
+  { id:"gfriend",       name:"GFRIEND",       aliases:["여자친구","GFriend"],                         type:"group",   region:"korea",       color:C.mint,     dataStatus:"partial", members:["Sowon","Yerin","Eunha","Yuju","SinB","Umji"] },
+  { id:"loona",         name:"LOONA",         aliases:["이달의 소녀","이달소"],                        type:"group",   region:"korea",       color:C.lavender, dataStatus:"partial", members:["Heejin","Hyunjin","Haseul","Yeojin","ViVi","Kim Lip","Jinsoul","Choerry","Yves","Chuu","Go Won","Olivia Hye"] },
+  { id:"kep1er",        name:"Kep1er",        aliases:["케플러"],                                     type:"group",   region:"korea",       color:C.pink,     dataStatus:"partial", members:["Yujin","Mashiro","Chaehyun","Hikaru","Bahiyyih","Dayeon","Youngeun","Yeseo","Xiaoting"] },
+  { id:"zerobaseone",   name:"ZEROBASEONE",   aliases:["제로베이스원","ZB1"],                          type:"group",   region:"korea",       color:C.sky,      dataStatus:"partial", members:["Han Yujin","Zhang Hao","Sung Hanbin","Seok Matthew","Kim Taerae","Ricky","Kim Gyuvin","Park Gunwook","Cho Hanseok"] },
+  { id:"riize",         name:"RIIZE",         aliases:["라이즈"],                                     type:"group",   region:"korea",       color:C.mint,     dataStatus:"partial", members:["Shotaro","Eunseok","Sungchan","Wonbin","Seunghan","Anton","Sohee"] },
+  { id:"boynextdoor",   name:"BOYNEXTDOOR",   aliases:["보이넥스트도어","BND","Boy Next Door"],        type:"group",   region:"korea",       color:C.accent,   dataStatus:"partial", members:["Sungho","Leehan","Riwoo","Taesan","Jaehyun","Woonhak"] },
+  { id:"tws",           name:"TWS",           aliases:["투어스"],                                     type:"group",   region:"korea",       color:C.sky,      dataStatus:"partial", members:["Shinyu","Dohoon","Youngjae","Hanjun","Jihoon","Kyungmin"] },
+  { id:"babymonster",   name:"BABYMONSTER",   aliases:["베이비몬스터","Baby Monster"],                 type:"group",   region:"korea",       color:C.rose,     dataStatus:"partial", members:["Ruka","Pharita","Asa","Rami","Ahyeon","Rora","Chiquita"] },
+  { id:"nmixx",         name:"NMIXX",         aliases:["엔믹스"],                                     type:"group",   region:"korea",       color:C.accent,   dataStatus:"partial", members:["Lily","Haewon","Sullyoon","Jinni","Bae","Jiwoo","Kyujin"] },
+  { id:"stayc",         name:"STAYC",         aliases:["스테이씨"],                                   type:"group",   region:"korea",       color:C.gold,     dataStatus:"partial", members:["Sumin","Sieun","Isa","Seeun","Yoon","J"] },
+  { id:"gidle",         name:"(G)I-DLE",      aliases:["여자아이들","G-IDLE","GIDLE","G I-DLE"],       type:"group",   region:"korea",       color:C.lavender, dataStatus:"partial", members:["Miyeon","Minnie","Soyeon","Yuqi","Shuhua"] },
+  { id:"xdinary-heroes",name:"Xdinary Heroes",aliases:["엑스디너리 히어로즈","XH"],                    type:"band",    region:"korea",       color:C.accent,   dataStatus:"partial", members:["Jungsu","O.de","Gaon","Gun","Jooyeon","Dino"] },
+  { id:"nflying",       name:"N.Flying",      aliases:["엔플라잉","NFlying"],                          type:"band",    region:"korea",       color:C.sky,      dataStatus:"partial", members:["Seunghyub","Hweseung","Kwangjin","Jaehyun","Dongsung"] },
+  { id:"cnblue",        name:"CNBLUE",        aliases:["씨엔블루"],                                   type:"band",    region:"korea",       color:C.sky,      dataStatus:"partial", members:["Jung Yong-hwa","Lee Jong-hyun","Lee Jung-shin","Kang Min-hyuk"] },
+  { id:"ftisland",      name:"FTISLAND",      aliases:["에프티아일랜드"],                              type:"band",    region:"korea",       color:C.gold,     dataStatus:"partial", members:["Lee Hong-ki","Lee Jae-jin","Song Seung-hyun","Choi Min-hwan"] },
+  // ── SOLOISTS ─────────────────────────────────────────────────────────────────
+  { id:"iu",            name:"IU",            aliases:["아이유","Lee Ji-eun","이지은"],                type:"soloist", region:"korea",       color:C.gold,     dataStatus:"partial", members:["IU"] },
+  { id:"jessi",         name:"Jessi",         aliases:["제시","Jessica Ho"],                          type:"soloist", region:"korea",       color:C.rose,     dataStatus:"partial", members:["Jessi"] },
+  { id:"jackson-wang",  name:"Jackson Wang",  aliases:["왕가이","Jackson","王嘉尔"],                   type:"soloist", region:"china",       color:C.accent,   dataStatus:"partial", members:["Jackson Wang"] },
+  { id:"taemin",        name:"Taemin",        aliases:["태민","Lee Taemin"],                          type:"soloist", region:"korea",       color:C.mint,     dataStatus:"partial", members:["Taemin"] },
+  { id:"kai",           name:"Kai",           aliases:["카이","Kim Jongin","EXO Kai"],                type:"soloist", region:"korea",       color:C.accent,   dataStatus:"partial", members:["Kai"] },
+  { id:"baekhyun",      name:"Baekhyun",      aliases:["백현","Byun Baekhyun"],                       type:"soloist", region:"korea",       color:C.sky,      dataStatus:"partial", members:["Baekhyun"] },
+  { id:"sunmi",         name:"Sunmi",         aliases:["선미","Lee Sun-mi"],                          type:"soloist", region:"korea",       color:C.pink,     dataStatus:"partial", members:["Sunmi"] },
+  { id:"chungha",       name:"Chungha",       aliases:["청하","Kim Chung-ha"],                        type:"soloist", region:"korea",       color:C.mint,     dataStatus:"partial", members:["Chungha"] },
+  { id:"hyuna",         name:"HyunA",         aliases:["현아","Kim Hyun-a"],                          type:"soloist", region:"korea",       color:C.rose,     dataStatus:"partial", members:["HyunA"] },
+  { id:"cl",            name:"CL",            aliases:["씨엘","Lee Chae-rin","2NE1 CL"],              type:"soloist", region:"korea",       color:C.gold,     dataStatus:"partial", members:["CL"] },
+  { id:"taeyeon",       name:"Taeyeon",       aliases:["태연","Kim Tae-yeon","SNSD Taeyeon"],         type:"soloist", region:"korea",       color:C.sky,      dataStatus:"partial", members:["Taeyeon"] },
+  { id:"boa",           name:"BoA",           aliases:["보아","Kwon Boa"],                            type:"soloist", region:"korea",       color:C.accent,   dataStatus:"partial", members:["BoA"] },
+  { id:"zico",          name:"Zico",          aliases:["지코","Woo Jiho","Block B Zico"],             type:"soloist", region:"korea",       color:C.rose,     dataStatus:"partial", members:["Zico"] },
+  { id:"jay-park",      name:"Jay Park",      aliases:["박재범"],                                     type:"soloist", region:"korea",       color:C.accent,   dataStatus:"partial", members:["Jay Park"] },
+  { id:"wonho",         name:"Wonho",         aliases:["원호","Shin Hoseok"],                         type:"soloist", region:"korea",       color:C.sky,      dataStatus:"partial", members:["Wonho"] },
+  { id:"somi",          name:"Somi",          aliases:["전소미","Jeon Somi"],                         type:"soloist", region:"korea",       color:C.pink,     dataStatus:"partial", members:["Somi"] },
+  { id:"hwasa",         name:"Hwasa",         aliases:["화사","Maria","MAMAMOO Hwasa"],               type:"soloist", region:"korea",       color:C.rose,     dataStatus:"partial", members:["Hwasa"] },
+  { id:"rm",            name:"RM",            aliases:["알엠","Kim Namjoon","Rap Monster","BTS RM"],  type:"soloist", region:"korea",       color:C.accent,   dataStatus:"partial", members:["RM"] },
+  { id:"j-hope",        name:"j-hope",        aliases:["제이홉","Jung Hoseok","J-Hope","jhope"],      type:"soloist", region:"korea",       color:C.gold,     dataStatus:"partial", members:["j-hope"] },
+  { id:"suga",          name:"Suga",          aliases:["슈가","Agust D","Min Yoongi","Yoongi"],       type:"soloist", region:"korea",       color:C.silver,   dataStatus:"partial", members:["Suga"] },
+  { id:"jimin-bts",     name:"Jimin",         aliases:["지민","Park Jimin","BTS Jimin"],              type:"soloist", region:"korea",       color:C.pink,     dataStatus:"partial", members:["Jimin"] },
+  { id:"jungkook",      name:"Jungkook",      aliases:["정국","Jeon Jungkook","JK"],                 type:"soloist", region:"korea",       color:C.accent,   dataStatus:"partial", members:["Jungkook"] },
+  { id:"v-bts",         name:"V",             aliases:["뷔","Kim Taehyung","Taehyung","BTS V"],      type:"soloist", region:"korea",       color:C.lavender, dataStatus:"partial", members:["V"] },
+  { id:"jin-bts",       name:"Jin",           aliases:["진","Kim Seokjin","BTS Jin"],                type:"soloist", region:"korea",       color:C.rose,     dataStatus:"partial", members:["Jin"] },
+  // ── J-POP / GLOBAL CROSSOVER ─────────────────────────────────────────────────
+  { id:"xg",            name:"XG",            aliases:["エックスジー"],                               type:"global",  region:"japan",       color:C.berry,    dataStatus:"partial", members:["Jurin","Chisa","Harvey","Hinata","Juria","Maya","Cocona"] },
+  { id:"jo1",           name:"JO1",           aliases:["ジェイオーワン"],                             type:"global",  region:"japan",       color:C.sky,      dataStatus:"stub" },
+  { id:"ini",           name:"INI",           aliases:["アイエヌアイ"],                               type:"global",  region:"japan",       color:C.accent,   dataStatus:"stub" },
+  { id:"niziu",         name:"NiziU",         aliases:["니쥬","니지유"],                              type:"global",  region:"japan",       color:C.pink,     dataStatus:"stub" },
+  { id:"befirst",       name:"BE:FIRST",      aliases:["ビーファースト"],                             type:"global",  region:"japan",       color:C.accent,   dataStatus:"stub" },
+  { id:"andteam",       name:"&TEAM",         aliases:["アンドチーム","And Team"],                    type:"global",  region:"japan",       color:C.sky,      dataStatus:"stub" },
+  { id:"babymetal",     name:"Babymetal",     aliases:["ベビーメタル","BABYMETAL"],                   type:"global",  region:"japan",       color:C.rose,     dataStatus:"stub" },
+  { id:"one-ok-rock",   name:"ONE OK ROCK",   aliases:["ワンオクロック","OOR","One Ok Rock"],          type:"band",    region:"japan",       color:C.accent,   dataStatus:"stub" },
+  { id:"perfume",       name:"Perfume",       aliases:["パフューム"],                                 type:"global",  region:"japan",       color:C.mint,     dataStatus:"stub" },
+  // ── SOUTHEAST ASIAN / GLOBAL ─────────────────────────────────────────────────
+  { id:"milli",         name:"MILLI",         aliases:["มิลลิ","Danupha","Danupha Khanatheerakul"],  type:"soloist", region:"thailand",    color:C.gold,     dataStatus:"partial", members:["MILLI"] },
+  { id:"sb19",          name:"SB19",          aliases:["에스비19"],                                   type:"group",   region:"philippines", color:C.sky,      dataStatus:"partial", members:["Pablo","Josh","Ken","Justin","Stell"] },
+  { id:"bini",          name:"BINI",          aliases:["비니"],                                       type:"group",   region:"philippines", color:C.pink,     dataStatus:"partial", members:["Aiah","Colet","Maloi","Gabb","Mikha","Jhoanna","Sheena","Nathalie"] },
+  { id:"atlas",         name:"ATLAS",         aliases:[],                                              type:"group",   region:"philippines", color:C.accent,   dataStatus:"stub" },
+  { id:"4eve",          name:"4EVE",          aliases:["โฟว์อีฟ"],                                   type:"group",   region:"thailand",    color:C.rose,     dataStatus:"stub" },
+  // ── LEGACY / OTHER ───────────────────────────────────────────────────────────
+  { id:"wonder-girls",  name:"Wonder Girls",  aliases:["원더걸스"],                                   type:"group",   region:"korea",       color:C.sky,      dataStatus:"stub" },
+  { id:"f-hero",        name:"F.HERO",        aliases:["เอฟฮีโร่"],                                  type:"soloist", region:"thailand",    color:C.gold,     dataStatus:"stub" },
+];
+
+// localStorage helpers for followed artists (read/write, no React needed)
+const FOLLOWED_KEY = "backstage_followed_artists";
+function getFollowed() {
+  try { return JSON.parse(localStorage.getItem(FOLLOWED_KEY) || "[]"); } catch { return []; }
+}
+function toggleFollow(name) {
+  const curr = getFollowed();
+  const idx = curr.indexOf(name);
+  const next = idx >= 0 ? curr.filter(n => n !== name) : [...curr, name];
+  localStorage.setItem(FOLLOWED_KEY, JSON.stringify(next));
+  return next;
+}
+function seedFollowed(fandoms) {
+  if (!fandoms?.length) return;
+  if (localStorage.getItem(FOLLOWED_KEY) !== null) return; // already seeded
+  localStorage.setItem(FOLLOWED_KEY, JSON.stringify(fandoms));
+}
+
 // ─── ERAS EXPLORER SEARCH DATABASE ───────────────────────────────────────────
 const ERA_SEARCH_GROUPS = [
   { group:"aespa",       color:C.mint,     eras:["Black Mamba","Forever & Always","Savage","My World","Drama","Whiplash"],                                  members:["Karina","Winter","Giselle","Ningning"] },
@@ -11843,6 +11963,11 @@ function ExploreTab({ user, weather, isVip, onUpgrade, go, onBack }) {
   const [eraModal, setEraModal] = useState(null);
   const [eraRoom, setEraRoom] = useState(null);
   const [eraSearch, setEraSearch] = useState("");
+  const [followedArtists, setFollowedArtists] = useState(() => {
+    seedFollowed(user?.fandoms);
+    return getFollowed();
+  });
+  const handleToggleFollow = (name) => setFollowedArtists(toggleFollow(name));
 
   const TOOL_CARDS = [
     { id:"buildday", icon:"🗓️", label:"Build My Day",     sub:"AI-planned fan day with food, cafes & meetups",         color:C.pink,   wide:true, soon:false },
@@ -11900,20 +12025,26 @@ function ExploreTab({ user, weather, isVip, onUpgrade, go, onBack }) {
               const eMatches = ERA_SEARCH_GROUPS.flatMap(g =>
                 g.eras.filter(e => anyMatch(e)).map(e => ({group:g.group,era:e,color:g.color}))
               );
+              // Directory matches for non-verified artists
+              const verifiedIds = new Set(ERA_SEARCH_GROUPS.map(g => g.group.toLowerCase()));
+              const dirMatches = ARTIST_DIRECTORY.filter(a =>
+                a.dataStatus !== "verified" &&
+                (anyMatch(a.name) || (a.aliases||[]).some(al => anyMatch(al)))
+              );
               // Smart cross-ref: era from same group as an idol match → "Best Match"
               const iGroups = new Set(iMatches.map(r => r.group));
               const xMatches = eMatches.filter(r => iGroups.has(r.group));
-              const hasResults = gMatches.length || iMatches.length || eMatches.length;
+              const hasResults = gMatches.length || iMatches.length || eMatches.length || dirMatches.length;
               if (!hasResults) return (
                 <div style={{ textAlign:"center",padding:"40px 20px",color:C.textDim }}>
                   <p style={{ fontSize:28,marginBottom:12 }}>🔍</p>
                   <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:C.text,marginBottom:6 }}>No results for "{eraSearch}"</p>
-                  <p style={{ fontSize:11.5,lineHeight:1.7 }}>Try a group name, idol, era, or album.<br/>Examples: "Karina", "Savage", "GOLDEN", "Born Pink"</p>
+                  <p style={{ fontSize:11.5,lineHeight:1.7 }}>Try a group name, idol, era, or album.<br/>Examples: "MONSTA X", "IU", "Savage", "Born Pink"</p>
                 </div>
               );
               return (
                 <div>
-                  {/* Smart cross-reference: idol + era tokens from same group */}
+                  {/* Smart cross-reference */}
                   {xMatches.length > 0 && (
                     <div style={{ marginBottom:20,padding:"12px 14px",borderRadius:14,background:`${xMatches[0].color}10`,border:`1.5px solid ${xMatches[0].color}30` }}>
                       <p style={{ fontSize:9,color:xMatches[0].color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8 }}>✦ Best Match</p>
@@ -11959,6 +12090,49 @@ function ExploreTab({ user, weather, isVip, onUpgrade, go, onBack }) {
                             {r.era} <span style={{ opacity:0.6,fontSize:9.5 }}>· {r.group}</span>
                           </button>
                         ))}
+                      </div>
+                    </div>
+                  )}
+                  {/* Directory results: artists found but not yet in Era Room */}
+                  {dirMatches.length > 0 && (
+                    <div style={{ marginBottom:20 }}>
+                      <p style={{ fontSize:9,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10 }}>
+                        {gMatches.length||iMatches.length||eMatches.length ? "ALSO IN FANVERSE" : "ARTIST FOUND"}
+                      </p>
+                      <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+                        {dirMatches.slice(0,6).map(a => {
+                          const isWatched = followedArtists.includes(a.name);
+                          const typeLabel = a.type==="soloist"?"Soloist":a.type==="band"?"Band":a.type==="global"?"J-pop/Global":a.region==="japan"?"J-pop":a.region==="thailand"?"Thai Pop":a.region==="philippines"?"P-pop":"Group";
+                          return (
+                            <div key={a.id} style={{ background:C.surfaceHi,border:`1.5px solid ${a.color}28`,borderRadius:14,padding:"11px 13px",display:"flex",alignItems:"center",gap:12 }}>
+                              <div style={{ width:36,height:36,borderRadius:10,background:`${a.color}18`,border:`1px solid ${a.color}33`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
+                                <span style={{ fontSize:16,color:a.color,fontFamily:"'Epilogue',sans-serif",fontWeight:900 }}>{a.name[0]}</span>
+                              </div>
+                              <div style={{ flex:1,minWidth:0 }}>
+                                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,color:C.text,marginBottom:2 }}>{a.name}</p>
+                                <div style={{ display:"flex",alignItems:"center",gap:5,flexWrap:"wrap" }}>
+                                  <span style={{ fontSize:9,color:a.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",background:`${a.color}14`,padding:"1px 6px",borderRadius:99 }}>{typeLabel}</span>
+                                  {a.members?.length>0 && <span style={{ fontSize:9.5,color:C.textDim }}>{a.members.length} member{a.members.length!==1?"s":""}</span>}
+                                  <span style={{ fontSize:9,color:C.textDim,fontStyle:"italic" }}>Era data coming soon</span>
+                                </div>
+                              </div>
+                              <div style={{ display:"flex",flexDirection:"column",gap:5,flexShrink:0 }}>
+                                <button onClick={()=>handleToggleFollow(a.name)} className="tap" style={{ padding:"5px 11px",borderRadius:99,background:isWatched?`${a.color}22`:"transparent",border:`1.5px solid ${a.color}${isWatched?"66":"33"}`,color:isWatched?a.color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10,cursor:"pointer",whiteSpace:"nowrap" }}>
+                                  {isWatched?"Watching ✓":"+ Watch"}
+                                </button>
+                                {isVip ? (
+                                  <button onClick={()=>alert(`AI board builder for ${a.name} — coming soon for VIP`)} className="tap" style={{ padding:"4px 10px",borderRadius:99,background:`${C.gold}18`,border:`1px solid ${C.gold}44`,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:9,cursor:"pointer",whiteSpace:"nowrap" }}>
+                                    ✨ Build
+                                  </button>
+                                ) : (
+                                  <button onClick={onUpgrade} className="tap" style={{ padding:"4px 10px",borderRadius:99,background:"transparent",border:`1px solid ${C.gold}28`,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:9,cursor:"pointer",whiteSpace:"nowrap",opacity:0.7 }}>
+                                    ✨ VIP
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -12054,7 +12228,7 @@ function ExploreTab({ user, weather, isVip, onUpgrade, go, onBack }) {
           </div>
         )}
         {view==="buildday"&&<BuildMyDay go={go} />}
-        {view==="comebacks"&&<ComebacksEraWatch user={user} go={go} onBack={()=>setView("grid")} />}
+        {view==="comebacks"&&<ComebacksEraWatch user={user} go={go} isVip={isVip} onUpgrade={onUpgrade} onBack={()=>setView("grid")} />}
         {view==="chants"&&<ChantVault />}
         {view==="outfits"&&<OutfitGenerator user={user} weather={weather} isVip={isVip} onUpgrade={onUpgrade} />}
         {view==="trip"&&<TripPlanner isVip={isVip} onUpgrade={onUpgrade} />}
@@ -12066,21 +12240,49 @@ function ExploreTab({ user, weather, isVip, onUpgrade, go, onBack }) {
 }
 
 // ─── COMEBACKS & DROPS ───────────────────────────────────────────────────────
-// Safe placeholder — full comeback alert system is a future phase.
-// Renders dark Backstage UI with watched groups list and a back button.
-function ComebacksEraWatch({ user, go, onBack }) {
-  const watchedGroups = user?.fandoms?.length
-    ? user.fandoms
-    : ["BTS","Stray Kids","aespa","NewJeans","SEVENTEEN"];
+function ComebacksEraWatch({ user, go, isVip, onUpgrade, onBack }) {
+  const [followed, setFollowed] = useState(() => {
+    seedFollowed(user?.fandoms);
+    const stored = getFollowed();
+    return stored.length ? stored : (user?.fandoms?.length ? user.fandoms : ["BTS","ATEEZ","aespa"]);
+  });
+  const [watchSheet, setWatchSheet] = useState(false);
+  const [watchSearch, setWatchSearch] = useState("");
 
-  const GROUP_COLORS = {
-    "BTS":C.accent,"Stray Kids":C.rose,"aespa":C.mint,"NewJeans":C.pink,
-    "SEVENTEEN":C.sky,"BLACKPINK":C.rose,"EXO":C.silver,"NCT":C.teal,
-    "ATEEZ":C.gold,"TWICE":C.pink,
+  const artistColor = (name) => {
+    const entry = ARTIST_DIRECTORY.find(a => a.name === name);
+    if (entry) return entry.color;
+    // Fallback for groups seeded from onboarding before directory existed
+    const map = { "BTS":C.accent,"Stray Kids":C.rose,"aespa":C.mint,"NewJeans":C.sky,"BLACKPINK":C.pink,"SEVENTEEN":C.gold,"ATEEZ":C.berry,"TWICE":C.pink,"TXT":C.sky,"ENHYPEN":C.lavender };
+    return map[name] || C.accent;
   };
 
+  const handleUnwatch = (name) => {
+    const next = followed.filter(n => n !== name);
+    localStorage.setItem(FOLLOWED_KEY, JSON.stringify(next));
+    setFollowed(next);
+  };
+
+  const handleWatch = (name) => {
+    if (followed.includes(name)) return;
+    const next = [...followed, name];
+    localStorage.setItem(FOLLOWED_KEY, JSON.stringify(next));
+    setFollowed(next);
+    setWatchSheet(false);
+    setWatchSearch("");
+  };
+
+  const searchTokens = watchSearch.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  const searchResults = watchSearch.trim()
+    ? ARTIST_DIRECTORY.filter(a =>
+        (searchTokens.some(t => a.name.toLowerCase().includes(t)) ||
+         (a.aliases||[]).some(al => searchTokens.some(t => al.toLowerCase().includes(t)))) &&
+        !followed.includes(a.name)
+      ).slice(0, 12)
+    : [];
+
   return (
-    <div>
+    <div style={{ position:"relative" }}>
       {/* Header card */}
       <div style={{ background:`${C.rose}0a`, border:`1.5px solid ${C.rose}28`, borderRadius:18, padding:"16px 18px", marginBottom:18 }}>
         <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:17, marginBottom:6 }}>🔔 Comebacks & Drops</p>
@@ -12090,21 +12292,39 @@ function ComebacksEraWatch({ user, go, onBack }) {
         </p>
       </div>
 
-      {/* Watched group rows */}
-      <p style={{ fontSize:10, color:C.textDim, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:10 }}>
-        Your groups
-      </p>
+      {/* Watchlist header + Add button */}
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+        <p style={{ fontSize:10, color:C.textDim, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em" }}>
+          Your Watchlist
+        </p>
+        <button onClick={()=>setWatchSheet(true)} className="tap" style={{ display:"flex", alignItems:"center", gap:5, padding:"5px 12px", borderRadius:99, background:`${C.accent}14`, border:`1.5px solid ${C.accent}38`, color:C.accent, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10.5, cursor:"pointer" }}>
+          + Watch Artist
+        </button>
+      </div>
+
+      {/* Watched artist rows */}
       <div style={{ display:"flex", flexDirection:"column", gap:9, marginBottom:22 }}>
-        {watchedGroups.slice(0,6).map(group => {
-          const col = GROUP_COLORS[group] || C.accent;
+        {followed.length === 0 && (
+          <div style={{ textAlign:"center", padding:"24px 16px", background:C.surfaceHi, borderRadius:14, border:`1px dashed ${C.border}` }}>
+            <p style={{ fontSize:12, color:C.textMid }}>No artists on your watchlist yet.</p>
+            <p style={{ fontSize:11, color:C.textDim, marginTop:4 }}>Tap "+ Watch Artist" to add your first.</p>
+          </div>
+        )}
+        {followed.map(name => {
+          const col = artistColor(name);
           return (
-            <div key={group} style={{ background:C.surface, border:`1.5px solid ${col}28`, borderRadius:14, padding:"12px 14px", display:"flex", alignItems:"center", gap:12 }}>
-              <div style={{ width:38, height:38, borderRadius:11, background:`${col}18`, border:`1px solid ${col}33`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>🔔</div>
-              <div style={{ flex:1 }}>
-                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13 }}>{group}</p>
-                <p style={{ fontSize:11, color:C.textMid }}>No announced comebacks yet</p>
+            <div key={name} style={{ background:C.surface, border:`1.5px solid ${col}28`, borderRadius:14, padding:"11px 13px", display:"flex", alignItems:"center", gap:12 }}>
+              <div style={{ width:36, height:36, borderRadius:10, background:`${col}18`, border:`1px solid ${col}33`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                <span style={{ fontSize:16, color:col, fontFamily:"'Epilogue',sans-serif", fontWeight:900 }}>{name[0]}</span>
               </div>
-              <Pill color={col} small>Watching</Pill>
+              <div style={{ flex:1 }}>
+                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13, color:C.text }}>{name}</p>
+                <p style={{ fontSize:10.5, color:C.textMid }}>No announced comebacks yet</p>
+              </div>
+              <div style={{ display:"flex", alignItems:"center", gap:7 }}>
+                <Pill color={col} small>Watching</Pill>
+                <button onClick={()=>handleUnwatch(name)} style={{ background:"none", border:"none", color:C.textDim, fontSize:14, cursor:"pointer", lineHeight:1, padding:"2px 4px" }} title="Remove">✕</button>
+              </div>
             </div>
           );
         })}
@@ -12118,13 +12338,69 @@ function ComebacksEraWatch({ user, go, onBack }) {
         </p>
       </div>
 
-      {/* Back button */}
-      <button
-        onClick={onBack}
-        style={{ width:"100%", padding:"13px", borderRadius:14, background:C.surfaceHi, border:`1.5px solid ${C.border}`, color:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13, cursor:"pointer" }}
-      >
+      <button onClick={onBack} style={{ width:"100%", padding:"13px", borderRadius:14, background:C.surfaceHi, border:`1.5px solid ${C.border}`, color:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13, cursor:"pointer" }}>
         ← Back to Tools
       </button>
+
+      {/* Watch Artist bottom sheet */}
+      {watchSheet && (
+        <div style={{ position:"fixed", inset:0, zIndex:600, background:"rgba(6,6,15,0.88)" }} onClick={()=>{setWatchSheet(false);setWatchSearch("");}}>
+          <div onClick={e=>e.stopPropagation()} style={{ position:"absolute", bottom:0, left:0, right:0, background:C.surfaceMid, borderRadius:"22px 22px 0 0", padding:"20px 20px 32px", maxHeight:"72vh", display:"flex", flexDirection:"column" }}>
+            {/* Sheet handle */}
+            <div style={{ width:36, height:4, borderRadius:99, background:C.border, margin:"0 auto 16px", flexShrink:0 }} />
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14, flexShrink:0 }}>
+              <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:15, color:C.text }}>Watch an Artist</p>
+              <button onClick={()=>{setWatchSheet(false);setWatchSearch("");}} style={{ background:"none", border:"none", color:C.textMid, fontSize:20, cursor:"pointer", lineHeight:1 }}>✕</button>
+            </div>
+            {/* Search input */}
+            <div style={{ position:"relative", marginBottom:14, flexShrink:0 }}>
+              <input
+                autoFocus
+                value={watchSearch}
+                onChange={e=>setWatchSearch(e.target.value)}
+                placeholder="Search artists, groups, soloists…"
+                style={{ width:"100%", boxSizing:"border-box", padding:"11px 36px 11px 14px", borderRadius:13, background:C.surfaceHi, border:`1.5px solid ${watchSearch?C.accent:C.border}`, color:C.text, fontSize:13, fontFamily:"'Instrument Sans',sans-serif", outline:"none" }}
+              />
+              {watchSearch
+                ? <button onClick={()=>setWatchSearch("")} style={{ position:"absolute", top:"50%", right:12, transform:"translateY(-50%)", background:"none", border:"none", color:C.textMid, cursor:"pointer", fontSize:15 }}>✕</button>
+                : <span style={{ position:"absolute", top:"50%", right:13, transform:"translateY(-50%)", fontSize:14, pointerEvents:"none", color:C.textDim }}>🔍</span>
+              }
+            </div>
+            {/* Results */}
+            <div style={{ flex:1, overflowY:"auto" }}>
+              {watchSearch.trim() === "" && (
+                <p style={{ fontSize:11.5, color:C.textDim, textAlign:"center", padding:"20px 0" }}>
+                  Search K-pop groups, soloists, J-pop, or global artists
+                </p>
+              )}
+              {watchSearch.trim() !== "" && searchResults.length === 0 && (
+                <p style={{ fontSize:12, color:C.textMid, textAlign:"center", padding:"20px 0" }}>
+                  No results. Try "MONSTA X", "IU", "XG", "MILLI"…
+                </p>
+              )}
+              {searchResults.map(a => {
+                const typeLabel = a.type==="soloist"?"Soloist":a.type==="band"?"Band":a.type==="global"?"J-pop/Global":a.region==="japan"?"J-pop":a.region==="thailand"?"Thai Pop":a.region==="philippines"?"P-pop":"Group";
+                return (
+                  <div key={a.id} onClick={()=>handleWatch(a.name)} className="tap" style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 4px", borderBottom:`1px solid ${C.border}`, cursor:"pointer" }}>
+                    <div style={{ width:34, height:34, borderRadius:10, background:`${a.color}18`, border:`1px solid ${a.color}33`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                      <span style={{ fontSize:15, color:a.color, fontFamily:"'Epilogue',sans-serif", fontWeight:900 }}>{a.name[0]}</span>
+                    </div>
+                    <div style={{ flex:1 }}>
+                      <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13, color:C.text }}>{a.name}</p>
+                      <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                        <span style={{ fontSize:9, color:a.color, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", background:`${a.color}14`, padding:"1px 6px", borderRadius:99 }}>{typeLabel}</span>
+                        {a.dataStatus==="verified" && <span style={{ fontSize:9, color:C.mint, fontFamily:"'Epilogue',sans-serif", fontWeight:700 }}>✓ Verified</span>}
+                        {a.members?.length>0 && <span style={{ fontSize:9.5, color:C.textDim }}>{a.members.length}m</span>}
+                      </div>
+                    </div>
+                    <span style={{ fontSize:13, color:C.accent, fontFamily:"'Epilogue',sans-serif", fontWeight:700 }}>+ Watch</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
