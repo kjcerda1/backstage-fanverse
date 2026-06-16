@@ -6732,16 +6732,136 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                 </div>
               </div>
             )}
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16 }}>
-              {MUSEUM_TILES.map(tile=>(
-                <div key={tile.id} onClick={({albums:()=>setSection("albums"),pcs:()=>setSection("photocards"),memories:()=>go("scrapbook"),concerts:()=>go("myshows"),capsules:()=>go("capsule"),scrapbook:()=>setSection("scrapbook"),achievements:()=>setShowAchievements(true),shrine:()=>setShowShrine(true),eraboards:()=>setSection("eraboards")})[tile.id]} className="tap" style={{ borderRadius:16, padding:"14px 14px", background:`${tile.color}0d`, border:`1.5px solid ${tile.color}30`, cursor:"pointer", position:"relative", overflow:"hidden" }}>
-                  <div style={{ position:"absolute",top:-10,right:-10,width:44,height:44,borderRadius:"50%",background:`${tile.color}10`,pointerEvents:"none" }} />
-                  <div style={{ fontSize:22, marginBottom:5 }}>{tile.emoji}</div>
-                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:24,color:tile.color,lineHeight:1 }}>{tile.stat}</p>
-                  <p style={{ fontSize:9,color:C.textMid,marginTop:1 }}>{tile.unit}</p>
-                  <p style={{ fontSize:11.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,color:C.text,marginTop:5 }}>{tile.label}</p>
+            {/* Era Boards: featured hero card */}
+            {eraBoards.length > 0 && (() => {
+              const latest = eraBoards[eraBoards.length - 1];
+              const pal = latest.palette || [C.mint, C.accent, C.rose];
+              const grpData = ERA_SEARCH_GROUPS.find(g => g.group === latest.group);
+              const bc = grpData?.color || pal[0];
+              return (
+                <div onClick={() => setEraRoomDeep({ group:latest.group, era:latest.era, color:bc })} className="tap" style={{ marginBottom:12, borderRadius:18, overflow:"hidden", cursor:"pointer", background:C.surface, border:`1px solid ${bc}30`, boxShadow:`0 6px 28px ${bc}14` }}>
+                  <div style={{ height:5, background:`linear-gradient(90deg,${pal[0]},${pal[1]},${pal[2]})` }} />
+                  <div style={{ padding:"14px 16px 16px" }}>
+                    <p style={{ fontSize:9, color:bc, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:4 }}>Continue Building</p>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:20, color:C.text, lineHeight:1.1, marginBottom:3 }}>{latest.era}</p>
+                    <p style={{ fontSize:10.5, color:C.textMid, marginBottom:12, fontFamily:"'Epilogue',sans-serif", fontWeight:600 }}>{latest.group} · Era Room</p>
+                    <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                      <div style={{ display:"flex", gap:5 }}>
+                        {(latest.savedTemplates||[]).length > 0 && <span style={{ background:`${bc}14`, border:`1px solid ${bc}30`, borderRadius:99, padding:"3px 9px", fontSize:9, color:bc, fontFamily:"'Epilogue',sans-serif", fontWeight:700 }}>{(latest.savedTemplates||[]).length} saved</span>}
+                        {latest.binderStarted && <span style={{ background:`${C.mint}14`, border:`1px solid ${C.mint}30`, borderRadius:99, padding:"3px 9px", fontSize:9, color:C.mint, fontFamily:"'Epilogue',sans-serif", fontWeight:700 }}>Binder active</span>}
+                      </div>
+                      <span style={{ background:`linear-gradient(135deg,${bc},${bc}88)`, borderRadius:10, padding:"7px 13px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:10 }}>Open →</span>
+                    </div>
+                  </div>
                 </div>
-              ))}
+              );
+            })()}
+            {/* Premium archive grid */}
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16 }}>
+              {/* Era Boards */}
+              <div onClick={() => setSection("eraboards")} className="tap" style={{ borderRadius:16, padding:"14px 14px", background:C.surface, border:`1.5px solid ${C.mint}28`, cursor:"pointer", position:"relative", overflow:"hidden" }}>
+                <div style={{ position:"absolute", inset:0, background:`linear-gradient(160deg,${C.mint}08,transparent)`, pointerEvents:"none" }} />
+                <div style={{ display:"flex", gap:2, marginBottom:9 }}>
+                  {(eraBoards[0]?.palette || [C.mint,C.lavender,C.rose]).map((c,i) => (
+                    <div key={i} style={{ height:3, flex:1, borderRadius:99, background:c }} />
+                  ))}
+                </div>
+                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, color:C.mint, lineHeight:1 }}>{eraBoards.length}</p>
+                <p style={{ fontSize:9, color:C.textMid, marginTop:1 }}>boards</p>
+                <p style={{ fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.text, marginTop:6 }}>Era Boards</p>
+              </div>
+              {/* Photocard Binder */}
+              <div onClick={() => setSection("photocards")} className="tap" style={{ borderRadius:16, padding:"14px 14px", background:C.surface, border:`1.5px solid ${C.pink}28`, cursor:"pointer", position:"relative", overflow:"hidden" }}>
+                <div style={{ position:"absolute", inset:0, background:`linear-gradient(160deg,${C.pink}08,transparent)`, pointerEvents:"none" }} />
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:2.5, marginBottom:9, width:50 }}>
+                  {[...Array(6)].map((_,i) => (
+                    <div key={i} style={{ height:20, borderRadius:3, background:i < Math.min(allCards.length,6) ? `${C.pink}66` : `${C.pink}18`, border:`1px solid ${C.pink}30` }} />
+                  ))}
+                </div>
+                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, color:C.pink, lineHeight:1 }}>{allCards.length}</p>
+                <p style={{ fontSize:9, color:C.textMid, marginTop:1 }}>cards</p>
+                <p style={{ fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.text, marginTop:6 }}>Photocard Binder</p>
+              </div>
+              {/* Albums & Binders */}
+              <div onClick={() => setSection("albums")} className="tap" style={{ borderRadius:16, padding:"14px 14px", background:C.surface, border:`1.5px solid ${C.lavender}28`, cursor:"pointer", position:"relative", overflow:"hidden" }}>
+                <div style={{ position:"absolute", inset:0, background:`linear-gradient(160deg,${C.lavender}08,transparent)`, pointerEvents:"none" }} />
+                <div style={{ display:"flex", flexDirection:"column", gap:3, marginBottom:9, width:50 }}>
+                  {[1,0.72,0.48].map((w,i) => (
+                    <div key={i} style={{ height:5, borderRadius:3, background:`${C.lavender}${i===0?"cc":i===1?"77":"33"}`, width:`${w*100}%` }} />
+                  ))}
+                </div>
+                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, color:C.lavender, lineHeight:1 }}>{binders.length}</p>
+                <p style={{ fontSize:9, color:C.textMid, marginTop:1 }}>binders</p>
+                <p style={{ fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.text, marginTop:6 }}>Albums & Binders</p>
+              </div>
+              {/* Concerts */}
+              <div onClick={() => go("myshows")} className="tap" style={{ borderRadius:16, padding:"14px 14px", background:C.surface, border:`1.5px solid ${C.berry}28`, cursor:"pointer", position:"relative", overflow:"hidden" }}>
+                <div style={{ position:"absolute", inset:0, background:`linear-gradient(160deg,${C.berry}08,transparent)`, pointerEvents:"none" }} />
+                <div style={{ display:"flex", alignItems:"flex-end", gap:2.5, height:22, marginBottom:9, width:50 }}>
+                  {[70,100,55,85,65,90,50].map((h,i) => (
+                    <div key={i} style={{ flex:1, height:`${h}%`, borderRadius:"3px 3px 0 0", background:`${C.berry}${i%2===0?"cc":"55"}` }} />
+                  ))}
+                </div>
+                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, color:C.berry, lineHeight:1 }}>{_concertResume.length||6}</p>
+                <p style={{ fontSize:9, color:C.textMid, marginTop:1 }}>shows</p>
+                <p style={{ fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.text, marginTop:6 }}>Concerts</p>
+              </div>
+              {/* Memories */}
+              <div onClick={() => go("scrapbook")} className="tap" style={{ borderRadius:16, padding:"14px 14px", background:C.surface, border:`1.5px solid ${C.sky}28`, cursor:"pointer", position:"relative", overflow:"hidden" }}>
+                <div style={{ position:"absolute", inset:0, background:`linear-gradient(160deg,${C.sky}08,transparent)`, pointerEvents:"none" }} />
+                <div style={{ position:"relative", width:36, height:26, marginBottom:9 }}>
+                  {[{rot:-7,op:"44"},{rot:0,op:"66"},{rot:6,op:"99"}].map((s,i) => (
+                    <div key={i} style={{ position:"absolute", top:0, left:0, right:0, bottom:0, borderRadius:4, background:`${C.sky}${s.op}`, border:`1px solid ${C.sky}44`, transform:`rotate(${s.rot}deg)` }} />
+                  ))}
+                </div>
+                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, color:C.sky, lineHeight:1 }}>4</p>
+                <p style={{ fontSize:9, color:C.textMid, marginTop:1 }}>moments</p>
+                <p style={{ fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.text, marginTop:6 }}>Memories</p>
+              </div>
+              {/* Time Capsules */}
+              <div onClick={() => go("capsule")} className="tap" style={{ borderRadius:16, padding:"14px 14px", background:C.surface, border:`1.5px solid ${C.mint}28`, cursor:"pointer", position:"relative", overflow:"hidden" }}>
+                <div style={{ position:"absolute", inset:0, background:`linear-gradient(160deg,${C.mint}08,transparent)`, pointerEvents:"none" }} />
+                <div style={{ marginBottom:9 }}>
+                  <div style={{ width:26, height:26, borderRadius:"50%", background:`radial-gradient(circle at 35% 35%,${C.mint}cc,${C.mint}44)`, boxShadow:`0 0 14px ${C.mint}55`, border:`1.5px solid ${C.mint}88` }} />
+                </div>
+                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, color:C.mint, lineHeight:1 }}>{ls.get("backstage_capsules_count",2)}</p>
+                <p style={{ fontSize:9, color:C.textMid, marginTop:1 }}>saved</p>
+                <p style={{ fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.text, marginTop:6 }}>Time Capsules</p>
+              </div>
+              {/* Scrapbooks */}
+              <div onClick={() => setSection("scrapbook")} className="tap" style={{ borderRadius:16, padding:"14px 14px", background:C.surface, border:`1.5px solid ${C.lavender}28`, cursor:"pointer", position:"relative", overflow:"hidden" }}>
+                <div style={{ position:"absolute", inset:0, background:`linear-gradient(160deg,${C.lavender}08,transparent)`, pointerEvents:"none" }} />
+                <div style={{ position:"relative", width:36, height:26, marginBottom:9 }}>
+                  {[{off:4,op:"33"},{off:2,op:"55"},{off:0,op:"88"}].map((s,i) => (
+                    <div key={i} style={{ position:"absolute", top:s.off, left:s.off, right:s.off, bottom:0, borderRadius:4, background:`${C.lavender}${s.op}`, border:`1px solid ${C.lavender}44` }} />
+                  ))}
+                </div>
+                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, color:C.lavender, lineHeight:1 }}>1</p>
+                <p style={{ fontSize:9, color:C.textMid, marginTop:1 }}>book</p>
+                <p style={{ fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.text, marginTop:6 }}>Scrapbooks</p>
+              </div>
+              {/* Achievements */}
+              <div onClick={() => setShowAchievements(true)} className="tap" style={{ borderRadius:16, padding:"14px 14px", background:C.surface, border:`1.5px solid ${C.gold}28`, cursor:"pointer", position:"relative", overflow:"hidden" }}>
+                <div style={{ position:"absolute", inset:0, background:`linear-gradient(160deg,${C.gold}08,transparent)`, pointerEvents:"none" }} />
+                <div style={{ display:"flex", gap:3.5, marginBottom:9, alignItems:"center" }}>
+                  {[...Array(5)].map((_,i) => (
+                    <div key={i} style={{ width:10, height:10, borderRadius:"50%", background:i < 5 ? C.gold : `${C.gold}22`, border:`1px solid ${C.gold}55`, boxShadow:`0 0 6px ${C.gold}44` }} />
+                  ))}
+                </div>
+                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, color:C.gold, lineHeight:1 }}>7</p>
+                <p style={{ fontSize:9, color:C.textMid, marginTop:1 }}>unlocked</p>
+                <p style={{ fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.text, marginTop:6 }}>Achievements</p>
+              </div>
+              {/* Bias Shrine */}
+              <div onClick={() => setShowShrine(true)} className="tap" style={{ borderRadius:16, padding:"14px 14px", background:C.surface, border:`1.5px solid ${C.rose}28`, cursor:"pointer", position:"relative", overflow:"hidden" }}>
+                <div style={{ position:"absolute", inset:0, background:`linear-gradient(160deg,${C.rose}08,transparent)`, pointerEvents:"none" }} />
+                <div style={{ width:26, height:30, borderRadius:6, background:`${C.rose}1a`, border:`1.5px solid ${C.rose}55`, boxShadow:`0 0 12px ${C.rose}33`, marginBottom:9, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                  <div style={{ width:14, height:14, borderRadius:"50%", background:`${C.rose}66`, border:`1.5px solid ${C.rose}`, boxShadow:`0 0 6px ${C.rose}44` }} />
+                </div>
+                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, color:C.rose, lineHeight:1 }}>{_fanIdentity?.bias ? 1 : 0}</p>
+                <p style={{ fontSize:9, color:C.textMid, marginTop:1 }}>set</p>
+                <p style={{ fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.text, marginTop:6 }}>Bias Shrine</p>
+              </div>
             </div>
             <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em",marginBottom:8 }}>✦ Featured Shelf</p>
             <div style={{ display:"flex", flexDirection:"column", gap:9, marginBottom:4 }}>
@@ -11136,19 +11256,32 @@ const ERA_VIBES = {
   "SEVENTEEN::Spill the Feels":{ subtitle:"Spill every emotion, unfiltered",    palette:["#74b9ff","#fd79a8","#a29bfe"], mood:"Emotional · Unfiltered · Mixed pastel · Soft", outfitVibe:"Soft tones, comfort casual, cozy layering, pastel mixing" },
 };
 
+// Never display generated placeholder member names in production.
+// If member data is missing, show an honest incomplete-data state.
 const ERA_MEMBERS = {
-  "aespa":     ["Karina","Winter","Giselle","Ningning"],
-  "Stray Kids":["Bang Chan","Lee Know","Changbin","Hyunjin","Han","Felix","Seungmin","I.N"],
-  "BTS":       ["RM","Jin","Suga","J-Hope","Jimin","V","Jungkook"],
-  "NewJeans":  ["Minji","Hanni","Danielle","Haerin","Hyein"],
-  "BLACKPINK": ["Jisoo","Jennie","Rosé","Lisa"],
-  "SEVENTEEN": ["S.Coups","Jeonghan","Joshua","Jun","Hoshi","Wonwoo","Woozi","DK","Mingyu","The8","Seungkwan","Vernon","Dino"],
+  "aespa":       ["Karina","Winter","Giselle","Ningning"],
+  "Stray Kids":  ["Bang Chan","Lee Know","Changbin","Hyunjin","Han","Felix","Seungmin","I.N"],
+  "BTS":         ["RM","Jin","Suga","J-Hope","Jimin","V","Jungkook"],
+  "NewJeans":    ["Minji","Hanni","Danielle","Haerin","Hyein"],
+  "BLACKPINK":   ["Jisoo","Jennie","Rosé","Lisa"],
+  "SEVENTEEN":   ["S.Coups","Jeonghan","Joshua","Jun","Hoshi","Wonwoo","Woozi","DK","Mingyu","The8","Seungkwan","Vernon","Dino"],
+  "ATEEZ":       ["Hongjoong","Seonghwa","Yunho","Yeosang","San","Mingi","Wooyoung","Jongho"],
+  "TWICE":       ["Nayeon","Jeongyeon","Momo","Sana","Jihyo","Mina","Dahyun","Chaeyoung","Tzuyu"],
+  "TXT":         ["Yeonjun","Soobin","Beomgyu","Taehyun","Huening Kai"],
+  "ENHYPEN":     ["Jungwon","Heeseung","Jay","Jake","Sunghoon","Sunoo","Ni-ki"],
+  "IVE":         ["Yujin","Gaeul","Rei","Wonyoung","Liz","Leeseo"],
+  "LE SSERAFIM": ["Chaewon","Sakura","Yunjin","Kazuha","Eunchae"],
+  "ITZY":        ["Yeji","Lia","Ryujin","Chaeryeong","Yuna"],
+  "NCT 127":     ["Taeil","Johnny","Taeyong","Yuta","Doyoung","Jaehyun","Jungwoo","Mark","Haechan"],
+  "EXO":         ["Xiumin","Suho","Lay","Baekhyun","Chen","Chanyeol","D.O.","Kai","Sehun"],
+  "Red Velvet":  ["Irene","Seulgi","Wendy","Joy","Yeri"],
+  "SHINee":      ["Onew","Jonghyun","Key","Minho","Taemin"],
 };
 
 function getEraData(group, era, color) {
   const key = `${group}::${era}`;
   const vibe = ERA_VIBES[key] || { subtitle:`${era} comeback era`, palette:[color,"#1a1a2e","#2d3436"], mood:"K-pop · Fandom · Fan culture", outfitVibe:`Concert-ready fan fit inspired by the ${era} era` };
-  const members = ERA_MEMBERS[group] || ["Member 1","Member 2","Member 3","Member 4"];
+  const members = ERA_MEMBERS[group] || [];
   const m4 = members.slice(0,4); // outfits/posts/trades only reference first few members
 
   // Album versions differ per era — generic fallback set
@@ -11644,7 +11777,12 @@ function EraRoom({ group, era, color, onBack, onBinderCreated }) {
               <p style={{ fontSize:11,color:C.textMid,lineHeight:1.5 }}>Start a member binder for your bias or the whole group. Tracks their cards separately from the era binder.</p>
             </div>
             <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
-              {data.members.map(memberName => {
+              {data.members.length === 0 ? (
+                <div style={{ textAlign:"center",padding:"32px 16px",background:`${color}08`,border:`1.5px dashed ${color}30`,borderRadius:16 }}>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,color:C.text,marginBottom:6 }}>Member data coming soon</p>
+                  <p style={{ fontSize:11,color:C.textMid,lineHeight:1.6 }}>We're working on completing this era.<br/>Check back in a future update.</p>
+                </div>
+              ) : data.members.map(memberName => {
                 const mb = memberBinders[memberName];
                 const started = mb?.started;
                 return (
@@ -11687,7 +11825,7 @@ const ERA_SEARCH_GROUPS = [
   { group:"NewJeans",    color:C.sky,      eras:["NewJeans","OMG","Get Up","How Sweet","Bubble Gum","Right Now"],                                            members:["Minji","Hanni","Danielle","Haerin","Hyein"] },
   { group:"BLACKPINK",   color:C.pink,     eras:["Square One","Kill This Love","The Album","Born Pink","Deadline"],                                          members:["Jisoo","Jennie","Rosé","Lisa"] },
   { group:"SEVENTEEN",   color:C.gold,     eras:["17 Carat","Boys Be","You Make My Day","An Ode","Attacca","Face the Sun","Spill the Feels"],                members:["S.Coups","Jeonghan","Joshua","Jun","Hoshi","Wonwoo","Woozi","DK","Mingyu","The8","Seungkwan","Vernon","Dino"] },
-  { group:"ATEEZ",       color:C.berry,    eras:["Wave","Treasure","Fireworks","Zero: Fever","Spin Off: From the Outlaw","The World EP.2"],                  members:["Hongjoong","Seonghwa","Yunho","Yeosang","San","Mingi","Wooyoung","Jongho"] },
+  { group:"ATEEZ",       color:C.berry,    eras:["Treasure","Say My Name","Wave","Wonderland","Answer","THANXX","Fireworks","Deja Vu","Guerrilla","Halazia","Bouncy","Crazy Form","Work","Golden Hour"],  members:["Hongjoong","Seonghwa","Yunho","Yeosang","San","Mingi","Wooyoung","Jongho"] },
   { group:"TWICE",       color:C.pink,     eras:["The Story Begins","Page Two","TWICEcoaster","What is Love","YES or YES","Formula of Love","Ready to Be"],  members:["Nayeon","Jeongyeon","Momo","Sana","Jihyo","Mina","Dahyun","Chaeyoung","Tzuyu"] },
   { group:"TXT",         color:C.sky,      eras:["The Dream Chapter","The Chaos Chapter","Minisode","Fight or Escape","Temptation","The Name Chapter"],       members:["Yeonjun","Soobin","Beomgyu","Taehyun","Huening Kai"] },
   { group:"ENHYPEN",     color:C.lavender, eras:["Border: Day One","Border: Carnival","Dimension: Dilemma","Manifesto: Day 1","Orange Blood","ROMANCE: UNTOLD"],members:["Jungwon","Heeseung","Jay","Jake","Sunghoon","Sunoo","Ni-ki"] },
@@ -11697,7 +11835,7 @@ const ERA_SEARCH_GROUPS = [
   { group:"NCT 127",     color:C.sky,      eras:["Limitless","Cherry Bomb","Regular","Kick It","Sticker","2 Baddies"],                                       members:["Taeil","Johnny","Taeyong","Yuta","Doyoung","Jaehyun","Jungwoo","Mark","Haechan"] },
   { group:"EXO",         color:C.accent,   eras:["MAMA","Growl","Call Me Baby","Monster","Ko Ko Bop","Don't Mess Up My Tempo"],                              members:["Xiumin","Suho","Lay","Baekhyun","Chen","Chanyeol","D.O.","Kai","Sehun"] },
   { group:"Red Velvet",  color:C.rose,     eras:["Happiness","Ice Cream Cake","Dumb Dumb","Red Flavor","Power Up","Psycho","Feel My Rhythm"],                 members:["Irene","Seulgi","Wendy","Joy","Yeri"] },
-  { group:"SHINee",      color:C.teal||C.sky,eras:["Replay","Ring Ding Dong","Lucifer","Sherlock","Married to the Music","View","Don't Call Me"],             members:["Onew","Key","Minho","Taemin"] },
+  { group:"SHINee",      color:C.teal||C.sky,eras:["Replay","Ring Ding Dong","Lucifer","Sherlock","Married to the Music","View","Don't Call Me"],             members:["Onew","Jonghyun","Key","Minho","Taemin"] },
 ];
 
 function ExploreTab({ user, weather, isVip, onUpgrade, go, onBack }) {
