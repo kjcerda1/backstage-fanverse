@@ -1159,16 +1159,16 @@ function ReactionButton({ onClick, active, label = "GIF", compact }) {
   );
 }
 
-// Mood chips shown in the GIF picker — maps label → GIPHY search query
+// Mood chips — each has a fallback query chain tried in order until results come back
 const GIF_MOOD_CHIPS = [
-  { label:"Excited",   q:"excited reaction",           emoji:"✨" },
-  { label:"Crying",    q:"crying happy reaction",      emoji:"😭" },
-  { label:"Cheering",  q:"cheering applause reaction", emoji:"📣" },
-  { label:"Dancing",   q:"happy dance reaction",       emoji:"💃" },
-  { label:"Heart",     q:"heart love reaction",        emoji:"💖" },
-  { label:"Concert",   q:"concert crowd excited",      emoji:"🎤" },
-  { label:"Cute",      q:"cute kawaii reaction",       emoji:"🐱" },
-  { label:"Shocked",   q:"shocked surprised reaction", emoji:"😱" },
+  { label:"Excited",  emoji:"✨", queries:["excited reaction","happy reaction","excited gif","celebration reaction"] },
+  { label:"Crying",   emoji:"😭", queries:["crying reaction","crying gif","sad crying reaction","happy tears","emotional reaction"] },
+  { label:"Cheering", emoji:"📣", queries:["cheering reaction","applause reaction","clapping reaction","crowd cheering"] },
+  { label:"Dancing",  emoji:"💃", queries:["dancing reaction","happy dance","dancing gif","dance reaction"] },
+  { label:"Heart",    emoji:"💖", queries:["heart reaction","love reaction","hearts gif","sending love reaction","cute heart"] },
+  { label:"Concert",  emoji:"🎤", queries:["concert crowd","concert reaction","fans cheering","music concert"] },
+  { label:"Cute",     emoji:"🐱", queries:["cute reaction","cute gif","kawaii reaction","adorable reaction"] },
+  { label:"Shocked",  emoji:"😱", queries:["shocked reaction","surprised reaction","omg reaction","gasp reaction"] },
 ];
 const GIF_DEFAULT_Q = "kpop reaction";
 
@@ -1209,14 +1209,19 @@ function GifPicker({ onSelect, onClose, title = "Send the vibe", subtitle = "Fin
     return ()=>{ alive = false; clearTimeout(t); };
   },[query]);
 
-  const searchChip = (chip) => {
+  const searchChip = async (chip) => {
     setActiveChip(chip.label);
     setQuery("");
     setLoading(true);
-    api.get(`/api/gifs/search?q=${encodeURIComponent(chip.q)}&limit=24`).then(d=>{
-      setResults(Array.isArray(d?.results) ? d.results : []);
-      setLoading(false);
-    }).catch(()=>{ setResults([]); setLoading(false); });
+    for (const q of chip.queries) {
+      try {
+        const d = await api.get(`/api/gifs/search?q=${encodeURIComponent(q)}&limit=24`);
+        const res = Array.isArray(d?.results) ? d.results : [];
+        if (res.length > 0) { setResults(res); setLoading(false); return; }
+      } catch {}
+    }
+    setResults([]);
+    setLoading(false);
   };
 
   const commitSearch = (q) => {
@@ -1228,7 +1233,7 @@ function GifPicker({ onSelect, onClose, title = "Send the vibe", subtitle = "Fin
   };
 
   const pick = (gif) => {
-    commitSearch(query || (activeChip ? GIF_MOOD_CHIPS.find(c=>c.label===activeChip)?.q : GIF_DEFAULT_Q) || "");
+    commitSearch(query || (activeChip ? (GIF_MOOD_CHIPS.find(c=>c.label===activeChip)?.queries[0] || activeChip) : GIF_DEFAULT_Q) || "");
     const recentReactions = ls.get(GIF_LS_RECENT_REACTIONS, []);
     ls.set(GIF_LS_RECENT_REACTIONS, [gif, ...recentReactions.filter(g=>g.id!==gif.id)].slice(0,16));
     api.post('/api/gifs/register-share', { id:gif.id, q:query.trim()||activeChip||GIF_DEFAULT_Q }).catch(()=>{});
@@ -1302,7 +1307,7 @@ function GifPicker({ onSelect, onClose, title = "Send the vibe", subtitle = "Fin
             <div style={{ textAlign:"center",padding:"40px 20px" }}>
               <p style={{ fontSize:28,marginBottom:8 }}>🪐</p>
               <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,marginBottom:4 }}>No reactions found</p>
-              <p style={{ fontSize:11.5,color:C.textMid }}>Try a chip above or search a mood</p>
+              <p style={{ fontSize:11.5,color:C.textMid }}>{activeChip ? "Try a different mood above" : "Try another vibe — dancing, cute, shocked…"}</p>
             </div>
           ) : (
             <div style={{ display:"grid",gridTemplateColumns:`repeat(${cols},1fr)`,gap:7 }}>
