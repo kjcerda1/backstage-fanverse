@@ -1086,6 +1086,7 @@ function ComingSoonModal({ tool, onClose }) {
 const GIF_LS_RECENT_SEARCHES  = "backstage_gif_recent_searches";
 const GIF_LS_RECENT_REACTIONS = "backstage_gif_recent_reactions";
 const GIF_LS_MESSAGE_GIFS     = "backstage_message_gifs";
+const GIF_LS_MEDIA_TYPE       = "backstage_reaction_media_type";
 
 // Gradient fallback used whenever a GIF result has no previewUrl (mock provider, or load failure)
 const GIF_MOOD_GRADIENTS = {
@@ -1123,18 +1124,19 @@ function GifPreviewBubble({ gif, size = 120, rounded = 14, onClick }) {
   );
 }
 
-// GifImg — renders a GIF preview image with onError fallback to GifPreviewBubble
+// GifImg — renders a GIF or sticker preview with onError fallback
 function GifImg({ gif, gifOnly, hasText }) {
   const [errored, setErrored] = useState(false);
   if (!gif) return null;
+  const isSticker = gif.mediaType === "sticker";
   const radius = gifOnly ? 16 : (hasText ? "8px 8px 0 0" : 10);
   if (!gif.previewUrl || errored) return <GifPreviewBubble gif={gif} size="100%" rounded={gifOnly ? 16 : 10} />;
   return (
     <img
       src={gif.previewUrl}
-      alt={gif.title || "GIF reaction"}
+      alt={gif.title || (isSticker ? "sticker" : "GIF reaction")}
       onError={() => setErrored(true)}
-      style={{ width:"100%", maxHeight: gifOnly ? 180 : 200, objectFit:"cover", borderRadius:radius, display:"block" }}
+      style={{ width:"100%", maxHeight: gifOnly ? 180 : 200, objectFit: isSticker ? "contain" : "cover", borderRadius:radius, display:"block" }}
     />
   );
 }
@@ -1159,63 +1161,94 @@ function ReactionButton({ onClick, active, label = "GIF", compact }) {
   );
 }
 
-// Mood chips — each has a fallback query chain tried in order until results come back
+// Mood chips — queries for GIF mode, stickerQueries for Stickers mode (tried in order)
 const GIF_MOOD_CHIPS = [
-  { label:"Excited",  emoji:"✨", queries:["excited reaction","happy reaction","excited gif","celebration reaction"] },
-  { label:"Crying",   emoji:"😭", queries:["crying reaction","crying gif","sad crying reaction","happy tears","emotional reaction"] },
-  { label:"Cheering", emoji:"📣", queries:["cheering reaction","applause reaction","clapping reaction","crowd cheering"] },
-  { label:"Dancing",  emoji:"💃", queries:["dancing reaction","happy dance","dancing gif","dance reaction"] },
-  { label:"Heart",    emoji:"💖", queries:["heart reaction","love reaction","hearts gif","sending love reaction","cute heart"] },
-  { label:"Concert",  emoji:"🎤", queries:["concert crowd","concert reaction","fans cheering","music concert"] },
-  { label:"Cute",     emoji:"🐱", queries:["cute reaction","cute gif","kawaii reaction","adorable reaction"] },
-  { label:"Shocked",  emoji:"😱", queries:["shocked reaction","surprised reaction","omg reaction","gasp reaction"] },
+  { label:"Excited",  emoji:"✨",
+    queries:       ["excited reaction","happy reaction","excited gif","celebration reaction"],
+    stickerQueries:["excited sticker","happy sticker","yay sticker","celebration sticker"] },
+  { label:"Crying",   emoji:"😭",
+    queries:       ["crying reaction","crying gif","sad crying reaction","happy tears","emotional reaction"],
+    stickerQueries:["crying sticker","sad sticker","tears sticker","emotional sticker","happy tears sticker"] },
+  { label:"Cheering", emoji:"📣",
+    queries:       ["cheering reaction","applause reaction","clapping reaction","crowd cheering"],
+    stickerQueries:["cheering sticker","applause sticker","clapping sticker","yay sticker"] },
+  { label:"Dancing",  emoji:"💃",
+    queries:       ["dancing reaction","happy dance","dancing gif","dance reaction"],
+    stickerQueries:["dancing sticker","dance sticker","happy dance sticker","party sticker"] },
+  { label:"Heart",    emoji:"💖",
+    queries:       ["heart reaction","love reaction","hearts gif","sending love reaction","cute heart"],
+    stickerQueries:["heart sticker","love sticker","hearts sticker","sending love sticker","cute heart sticker"] },
+  { label:"Concert",  emoji:"🎤",
+    queries:       ["concert crowd","concert reaction","fans cheering","music concert"],
+    stickerQueries:["music sticker","concert sticker","microphone sticker","crowd sticker","lightstick sticker"] },
+  { label:"Cute",     emoji:"🐱",
+    queries:       ["cute reaction","cute gif","kawaii reaction","adorable reaction"],
+    stickerQueries:["cute sticker","kawaii sticker","adorable sticker","cat sticker"] },
+  { label:"Shocked",  emoji:"😱",
+    queries:       ["shocked reaction","surprised reaction","omg reaction","gasp reaction"],
+    stickerQueries:["shocked sticker","surprised sticker","omg sticker","gasp sticker"] },
 ];
 const GIF_DEFAULT_Q = "kpop reaction";
 
-// GifPicker — mobile bottom sheet: fandom-curated default, mood chips, search.
-function GifPicker({ onSelect, onClose, title = "Send the vibe", subtitle = "Find the perfect concert mood" }) {
-  const [query, setQuery]           = useState("");
-  const [activeChip, setActiveChip] = useState(null); // chip label string
-  const [results, setResults]       = useState([]);
-  const [loading, setLoading]       = useState(true);
+// GifPicker — mobile bottom sheet: GIFs + Stickers toggle, mood chips, search.
+// defaultMediaType prop: "gif" | "sticker" — overrides localStorage for this open only.
+function GifPicker({ onSelect, onClose, title = "Send the vibe", subtitle = "Find the perfect concert mood", defaultMediaType }) {
+  const [mediaType, setMediaType] = useState(()=> defaultMediaType || ls.get(GIF_LS_MEDIA_TYPE, "gif"));
+  const [query, setQuery]         = useState("");
+  const [activeChip, setActiveChip] = useState(null);
+  const [results, setResults]     = useState([]);
+  const [loading, setLoading]     = useState(true);
   const [recentSearches, setRecentSearches] = useState(()=>ls.get(GIF_LS_RECENT_SEARCHES, []));
   const cols = typeof window !== "undefined" && window.innerWidth < 380 ? 2 : 3;
+  const isSticker = mediaType === "sticker";
 
-  // On open: search fandom-curated default instead of broad trending
-  useEffect(()=>{
-    let alive = true;
+  const typeParam = isSticker ? "&type=sticker" : "&type=gif";
+
+  const loadDefault = (mt) => {
     setLoading(true);
-    api.get(`/api/gifs/search?q=${encodeURIComponent(GIF_DEFAULT_Q)}&limit=24`).then(d=>{
-      if(!alive) return;
+    api.get(`/api/gifs/search?q=${encodeURIComponent(GIF_DEFAULT_Q)}&limit=24&type=${mt}`).then(d=>{
       setResults(Array.isArray(d?.results) ? d.results : []);
       setLoading(false);
-    }).catch(()=>{ if(alive){ setResults([]); setLoading(false); } });
-    return ()=>{ alive = false; };
-  },[]);
+    }).catch(()=>{ setResults([]); setLoading(false); });
+  };
 
-  // Debounced search ~300ms when user types in the input
+  // On open: fandom-curated default
+  useEffect(()=>{ loadDefault(mediaType); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Debounced search when user types
   useEffect(()=>{
     const q = query.trim();
     if(!q) return;
     let alive = true;
     setLoading(true);
     const t = setTimeout(()=>{
-      api.get(`/api/gifs/search?q=${encodeURIComponent(q)}&limit=24`).then(d=>{
+      api.get(`/api/gifs/search?q=${encodeURIComponent(q)}&limit=24${typeParam}`).then(d=>{
         if(!alive) return;
         setResults(Array.isArray(d?.results) ? d.results : []);
         setLoading(false);
       }).catch(()=>{ if(alive){ setResults([]); setLoading(false); } });
     }, 300);
     return ()=>{ alive = false; clearTimeout(t); };
-  },[query]);
+  },[query, mediaType]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const searchChip = async (chip) => {
+  const switchMode = (mt) => {
+    if (mt === mediaType) return;
+    ls.set(GIF_LS_MEDIA_TYPE, mt);
+    setMediaType(mt);
+    setQuery("");
+    setActiveChip(null);
+    loadDefault(mt);
+  };
+
+  const searchChip = async (chip, mt) => {
+    const mode = mt || mediaType;
     setActiveChip(chip.label);
     setQuery("");
     setLoading(true);
-    for (const q of chip.queries) {
+    const list = mode === "sticker" ? (chip.stickerQueries || chip.queries) : chip.queries;
+    for (const q of list) {
       try {
-        const d = await api.get(`/api/gifs/search?q=${encodeURIComponent(q)}&limit=24`);
+        const d = await api.get(`/api/gifs/search?q=${encodeURIComponent(q)}&limit=24&type=${mode}`);
         const res = Array.isArray(d?.results) ? d.results : [];
         if (res.length > 0) { setResults(res); setLoading(false); return; }
       } catch {}
@@ -1241,11 +1274,12 @@ function GifPicker({ onSelect, onClose, title = "Send the vibe", subtitle = "Fin
     onClose?.();
   };
 
-  const clearSearch = () => { setQuery(""); setActiveChip(null); setLoading(true);
-    api.get(`/api/gifs/search?q=${encodeURIComponent(GIF_DEFAULT_Q)}&limit=24`).then(d=>{
-      setResults(Array.isArray(d?.results) ? d.results : []); setLoading(false);
-    }).catch(()=>{ setResults([]); setLoading(false); });
+  const clearSearch = () => {
+    setQuery(""); setActiveChip(null);
+    loadDefault(mediaType);
   };
+
+  const tileBg = isSticker ? `${C.surfaceMid}` : "transparent";
 
   return (
     <div onClick={onClose} style={{ position:"fixed",inset:0,zIndex:900,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
@@ -1254,18 +1288,28 @@ function GifPicker({ onSelect, onClose, title = "Send the vibe", subtitle = "Fin
         <div style={{ width:36,height:4,borderRadius:99,background:C.border,margin:"14px auto 10px",flexShrink:0 }} />
 
         <div style={{ padding:"0 18px 10px",flexShrink:0 }}>
-          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:17,marginBottom:2,background:`linear-gradient(135deg,${C.lavender},${C.blush})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent" }}>{title}</p>
-          <p style={{ fontSize:11.5,color:C.textMid,marginBottom:10 }}>{subtitle}</p>
+          {/* Header row: title + GIFs|Stickers toggle */}
+          <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8 }}>
+            <div>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:17,marginBottom:1,background:`linear-gradient(135deg,${C.lavender},${C.blush})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent" }}>{title}</p>
+              <p style={{ fontSize:11,color:C.textMid }}>{subtitle}</p>
+            </div>
+            {/* GIFs | Stickers segmented toggle */}
+            <div style={{ display:"flex",background:C.surfaceHi,borderRadius:12,padding:3,border:`1.5px solid ${C.borderHi}`,flexShrink:0 }}>
+              {[["gif","GIFs"],["sticker","Stickers"]].map(([mt,label])=>(
+                <button key={mt} onClick={()=>switchMode(mt)} className="tap" style={{ padding:"6px 12px",borderRadius:9,background:mediaType===mt?C.accent:"transparent",border:"none",color:mediaType===mt?C.bg:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:10.5,cursor:"pointer",transition:"all .18s",letterSpacing:"0.02em" }}>{label}</button>
+              ))}
+            </div>
+          </div>
 
           {/* Search input */}
           <div style={{ position:"relative" }}>
             <span style={{ position:"absolute",left:14,top:"50%",transform:"translateY(-50%)",fontSize:13,color:C.textMid }}>🔍</span>
             <input
-              autoFocus
               value={query}
               onChange={e=>{ setQuery(e.target.value); setActiveChip(null); }}
               onKeyDown={e=>{ if(e.key==="Enter") commitSearch(query); }}
-              placeholder="Search reactions…"
+              placeholder={isSticker ? "Search stickers…" : "Search reactions…"}
               style={{ width:"100%",padding:"10px 36px 10px 36px",borderRadius:13,background:C.surfaceHi,border:`1.5px solid ${C.borderHi}`,color:C.text,fontSize:12.5,outline:"none",fontFamily:"'Instrument Sans',sans-serif",boxSizing:"border-box" }}
             />
             {(query||activeChip)&&(
@@ -1273,8 +1317,8 @@ function GifPicker({ onSelect, onClose, title = "Send the vibe", subtitle = "Fin
             )}
           </div>
 
-          {/* Mood chips — always visible */}
-          <div style={{ display:"flex",gap:6,overflowX:"auto",marginTop:10,paddingBottom:2,scrollbarWidth:"none" }}>
+          {/* Mood chips */}
+          <div style={{ display:"flex",gap:6,overflowX:"auto",marginTop:9,paddingBottom:2,scrollbarWidth:"none" }}>
             {GIF_MOOD_CHIPS.map(chip=>{
               const isActive = activeChip === chip.label;
               return (
@@ -1285,9 +1329,9 @@ function GifPicker({ onSelect, onClose, title = "Send the vibe", subtitle = "Fin
             })}
           </div>
 
-          {/* Recent searches — only when no chip active and no query typed */}
+          {/* Recent searches */}
           {!query.trim() && !activeChip && recentSearches.length > 0 && (
-            <div style={{ display:"flex",gap:6,flexWrap:"wrap",marginTop:8 }}>
+            <div style={{ display:"flex",gap:6,flexWrap:"wrap",marginTop:7 }}>
               {recentSearches.slice(0,5).map(s=>(
                 <button key={s} onClick={()=>{ setQuery(s); setActiveChip(null); }} className="tap" style={{ padding:"4px 10px",borderRadius:99,background:"transparent",border:`1px solid ${C.border}`,color:C.textDim,fontSize:9.5,fontFamily:"'Epilogue',sans-serif",fontWeight:600,cursor:"pointer" }}>{s}</button>
               ))}
@@ -1295,7 +1339,7 @@ function GifPicker({ onSelect, onClose, title = "Send the vibe", subtitle = "Fin
           )}
         </div>
 
-        {/* GIF grid */}
+        {/* Result grid */}
         <div style={{ flex:1,overflowY:"auto",padding:"4px 14px 4px" }}>
           {loading ? (
             <div style={{ display:"grid",gridTemplateColumns:`repeat(${cols},1fr)`,gap:7 }}>
@@ -1305,23 +1349,30 @@ function GifPicker({ onSelect, onClose, title = "Send the vibe", subtitle = "Fin
             </div>
           ) : results.length === 0 ? (
             <div style={{ textAlign:"center",padding:"40px 20px" }}>
-              <p style={{ fontSize:28,marginBottom:8 }}>🪐</p>
-              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,marginBottom:4 }}>No reactions found</p>
-              <p style={{ fontSize:11.5,color:C.textMid }}>{activeChip ? "Try a different mood above" : "Try another vibe — dancing, cute, shocked…"}</p>
+              <p style={{ fontSize:28,marginBottom:8 }}>{isSticker ? "🐱" : "🪐"}</p>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,marginBottom:4 }}>{isSticker ? "No stickers found" : "No GIFs found"}</p>
+              <p style={{ fontSize:11.5,color:C.textMid }}>{activeChip ? "Try a different mood above" : (isSticker ? "Try another mood — heart, cute, dancing…" : "Try another vibe — dancing, cute, shocked…")}</p>
             </div>
           ) : (
             <div style={{ display:"grid",gridTemplateColumns:`repeat(${cols},1fr)`,gap:7 }}>
-              {results.map(gif=>(
-                <div key={gif.id} onClick={()=>pick(gif)} className="tap" style={{ aspectRatio:"1",cursor:"pointer",borderRadius:12,overflow:"hidden" }}>
-                  <GifPreviewBubble gif={gif} size="100%" rounded={12} />
-                </div>
-              ))}
+              {results.map(gif=>{
+                const isS = gif.mediaType === "sticker";
+                return (
+                  <div key={gif.id} onClick={()=>pick(gif)} className="tap" style={{ aspectRatio:"1",cursor:"pointer",borderRadius:12,overflow:"hidden",position:"relative",background:isS?tileBg:"transparent",border:`1px solid ${C.borderHi}` }}>
+                    {gif.previewUrl
+                      ? <img src={gif.previewUrl} alt={gif.title||""} style={{ width:"100%",height:"100%",objectFit:isS?"contain":"cover",display:"block",borderRadius:12 }} />
+                      : <GifPreviewBubble gif={gif} size="100%" rounded={12} />
+                    }
+                    <div style={{ position:"absolute",bottom:4,left:4,background:"rgba(6,6,15,0.65)",borderRadius:5,padding:"1px 5px",fontSize:7.5,fontFamily:"'Epilogue',sans-serif",fontWeight:800,letterSpacing:0.5,color:"rgba(255,255,255,0.9)",textTransform:"uppercase" }}>{isS?"Sticker":"GIF"}</div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
 
         {/* GIPHY attribution — required by GIPHY TOS */}
-        <div style={{ padding:"8px 18px 20px",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"flex-end",gap:5 }}>
+        <div style={{ padding:"7px 18px 18px",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"flex-end" }}>
           <span style={{ fontSize:9,color:C.textDim,fontFamily:"'Epilogue',sans-serif",letterSpacing:"0.04em" }}>Powered by GIPHY</span>
         </div>
       </div>
@@ -14254,6 +14305,7 @@ function FriendsPage({ onBack, onNotif }) {
         <GifPicker
           title="Send the vibe"
           subtitle={`Welcome ${reactPromptFor.member.name} to your Circle`}
+          defaultMediaType="sticker"
           onSelect={(gif)=>{ finalizeAccept(reactPromptFor.req, reactPromptFor.member, gif); setReactGifPickerOpen(false); setReactPromptFor(null); }}
           onClose={()=>{ setReactGifPickerOpen(false); }}
         />
@@ -17958,8 +18010,8 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
                   /* GIF-only — sticker style: no bubble background, compact, rounded */
                   <div
                     onClick={()=>{ setReactionPicker(isPickerOpen?null:{convoId:activeConvo.id,msgIdx:i}); setKitOpen(false); setCharmPickerOpen(false); }}
-                    style={{ maxWidth:180,cursor:"pointer" }}>
-                    <div style={{ borderRadius:16,overflow:"hidden",border:`1.5px solid ${C.borderHi}`,boxShadow:`0 2px 12px rgba(0,0,0,0.35)` }}>
+                    style={{ maxWidth:msg.gif?.mediaType==="sticker"?160:180,cursor:"pointer" }}>
+                    <div style={{ borderRadius:16,overflow:"hidden",border:`1.5px solid ${C.borderHi}`,boxShadow:`0 2px 12px rgba(0,0,0,0.35)`,background:msg.gif?.mediaType==="sticker"?"rgba(30,18,60,0.7)":"transparent" }}>
                       <GifImg gif={msg.gif} gifOnly hasText={false} />
                     </div>
                     <p style={{ fontSize:8,color:C.textDim,marginTop:3,textAlign:isMe?"right":"left",paddingRight:isMe?2:0,paddingLeft:isMe?0:2 }}>{msg.time}</p>

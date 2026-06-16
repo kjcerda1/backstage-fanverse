@@ -1258,8 +1258,9 @@ app.get('/api/music/search', requireAuth, async (req, res) => {
 
 // ═════════════════════════════════════════════════════════════════════════════
 // GIFS / REACTIONS — /api/gifs/* (provider-agnostic: tenor | giphy | mock)
-// Keys never reach the frontend — this proxy normalizes results to a single shape:
-// { id, title, previewUrl, fullUrl, source, width?, height? }
+// Keys never reach the frontend. Normalized shape:
+// { id, title, previewUrl, fullUrl, source, mediaType, width?, height? }
+// type param: "gif" (default) | "sticker"
 // ═════════════════════════════════════════════════════════════════════════════
 
 const GIF_PROVIDER  = (process.env.GIF_PROVIDER || 'mock').toLowerCase();
@@ -1272,17 +1273,18 @@ const MOCK_GIF_GRADIENTS = [
   ['#3d1060', '#b8a2ff'], ['#f0a8cc', '#7c4dff'], ['#8eefd4', '#5b3df6'],
 ];
 
-function buildMockGifs(seed = 'vibe', limit = 24) {
+function buildMockGifs(seed = 'vibe', limit = 24, mediaType = 'gif') {
   const out = [];
   for (let i = 0; i < limit; i++) {
     const mood = MOCK_GIF_MOODS[i % MOCK_GIF_MOODS.length];
     const [a, b] = MOCK_GIF_GRADIENTS[i % MOCK_GIF_GRADIENTS.length];
     out.push({
-      id:         `mock-${seed}-${i}`,
-      title:      `${mood} concert mood`,
+      id:         `mock-${mediaType}-${seed}-${i}`,
+      title:      `${mood} ${mediaType === 'sticker' ? 'sticker' : 'concert mood'}`,
       previewUrl: null,
       fullUrl:    null,
       source:     'mock',
+      mediaType,
       width:      320,
       height:     320,
       mood,
@@ -1292,8 +1294,22 @@ function buildMockGifs(seed = 'vibe', limit = 24) {
   return out;
 }
 
-async function searchGifs(q, limit) {
+function normalizeGiphy(g, q, mediaType) {
+  return {
+    id:         g.id,
+    title:      g.title || q,
+    previewUrl: g.images?.fixed_width_small?.url || g.images?.preview_gif?.url || null,
+    fullUrl:    g.images?.original?.url || null,
+    source:     'giphy',
+    mediaType,
+    width:      g.images?.original?.width  ? Number(g.images.original.width)  : null,
+    height:     g.images?.original?.height ? Number(g.images.original.height) : null,
+  };
+}
+
+async function searchGifs(q, limit, mediaType = 'gif') {
   if (GIF_PROVIDER === 'tenor' && TENOR_API_KEY) {
+    // Tenor does not have a separate sticker endpoint — treat sticker as gif search
     const r = await fetch(`https://tenor.googleapis.com/v2/search?q=${encodeURIComponent(q)}&key=${TENOR_API_KEY}&limit=${limit}&contentfilter=high&media_filter=gif,tinygif`);
     const data = await r.json();
     return (data.results || []).map(g => ({
@@ -1302,27 +1318,21 @@ async function searchGifs(q, limit) {
       previewUrl: g.media_formats?.tinygif?.url || g.media_formats?.gif?.url || null,
       fullUrl:    g.media_formats?.gif?.url || null,
       source:     'tenor',
+      mediaType,
       width:      g.media_formats?.gif?.dims?.[0] || null,
       height:     g.media_formats?.gif?.dims?.[1] || null,
     }));
   }
   if (GIF_PROVIDER === 'giphy' && GIPHY_API_KEY) {
-    const r = await fetch(`https://api.giphy.com/v1/gifs/search?api_key=${GIPHY_API_KEY}&q=${encodeURIComponent(q)}&limit=${limit}&rating=pg-13`);
+    const endpoint = mediaType === 'sticker' ? 'stickers' : 'gifs';
+    const r = await fetch(`https://api.giphy.com/v1/${endpoint}/search?api_key=${GIPHY_API_KEY}&q=${encodeURIComponent(q)}&limit=${limit}&rating=pg`);
     const data = await r.json();
-    return (data.data || []).map(g => ({
-      id:         g.id,
-      title:      g.title || q,
-      previewUrl: g.images?.fixed_width_small?.url || g.images?.preview_gif?.url || null,
-      fullUrl:    g.images?.original?.url || null,
-      source:     'giphy',
-      width:      g.images?.original?.width ? Number(g.images.original.width) : null,
-      height:     g.images?.original?.height ? Number(g.images.original.height) : null,
-    }));
+    return (data.data || []).map(g => normalizeGiphy(g, q, mediaType));
   }
-  return buildMockGifs(q || 'search', limit);
+  return buildMockGifs(q || 'search', limit, mediaType);
 }
 
-async function trendingGifs(limit) {
+async function trendingGifs(limit, mediaType = 'gif') {
   if (GIF_PROVIDER === 'tenor' && TENOR_API_KEY) {
     const r = await fetch(`https://tenor.googleapis.com/v2/featured?key=${TENOR_API_KEY}&limit=${limit}&contentfilter=high&media_filter=gif,tinygif`);
     const data = await r.json();
@@ -1332,47 +1342,43 @@ async function trendingGifs(limit) {
       previewUrl: g.media_formats?.tinygif?.url || g.media_formats?.gif?.url || null,
       fullUrl:    g.media_formats?.gif?.url || null,
       source:     'tenor',
+      mediaType,
       width:      g.media_formats?.gif?.dims?.[0] || null,
       height:     g.media_formats?.gif?.dims?.[1] || null,
     }));
   }
   if (GIF_PROVIDER === 'giphy' && GIPHY_API_KEY) {
-    const r = await fetch(`https://api.giphy.com/v1/gifs/trending?api_key=${GIPHY_API_KEY}&limit=${limit}&rating=pg-13`);
+    const endpoint = mediaType === 'sticker' ? 'stickers' : 'gifs';
+    const r = await fetch(`https://api.giphy.com/v1/${endpoint}/trending?api_key=${GIPHY_API_KEY}&limit=${limit}&rating=pg`);
     const data = await r.json();
-    return (data.data || []).map(g => ({
-      id:         g.id,
-      title:      g.title || 'trending',
-      previewUrl: g.images?.fixed_width_small?.url || g.images?.preview_gif?.url || null,
-      fullUrl:    g.images?.original?.url || null,
-      source:     'giphy',
-      width:      g.images?.original?.width ? Number(g.images.original.width) : null,
-      height:     g.images?.original?.height ? Number(g.images.original.height) : null,
-    }));
+    return (data.data || []).map(g => normalizeGiphy(g, 'trending', mediaType));
   }
-  return buildMockGifs('trending', limit);
+  return buildMockGifs('trending', limit, mediaType);
 }
 
 app.get('/api/gifs/search', requireAuth, async (req, res) => {
   const q = String(req.query.q || '').trim();
   const limit = Math.min(parseInt(req.query.limit) || 24, 50);
-  if (!q) return res.json({ results: buildMockGifs('trending', limit), provider: GIF_PROVIDER, mock: true });
+  const mediaType = req.query.type === 'sticker' ? 'sticker' : 'gif';
+  if (!q) return res.json({ results: buildMockGifs('trending', limit, mediaType), provider: GIF_PROVIDER, mock: true });
   try {
-    const results = await searchGifs(q, limit);
+    const results = await searchGifs(q, limit, mediaType);
     res.json({ results, provider: GIF_PROVIDER, mock: GIF_PROVIDER === 'mock' });
   } catch (err) {
     console.error('[GIF Search] Error:', err.message);
-    res.json({ results: buildMockGifs(q, limit), provider: GIF_PROVIDER, mock: true });
+    res.json({ results: buildMockGifs(q, limit, mediaType), provider: GIF_PROVIDER, mock: true });
   }
 });
 
 app.get('/api/gifs/trending', requireAuth, async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 24, 50);
+  const mediaType = req.query.type === 'sticker' ? 'sticker' : 'gif';
   try {
-    const results = await trendingGifs(limit);
+    const results = await trendingGifs(limit, mediaType);
     res.json({ results, provider: GIF_PROVIDER, mock: GIF_PROVIDER === 'mock' });
   } catch (err) {
     console.error('[GIF Trending] Error:', err.message);
-    res.json({ results: buildMockGifs('trending', limit), provider: GIF_PROVIDER, mock: true });
+    res.json({ results: buildMockGifs('trending', limit, mediaType), provider: GIF_PROVIDER, mock: true });
   }
 });
 
