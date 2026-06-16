@@ -19881,8 +19881,32 @@ function MusicConnect({ nowPlaying, setNowPlaying, userId, isVip, onUpgrade }) {
 }
 
 // ─── CONCERT CAPSULE ─────────────────────────────────────────────────────────
+const CAPSULE_CAT_GRADIENTS = {
+  fit:       `linear-gradient(135deg,${C.accent},${C.berry})`,
+  seat:      `linear-gradient(135deg,#2a0060,#4a0090)`,
+  ocean:     `linear-gradient(135deg,${C.accentDim},${C.plum})`,
+  stage:     `linear-gradient(135deg,${C.gold},${C.goldDim})`,
+  freebies:  `linear-gradient(135deg,${C.pink},${C.berry})`,
+  merch:     `linear-gradient(135deg,#666,#333)`,
+  food:      `linear-gradient(135deg,#400010,#800020)`,
+  moots:     `linear-gradient(135deg,${C.pink},${C.lavender})`,
+  pulls:     `linear-gradient(135deg,${C.gold},${C.accent})`,
+  afterglow: `linear-gradient(135deg,${C.mint},${C.mint}88)`,
+};
+function fmtCapsuleTs(ts) {
+  if (!ts) return 'just now';
+  const d = (Date.now() - new Date(ts)) / 1000;
+  if (d < 60) return 'just now';
+  if (d < 3600) return `${Math.floor(d/60)}m ago`;
+  if (d < 86400) return `${Math.floor(d/3600)}h ago`;
+  return `${Math.floor(d/86400)}d ago`;
+}
+function apiEntryToLocal(e) {
+  return { id:e.id, concertId:e.concert_id, category:e.category, caption:e.caption, username:e.username||'@stan', timestamp:fmtCapsuleTs(e.created_at), gradient:CAPSULE_CAT_GRADIENTS[e.category]||CAPSULE_CAT_GRADIENTS.fit, likes:0, savedToScrapbook:false, _userId:e.user_id };
+}
+
 // Shared memory binder for fans at the same concert
-// POST /api/capsule/:concertId | GET /api/capsule/:concertId/entries
+// GET /api/capsule/:concertId/entries | POST /api/capsule/:concertId/entries
 function ConcertCapsule({ concert, onBack, user, isVip=false, onUpgrade, isSignedOut=false, fromCapsulePath=false, onSignupRequired }) {
   const KEY = "backstage_concert_capsules";
   const CONCERT_ID = concert?.id || "bts-lv-1";
@@ -19936,6 +19960,21 @@ function ConcertCapsule({ concert, onBack, user, isVip=false, onUpgrade, isSigne
   };
 
   useEffect(()=>{ ls.set(KEY,entries); },[entries]);
+
+  // Fetch shared capsule entries from API on mount (if auth'd)
+  useEffect(()=>{
+    if(!user?.id) return;
+    api.get(`/api/capsule/${CONCERT_ID}/entries`).then(res=>{
+      const apiEntries = res?.entries;
+      if(Array.isArray(apiEntries) && apiEntries.length > 0){
+        setEntries(apiEntries.map(apiEntryToLocal));
+        const mine = apiEntries.filter(e=>e.user_id===user.id).length;
+        setMyCount(mine);
+        ls.set(`backstage_capsule_count_${CONCERT_ID}`, mine);
+      }
+    }).catch(()=>{});
+  },[]);// eslint-disable-line react-hooks/exhaustive-deps
+
   const filtered = activeCat==="all"?entries:entries.filter(e=>e.category===activeCat);
   const trendingCat = CATS.filter(c=>c.id!=="all").map(c=>({ ...c, count:entries.filter(e=>e.category===c.id).length })).sort((a,b)=>b.count-a.count)[0];
   const like = id => setEntries(es=>es.map(e=>e.id===id?{...e,likes:e.likes+1}:e));
@@ -19944,12 +19983,21 @@ function ConcertCapsule({ concert, onBack, user, isVip=false, onUpgrade, isSigne
     const entry=entries.find(e=>e.id===id);
     if(entry&&!entry.savedToScrapbook){ const s=ls.get("backstage_scrapbook_items",[]); ls.set("backstage_scrapbook_items",[...s,{...entry,type:"capsule",savedAt:Date.now()}]); }
   };
-  const addEntry = () => {
+  const addEntry = async () => {
     if(!draft.caption.trim()) return;
     if(atFreeLimit){ onUpgrade?.(); return; }
-    setEntries(es=>[{id:`e${Date.now()}`,concertId:CONCERT_ID,category:draft.category,caption:draft.caption,username:`@${user?.name||user?.username||"stan"}`,timestamp:"just now",gradient:`linear-gradient(135deg,${C.accent},${C.pink})`,likes:0,savedToScrapbook:false},...es]);
+    const localId = `e${Date.now()}`;
+    const localEntry = {id:localId,concertId:CONCERT_ID,category:draft.category,caption:draft.caption,username:`@${user?.name||user?.username||"stan"}`,timestamp:"just now",gradient:CAPSULE_CAT_GRADIENTS[draft.category]||`linear-gradient(135deg,${C.accent},${C.pink})`,likes:0,savedToScrapbook:false};
+    setEntries(es=>[localEntry,...es]);
     setMyCount(c=>{ const n=c+1; ls.set(`backstage_capsule_count_${CONCERT_ID}`,n); return n; });
     setDraft({category:"fit",caption:""}); setAdding(false);
+    if(user?.id){
+      api.post(`/api/capsule/${CONCERT_ID}/entries`,{category:draft.category,caption:draft.caption}).then(res=>{
+        if(res?.entry?.id){
+          setEntries(es=>es.map(e=>e.id===localId ? {...apiEntryToLocal(res.entry),likes:0,savedToScrapbook:false} : e));
+        }
+      }).catch(()=>{});
+    }
   };
 
   const Card = ({entry}) => {

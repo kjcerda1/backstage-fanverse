@@ -4967,6 +4967,63 @@ app.get('/api/trader-stats/:userId', async (req, res) => {
   }
 });
 
+// ── Concert Capsule ─────────────────────────────────────────────────────────
+// GET /api/capsule/:concertId/entries — public, returns recent 50
+app.get('/api/capsule/:concertId/entries', async (req, res) => {
+  if (!supabase) return res.json({ entries: [], mock: true });
+  try {
+    const { data, error } = await supabase
+      .from('capsule_entries')
+      .select('id, concert_id, user_id, category, caption, username, created_at')
+      .eq('concert_id', req.params.concertId)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    if (error) throw error;
+    res.json({ entries: data || [] });
+  } catch (err) {
+    console.error('[Capsule GET]', err.message);
+    res.json({ entries: [], error: err.message });
+  }
+});
+
+// POST /api/capsule/:concertId/entries — auth required, free cap: 3/concert
+app.post('/api/capsule/:concertId/entries', requireAuth, async (req, res) => {
+  if (!supabase) return res.json({ entry: null, mock: true });
+  const { category, caption } = req.body;
+  if (!caption?.trim()) return res.status(400).json({ error: 'caption required' });
+  const concertId = req.params.concertId;
+  try {
+    const { data: usr } = await supabase
+      .from('users')
+      .select('is_vip, username, name')
+      .eq('id', req.userId)
+      .single();
+
+    if (!usr?.is_vip) {
+      const { count } = await supabase
+        .from('capsule_entries')
+        .select('id', { count: 'exact', head: true })
+        .eq('concert_id', concertId)
+        .eq('user_id', req.userId);
+      if ((count || 0) >= 3) {
+        return res.status(403).json({ error: 'free_limit', limit: 3 });
+      }
+    }
+
+    const username = `@${usr?.username || usr?.name || 'stan'}`;
+    const { data, error } = await supabase
+      .from('capsule_entries')
+      .insert({ concert_id: concertId, user_id: req.userId, category: category || 'fit', caption: caption.trim(), username })
+      .select()
+      .single();
+    if (error) throw error;
+    res.json({ entry: data });
+  } catch (err) {
+    console.error('[Capsule POST]', err.message);
+    res.status(500).json({ error: 'Failed to save entry' });
+  }
+});
+
 // ═════════════════════════════════════════════════════════════════════════════
 // START
 // ═════════════════════════════════════════════════════════════════════════════
