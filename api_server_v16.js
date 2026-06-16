@@ -3154,9 +3154,10 @@ app.get('/api/messages/thread/:id', requireAuth, async (req, res) => {
 });
 
 app.post('/api/messages/thread/:id/send', requireAuth, async (req, res) => {
-  const body = String(req.body?.body || '').trim();
-  if (!body) return res.status(400).json({ error: 'body required' });
-  if (MOCK_MODE) return res.json({ message: { id: `mock-msg-${Date.now()}`, body, sender_user_id: req.userId, created_at: new Date().toISOString() }, mock: true });
+  const body = String(req.body?.body || '').trim() || null;
+  const gif  = req.body?.gif && typeof req.body.gif === 'object' ? req.body.gif : null;
+  if (!body && !gif) return res.status(400).json({ error: 'body or gif required' });
+  if (MOCK_MODE) return res.json({ message: { id: `mock-msg-${Date.now()}`, body, gif, sender_user_id: req.userId, created_at: new Date().toISOString() }, mock: true });
   try {
     const { data: membership } = await supabase
       .from('message_thread_members')
@@ -3175,10 +3176,12 @@ app.post('/api/messages/thread/:id/send', requireAuth, async (req, res) => {
         return res.status(403).json({ error: 'blocked', message: 'You cannot message this user.' });
       }
     }
+    const insert = { thread_id: req.params.id, sender_user_id: req.userId, body };
+    if (gif) insert.gif = gif;
     const { data, error } = await supabase
       .from('messages')
-      .insert({ thread_id: req.params.id, sender_user_id: req.userId, body })
-      .select('id, thread_id, sender_user_id, body, created_at')
+      .insert(insert)
+      .select('id, thread_id, sender_user_id, body, gif, created_at')
       .single();
     if (error) throw error;
     await supabase.from('message_threads').update({ updated_at: new Date().toISOString() }).eq('id', req.params.id);

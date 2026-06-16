@@ -17572,6 +17572,8 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
         from:m.sender_user_id === user?.id ? "me" : "them",
         text:m.body || m.text || "",
         time:m.created_at ? new Date(m.created_at).toLocaleTimeString([], { hour:"numeric", minute:"2-digit" }) : "now",
+        gif:m.gif || null,
+        type:m.gif ? "gif" : "text",
       })),
       unread:0,
       lastTime:thread.last_message?.created_at ? new Date(thread.last_message.created_at).toLocaleTimeString([], { hour:"numeric", minute:"2-digit" }) : "now",
@@ -17640,9 +17642,11 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
   const sendMessage = async () => {
     if((!msgDraft.trim() && !attachPreview && !selectedGif)||!activeConvo) return;
     const msg = { from:"me", type:selectedGif?"gif":"text", text:msgDraft, time:"now", image:attachPreview||null, gif:selectedGif||null };
-    if (activeConvo.backend && msgDraft.trim()) {
+    if (activeConvo.backend && (msgDraft.trim() || selectedGif)) {
       try {
-        const saved = await api.post(`/api/messages/thread/${encodeURIComponent(activeConvo.id)}/send`, { body:msgDraft.trim() });
+        const payload = { body: msgDraft.trim() || undefined };
+        if (selectedGif) payload.gif = selectedGif;
+        const saved = await api.post(`/api/messages/thread/${encodeURIComponent(activeConvo.id)}/send`, payload);
         msg.id = saved?.message?.id || msg.id;
         msg.time = saved?.message?.created_at ? new Date(saved.message.created_at).toLocaleTimeString([], { hour:"numeric", minute:"2-digit" }) : "now";
       } catch {}
