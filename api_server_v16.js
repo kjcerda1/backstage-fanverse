@@ -4187,6 +4187,23 @@ app.post('/api/capsule/:concertId/entries', requireAuth, async (req, res) => {
   }
 });
 
+// ── Trade Reviews ─────────────────────────────────────────────────────────────
+app.get('/api/trader-stats/:userId', async (req, res) => {
+  if (!supabase) return res.json({ completed_trades: 0, positive: 0, negative: 0, is_trusted: false, mock: true });
+  try {
+    const uid = req.params.userId;
+    const { data: user } = await supabase.from('users').select('trade_count, proof_score').eq('id', uid).single();
+    const { data: reviews } = await supabase.from('trade_reviews').select('rating').eq('trader_id', uid);
+    const pos = (reviews||[]).filter(r=>r.rating>=4).length;
+    const neg = (reviews||[]).filter(r=>r.rating<=2).length;
+    const completed = user?.trade_count || 0;
+    res.json({ completed_trades: completed, positive: pos, negative: neg, is_trusted: completed >= 3 && neg === 0 });
+  } catch (err) {
+    console.error('[TraderStats]', err.message);
+    res.json({ completed_trades:0, positive:0, negative:0, is_trusted:false });
+  }
+});
+
 // ═════════════════════════════════════════════════════════════════════════════
 // ERROR HANDLING
 // ═════════════════════════════════════════════════════════════════════════════
@@ -5004,24 +5021,6 @@ app.post('/api/listing-reports', requireAuth, async (req, res) => {
   }
 });
 
-// ── Trade Reviews (uses existing trade_reviews table) ─────────────────────────
-// POST /api/trade-reviews already exists — extend it for listing_offer context
-// GET trader stats for a user
-app.get('/api/trader-stats/:userId', async (req, res) => {
-  if (!supabase) return res.json({ completed_trades: 0, positive: 0, negative: 0, is_trusted: false, mock: true });
-  try {
-    const uid = req.params.userId;
-    const { data: user } = await supabase.from('users').select('trade_count, proof_score').eq('id', uid).single();
-    const { data: reviews } = await supabase.from('trade_reviews').select('rating').eq('trader_id', uid);
-    const pos = (reviews||[]).filter(r=>r.rating>=4).length;
-    const neg = (reviews||[]).filter(r=>r.rating<=2).length;
-    const completed = user?.trade_count || 0;
-    res.json({ completed_trades: completed, positive: pos, negative: neg, is_trusted: completed >= 3 && neg === 0 });
-  } catch (err) {
-    console.error('[TraderStats]', err.message);
-    res.json({ completed_trades:0, positive:0, negative:0, is_trusted:false });
-  }
-});
 
 // ═════════════════════════════════════════════════════════════════════════════
 // START
