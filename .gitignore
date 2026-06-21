@@ -30,6 +30,8 @@ Thumbs.db
 
 # Claude AI session files — not needed in repo
 .claude/
+# Codex/MCP config — may contain API tokens, never commit
+.codex/
 
 # Backup files — use git history instead
 src/App_backup_*.jsx
@@ -38,6 +40,9 @@ src/App_backup_*.jsx
 files.zip
 backstage_v16_patches.md
 env_v16.txt
+5-18.txt
+PATCH_NOTES_*.md
+Backstage_Agency_Pitch*.pptx
 *.log
 .worktrees/
 *firebase-adminsdk*.json
