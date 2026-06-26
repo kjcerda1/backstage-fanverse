@@ -20081,17 +20081,20 @@ function NowPlayingCard({ nowPlaying, isVip, isPublicView, onUpgrade, showEdit, 
 
 // ─── MUSIC CONNECT ────────────────────────────────────────────────────────────
 // GET /api/music/search — Spotify catalog search (no VIP required)
-// POST /api/music/connect/spotify | /apple — OAuth auto-sync (VIP phase)
+// POST /api/music/connect/spotify | /apple — OAuth auto-sync (Phase 2)
 function MusicConnect({ nowPlaying, setNowPlaying, userId, isVip, onUpgrade }) {
-  const [musicView, setMusicView] = useState("display"); // display | search | connect
-  const [connected, setConnected] = useState(()=>ls.get("backstage_music_connected", null));
+  // display | search | connect | apple_recent
+  const [musicView, setMusicView] = useState("display");
+  const [connected, setConnected]   = useState(()=>ls.get("backstage_music_connected", null));
   const [connecting, setConnecting] = useState(null);
-  const [mockSongIdx, setMockSongIdx] = useState(0);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [connectErr, setConnectErr] = useState(null);
+  const [mockSongIdx, setMockSongIdx] = useState(0); // eslint-disable-line no-unused-vars
+  const [searchQuery, setSearchQuery]   = useState("");
   const [searchResults, setSearchResults] = useState([]);
-  const [searching, setSearching] = useState(false);
-  const [manualMode, setManualMode] = useState(false);
-  const [manualDraft, setManualDraft] = useState({title:"",artist:""});
+  const [searching, setSearching]       = useState(false);
+  const [manualMode, setManualMode]     = useState(false);
+  const [manualDraft, setManualDraft]   = useState({title:"",artist:""});
+  const [appleRecent, setAppleRecent]   = useState(()=>ls.get("backstage_apple_recent", null));
 
   const persistNp = (np) => {
     const key = `backstage_now_playing_${userId || 'anon'}`;
@@ -20111,7 +20114,7 @@ function MusicConnect({ nowPlaying, setNowPlaying, userId, isVip, onUpgrade }) {
     }
   },[]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Poll Spotify every 30s when connected; mock rotation otherwise
+  // Poll Spotify every 30s; mock rotation for any other connected state
   useEffect(()=>{
     if(!connected) return;
     if(connected==='spotify' && API_URL) {
@@ -20122,6 +20125,7 @@ function MusicConnect({ nowPlaying, setNowPlaying, userId, isVip, onUpgrade }) {
       }, 30000);
       return ()=>clearInterval(t);
     }
+    if(connected==='apple') return; // Apple doesn't poll — user picks from recent
     const t = setInterval(()=>{
       setMockSongIdx(i=>{
         const next = (i+1) % MOCK_SPOTIFY_SONGS.length;
@@ -20133,7 +20137,7 @@ function MusicConnect({ nowPlaying, setNowPlaying, userId, isVip, onUpgrade }) {
     return ()=>clearInterval(t);
   },[connected]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Debounced search
+  // Debounced catalog search
   useEffect(()=>{
     if(!searchQuery.trim()) { setSearchResults([]); return; }
     const t = setTimeout(async ()=>{
@@ -20148,42 +20152,170 @@ function MusicConnect({ nowPlaying, setNowPlaying, userId, isVip, onUpgrade }) {
   },[searchQuery]);
 
   const handleSaveSong = (song) => {
-    persistNp({ ...song, savedAt: Date.now() });
+    const np = { ...song, title: song.title || song.song, savedAt: Date.now() };
+    persistNp(np);
+    if (API_URL) api.post('/api/music/profile-song', {
+      song:            np.title,
+      artist:          np.artist,
+      album:           np.album   || null,
+      albumArt:        np.albumArt || null,
+      source:          np.source  || 'manual',
+      providerTrackId: np.id      || null,
+      url:             np.appleMusicUrl || np.spotifyUrl || null,
+    }).catch(()=>{});
     setMusicView("display");
     setSearchQuery("");
     setSearchResults([]);
     setManualMode(false);
   };
 
+  // Load MusicKit JS on-demand; configure + return instance
+  const loadMusicKit = (developerToken, appInfo) => new Promise((resolve, reject) => {
+    const configure = () => {
+      try {
+        window.MusicKit.configure({ developerToken, app: appInfo });
+        resolve(window.MusicKit.getInstance());
+      } catch(e) { reject(e); }
+    };
+    if (window.MusicKit) { configure(); return; }
+    const existing = document.getElementById('musickit-js');
+    if (existing) { existing.addEventListener('load', configure, { once: true }); return; }
+    const script = document.createElement('script');
+    script.id  = 'musickit-js';
+    script.src = 'https://js-cdn.music.apple.com/musickit/v1/musickit.js';
+    script.onload  = configure;
+    script.onerror = () => reject(new Error('MusicKit JS failed to load'));
+    document.head.appendChild(script);
+  });
+
   const handleConnect = async (service) => {
     setConnecting(service);
+    setConnectErr(null);
+
     if (service === 'spotify' && API_URL) {
       try {
         const data = await api.post('/api/music/connect/spotify', {});
         if (data?.auth_url) { window.location.href = data.auth_url; return; }
       } catch { /* fall through to mock */ }
     }
-    await new Promise(r=>setTimeout(r,1200));
+
+    if (service === 'apple' && API_URL) {
+      try {
+        const data = await api.post('/api/music/connect/apple', {});
+        if (data?.developer_token) {
+          // Real MusicKit flow — requires Apple Developer credentials on backend
+          const music          = await loadMusicKit(data.developer_token, data.app || { name:'Backstage', build:'v16-apple-music' });
+          const musicUserToken = await music.authorize();
+          await api.post('/api/music/apple/save-token', {
+            musicUserToken,
+            storefrontId: music.storefrontId || 'us',
+          });
+          ls.set("backstage_music_connected", "apple");
+          setConnected("apple");
+          setConnecting(null);
+          try {
+            const recent = await api.get('/api/music/apple/recent');
+            if (recent?.songs?.length) {
+              ls.set("backstage_apple_recent", recent.songs);
+              setAppleRecent(recent.songs);
+              setMusicView("apple_recent");
+            } else {
+              setMusicView("display");
+            }
+          } catch { setMusicView("display"); }
+          return;
+        }
+        // data.mock === true — credentials not configured, fall through to mock
+      } catch(err) {
+        console.error('[Apple Music]', err.message);
+        setConnectErr('Could not connect to Apple Music. You can still search and set a song manually.');
+        setConnecting(null);
+        return;
+      }
+    }
+
+    // Mock fallback (no real credentials, or Spotify mock)
+    await new Promise(r=>setTimeout(r, 1200));
     const s = MOCK_SPOTIFY_SONGS[0];
     persistNp({ title:s.song, artist:s.artist, album:s.album, source:service, savedAt:Date.now() });
     setConnected(service);
     ls.set("backstage_music_connected", service);
+    if (service === 'apple') {
+      const mockRecent = MOCK_SPOTIFY_SONGS.slice(0, 5).map(s => ({
+        id:`am-mock-${s.song}`, title:s.song, artist:s.artist, album:s.album,
+        albumArt:null, source:'apple', appleMusicUrl:null,
+      }));
+      setAppleRecent(mockRecent);
+      ls.set("backstage_apple_recent", mockRecent);
+      setConnecting(null);
+      setMusicView("apple_recent");
+      return;
+    }
     setConnecting(null);
     setMusicView("display");
   };
 
   const handleDisconnect = () => {
+    const prev = connected;
     setConnected(null);
     ls.del("backstage_music_connected");
+    if (prev === 'apple') {
+      setAppleRecent(null);
+      ls.del("backstage_apple_recent");
+    }
   };
 
-  // Connect screen
+  // ── Apple recently played picker ──────────────────────────────────────────
+  if (musicView === "apple_recent") return (
+    <div style={{ background:`linear-gradient(140deg,${C.surface},${C.surfaceHi})`, border:`1.5px solid ${C.borderHi}`, borderRadius:18, padding:16, marginBottom:18, animation:"up .2s ease" }}>
+      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4 }}>
+        <div>
+          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14 }}>Apple Music</p>
+          <p style={{ fontSize:9.5,color:C.textDim,marginTop:1 }}>Pick your My Stage song</p>
+        </div>
+        <button onClick={()=>setMusicView("display")} style={{ background:"none",border:"none",color:C.textMid,cursor:"pointer",fontSize:16 }}>✕</button>
+      </div>
+      <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:12,padding:"5px 10px",background:`${C.rose}15`,border:`1px solid ${C.rose}30`,borderRadius:10 }}>
+        <div style={{ width:7,height:7,borderRadius:"50%",background:C.rose,flexShrink:0 }} />
+        <p style={{ fontSize:9.5,color:C.rose,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>Connected to Apple Music</p>
+      </div>
+      <p style={{ fontSize:10,color:C.textDim,marginBottom:10 }}>Recent tracks — tap to set as your profile song</p>
+      <div style={{ maxHeight:240,overflowY:"auto" }}>
+        {(appleRecent||[]).map((s,i)=>(
+          <div key={s.id||i} onClick={()=>handleSaveSong({ ...s, title:s.title||s.song, source:'apple' })} className="tap"
+            style={{ display:"flex",gap:9,alignItems:"center",padding:"8px 0",borderBottom:i<(appleRecent.length-1)?`1px solid ${C.border}`:"none",cursor:"pointer" }}>
+            {s.albumArt
+              ? <img src={s.albumArt} alt="" style={{ width:34,height:34,borderRadius:8,objectFit:"cover",flexShrink:0 }} />
+              : <div style={{ width:34,height:34,borderRadius:8,background:`linear-gradient(135deg,${C.rose}40,#fc3c4420)`,border:`1.5px solid ${C.rose}20`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0 }}>🎵</div>
+            }
+            <div style={{ flex:1,minWidth:0 }}>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{s.title||s.song}</p>
+              <p style={{ fontSize:10.5,color:C.textMid,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{s.artist}{s.album?` · ${s.album}`:""}</p>
+            </div>
+            <span style={{ color:C.rose,fontSize:13,flexShrink:0 }}>→</span>
+          </div>
+        ))}
+      </div>
+      <div style={{ borderTop:`1px solid ${C.border}`,paddingTop:10,marginTop:8 }}>
+        <button onClick={()=>setMusicView("search")} style={{ width:"100%",padding:"8px",borderRadius:10,background:"none",border:`1px dashed ${C.border}`,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontSize:11,cursor:"pointer" }}>
+          Search any song instead →
+        </button>
+      </div>
+    </div>
+  );
+
+  // ── Connect screen ────────────────────────────────────────────────────────
   if(musicView==="connect") return (
     <div style={{ background:`linear-gradient(140deg,${C.surface},${C.surfaceHi})`, border:`1.5px solid ${C.borderHi}`, borderRadius:18, padding:16, marginBottom:18, animation:"up .2s ease" }}>
       <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14 }}>
         <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14 }}>Connect Music</p>
         <button onClick={()=>setMusicView("display")} style={{ background:"none",border:"none",color:C.textMid,cursor:"pointer",fontSize:16 }}>✕</button>
       </div>
+      {connectErr&&(
+        <div style={{ background:`${C.rose}12`,border:`1px solid ${C.rose}30`,borderRadius:10,padding:"8px 12px",marginBottom:12 }}>
+          <p style={{ fontSize:10.5,color:C.rose,lineHeight:1.4 }}>{connectErr}</p>
+        </div>
+      )}
       <div style={{ ...VS.glowCard(C.mint), padding:"13px 14px", marginBottom:10, cursor:"pointer" }} onClick={()=>!connecting&&handleConnect("spotify")}>
         <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.mint}55,transparent)` }} />
         <div style={{ position:"relative",display:"flex",gap:12,alignItems:"center" }}>
@@ -20201,7 +20333,7 @@ function MusicConnect({ nowPlaying, setNowPlaying, userId, isVip, onUpgrade }) {
           <div style={{ width:40,height:40,borderRadius:12,background:"linear-gradient(135deg,#ff3b5c,#fc3c44)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0 }}>🎵</div>
           <div style={{ flex:1 }}>
             <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5 }}>Apple Music</p>
-            <p style={{ fontSize:10.5,color:C.textMid }}>Sync from your Apple Music library</p>
+            <p style={{ fontSize:10.5,color:C.textMid }}>Authorize with MusicKit to set your era soundtrack</p>
           </div>
           {connecting==="apple" ? <div style={{ width:18,height:18,borderRadius:"50%",border:`2px solid ${C.rose}`,borderTop:`2px solid transparent`,animation:"rotate 0.8s linear infinite" }} /> : <span style={{ color:C.rose,fontSize:14 }}>→</span>}
         </div>
@@ -20210,13 +20342,20 @@ function MusicConnect({ nowPlaying, setNowPlaying, userId, isVip, onUpgrade }) {
     </div>
   );
 
-  // Search screen
+  // ── Search / manual entry screen ──────────────────────────────────────────
   if(musicView==="search") return (
     <div style={{ background:`linear-gradient(140deg,${C.surface},${C.surfaceHi})`, border:`1.5px solid ${C.borderHi}`, borderRadius:18, padding:16, marginBottom:18, animation:"up .2s ease" }}>
       <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12 }}>
         <p style={{ fontSize:9.5,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em" }}>Set Your Song</p>
         <button onClick={()=>{setMusicView("display");setSearchQuery("");setSearchResults([]);setManualMode(false);}} style={{ background:"none",border:"none",color:C.textMid,cursor:"pointer",fontSize:16 }}>✕</button>
       </div>
+      {/* Apple recent shortcut */}
+      {connected==='apple'&&appleRecent?.length>0&&(
+        <button onClick={()=>setMusicView("apple_recent")} style={{ width:"100%",display:"flex",alignItems:"center",gap:8,padding:"8px 10px",background:`${C.rose}10`,border:`1px solid ${C.rose}30`,borderRadius:10,marginBottom:10,cursor:"pointer" }}>
+          <div style={{ width:22,height:22,borderRadius:6,background:"linear-gradient(135deg,#ff3b5c,#fc3c44)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,flexShrink:0 }}>🎵</div>
+          <p style={{ flex:1,fontSize:11,color:C.rose,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textAlign:"left" }}>Pick from Apple Music recent →</p>
+        </button>
+      )}
       <div style={{ position:"relative",marginBottom:10 }}>
         <Input
           value={searchQuery}
@@ -20270,7 +20409,7 @@ function MusicConnect({ nowPlaying, setNowPlaying, userId, isVip, onUpgrade }) {
     </div>
   );
 
-  // Display card
+  // ── Display card (default) ────────────────────────────────────────────────
   return (
     <div>
       <NowPlayingCard
@@ -20281,10 +20420,15 @@ function MusicConnect({ nowPlaying, setNowPlaying, userId, isVip, onUpgrade }) {
         showEdit={true}
         onEdit={()=>setMusicView("search")}
       />
-      <div style={{ display:"flex",gap:8,justifyContent:"flex-end",marginTop:-10,marginBottom:16 }}>
+      <div style={{ display:"flex",gap:8,justifyContent:"space-between",alignItems:"center",marginTop:-10,marginBottom:16 }}>
         {!connected
           ? <button onClick={()=>setMusicView("connect")} style={{ background:"none",border:`1px solid ${C.mint}44`,borderRadius:8,padding:"4px 9px",color:C.mint,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>⚡ Auto-sync</button>
-          : <button onClick={handleDisconnect} style={{ background:"none",border:"none",color:C.textDim,fontSize:9,cursor:"pointer",fontFamily:"'Epilogue',sans-serif" }}>✕ Disconnect {connected}</button>
+          : <div style={{ display:"flex",gap:6,alignItems:"center" }}>
+              {connected==='apple'&&appleRecent?.length>0&&(
+                <button onClick={()=>setMusicView("apple_recent")} style={{ background:`${C.rose}15`,border:`1px solid ${C.rose}33`,borderRadius:8,padding:"4px 9px",color:C.rose,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>🎵 Change song</button>
+              )}
+              <button onClick={handleDisconnect} style={{ background:"none",border:"none",color:C.textDim,fontSize:9,cursor:"pointer",fontFamily:"'Epilogue',sans-serif" }}>✕ Disconnect {connected}</button>
+            </div>
         }
       </div>
     </div>

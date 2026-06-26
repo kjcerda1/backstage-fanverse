@@ -69,6 +69,7 @@ import Stripe      from 'stripe';
 import Anthropic   from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 import admin        from 'firebase-admin';
+import jwt          from 'jsonwebtoken';
 import 'dotenv/config';
 
 const app  = express();
@@ -80,6 +81,7 @@ const HAS_STRIPE         = !!process.env.STRIPE_SECRET_KEY;
 const HAS_AI             = !!process.env.ANTHROPIC_API_KEY;
 const HAS_FIREBASE       = !!(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || process.env.FIREBASE_PROJECT_ID);
 const HAS_SPOTIFY        = !!process.env.SPOTIFY_CLIENT_ID && !!process.env.SPOTIFY_CLIENT_SECRET;
+const HAS_APPLE_MUSIC    = !!process.env.APPLE_MUSIC_TEAM_ID && !!process.env.APPLE_MUSIC_KEY_ID && !!process.env.APPLE_MUSIC_PRIVATE_KEY;
 const HAS_MAPBOX         = !!process.env.MAPBOX_ACCESS_TOKEN;
 const HAS_TICKETMASTER   = !!process.env.TICKETMASTER_API_KEY;
 const HAS_EMAIL          = !!process.env.RESEND_API_KEY;
@@ -108,7 +110,7 @@ if (HAS_FIREBASE && !admin.apps.length) {
 }
 
 console.log(`[Backstage API v1.16.0] Starting in ${MOCK_MODE ? 'MOCK' : 'PRODUCTION'} mode`);
-console.log(`[Backstage API] AI: ${HAS_AI ? '✓' : '✗'} | Stripe: ${HAS_STRIPE ? '✓' : '✗'} | Spotify: ${HAS_SPOTIFY ? '✓' : '✗'} | Mapbox: ${HAS_MAPBOX ? '✓' : '✗'}`);
+console.log(`[Backstage API] AI: ${HAS_AI ? '✓' : '✗'} | Stripe: ${HAS_STRIPE ? '✓' : '✗'} | Spotify: ${HAS_SPOTIFY ? '✓' : '✗'} | Apple Music: ${HAS_APPLE_MUSIC ? '✓' : '✗'} | Mapbox: ${HAS_MAPBOX ? '✓' : '✗'}`);
 
 // ── SERVICE CLIENTS ───────────────────────────────────────────────────────────
 const supabase = MOCK_MODE
@@ -1087,29 +1089,148 @@ app.get('/api/music/spotify/callback', async (req, res) => {
   }
 });
 
-// Apple Music — returns MusicKit developer token
-app.post('/api/music/connect/apple', requireAuth, (req, res) => {
-  // Apple Music requires MusicKit JS on frontend + a signed developer token
-  // Set APPLE_MUSIC_TEAM_ID, APPLE_MUSIC_KEY_ID, APPLE_MUSIC_PRIVATE_KEY in env
-  const hasApple = !!process.env.APPLE_MUSIC_TEAM_ID;
+// Apple Music developer token — cached in memory, regenerated every ~149 days
+let _appleDeveloperToken = null;
+let _appleDeveloperTokenExpiry = 0;
 
-  if (!hasApple) {
+function getAppleDeveloperToken() {
+  if (_appleDeveloperToken && Date.now() < _appleDeveloperTokenExpiry) return _appleDeveloperToken;
+  const privateKey = process.env.APPLE_MUSIC_PRIVATE_KEY.replace(/\\n/g, '\n');
+  const token = jwt.sign({}, privateKey, {
+    algorithm: 'ES256',
+    expiresIn: '150d',
+    issuer: process.env.APPLE_MUSIC_TEAM_ID,
+    keyid: process.env.APPLE_MUSIC_KEY_ID,
+  });
+  _appleDeveloperToken = token;
+  _appleDeveloperTokenExpiry = Date.now() + 149 * 24 * 60 * 60 * 1000;
+  return _appleDeveloperToken;
+}
+
+// Apple Music — returns MusicKit developer token for frontend MusicKit.configure()
+app.post('/api/music/connect/apple', requireAuth, (req, res) => {
+  if (!HAS_APPLE_MUSIC) {
     return res.json({
       mock: true,
       connected: false,
-      message: 'Apple Music integration coming soon. Add APPLE_MUSIC_TEAM_ID + APPLE_MUSIC_KEY_ID + APPLE_MUSIC_PRIVATE_KEY.',
+      provider: 'apple',
+      message: 'Apple Music credentials are not configured yet.',
       developer_token: null,
     });
   }
+  try {
+    const developer_token = getAppleDeveloperToken();
+    res.json({ connected: false, provider: 'apple', developer_token, app: { name: 'Backstage', build: 'v16-apple-music' } });
+  } catch (err) {
+    console.error('[Apple Music] Token generation failed:', err.message);
+    res.status(500).json({ error: 'Failed to generate Apple Music developer token' });
+  }
+});
 
-  // TODO: Sign JWT with Apple Music private key
-  // import jwt from 'jsonwebtoken';
-  // const privateKey = process.env.APPLE_MUSIC_PRIVATE_KEY.replace(/\\n/g, '\n');
-  // const token = jwt.sign({}, privateKey, { algorithm: 'ES256', expiresIn: '180d',
-  //   issuer: process.env.APPLE_MUSIC_TEAM_ID, header: { alg: 'ES256', kid: process.env.APPLE_MUSIC_KEY_ID } });
-  // res.json({ developer_token: token });
+// Save Apple Music user token after MusicKit.authorize() on the frontend
+app.post('/api/music/apple/save-token', requireAuth, async (req, res) => {
+  const { musicUserToken, storefrontId } = req.body || {};
+  if (!musicUserToken) return res.status(400).json({ error: 'musicUserToken required' });
 
-  res.json({ message: 'Apple Music token generation: wire jwt + APPLE_MUSIC_PRIVATE_KEY' });
+  if (!supabase) return res.json({ success: true, mock: true });
+
+  try {
+    await supabase.from('users').update({
+      apple_music_user_token:    musicUserToken,
+      apple_music_storefront:    storefrontId || 'us',
+      apple_music_connected_at:  new Date().toISOString(),
+      music_provider:            'apple',
+    }).eq('id', req.userId);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[Apple Music] save-token error:', err.message);
+    res.status(500).json({ error: 'Failed to save Apple Music token' });
+  }
+});
+
+// Mock recently played for Apple fallback
+const MOCK_APPLE_RECENT = [
+  { id:'am-mock-1', song:'Whiplash',   artist:'aespa',      album:'Whiplash',  albumArt:null, url:null, source:'apple', isrc:null, previewUrl:null },
+  { id:'am-mock-2', song:'Dynamite',   artist:'BTS',        album:'Dynamite',  albumArt:null, url:null, source:'apple', isrc:null, previewUrl:null },
+  { id:'am-mock-3', song:'Pink Venom', artist:'BLACKPINK',  album:'BORN PINK', albumArt:null, url:null, source:'apple', isrc:null, previewUrl:null },
+  { id:'am-mock-4', song:'How Sweet',  artist:'NewJeans',   album:'How Sweet', albumArt:null, url:null, source:'apple', isrc:null, previewUrl:null },
+  { id:'am-mock-5', song:'MIROH',      artist:'Stray Kids', album:'Clé 1',     albumArt:null, url:null, source:'apple', isrc:null, previewUrl:null },
+];
+
+// Fetch Apple Music recently played tracks for the authenticated user
+app.get('/api/music/apple/recent', requireAuth, async (req, res) => {
+  if (!supabase) return res.json({ songs: MOCK_APPLE_RECENT, provider: 'apple', mock: true });
+
+  try {
+    const { data: user } = await supabase.from('users')
+      .select('apple_music_user_token, apple_music_storefront')
+      .eq('id', req.userId).single();
+
+    if (!user?.apple_music_user_token || !HAS_APPLE_MUSIC) {
+      return res.json({ songs: MOCK_APPLE_RECENT, provider: 'apple', mock: true });
+    }
+
+    const devToken    = getAppleDeveloperToken();
+    const appleRes    = await fetch('https://api.music.apple.com/v1/me/recent/played/tracks?limit=10', {
+      headers: {
+        Authorization:     `Bearer ${devToken}`,
+        'Music-User-Token': user.apple_music_user_token,
+      },
+    });
+
+    if (!appleRes.ok) {
+      console.warn('[Apple Recent] API returned', appleRes.status);
+      return res.json({ songs: MOCK_APPLE_RECENT, provider: 'apple', mock: true });
+    }
+
+    const appleData = await appleRes.json();
+    const songs = (appleData?.data || []).map(item => ({
+      id:         item.id,
+      song:       item.attributes?.name,
+      artist:     item.attributes?.artistName,
+      album:      item.attributes?.albumName,
+      albumArt:   item.attributes?.artwork
+                    ? item.attributes.artwork.url.replace('{w}', '300').replace('{h}', '300')
+                    : null,
+      url:        item.attributes?.url || null,
+      source:     'apple',
+      isrc:       item.attributes?.isrc || null,
+      previewUrl: item.attributes?.previews?.[0]?.url || null,
+    }));
+
+    res.json({ songs: songs.length ? songs : MOCK_APPLE_RECENT, provider: 'apple', mock: !songs.length });
+  } catch (err) {
+    console.error('[Apple Recent] Error:', err.message);
+    res.json({ songs: MOCK_APPLE_RECENT, provider: 'apple', mock: true });
+  }
+});
+
+// Save profile song from any source (manual, Spotify, Apple)
+app.post('/api/music/profile-song', requireAuth, async (req, res) => {
+  const { song, artist, album, albumArt, source, providerTrackId, url } = req.body || {};
+  if (!song && !artist) return res.status(400).json({ error: 'song or artist required' });
+
+  const nowPlaying = {
+    title:           song || null,
+    artist:          artist || null,
+    album:           album  || null,
+    albumArt:        albumArt || null,
+    source:          source || 'manual',
+    providerTrackId: providerTrackId || null,
+    appleMusicUrl:   source === 'apple'   ? (url || null) : null,
+    spotifyUrl:      source === 'spotify' ? (url || null) : null,
+    savedAt:         new Date().toISOString(),
+  };
+
+  if (!supabase) return res.json({ success: true, nowPlaying, mock: true });
+
+  try {
+    await supabase.from('users').update({ now_playing: nowPlaying }).eq('id', req.userId);
+    res.json({ success: true, nowPlaying });
+  } catch (err) {
+    console.error('[Profile Song] Error:', err.message);
+    res.status(500).json({ error: 'Failed to save profile song' });
+  }
 });
 
 // Get current Now Playing (Spotify or manual)
@@ -1124,10 +1245,10 @@ app.get('/api/music/now-playing', requireAuth, async (req, res) => {
   try {
     if (!supabase) throw new Error('No DB');
     const { data: user } = await supabase.from('users')
-      .select('now_playing, spotify_access_token')
+      .select('now_playing, spotify_access_token, apple_music_user_token')
       .eq('id', req.userId).single();
 
-    // If Spotify token exists, fetch live
+    // Spotify live playback takes priority if token exists
     if (user?.spotify_access_token) {
       const npRes = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
         headers: { Authorization: `Bearer ${user.spotify_access_token}` },
@@ -1147,8 +1268,11 @@ app.get('/api/music/now-playing', requireAuth, async (req, res) => {
       }
     }
 
-    // Fallback to manual now_playing
-    res.json({ ...user?.now_playing, source: 'manual' });
+    // Fallback: return saved now_playing (may be Apple Music or manual)
+    if (user?.now_playing) {
+      return res.json({ ...user.now_playing, source: user.now_playing.source || 'manual' });
+    }
+    res.json({ source: 'manual' });
   } catch (err) {
     res.json({ song: 'Whiplash', artist: 'aespa', source: 'manual', mock: true });
   }
