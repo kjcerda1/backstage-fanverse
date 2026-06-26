@@ -824,6 +824,83 @@ const VS = {
     position: "absolute", top: 0, left: 0, right: 0, height: 1,
     background: `linear-gradient(90deg,transparent,${color}44,transparent)`,
   }),
+
+  // ── Phase 1 additions: premium glass/glow primitives ──────────────────────
+  // Deep cosmic page backdrop w/ soft nebula glow — for screen-level wrappers.
+  cosmicPageBg: (color=C.accent) => ({
+    background: `radial-gradient(ellipse at 50% -10%,${color}14,transparent 55%),${C.bg}`,
+    position: "relative",
+  }),
+  // Stronger glassmorphism card: blur + inset highlight + top shimmer + corner glow.
+  // Use for structural/dashboard cards that currently sit flat (Collection Overview, hero banners).
+  neonGlassCard: (color=C.accent) => ({
+    background: `linear-gradient(155deg,${color}1c,${C.surfaceHi}f0 45%,${C.surfaceMid}f0)`,
+    border: `1.5px solid ${color}3c`,
+    borderRadius: 24,
+    boxShadow: `0 14px 40px ${color}22, 0 4px 14px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.10), inset 0 0 24px ${color}0c`,
+    backdropFilter: "blur(14px)",
+    position: "relative", overflow: "hidden",
+  }),
+  // Big "hero moment" card — for headline dashboard/CTA banners (Collection Overview,
+  // Continue Building, My Stage profile hero). Heavier glow + deeper gradient than neonGlassCard.
+  premiumHeroCard: (color=C.accent, color2=C.pink) => ({
+    background: `linear-gradient(150deg,${color}2a 0%,${C.plum}cc 45%,${C.cosmic}f5 100%)`,
+    border: `1.5px solid ${color}48`,
+    borderRadius: 26,
+    boxShadow: `0 18px 48px ${color}28, 0 6px 18px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.12), inset 0 0 32px ${color2}10`,
+    backdropFilter: "blur(10px)",
+    position: "relative", overflow: "hidden",
+  }),
+  // Gradient glow CTA button — pairs with <button className="tap">.
+  glowButton: (color=C.accent, color2=C.pink) => ({
+    background: `linear-gradient(135deg,${color},${color2})`,
+    border: `1px solid rgba(255,255,255,0.22)`,
+    borderRadius: 14,
+    color: "#0a0612",
+    fontFamily: "'Epilogue',sans-serif", fontWeight: 800,
+    boxShadow: `0 8px 24px ${color}44, 0 3px 10px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.35)`,
+    cursor: "pointer",
+  }),
+  // Pill badge with a glow halo — for feature/status callouts that need more weight than mutedPill.
+  featurePill: (color) => ({
+    display: "inline-flex", alignItems: "center", gap: 5,
+    padding: "5px 12px", borderRadius: 99,
+    background: `linear-gradient(135deg,${color}28,${color}10)`,
+    border: `1px solid ${color}50`,
+    color: color, fontSize: 10,
+    fontFamily: "'Epilogue',sans-serif", fontWeight: 700,
+    letterSpacing: "0.04em",
+    boxShadow: `0 0 16px ${color}28`,
+  }),
+  // Compact glass stat tile (matches HomeLiveStats pattern) — reusable for any stat row/grid.
+  statGlassTile: (color) => ({
+    position: "relative", overflow: "hidden",
+    background: "linear-gradient(160deg,rgba(255,255,255,0.05),rgba(255,255,255,0.015))",
+    border: `1px solid ${color}2c`,
+    borderRadius: 20,
+    boxShadow: `0 4px 16px rgba(0,0,0,0.32), 0 0 0 1px ${color}10`,
+    backdropFilter: "blur(12px)",
+  }),
+  // Decorative orbit ring/glow — absolutely-positioned accent for hero/collectible cards.
+  orbitAccent: (color, size=120) => ({
+    position: "absolute", top: -size*0.3, right: -size*0.3,
+    width: size, height: size, borderRadius: "50%",
+    border: `1px solid ${color}30`,
+    background: `radial-gradient(circle,${color}1c,transparent 70%)`,
+    pointerEvents: "none",
+  }),
+  // Section label with a small glowing accent dot — richer variant of softSectionHeader.
+  sectionEyebrow: (color=C.textMid) => ({
+    fontSize: 9.5, color: color,
+    fontFamily: "'Epilogue',sans-serif", fontWeight: 700,
+    textTransform: "uppercase", letterSpacing: "0.14em",
+    marginBottom: 12,
+  }),
+  // Glassy active-tab treatment for the bottom nav (glow underline + soft elevated backdrop).
+  bottomNavGlow: (color) => ({
+    boxShadow: `0 0 0 1px ${color}22, 0 -2px 18px ${color}26`,
+    background: `linear-gradient(180deg,${color}10,transparent 70%)`,
+  }),
 };
 
 // ─── SKIN SYSTEM — shared between ProfileStudio and the main Profile page ─────
@@ -1477,16 +1554,93 @@ const SectionHeader = ({ title, action, onAction }) => (
 );
 
 const ProgressBar = ({ value, color=C.accent, style:s }) => (
-  <div style={{ background:C.surfaceHi, borderRadius:99, height:5, overflow:"hidden", ...s }}>
-    <div style={{ height:"100%", width:`${Math.min(100,Math.max(0,value))}%`, background:`linear-gradient(90deg,${color},${color}66)`, borderRadius:99, transition:"width .5s ease" }} />
+  <div style={{ background:C.surfaceHi, borderRadius:99, height:5, overflow:"hidden", boxShadow:"inset 0 1px 2px rgba(0,0,0,0.3)", ...s }}>
+    <div style={{ height:"100%", width:`${Math.min(100,Math.max(0,value))}%`, background:`linear-gradient(90deg,${color},${color}66)`, borderRadius:99, transition:"width .5s ease", boxShadow:`0 0 10px ${color}99, 0 0 2px ${color}cc` }} />
   </div>
 );
+
+// Circular completion ring — conic-gradient progress with a dark inner well for a centered label.
+// Used as the dominant metric moment on collector status panels (e.g. My World).
+const RingProgress = ({ value, size=78, thickness=8, color=C.accent, color2=C.pink, children }) => {
+  const pct = Math.min(100, Math.max(0, value));
+  return (
+    <div style={{ position:"relative", width:size, height:size, flexShrink:0 }}>
+      <div style={{ position:"absolute", inset:0, borderRadius:"50%", background:`conic-gradient(${color2} 0%,${color} ${pct}%,rgba(255,255,255,0.06) ${pct}%)`, boxShadow:`0 0 22px ${color}38` }} />
+      <div style={{ position:"absolute", inset:thickness, borderRadius:"50%", background:`linear-gradient(160deg,${C.cosmic},${C.bg})`, display:"flex", alignItems:"center", justifyContent:"center", flexDirection:"column" }}>
+        {children}
+      </div>
+    </div>
+  );
+};
 
 const Toggle = ({ on, onChange, color=C.accent }) => (
   <div onClick={()=>onChange(!on)} className="tap" style={{ width:46, height:26, borderRadius:99, background:on?color:C.surfaceMid, border:`1.5px solid ${on?color:C.border}`, position:"relative", cursor:"pointer", transition:"all .22s", flexShrink:0 }}>
     <div style={{ position:"absolute", top:3, left:on?21:3, width:18, height:18, borderRadius:"50%", background:on?C.bg:C.textMid, transition:"left .22s", boxShadow:"0 1px 4px rgba(0,0,0,.4)" }} />
   </div>
 );
+
+// Backstage "B" brand mark — used in place of a generic icon for the My World bottom-nav tab.
+// Visual/brand-only: rounded-square B logo, muted lavender outline when inactive,
+// pink→purple neon gradient + glow + small glowing dot when active.
+const BackstageBIcon = ({ active }) => (
+  <div style={{
+    width: 22, height: 22, borderRadius: 7,
+    display: "flex", alignItems: "center", justifyContent: "center",
+    position: "relative",
+    background: active ? `linear-gradient(135deg,${C.pink},${C.accent})` : "transparent",
+    border: `1.5px solid ${active ? "transparent" : C.lavender + "55"}`,
+    boxShadow: active ? `0 0 12px ${C.pink}66, 0 2px 8px ${C.accent}44` : "none",
+    transition: "all .2s",
+  }}>
+    <span style={{
+      fontFamily: "'Epilogue',sans-serif", fontWeight: 900, fontSize: 12,
+      color: active ? "#0a0612" : C.lavender,
+      lineHeight: 1,
+    }}>B</span>
+    {active && (
+      <div style={{
+        position: "absolute", bottom: -2, right: -2, width: 5, height: 5, borderRadius: "50%",
+        background: C.pink, boxShadow: `0 0 6px ${C.pink}cc`,
+      }} />
+    )}
+  </div>
+);
+
+// Backstage "B4" nav icon — image-based My World bottom-nav icon (replaces BackstageBIcon at the nav call site).
+// Active: bright/glowing via drop-shadow filters. Inactive: dimmed via brightness/saturate/opacity, same asset.
+function BackstageBNavIcon({ active }) {
+  return (
+    <span style={{
+      width: active ? 34 : 28,
+      height: active ? 34 : 28,
+      borderRadius: "50%",
+      overflow: "hidden",
+      display: "grid",
+      placeItems: "center",
+      background: "transparent",
+      boxShadow: active
+        ? "0 0 10px rgba(247,37,133,0.44), 0 0 18px rgba(155,93,229,0.30)"
+        : "none",
+      transform: active ? "translateY(-2px)" : "none",
+      transition: "all 160ms ease",
+    }}>
+      <img
+        src="/backstage-b-nav-transparent.png"
+        alt=""
+        aria-hidden="true"
+        style={{
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          display: "block",
+          filter: active
+            ? "saturate(1.08) brightness(1.08)"
+            : "brightness(0.62) saturate(0.7) opacity(0.78)",
+        }}
+      />
+    </span>
+  );
+}
 
 const Empty = ({ emoji, title, sub, action, onAction }) => (
   <div style={{ textAlign:"center", padding:"52px 24px", animation:"up .4s ease" }}>
@@ -4777,14 +4931,14 @@ function HomeFeed({ user, go, weather, isVip, onUpgrade, onSmartNotifs }) {
                Avatar removed: Profile is the bottom nav tab */}
           <div style={{ display:"flex",gap:8,alignItems:"center" }}>
             {/* 1. Search */}
-            <button onClick={()=>setSearchOpen(v=>!v)} title="Search" style={{ width:36,height:36,borderRadius:"50%",background:C.surfaceHi,border:`1.5px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",transition:"border-color .2s" }}>
+            <button onClick={()=>setSearchOpen(v=>!v)} title="Search" style={{ width:36,height:36,borderRadius:"50%",background:C.surfaceHi,border:`1.5px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",transition:"border-color .2s",backdropFilter:"blur(10px)" }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="8" stroke={C.textMid} strokeWidth="1.8"/><path d="m21 21-4.35-4.35" stroke={C.textMid} strokeWidth="1.8" strokeLinecap="round"/></svg>
             </button>
             {/* 2. Messages — opens Circle DMs; badge reflects unread conversations */}
             {(()=>{
               const dmUnread = (()=>{ try { const c=JSON.parse(localStorage.getItem("backstage_dms")||"null"); return Array.isArray(c)?c.reduce((s,x)=>s+(x.unread||0),0):0; } catch{return 0;} })();
               return (
-                <button onClick={()=>go("chats")} title="Messages" style={{ width:36,height:36,borderRadius:"50%",background:C.surfaceHi,border:`1.5px solid ${dmUnread>0?C.lavender:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",position:"relative",boxShadow:dmUnread>0?`0 0 12px ${C.lavender}28`:"none",transition:"all .2s" }}>
+                <button onClick={()=>go("chats")} title="Messages" style={{ width:36,height:36,borderRadius:"50%",background:C.surfaceHi,border:`1.5px solid ${dmUnread>0?C.lavender:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",position:"relative",boxShadow:dmUnread>0?`0 0 12px ${C.lavender}28`:"none",transition:"all .2s",backdropFilter:"blur(10px)" }}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke={dmUnread>0?C.lavender:C.text} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
                   {dmUnread>0&&<div style={{ position:"absolute",top:-3,right:-3,minWidth:16,height:16,borderRadius:99,background:`linear-gradient(135deg,${C.lavender},${C.accent})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,border:`1.5px solid ${C.bg}`,padding:"0 3px" }}>{dmUnread>9?"9+":dmUnread}</div>}
                 </button>
@@ -4794,7 +4948,7 @@ function HomeFeed({ user, go, weather, isVip, onUpgrade, onSmartNotifs }) {
             {(()=>{
               const unreadCount = bellUnread;
               return (
-                <button onClick={()=>go("notifications")} title="Backstage Buzz" style={{ width:36,height:36,borderRadius:"50%",background:C.surfaceHi,border:`1.5px solid ${unreadCount>0?C.accent:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",position:"relative",boxShadow:unreadCount>0?`0 0 12px ${C.accent}28`:"none",transition:"all .2s" }}>
+                <button onClick={()=>go("notifications")} title="Backstage Buzz" style={{ width:36,height:36,borderRadius:"50%",background:C.surfaceHi,border:`1.5px solid ${unreadCount>0?C.accent:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",position:"relative",boxShadow:unreadCount>0?`0 0 12px ${C.accent}28`:"none",transition:"all .2s",backdropFilter:"blur(10px)" }}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M18 8A6 6 0 1 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" stroke={unreadCount>0?C.accent:C.text} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.73 21a2 2 0 0 1-3.46 0" stroke={unreadCount>0?C.accent:C.text} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
                   {unreadCount>0&&<div style={{ position:"absolute",top:-3,right:-3,minWidth:16,height:16,borderRadius:99,background:`linear-gradient(135deg,${C.rose},${C.berry})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,color:"#fff",fontFamily:"'Epilogue',sans-serif",fontWeight:800,border:`1.5px solid ${C.bg}`,padding:"0 3px" }}>{unreadCount>9?"9+":unreadCount}</div>}
                 </button>
@@ -4972,23 +5126,26 @@ function NotificationBell({ onOpen }) {
 // ─── ASK BACKSTAGE BUTTON ─────────────────────────────────────────────────────
 function AskBackstageButton({ go }) {
   return (
-    <div style={{ position:"absolute",bottom:108,right:16,zIndex:300 }}>
+    <div style={{ position:"absolute",bottom:108,right:16,zIndex:300,width:46,height:46,display:"flex",alignItems:"center",justifyContent:"center" }}>
+      {/* Outer halo ring — "Backstage orb" ambient glow */}
+      <div style={{ position:"absolute",inset:-6,borderRadius:"50%",background:`radial-gradient(circle,${C.accent}30,transparent 70%)`,pointerEvents:"none",animation:"ambientGlow 3.2s ease-in-out infinite" }} />
       <button
         onClick={()=>go("assistant")}
         className="tap"
         title="Ask Backstage AI"
         style={{
-          width:42,height:42,
-          borderRadius:13,
-          background:`linear-gradient(140deg,${C.accent}ee,${C.pink}cc)`,
-          border:`1px solid rgba(255,255,255,0.22)`,
-          color:C.bg,
-          fontSize:20,
+          width:44,height:44,
+          borderRadius:"50%",
+          background:`linear-gradient(145deg,${C.accent}ff,${C.pink}ee 55%,${C.berry}dd)`,
+          border:`1px solid rgba(255,255,255,0.3)`,
+          color:"#0a0612",
+          fontSize:19,
           cursor:"pointer",
-          boxShadow:`0 4px 18px ${C.accent}44, 0 2px 8px rgba(0,0,0,0.35)`,
+          boxShadow:`0 6px 22px ${C.accent}55, 0 0 26px ${C.pink}33, 0 2px 8px rgba(0,0,0,0.4), inset 0 1.5px 0 rgba(255,255,255,0.45), inset 0 -8px 14px rgba(0,0,0,0.18)`,
           animation:"shareGlow 4s ease infinite",
           display:"flex",alignItems:"center",justifyContent:"center",
           backdropFilter:"blur(8px)",
+          position:"relative",
         }}
       >
         ✨
@@ -6539,7 +6696,7 @@ function PhotocardGrid({ cards, groups, groupFilter, setGroupFilter, go, onAddCa
       {/* Group filter chips */}
       <div style={{ display:"flex", gap:6, marginBottom:14, overflowX:"auto", scrollbarWidth:"none" }}>
         {groups.map(g=>(
-          <span key={g} onClick={()=>setGroupFilter(g)} className="tap" style={{ flexShrink:0, padding:"5px 12px", borderRadius:99, fontSize:10, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:groupFilter===g?C.pink:`${C.pink}12`, color:groupFilter===g?C.bg:C.textMid, border:`1px solid ${groupFilter===g?C.pink:C.border}` }}>{g==="all"?"All Groups":g}</span>
+          <span key={g} onClick={()=>setGroupFilter(g)} className="tap" style={{ flexShrink:0, padding:"5px 12px", borderRadius:99, fontSize:10, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:groupFilter===g?`linear-gradient(135deg,${C.pink},${C.accent})`:`${C.pink}10`, color:groupFilter===g?"#0a0612":C.textMid, border:`1px solid ${groupFilter===g?C.pink:C.border}`, boxShadow:groupFilter===g?`0 4px 14px ${C.pink}44`:"none", backdropFilter:"blur(8px)" }}>{g==="all"?"All Groups":g}</span>
         ))}
       </div>
 
@@ -6611,10 +6768,11 @@ function PhotocardGrid({ cards, groups, groupFilter, setGroupFilter, go, onAddCa
             </div>
           );
         })}
-        {/* Add card slot */}
-        <div onClick={()=>onAddCard?.()} className="tap" style={{ borderRadius:12,aspectRatio:"2/3",border:`2px dashed ${C.border}`,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,cursor:"pointer" }}>
-          <p style={{ fontSize:18,color:C.accent }}>+</p>
-          <p style={{ fontSize:7,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textAlign:"center",lineHeight:1.3 }}>Add Card</p>
+        {/* Add card slot — premium empty vault tile */}
+        <div onClick={()=>onAddCard?.()} className="tap" style={{ borderRadius:14,aspectRatio:"2/3",background:`linear-gradient(160deg,${C.accent}14,${C.pink}08,${C.surface})`,border:`1.5px dashed ${C.accent}55`,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,cursor:"pointer",position:"relative",overflow:"hidden",boxShadow:`inset 0 0 18px ${C.accent}14, 0 4px 14px rgba(0,0,0,0.3)`,backdropFilter:"blur(6px)" }}>
+          <div style={{ position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",width:46,height:46,borderRadius:"50%",background:`radial-gradient(circle,${C.accent}22,transparent 70%)`,pointerEvents:"none" }} />
+          <p style={{ fontSize:18,color:C.accent,position:"relative",textShadow:`0 0 12px ${C.accent}77` }}>+</p>
+          <p style={{ fontSize:7,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textAlign:"center",lineHeight:1.3,position:"relative" }}>Add Card</p>
         </div>
       </div>
       <p style={{ fontSize:9.5,color:C.textDim,marginTop:12,textAlign:"center",lineHeight:1.5 }}>Tap a card to add a photo · AI identify estimates only</p>
@@ -6633,6 +6791,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
   const saveTheme = (t)=>{ setMyWorldTheme(t); ls.set("backstage_my_world_theme",t); };
   const saveFeatured = (key,val)=>{ const next={...featuredShelf,[key]:val}; setFeaturedShelf(next); ls.set("backstage_featured_shelf",next); };
   const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [showActionTray, setShowActionTray] = useState(false);
   const [showAchievements, setShowAchievements] = useState(false);
   const [showShrine, setShowShrine] = useState(false);
   const [showSmartMatch, setShowSmartMatch] = useState(false);
@@ -6740,94 +6899,103 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
       {/* Theme overlay — changes with Decorate selection */}
       <div style={{ position:"absolute",inset:0,background:THEME_BG[myWorldTheme]||THEME_BG["Purple Galaxy"],pointerEvents:"none",zIndex:0,transition:"background .5s ease" }} />
 
-      {/* Slim fixed header — only title + sub-nav */}
-      <div style={{ padding:"18px 20px 0", flexShrink:0, position:"relative", zIndex:1 }}>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+      {/* Full-bleed My Universe hero band — replaces the slim flat header */}
+      <div style={{ padding:"22px 20px 16px", flexShrink:0, position:"relative", zIndex:1, overflow:"hidden", background:`linear-gradient(165deg,${C.plum}c8 0%,${C.cosmic}f0 55%,transparent 100%)`, borderBottom:`1px solid rgba(255,255,255,0.05)` }}>
+        {/* Backstage B watermark — subtle orb identity, not a literal logo render */}
+        <div aria-hidden style={{ position:"absolute", top:-44, right:-34, width:170, height:170, borderRadius:"50%", border:`1px solid ${C.accent}16`, background:`radial-gradient(circle at 38% 38%,${C.accent}12,transparent 70%)`, pointerEvents:"none" }} />
+        <p aria-hidden style={{ position:"absolute", top:2, right:20, fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:58, lineHeight:1, color:"transparent", WebkitTextStroke:`1px ${C.accent}1a`, pointerEvents:"none", userSelect:"none" }}>B</p>
+
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", position:"relative" }}>
           <div>
-            <div>
-              <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:1 }}>My World</p>
-              <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontStyle:"italic",fontWeight:700,fontSize:20,background:`linear-gradient(135deg,${C.lavender},${C.blush})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",lineHeight:1.1 }}>My Universe ✦</h2>
-              <p style={{ fontSize:9.5,color:C.textDim,marginTop:2 }}>Collections, capsules, memories, and scrapbooks.</p>
-              <p style={{ fontSize:9.5,color:C.textMid,marginTop:1 }}>{totalOwned} owned · {wishlistTotal} wanted · {tradeableTotal} tradeable</p>
-            </div>
+            <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.16em",marginBottom:4 }}>My World</p>
+            <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontStyle:"italic",fontWeight:800,fontSize:25,background:`linear-gradient(135deg,${C.lavender},${C.blush})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",lineHeight:1.1 }}>My Universe ✦</h2>
+            <p style={{ fontSize:9.5,color:C.textDim,marginTop:4, maxWidth:210 }}>Collections, capsules, memories, and scrapbooks.</p>
           </div>
-          <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-            {isVip&&<VipBadge />}
-            <button onClick={()=>setShowQuickAdd(true)} style={{ background:`linear-gradient(140deg,${C.accent}cc,${C.accentDim})`, border:"none", borderRadius:11, padding:"8px 13px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10.5, cursor:"pointer" }}>+ Add</button>
-          </div>
+          {isVip&&<VipBadge />}
         </div>
         {/* Sub-nav */}
-        <div style={{ display:"flex", gap:6, overflowX:"auto", paddingBottom:12, scrollbarWidth:"none" }}>
+        <div style={{ display:"flex", gap:6, overflowX:"auto", marginTop:16, paddingBottom:2, scrollbarWidth:"none", position:"relative" }}>
           {SECTIONS.map(s=>(
-            <button key={s.id} onClick={()=>setSection(s.id)} className="tap" style={{ flexShrink:0, padding:"7px 14px", borderRadius:99, fontSize:11, fontFamily:"'Epilogue',sans-serif", fontWeight:700, background:section===s.id?`linear-gradient(140deg,${C.accent}cc,${C.accentDim})`:C.surfaceHi, color:section===s.id?C.bg:C.textMid, border:section===s.id?"none":`1px solid ${C.border}`, cursor:"pointer", boxShadow:section===s.id?`0 4px 12px ${C.accent}28`:"none", display:"flex", gap:5, alignItems:"center" }}>
+            <button key={s.id} onClick={()=>setSection(s.id)} className="tap" style={{ flexShrink:0, padding:"7px 14px", borderRadius:99, fontSize:11, fontFamily:"'Epilogue',sans-serif", fontWeight:700, background:section===s.id?`linear-gradient(140deg,${C.accent}cc,${C.accentDim})`:"rgba(255,255,255,0.05)", color:section===s.id?C.bg:C.textMid, border:section===s.id?"none":`1px solid rgba(255,255,255,0.07)`, cursor:"pointer", boxShadow:section===s.id?`0 4px 12px ${C.accent}28`:"none", display:"flex", gap:5, alignItems:"center" }}>
               <span>{s.icon}</span><span>{s.label}</span>
             </button>
           ))}
         </div>
       </div>
 
+      {/* Floating action orb + tray — single FAB consolidating Add / Ask AI / Decorate */}
+      {showActionTray && (
+        <div onClick={()=>setShowActionTray(false)} style={{ position:"absolute", inset:0, zIndex:4 }} />
+      )}
+      {showActionTray && (
+        <div style={{ position:"absolute", bottom:"calc(156px + env(safe-area-inset-bottom))", right:20, zIndex:6, display:"flex", flexDirection:"column", gap:6, background:`linear-gradient(160deg,${C.surfaceHi}f5,${C.cosmic}f5)`, border:`1px solid ${C.pink}30`, borderRadius:16, padding:7, boxShadow:`0 14px 36px rgba(0,0,0,0.55), 0 0 24px ${C.pink}1c, inset 0 1px 0 rgba(255,255,255,0.08)`, backdropFilter:"blur(14px)", minWidth:198 }}>
+          {[
+            { icon:"✦", label:"Add to My World", onClick:()=>{ setShowQuickAdd(true); setShowActionTray(false); } },
+            { icon:"✨", label:"Ask Backstage AI", onClick:()=>{ go("assistant"); setShowActionTray(false); } },
+            { icon:"🎨", label:"Decorate My Universe", onClick:()=>{ setSection("museum"); setShowDecorate(true); setShowActionTray(false); } },
+          ].map(item=>(
+            <button key={item.label} onClick={item.onClick} className="tap" style={{ display:"flex", alignItems:"center", gap:9, padding:"9px 10px", borderRadius:11, background:"transparent", border:"none", color:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, cursor:"pointer", textAlign:"left" }}>
+              <span style={{ fontSize:14, width:20, textAlign:"center", flexShrink:0 }}>{item.icon}</span>
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      <button onClick={()=>setShowActionTray(v=>!v)} className="tap" style={{ position:"absolute", bottom:"calc(96px + env(safe-area-inset-bottom))", right:20, width:54, height:54, borderRadius:18, background:`linear-gradient(150deg,${C.pink},${C.accentDim})`, border:"1px solid rgba(255,255,255,0.28)", display:"flex", alignItems:"center", justifyContent:"center", color:"#0a0612", fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:24, cursor:"pointer", boxShadow:`0 10px 28px ${C.pink}40, 0 4px 14px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.4)`, zIndex:7, transform:showActionTray?"rotate(45deg)":"none", transition:"transform .2s" }}>+</button>
+
       {/* CONTENT — all cards/stats scroll here */}
       <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))", position:"relative", zIndex:1 }}>
 
-        {/* Collection Overview card */}
-        <div style={{ background:`linear-gradient(140deg,${C.surfaceMid},${C.surfaceHi})`, border:`1.5px solid ${C.borderHi}`, borderRadius:18, padding:"14px 16px", marginBottom:12, position:"relative", overflow:"hidden" }}>
-          <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.accent}44,transparent)` }} />
-          <p style={{ fontSize:9, color:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:10 }}>Collection Overview</p>
-          <div style={{ display:"flex", gap:0 }}>
-            {[
-              { val:totalOwned, label:"Total", color:C.text },
-              { val:allCards.filter(c=>c.status?c.status==='owned':!c.dupe&&!c.tradeable).length, label:"Photocards", color:C.pink },
-              { val:binders.length, label:"Albums", color:C.accent },
-            ].map((s,i)=>(
-              <div key={s.label} style={{ flex:1, textAlign:"center", borderRight:i<2?`1px solid ${C.border}`:"none" }}>
-                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, color:s.color, lineHeight:1 }}>{s.val}</p>
-                <p style={{ fontSize:9, color:C.textMid, marginTop:3 }}>{s.label}</p>
-              </div>
-            ))}
-          </div>
-          <div style={{ height:1, background:C.border, margin:"12px 0" }} />
-          <div style={{ display:"flex", gap:0 }}>
-            {[
-              { val:wishlistTotal, label:"Wishlist", color:C.gold },
-              { val:tradeableTotal, label:"Tradeable", color:C.rose },
-              { val:`${completion}%`, label:"Complete", color:C.mint },
-            ].map((s,i)=>(
-              <div key={s.label} style={{ flex:1, textAlign:"center", borderRight:i<2?`1px solid ${C.border}`:"none" }}>
-                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, color:s.color, lineHeight:1 }}>{s.val}</p>
-                <p style={{ fontSize:9, color:C.textMid, marginTop:3 }}>{s.label}</p>
-              </div>
-            ))}
-          </div>
-          <div style={{ marginTop:12 }}>
-            <ProgressBar value={completion} color={C.mint} />
-            <div style={{ display:"flex", justifyContent:"space-between", marginTop:5 }}>
-              <p style={{ fontSize:9, color:C.mint, fontFamily:"'Epilogue',sans-serif", fontWeight:700 }}>{completion}% overall completion</p>
-              {completion>=75&&<p style={{ fontSize:9, color:C.mint, fontFamily:"'Epilogue',sans-serif", fontWeight:700 }}>✦ Almost there!</p>}
+        {/* Collection Status — dominant completion ring + scroll capsule row, no spreadsheet grid */}
+        <div style={{ ...VS.premiumHeroCard(C.accent, C.pink), padding:"16px 16px", marginBottom:12, display:"flex", gap:14, alignItems:"center" }}>
+          <div style={VS.orbitAccent(C.accent, 120)} />
+          <div style={VS.shimmerLine(C.accent)} />
+          <RingProgress value={completion} size={76} color={C.accent} color2={C.pink}>
+            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:18, color:C.text, lineHeight:1, position:"relative" }}>{completion}%</p>
+            <p style={{ fontSize:7, color:C.textMid, marginTop:1, position:"relative" }}>complete</p>
+          </RingProgress>
+          <div style={{ flex:1, minWidth:0, position:"relative" }}>
+            <p style={{ fontSize:9, color:C.lavender, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.13em", marginBottom:9 }}>✦ Collection Status</p>
+            <div style={{ display:"flex", gap:6, overflowX:"auto", scrollbarWidth:"none", paddingBottom:1 }}>
+              {[
+                { val:totalOwned, label:"Owned", color:C.text },
+                { val:wishlistTotal, label:"Wanted", color:C.gold },
+                { val:tradeableTotal, label:"Tradeable", color:C.rose },
+                { val:binders.length, label:"Albums", color:C.accent },
+              ].map(s=>(
+                <div key={s.label} style={{ flexShrink:0, background:"rgba(255,255,255,0.045)", border:"1px solid rgba(255,255,255,0.07)", borderRadius:99, padding:"5px 11px", whiteSpace:"nowrap" }}>
+                  <span style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:12, color:s.color }}>{s.val}</span>
+                  <span style={{ fontSize:8.5, color:C.textMid, marginLeft:4 }}>{s.label}</span>
+                </div>
+              ))}
             </div>
+            {completion>=75&&<p style={{ fontSize:9, color:C.mint, fontFamily:"'Epilogue',sans-serif", fontWeight:700, marginTop:8 }}>✦ Almost there!</p>}
           </div>
         </div>
 
-        {/* Smart nudge */}
+        {/* Smart nudge — polished collector alert */}
         {wishlistTotal > 0 && (
-          <div style={{ background:`linear-gradient(140deg,${C.rose}18,${C.rose}06)`, border:`1.5px solid ${C.rose}38`, borderRadius:14, padding:"10px 14px", marginBottom:12, display:"flex", gap:10, alignItems:"center" }}>
-            <span style={{ fontSize:18 }}>🔥</span>
-            <div style={{ flex:1 }}>
-              <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, color:C.text }}>So close! <span style={{ color:C.rose }}>{wishlistTotal} card{wishlistTotal>1?"s":""}</span> away</p>
+          <div style={{ background:`linear-gradient(140deg,${C.rose}20,${C.rose}08,${C.surface})`, border:`1.5px solid ${C.rose}48`, borderRadius:16, padding:"11px 14px", marginBottom:12, display:"flex", gap:10, alignItems:"center", boxShadow:`0 8px 22px ${C.rose}1c, inset 0 1px 0 rgba(255,255,255,0.08)`, backdropFilter:"blur(10px)", position:"relative", overflow:"hidden" }}>
+            <div style={VS.orbitAccent(C.rose, 80)} />
+            <span style={{ fontSize:18, position:"relative", filter:`drop-shadow(0 0 8px ${C.rose}99)` }}>🔥</span>
+            <div style={{ flex:1, position:"relative" }}>
+              <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, color:C.text }}>So close! <span style={{ color:C.rose, textShadow:`0 0 12px ${C.rose}66` }}>{wishlistTotal} card{wishlistTotal>1?"s":""}</span> away</p>
               <p style={{ fontSize:10, color:C.textMid }}>Finish your collection — check Trade Hub</p>
             </div>
-            <button onClick={()=>setSection("wishlist")} style={{ background:C.rose, border:"none", borderRadius:9, padding:"6px 11px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10, cursor:"pointer" }}>Trade →</button>
+            <button onClick={()=>setSection("wishlist")} style={{ ...VS.glowButton(C.rose, C.gold), padding:"7px 12px", fontSize:10, position:"relative" }}>Trade →</button>
           </div>
         )}
 
         {/* VIP upsell */}
         {!isVip && (
-          <div onClick={onUpgrade} className="tap" style={{ background:`linear-gradient(140deg,${C.gold}1c,${C.gold}08)`, border:`1.5px solid ${C.gold}44`, borderRadius:14, padding:"10px 14px", marginBottom:14, display:"flex", gap:10, alignItems:"center", cursor:"pointer" }}>
-            <span style={{ fontSize:18 }}>✦</span>
-            <div style={{ flex:1 }}>
+          <div onClick={onUpgrade} className="tap" style={{ background:`linear-gradient(140deg,${C.gold}22,${C.gold}08,${C.surface})`, border:`1.5px solid ${C.gold}50`, borderRadius:16, padding:"11px 14px", marginBottom:14, display:"flex", gap:10, alignItems:"center", cursor:"pointer", boxShadow:`0 8px 24px ${C.gold}1e, inset 0 1px 0 rgba(255,255,255,0.08)`, backdropFilter:"blur(10px)", position:"relative", overflow:"hidden" }}>
+            <div style={VS.orbitAccent(C.gold, 90)} />
+            <span style={{ fontSize:18, position:"relative", filter:`drop-shadow(0 0 8px ${C.gold}99)` }}>✦</span>
+            <div style={{ flex:1, position:"relative" }}>
               <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, color:C.gold }}>Unlock Backstage VIP</p>
               <p style={{ fontSize:10, color:C.textMid }}>Unlimited binders · Trade analytics · Priority matches</p>
             </div>
-            <div style={{ ...VS.activePill(C.gold), fontSize:9 }}>Upgrade →</div>
+            <div style={{ ...VS.featurePill(C.gold), fontSize:9, position:"relative" }}>Upgrade →</div>
           </div>
         )}
 
@@ -6863,9 +7031,10 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
               const grpData = ERA_SEARCH_GROUPS.find(g => g.group === latest.group);
               const bc = grpData?.color || pal[0];
               return (
-                <div onClick={() => setEraRoomDeep({ group:latest.group, era:latest.era, color:bc })} className="tap" style={{ marginBottom:12, borderRadius:18, overflow:"hidden", cursor:"pointer", background:C.surface, border:`1px solid ${bc}30`, boxShadow:`0 6px 28px ${bc}14` }}>
-                  <div style={{ height:5, background:`linear-gradient(90deg,${pal[0]},${pal[1]},${pal[2]})` }} />
-                  <div style={{ padding:"14px 16px 16px" }}>
+                <div onClick={() => setEraRoomDeep({ group:latest.group, era:latest.era, color:bc })} className="tap" style={{ marginBottom:12, borderRadius:20, overflow:"hidden", cursor:"pointer", position:"relative", background:`linear-gradient(150deg,${bc}22 0%,${C.plum}cc 45%,${C.cosmic}f5 100%)`, border:`1.5px solid ${bc}48`, boxShadow:`0 14px 36px ${bc}22, inset 0 1px 0 rgba(255,255,255,0.1)`, backdropFilter:"blur(10px)" }}>
+                  <div style={VS.orbitAccent(bc, 130)} />
+                  <div style={{ height:5, background:`linear-gradient(90deg,${pal[0]},${pal[1]},${pal[2]})`, boxShadow:`0 0 12px ${bc}66`, position:"relative" }} />
+                  <div style={{ padding:"14px 16px 16px", position:"relative" }}>
                     <p style={{ fontSize:9, color:bc, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:4 }}>Continue Building</p>
                     <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:20, color:C.text, lineHeight:1.1, marginBottom:3 }}>{latest.era}</p>
                     <p style={{ fontSize:10.5, color:C.textMid, marginBottom:12, fontFamily:"'Epilogue',sans-serif", fontWeight:600 }}>{latest.group} · Era Room</p>
@@ -6880,10 +7049,27 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                 </div>
               );
             })()}
-            {/* Premium archive grid */}
+            {/* Photocard Binder — promoted to a full-width featured tile, priority over the supporting grid */}
+            <div onClick={() => setSection("photocards")} className="tap card-lift" style={{ marginBottom:10, borderRadius:20, padding:"16px 16px", display:"flex", alignItems:"center", gap:14, background:`linear-gradient(155deg,${C.pink}1c 0%,${C.surfaceHi}f0 45%,${C.cosmic}f5 100%)`, border:`1px solid ${C.pink}34`, cursor:"pointer", position:"relative", overflow:"hidden", boxShadow:`0 10px 30px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.07)`, backdropFilter:"blur(10px)" }}>
+              <div style={VS.orbitAccent(C.pink, 100)} />
+              <div style={VS.shimmerLine(C.pink)} />
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:3, width:58, flexShrink:0, position:"relative" }}>
+                {[...Array(6)].map((_,i) => (
+                  <div key={i} style={{ height:24, borderRadius:4, background:i < Math.min(allCards.length,6) ? `${C.pink}77` : `${C.pink}1c`, border:`1px solid ${C.pink}38` }} />
+                ))}
+              </div>
+              <div style={{ flex:1, position:"relative" }}>
+                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:23, color:C.pink, lineHeight:1 }}>{allCards.length}</p>
+                <p style={{ fontSize:9, color:C.textMid, marginTop:1 }}>cards in your binder</p>
+                <p style={{ fontSize:13, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.text, marginTop:5 }}>Photocard Binder</p>
+              </div>
+              <span style={{ background:`${C.pink}18`, border:`1px solid ${C.pink}38`, borderRadius:10, padding:"7px 11px", color:C.pink, fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:10, flexShrink:0, position:"relative" }}>Open →</span>
+            </div>
+            {/* Supporting grid */}
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16 }}>
               {/* Era Boards */}
-              <div onClick={() => setSection("eraboards")} className="tap" style={{ borderRadius:16, padding:"14px 14px", background:C.surface, border:`1.5px solid ${C.mint}28`, cursor:"pointer", position:"relative", overflow:"hidden" }}>
+              <div onClick={() => setSection("eraboards")} className="tap card-lift" style={{ borderRadius:18, padding:"14px 14px", background:`linear-gradient(160deg,${C.mint}16,${C.surfaceHi})`, border:`1.5px solid ${C.mint}40`, cursor:"pointer", position:"relative", overflow:"hidden", boxShadow:`0 6px 22px ${C.mint}1c, inset 0 1px 0 rgba(255,255,255,0.07)`, backdropFilter:"blur(10px)" }}>
+                <div style={VS.orbitAccent(C.mint, 70)} />
                 <div style={{ position:"absolute", inset:0, background:`linear-gradient(160deg,${C.mint}08,transparent)`, pointerEvents:"none" }} />
                 <div style={{ display:"flex", gap:2, marginBottom:9 }}>
                   {(eraBoards[0]?.palette || [C.mint,C.lavender,C.rose]).map((c,i) => (
@@ -6894,20 +7080,9 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                 <p style={{ fontSize:9, color:C.textMid, marginTop:1 }}>boards</p>
                 <p style={{ fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.text, marginTop:6 }}>Era Boards</p>
               </div>
-              {/* Photocard Binder */}
-              <div onClick={() => setSection("photocards")} className="tap" style={{ borderRadius:16, padding:"14px 14px", background:C.surface, border:`1.5px solid ${C.pink}28`, cursor:"pointer", position:"relative", overflow:"hidden" }}>
-                <div style={{ position:"absolute", inset:0, background:`linear-gradient(160deg,${C.pink}08,transparent)`, pointerEvents:"none" }} />
-                <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:2.5, marginBottom:9, width:50 }}>
-                  {[...Array(6)].map((_,i) => (
-                    <div key={i} style={{ height:20, borderRadius:3, background:i < Math.min(allCards.length,6) ? `${C.pink}66` : `${C.pink}18`, border:`1px solid ${C.pink}30` }} />
-                  ))}
-                </div>
-                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, color:C.pink, lineHeight:1 }}>{allCards.length}</p>
-                <p style={{ fontSize:9, color:C.textMid, marginTop:1 }}>cards</p>
-                <p style={{ fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.text, marginTop:6 }}>Photocard Binder</p>
-              </div>
               {/* Albums & Binders */}
-              <div onClick={() => setSection("albums")} className="tap" style={{ borderRadius:16, padding:"14px 14px", background:C.surface, border:`1.5px solid ${C.lavender}28`, cursor:"pointer", position:"relative", overflow:"hidden" }}>
+              <div onClick={() => setSection("albums")} className="tap card-lift" style={{ borderRadius:18, padding:"14px 14px", background:`linear-gradient(160deg,${C.lavender}16,${C.surfaceHi})`, border:`1.5px solid ${C.lavender}40`, cursor:"pointer", position:"relative", overflow:"hidden", boxShadow:`0 6px 22px ${C.lavender}1c, inset 0 1px 0 rgba(255,255,255,0.07)`, backdropFilter:"blur(10px)" }}>
+                <div style={VS.orbitAccent(C.lavender, 70)} />
                 <div style={{ position:"absolute", inset:0, background:`linear-gradient(160deg,${C.lavender}08,transparent)`, pointerEvents:"none" }} />
                 <div style={{ display:"flex", flexDirection:"column", gap:3, marginBottom:9, width:50 }}>
                   {[1,0.72,0.48].map((w,i) => (
@@ -6919,7 +7094,8 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                 <p style={{ fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.text, marginTop:6 }}>Albums & Binders</p>
               </div>
               {/* Concerts */}
-              <div onClick={() => go("myshows")} className="tap" style={{ borderRadius:16, padding:"14px 14px", background:C.surface, border:`1.5px solid ${C.berry}28`, cursor:"pointer", position:"relative", overflow:"hidden" }}>
+              <div onClick={() => go("myshows")} className="tap card-lift" style={{ borderRadius:18, padding:"14px 14px", background:`linear-gradient(160deg,${C.berry}16,${C.surfaceHi})`, border:`1.5px solid ${C.berry}40`, cursor:"pointer", position:"relative", overflow:"hidden", boxShadow:`0 6px 22px ${C.berry}1c, inset 0 1px 0 rgba(255,255,255,0.07)`, backdropFilter:"blur(10px)" }}>
+                <div style={VS.orbitAccent(C.berry, 70)} />
                 <div style={{ position:"absolute", inset:0, background:`linear-gradient(160deg,${C.berry}08,transparent)`, pointerEvents:"none" }} />
                 <div style={{ display:"flex", alignItems:"flex-end", gap:2.5, height:22, marginBottom:9, width:50 }}>
                   {[70,100,55,85,65,90,50].map((h,i) => (
@@ -6931,7 +7107,8 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                 <p style={{ fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.text, marginTop:6 }}>Concerts</p>
               </div>
               {/* Memories */}
-              <div onClick={() => go("scrapbook")} className="tap" style={{ borderRadius:16, padding:"14px 14px", background:C.surface, border:`1.5px solid ${C.sky}28`, cursor:"pointer", position:"relative", overflow:"hidden" }}>
+              <div onClick={() => go("scrapbook")} className="tap card-lift" style={{ borderRadius:18, padding:"14px 14px", background:`linear-gradient(160deg,${C.sky}16,${C.surfaceHi})`, border:`1.5px solid ${C.sky}40`, cursor:"pointer", position:"relative", overflow:"hidden", boxShadow:`0 6px 22px ${C.sky}1c, inset 0 1px 0 rgba(255,255,255,0.07)`, backdropFilter:"blur(10px)" }}>
+                <div style={VS.orbitAccent(C.sky, 70)} />
                 <div style={{ position:"absolute", inset:0, background:`linear-gradient(160deg,${C.sky}08,transparent)`, pointerEvents:"none" }} />
                 <div style={{ position:"relative", width:36, height:26, marginBottom:9 }}>
                   {[{rot:-7,op:"44"},{rot:0,op:"66"},{rot:6,op:"99"}].map((s,i) => (
@@ -6943,7 +7120,8 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                 <p style={{ fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.text, marginTop:6 }}>Memories</p>
               </div>
               {/* Time Capsules */}
-              <div onClick={() => go("capsule")} className="tap" style={{ borderRadius:16, padding:"14px 14px", background:C.surface, border:`1.5px solid ${C.mint}28`, cursor:"pointer", position:"relative", overflow:"hidden" }}>
+              <div onClick={() => go("capsule")} className="tap card-lift" style={{ borderRadius:18, padding:"14px 14px", background:`linear-gradient(160deg,${C.mint}16,${C.surfaceHi})`, border:`1.5px solid ${C.mint}40`, cursor:"pointer", position:"relative", overflow:"hidden", boxShadow:`0 6px 22px ${C.mint}1c, inset 0 1px 0 rgba(255,255,255,0.07)`, backdropFilter:"blur(10px)" }}>
+                <div style={VS.orbitAccent(C.mint, 70)} />
                 <div style={{ position:"absolute", inset:0, background:`linear-gradient(160deg,${C.mint}08,transparent)`, pointerEvents:"none" }} />
                 <div style={{ marginBottom:9 }}>
                   <div style={{ width:26, height:26, borderRadius:"50%", background:`radial-gradient(circle at 35% 35%,${C.mint}cc,${C.mint}44)`, boxShadow:`0 0 14px ${C.mint}55`, border:`1.5px solid ${C.mint}88` }} />
@@ -6953,7 +7131,8 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                 <p style={{ fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.text, marginTop:6 }}>Time Capsules</p>
               </div>
               {/* Scrapbooks */}
-              <div onClick={() => setSection("scrapbook")} className="tap" style={{ borderRadius:16, padding:"14px 14px", background:C.surface, border:`1.5px solid ${C.lavender}28`, cursor:"pointer", position:"relative", overflow:"hidden" }}>
+              <div onClick={() => setSection("scrapbook")} className="tap card-lift" style={{ borderRadius:18, padding:"14px 14px", background:`linear-gradient(160deg,${C.lavender}16,${C.surfaceHi})`, border:`1.5px solid ${C.lavender}40`, cursor:"pointer", position:"relative", overflow:"hidden", boxShadow:`0 6px 22px ${C.lavender}1c, inset 0 1px 0 rgba(255,255,255,0.07)`, backdropFilter:"blur(10px)" }}>
+                <div style={VS.orbitAccent(C.lavender, 70)} />
                 <div style={{ position:"absolute", inset:0, background:`linear-gradient(160deg,${C.lavender}08,transparent)`, pointerEvents:"none" }} />
                 <div style={{ position:"relative", width:36, height:26, marginBottom:9 }}>
                   {[{off:4,op:"33"},{off:2,op:"55"},{off:0,op:"88"}].map((s,i) => (
@@ -6965,7 +7144,8 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                 <p style={{ fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.text, marginTop:6 }}>Scrapbooks</p>
               </div>
               {/* Achievements */}
-              <div onClick={() => setShowAchievements(true)} className="tap" style={{ borderRadius:16, padding:"14px 14px", background:C.surface, border:`1.5px solid ${C.gold}28`, cursor:"pointer", position:"relative", overflow:"hidden" }}>
+              <div onClick={() => setShowAchievements(true)} className="tap card-lift" style={{ borderRadius:18, padding:"14px 14px", background:`linear-gradient(160deg,${C.gold}16,${C.surfaceHi})`, border:`1.5px solid ${C.gold}40`, cursor:"pointer", position:"relative", overflow:"hidden", boxShadow:`0 6px 22px ${C.gold}1c, inset 0 1px 0 rgba(255,255,255,0.07)`, backdropFilter:"blur(10px)" }}>
+                <div style={VS.orbitAccent(C.gold, 70)} />
                 <div style={{ position:"absolute", inset:0, background:`linear-gradient(160deg,${C.gold}08,transparent)`, pointerEvents:"none" }} />
                 <div style={{ display:"flex", gap:3.5, marginBottom:9, alignItems:"center" }}>
                   {[...Array(5)].map((_,i) => (
@@ -6977,7 +7157,8 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                 <p style={{ fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.text, marginTop:6 }}>Achievements</p>
               </div>
               {/* Bias Shrine */}
-              <div onClick={() => setShowShrine(true)} className="tap" style={{ borderRadius:16, padding:"14px 14px", background:C.surface, border:`1.5px solid ${C.rose}28`, cursor:"pointer", position:"relative", overflow:"hidden" }}>
+              <div onClick={() => setShowShrine(true)} className="tap card-lift" style={{ borderRadius:18, padding:"14px 14px", background:`linear-gradient(160deg,${C.rose}16,${C.surfaceHi})`, border:`1.5px solid ${C.rose}40`, cursor:"pointer", position:"relative", overflow:"hidden", boxShadow:`0 6px 22px ${C.rose}1c, inset 0 1px 0 rgba(255,255,255,0.07)`, backdropFilter:"blur(10px)" }}>
+                <div style={VS.orbitAccent(C.rose, 70)} />
                 <div style={{ position:"absolute", inset:0, background:`linear-gradient(160deg,${C.rose}08,transparent)`, pointerEvents:"none" }} />
                 <div style={{ width:26, height:30, borderRadius:6, background:`${C.rose}1a`, border:`1.5px solid ${C.rose}55`, boxShadow:`0 0 12px ${C.rose}33`, marginBottom:9, display:"flex", alignItems:"center", justifyContent:"center" }}>
                   <div style={{ width:14, height:14, borderRadius:"50%", background:`${C.rose}66`, border:`1.5px solid ${C.rose}`, boxShadow:`0 0 6px ${C.rose}44` }} />
@@ -24074,7 +24255,7 @@ function AppInner() {
                 );
               })()}
               {/* Ask Backstage AI — hidden on profile (has its own Studio/Preview actions) */}
-              {tab!=="profile"&&<AskBackstageButton go={go} />}
+              {tab!=="profile"&&tab!=="collect"&&<AskBackstageButton go={go} />}
               {/* Notification Bell — floating, hidden on home (own bell), profile (section nav), collect (own + Add button) */}
               {tab!=="home"&&tab!=="profile"&&tab!=="collect"&&<NotificationBell onOpen={()=>setModal("notifications")} />}
             </>
@@ -24090,7 +24271,7 @@ function AppInner() {
                 home: <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M7.15 19.55V8.45C7.15 7.88 7.43 7.35 7.9 7.03L11.05 4.9C11.62 4.52 12.38 4.52 12.95 4.9L16.1 7.03C16.57 7.35 16.85 7.88 16.85 8.45V19.55" stroke={active?"url(#navGrad)":C.textDim} strokeWidth="1.45" strokeLinecap="round" strokeLinejoin="round"/><path d="M5.25 19.55H18.75" stroke={active?"url(#navGrad)":C.textDim} strokeWidth="1.45" strokeLinecap="round"/><path d="M9.65 11.2C9.18 10.55 9.28 9.65 9.9 9.22C10.48 8.82 11.25 9.02 11.75 9.58L12 9.85L12.25 9.58C12.75 9.02 13.52 8.82 14.1 9.22C14.72 9.65 14.82 10.55 14.35 11.2C14.05 11.6 13.65 11.98 13.18 12.4L12 13.45L10.82 12.4C10.35 11.98 9.95 11.6 9.65 11.2Z" fill={active?"url(#navGrad)":C.textDim}/><path d="M12 15.15V16.85" stroke={active?"url(#navGrad)":C.textDim} strokeWidth="1.25" strokeLinecap="round" opacity="0.45"/><path d="M19.25 5.2L19.72 6.08L20.6 6.55L19.72 7.02L19.25 7.9L18.78 7.02L17.9 6.55L18.78 6.08L19.25 5.2Z" fill={active?"url(#navGrad)":C.textDim} opacity={active?0.72:0.45}/><defs><linearGradient id="navGrad" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent}/><stop offset="1" stopColor={C.pink}/></linearGradient></defs></svg>,
                 concerts: <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M12 2C12 2 7 6 7 11C7 13.76 9.24 16 12 16C14.76 16 17 13.76 17 11C17 6 12 2 12 2Z" fill={active?"url(#navG2)":"none"} stroke={active?"url(#navG2)":C.textDim} strokeWidth="1.8"/><path d="M8 20H16M12 16V20" stroke={active?"url(#navG2)":C.textDim} strokeWidth="1.8" strokeLinecap="round"/><defs><linearGradient id="navG2" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent}/><stop offset="1" stopColor={C.pink}/></linearGradient></defs></svg>,
                 community: <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M12 3.75C8.75 3.75 6.15 6.28 6.15 9.48C6.15 13.55 12 20.25 12 20.25C12 20.25 17.85 13.55 17.85 9.48C17.85 6.28 15.25 3.75 12 3.75Z" stroke={active?"url(#navG3)":C.textDim} strokeWidth="1.55" strokeLinejoin="round" fill={active?"url(#navG3Soft)":"none"}/><path d="M12 6.9L12.9 9.1L15.1 10L12.9 10.9L12 13.1L11.1 10.9L8.9 10L11.1 9.1L12 6.9Z" fill={active?"url(#navG3)":C.textDim}/><path d="M18.8 14.8C19.95 15.18 20.65 15.72 20.65 16.32C20.65 17.68 16.78 18.78 12 18.78C7.22 18.78 3.35 17.68 3.35 16.32C3.35 15.72 4.05 15.18 5.2 14.8" stroke={active?"url(#navG3)":C.textDim} strokeWidth="1.25" strokeLinecap="round" opacity="0.42"/><path d="M19.85 5.1L20.32 5.98L21.2 6.45L20.32 6.92L19.85 7.8L19.38 6.92L18.5 6.45L19.38 5.98L19.85 5.1Z" fill={active?"url(#navG3)":C.textDim} opacity={active?0.8:0.5}/><defs><linearGradient id="navG3" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent}/><stop offset="1" stopColor={C.pink}/></linearGradient><linearGradient id="navG3Soft" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent} stopOpacity="0.16"/><stop offset="1" stopColor={C.pink} stopOpacity="0.06"/></linearGradient></defs></svg>,
-                shelf: <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="4.2" stroke={active?"url(#navG4)":C.textDim} strokeWidth="1.6"/><path d="M4.8 13.2C7.2 8.8 14.8 6.4 19.2 8.9C21.1 10 20.4 12.1 17.8 14.1C14.1 16.9 7.9 17.7 5.2 15.6C4.4 15 4.2 14.2 4.8 13.2Z" stroke={active?"url(#navG4)":C.textDim} strokeWidth="1.4" strokeLinecap="round"/><path d="M17.6 4.8L18.2 6.1L19.5 6.7L18.2 7.3L17.6 8.6L17 7.3L15.7 6.7L17 6.1L17.6 4.8Z" stroke={active?"url(#navG4)":C.textDim} strokeWidth="1.2" strokeLinejoin="round"/><circle cx="7.4" cy="15.4" r="0.8" fill={active?"url(#navG4)":C.textDim}/><defs><linearGradient id="navG4" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent}/><stop offset="1" stopColor={C.pink}/></linearGradient></defs></svg>,
+                shelf: <BackstageBNavIcon active={active} />,
                 fanverse: <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M8.05 4.75H15.95C17.78 4.75 19.25 6.22 19.25 8.05V15.95C19.25 17.78 17.78 19.25 15.95 19.25H8.05C6.22 19.25 4.75 17.78 4.75 15.95V8.05C4.75 6.22 6.22 4.75 8.05 4.75Z" stroke={active?"url(#navG6)":C.textDim} strokeWidth="1.45" strokeLinejoin="round" fill={active?"url(#navG6Soft)":"none"}/><path d="M12 7.7L12.92 10.12L15.35 11.05L12.92 11.98L12 14.4L11.08 11.98L8.65 11.05L11.08 10.12L12 7.7Z" fill={active?"url(#navG6)":C.textDim}/><path d="M8.7 15.6H15.3" stroke={active?"url(#navG6)":C.textDim} strokeWidth="1.25" strokeLinecap="round" opacity="0.5"/><path d="M18.9 3.25L19.3 4L20.05 4.4L19.3 4.8L18.9 5.55L18.5 4.8L17.75 4.4L18.5 4L18.9 3.25Z" fill={active?"url(#navG6)":C.textDim} opacity={active?0.78:0.45}/><defs><linearGradient id="navG6" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent}/><stop offset="1" stopColor={C.mint}/></linearGradient><linearGradient id="navG6Soft" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent} stopOpacity="0.18"/><stop offset="1" stopColor={C.mint} stopOpacity="0.08"/></linearGradient></defs></svg>,
                 profile: <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M5.25 12.15C5.25 8.42 8.27 5.4 12 5.4C15.73 5.4 18.75 8.42 18.75 12.15C18.75 15.88 15.73 18.9 12 18.9C8.27 18.9 5.25 15.88 5.25 12.15Z" stroke={active?"url(#navG5)":C.textDim} strokeWidth="1.45"/><path d="M8.25 11.2C7.72 10.3 7.9 9.25 8.65 8.72C9.38 8.2 10.35 8.42 11.05 9.15L12 10.15L12.95 9.15C13.65 8.42 14.62 8.2 15.35 8.72C16.1 9.25 16.28 10.3 15.75 11.2C15.42 11.78 14.88 12.32 14.25 12.9L12 14.95L9.75 12.9C9.12 12.32 8.58 11.78 8.25 11.2Z" fill={active?"url(#navG5)":C.textDim}/><path d="M12 2.9V4.1M12 20.2V21.1M2.9 12.15H4.1M19.9 12.15H21.1" stroke={active?"url(#navG5)":C.textDim} strokeWidth="1.25" strokeLinecap="round" opacity="0.48"/><path d="M17.95 4.25L18.48 5.25L19.48 5.78L18.48 6.31L17.95 7.31L17.42 6.31L16.42 5.78L17.42 5.25L17.95 4.25Z" fill={active?"url(#navG5)":C.textDim} opacity={active?0.78:0.45}/><defs><linearGradient id="navG5" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent}/><stop offset="1" stopColor={C.pink}/></linearGradient></defs></svg>,
               };
