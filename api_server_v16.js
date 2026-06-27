@@ -675,8 +675,26 @@ app.post('/api/subscriptions/reconcile', requireAuth, async (req, res) => {
       return res.status(500).json({ reconciled: false, reason: 'db_error' });
     }
 
+    // Founder Pass only: assign the next sequential founder_number.
+    // Never runs for monthly/annual reconciliation — only isFounder.
+    let founderNumber = null;
+    if (isFounder) {
+      try {
+        const { data: assignedNumber, error: founderErr } = await supabase
+          .rpc('assign_next_founder_number', { target_user_id: userId });
+        if (founderErr) {
+          console.error(`[Reconcile] Founder number assignment failed: userId=${userId} error=${founderErr.message}`);
+        } else {
+          founderNumber = assignedNumber;
+          console.log(`[Reconcile] Founder number assigned: userId=${userId} founder_number=${founderNumber} plan=founder`);
+        }
+      } catch (err) {
+        console.error(`[Reconcile] Founder number assignment exception: userId=${userId} error=${err.message}`);
+      }
+    }
+
     console.log(`[Reconcile] ✓ VIP activated for ${userId} (${userEmail}) via Stripe reconciliation. plan=${paid.metadata?.plan} session=${paid.id}`);
-    res.json({ reconciled: true, vip_source: vipPayload.vip_source, vip_since: vipPayload.vip_since });
+    res.json({ reconciled: true, vip_source: vipPayload.vip_source, vip_since: vipPayload.vip_since, founder_number: founderNumber });
 
   } catch (err) {
     console.error('[Reconcile] Unexpected error:', err.message);
@@ -918,6 +936,7 @@ app.post('/api/webhooks/stripe', async (req, res) => {
       };
 
       let activated = false;
+      let activatedUserId = null;
 
       // Primary path: update by userId from checkout metadata
       if (userId) {
@@ -929,6 +948,7 @@ app.post('/api/webhooks/stripe', async (req, res) => {
           } else if (data?.length) {
             console.log(`[Stripe] VIP activated: userId=${userId} plan=${plan} event=${eventId}`);
             activated = true;
+            activatedUserId = data[0].id;
           } else {
             console.warn(`[Stripe Webhook] VIP update by userId: 0 rows affected. event=${eventId} userId=${userId}`);
           }
@@ -947,11 +967,29 @@ app.post('/api/webhooks/stripe', async (req, res) => {
           } else if (data?.length) {
             console.log(`[Stripe] VIP activated via email fallback: email=${session.customer_email} plan=${plan} event=${eventId}`);
             activated = true;
+            activatedUserId = data[0].id;
           } else {
             console.warn(`[Stripe Webhook] VIP email-fallback: 0 rows matched. event=${eventId} email=${session.customer_email}`);
           }
         } catch (err) {
           console.error(`[Stripe Webhook] VIP email-fallback exception: event=${eventId} error=${err.message}`);
+        }
+      }
+
+      // Founder Pass only: assign the next sequential founder_number.
+      // Concurrency-safe via DB advisory lock inside assign_next_founder_number.
+      // Never runs for monthly/annual/comp — only plan === 'founder'.
+      if (activated && activatedUserId && plan === 'founder') {
+        try {
+          const { data: founderNumber, error: founderErr } = await supabase
+            .rpc('assign_next_founder_number', { target_user_id: activatedUserId });
+          if (founderErr) {
+            console.error(`[Stripe Webhook] Founder number assignment failed: event=${eventId} userId=${activatedUserId} error=${founderErr.message}`);
+          } else {
+            console.log(`[Stripe Webhook] Founder number assigned: userId=${activatedUserId} founder_number=${founderNumber} plan=founder event=${eventId}`);
+          }
+        } catch (err) {
+          console.error(`[Stripe Webhook] Founder number assignment exception: event=${eventId} userId=${activatedUserId} error=${err.message}`);
         }
       }
 
