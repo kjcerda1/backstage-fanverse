@@ -2149,7 +2149,7 @@ function VipTutorialModal({ onDone, onNavigate }) {
 }
 
 // ─── MOCK DATA ─────────────────────────────────────────────────────────────────
-const ALL_GROUPS = ["BTS","Stray Kids","NewJeans","aespa","BLACKPINK","TXT","ENHYPEN","IVE","LE SSERAFIM","ITZY","NCT Dream","EXO","SHINee","GOT7","SEVENTEEN","ATEEZ","Red Velvet","TWICE","Kep1er","NMIXX","RIIZE","ZEROBASEONE","BABYMONSTER","BOYNEXTDOOR"];
+const ALL_GROUPS = ["BTS","Stray Kids","NewJeans","aespa","BLACKPINK","TXT","ENHYPEN","IVE","LE SSERAFIM","ITZY","NCT Dream","NCT 127","EXO","SHINee","GOT7","SEVENTEEN","ATEEZ","Red Velvet","TWICE","Kep1er","NMIXX","RIIZE","ZEROBASEONE","BABYMONSTER","BOYNEXTDOOR"];
 
 // ─── CITY LIST — global-ready normalized location data ────────────────────────
 // Each entry: city, region (full), region_code (short/empty), country (full),
@@ -6456,14 +6456,19 @@ function PhotocardSetsView({ pcSetData, setPcSetData, groupFilter, setGroupFilte
   const [showExplore, setShowExplore] = useState(false);
   const [exploreSearch, setExploreSearch] = useState("");
   const [trackedSets, setTrackedSets] = useState(()=>ls.get("backstage_tracked_photocard_sets",[]));
+  const [customSets, setCustomSets] = useState(()=>ls.get("backstage_custom_photocard_sets",[]));
+  const [customEraDraft, setCustomEraDraft] = useState("");
 
   const _fanIdentity = ls.get("backstage_fan_identity",{});
   const myGroupNames = [...new Set([...(_fanIdentity.fandoms||[]),_fanIdentity.ult].filter(Boolean))];
   const hasMyGroups  = myGroupNames.length > 0;
 
-  const SET_GROUPS = ["all", ...(hasMyGroups?["My Groups"]:[]), ...new Set(PC_CATALOG_SETS.map(s=>s.group))];
+  // Combined catalog — presets + anything the user has created via Explore Sets
+  const ALL_PC_SETS = [...PC_CATALOG_SETS, ...customSets];
 
-  const sortedCatalog = [...PC_CATALOG_SETS].sort((a,b)=>{
+  const SET_GROUPS = ["all", ...(hasMyGroups?["My Groups"]:[]), ...new Set(ALL_PC_SETS.map(s=>s.group))];
+
+  const sortedCatalog = [...ALL_PC_SETS].sort((a,b)=>{
     const aIsMe = myGroupNames.includes(a.group);
     const bIsMe = myGroupNames.includes(b.group);
     if(aIsMe && !bIsMe) return -1;
@@ -6477,11 +6482,32 @@ function PhotocardSetsView({ pcSetData, setPcSetData, groupFilter, setGroupFilte
     ls.set("backstage_tracked_photocard_sets", next);
   };
 
+  // Create a set for any group — uses ERA_MEMBERS roster when available,
+  // falls back to an empty member list (group/era tracked, members coming soon).
+  const addCustomSet = (groupName, eraName) => {
+    const group = groupName.trim();
+    const era = eraName.trim() || "Custom Era";
+    if (!group) return;
+    const id = `custom-${group}-${era}`.toLowerCase().replace(/[^a-z0-9]+/g,"-");
+    if (ALL_PC_SETS.some(s=>s.id===id)) { trackSet(id); setShowExplore(false); setExploreSearch(""); setCustomEraDraft(""); return; }
+    const palette = [C.pink,C.accent,C.mint,C.gold,C.rose,C.sky,C.lavender];
+    const newSet = {
+      id, group, era, album:era, version:"Custom",
+      emoji:"🎴", color:palette[ALL_PC_SETS.length % palette.length],
+      cardType:"Custom", members: ERA_MEMBERS[group] || [], custom:true,
+    };
+    const next = [...customSets, newSet];
+    setCustomSets(next);
+    ls.set("backstage_custom_photocard_sets", next);
+    trackSet(id);
+    setShowExplore(false); setExploreSearch(""); setCustomEraDraft("");
+  };
+
   const filteredSets = groupFilter==="all"
     ? sortedCatalog
     : groupFilter==="My Groups"
       ? sortedCatalog.filter(s=>myGroupNames.includes(s.group))
-      : PC_CATALOG_SETS.filter(s=>s.group===groupFilter);
+      : ALL_PC_SETS.filter(s=>s.group===groupFilter);
 
   const getStats = (setId, members) => {
     const d = pcSetData[setId]||{};
@@ -6590,21 +6616,31 @@ function PhotocardSetsView({ pcSetData, setPcSetData, groupFilter, setGroupFilte
                 </div>
               );
             })()}
-            <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10 }}>Cards · Tap to cycle status</p>
-            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14 }}>
-              {selectedSet.members.map(member=>{
-                const status = (pcSetData[selectedSet.id]||{})[member]||null;
-                const meta   = STATUS_META[status]||STATUS_META[null];
-                const next   = STATUS_CYCLE[(STATUS_CYCLE.indexOf(status)+1)%STATUS_CYCLE.length];
-                return (
-                  <button key={member} onClick={()=>updateStatus(selectedSet.id,member,next)} style={{ padding:"10px 10px",borderRadius:13,background:meta.bg,border:`1.5px solid ${meta.border}`,cursor:"pointer",textAlign:"left",transition:"all .15s" }}>
-                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,color:C.text,marginBottom:3,lineHeight:1.2 }}>{member}</p>
-                    <p style={{ fontSize:9.5,color:meta.color,fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>{meta.label}</p>
-                  </button>
-                );
-              })}
-            </div>
-            <p style={{ fontSize:10,color:C.textDim,textAlign:"center",lineHeight:1.6 }}>Tap a card to cycle: Missing → Owned → ISO → Dupe → Trade</p>
+            {selectedSet.members.length>0 ? (
+              <>
+                <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10 }}>Cards · Tap to cycle status</p>
+                <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14 }}>
+                  {selectedSet.members.map(member=>{
+                    const status = (pcSetData[selectedSet.id]||{})[member]||null;
+                    const meta   = STATUS_META[status]||STATUS_META[null];
+                    const next   = STATUS_CYCLE[(STATUS_CYCLE.indexOf(status)+1)%STATUS_CYCLE.length];
+                    return (
+                      <button key={member} onClick={()=>updateStatus(selectedSet.id,member,next)} style={{ padding:"10px 10px",borderRadius:13,background:meta.bg,border:`1.5px solid ${meta.border}`,cursor:"pointer",textAlign:"left",transition:"all .15s" }}>
+                        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,color:C.text,marginBottom:3,lineHeight:1.2 }}>{member}</p>
+                        <p style={{ fontSize:9.5,color:meta.color,fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>{meta.label}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p style={{ fontSize:10,color:C.textDim,textAlign:"center",lineHeight:1.6 }}>Tap a card to cycle: Missing → Owned → ISO → Dupe → Trade</p>
+              </>
+            ) : (
+              <div style={{ textAlign:"center",padding:"20px 16px",background:C.surface,border:`1px solid ${C.border}`,borderRadius:14 }}>
+                <p style={{ fontSize:24,marginBottom:8 }}>🎴</p>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12.5,color:C.text,marginBottom:4 }}>Member roster coming soon</p>
+                <p style={{ fontSize:11,color:C.textMid,lineHeight:1.6 }}>You're tracking {selectedSet.group} at the group level for now. Add individual cards anytime from My Cards.</p>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -6618,28 +6654,65 @@ function PhotocardSetsView({ pcSetData, setPcSetData, groupFilter, setGroupFilte
               <h3 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17,color:C.text }}>Explore Sets</h3>
               <button onClick={()=>{setShowExplore(false);setExploreSearch("");}} style={{ background:"none",border:"none",color:C.textMid,fontSize:20,cursor:"pointer" }}>✕</button>
             </div>
-            <p style={{ fontSize:11,color:C.textMid,marginBottom:14,lineHeight:1.5 }}>Track sets you're actively collecting. Your tracked sets show up in Photocards, Wishlist, and Bias Shrine.</p>
+            <p style={{ fontSize:11,color:C.textMid,marginBottom:14,lineHeight:1.5 }}>Track sets you're actively collecting, or add any group not listed yet. Your tracked sets show up in Photocards, Wishlist, and Bias Shrine.</p>
             <input value={exploreSearch} onChange={e=>setExploreSearch(e.target.value)} placeholder="Search group or era…" style={{ width:"100%",background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:12,padding:"10px 14px",fontSize:13,color:C.text,fontFamily:"'Epilogue',sans-serif",marginBottom:14,boxSizing:"border-box",outline:"none" }} />
-            <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
-              {PC_CATALOG_SETS.filter(s=>!exploreSearch||`${s.group} ${s.era} ${s.album} ${s.version}`.toLowerCase().includes(exploreSearch.toLowerCase())).map(s=>{
-                const tracked = trackedSets.includes(s.id);
-                return (
-                  <div key={s.id} style={{ display:"flex",gap:12,alignItems:"center",padding:"12px 14px",borderRadius:14,background:`${s.color}0c`,border:`1.5px solid ${tracked?s.color:s.color+"33"}` }}>
-                    <span style={{ fontSize:18,flexShrink:0 }}>{s.emoji}</span>
-                    <div style={{ flex:1,minWidth:0 }}>
-                      <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12.5,color:C.text,marginBottom:1 }}>{s.album}</p>
-                      <p style={{ fontSize:10,color:s.color }}>{s.group} · {s.version}</p>
-                    </div>
-                    {tracked ? (
-                      <div style={{ fontSize:9.5,padding:"4px 10px",borderRadius:99,background:`${s.color}22`,color:s.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,flexShrink:0 }}>✓ Tracking</div>
-                    ) : (
-                      <button onClick={()=>trackSet(s.id)} style={{ background:s.color,border:"none",borderRadius:99,padding:"5px 12px",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10,cursor:"pointer",flexShrink:0 }}>Track</button>
-                    )}
+            {(()=>{
+              const q = exploreSearch.trim().toLowerCase();
+              const matchedSets = ALL_PC_SETS.filter(s=>!q||`${s.group} ${s.era} ${s.album} ${s.version}`.toLowerCase().includes(q));
+              const matchedGroupsWithNoSet = q
+                ? ALL_GROUPS.filter(g=>g.toLowerCase().includes(q) && !ALL_PC_SETS.some(s=>s.group.toLowerCase()===g.toLowerCase()))
+                : [];
+              return (
+                <>
+                  <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+                    {matchedSets.map(s=>{
+                      const tracked = trackedSets.includes(s.id);
+                      return (
+                        <div key={s.id} style={{ display:"flex",gap:12,alignItems:"center",padding:"12px 14px",borderRadius:14,background:`${s.color}0c`,border:`1.5px solid ${tracked?s.color:s.color+"33"}` }}>
+                          <span style={{ fontSize:18,flexShrink:0 }}>{s.emoji}</span>
+                          <div style={{ flex:1,minWidth:0 }}>
+                            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12.5,color:C.text,marginBottom:1 }}>{s.album}</p>
+                            <p style={{ fontSize:10,color:s.color }}>{s.group} · {s.version}{s.custom&&s.members.length===0?" · members coming soon":""}</p>
+                          </div>
+                          {tracked ? (
+                            <div style={{ fontSize:9.5,padding:"4px 10px",borderRadius:99,background:`${s.color}22`,color:s.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,flexShrink:0 }}>✓ Tracking</div>
+                          ) : (
+                            <button onClick={()=>trackSet(s.id)} style={{ background:s.color,border:"none",borderRadius:99,padding:"5px 12px",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10,cursor:"pointer",flexShrink:0 }}>Track</button>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
-                );
-              })}
-            </div>
-            <p style={{ fontSize:10,color:C.textDim,textAlign:"center",marginTop:20,lineHeight:1.5 }}>More sets coming soon · Request a set via Feedback</p>
+
+                  {/* Known group, not yet a tracked set — one-tap add */}
+                  {matchedGroupsWithNoSet.length>0 && (
+                    <div style={{ marginTop:matchedSets.length>0?10:0,display:"flex",flexDirection:"column",gap:8 }}>
+                      {matchedGroupsWithNoSet.map(g=>(
+                        <div key={g} style={{ display:"flex",gap:12,alignItems:"center",padding:"12px 14px",borderRadius:14,background:`${C.accent}0c`,border:`1.5px dashed ${C.accent}44` }}>
+                          <span style={{ fontSize:18,flexShrink:0 }}>✦</span>
+                          <div style={{ flex:1,minWidth:0 }}>
+                            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12.5,color:C.text }}>{g}</p>
+                            <p style={{ fontSize:10,color:C.textMid }}>{ERA_MEMBERS[g]?.length ? `${ERA_MEMBERS[g].length} members ready to track` : "Group-level tracking · members coming soon"}</p>
+                          </div>
+                          <button onClick={()=>addCustomSet(g,"General")} style={{ background:C.accent,border:"none",borderRadius:99,padding:"5px 12px",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10,cursor:"pointer",flexShrink:0 }}>+ Add</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Free-text custom group/era — for anything not in ALL_GROUPS either */}
+                  <div style={{ marginTop:14,background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:14,padding:"12px 14px" }}>
+                    <p style={{ fontSize:10,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8 }}>Don't see your group?</p>
+                    <div style={{ display:"flex",gap:7 }}>
+                      <input value={exploreSearch} onChange={e=>setExploreSearch(e.target.value)} placeholder="Group name" style={{ flex:1,background:C.surfaceHi,border:`1.5px solid ${C.border}`,borderRadius:10,padding:"8px 11px",fontSize:12,color:C.text,fontFamily:"'Epilogue',sans-serif",outline:"none" }} />
+                      <input value={customEraDraft} onChange={e=>setCustomEraDraft(e.target.value)} placeholder="Era (optional)" style={{ flex:1,background:C.surfaceHi,border:`1.5px solid ${C.border}`,borderRadius:10,padding:"8px 11px",fontSize:12,color:C.text,fontFamily:"'Epilogue',sans-serif",outline:"none" }} />
+                    </div>
+                    <button onClick={()=>addCustomSet(exploreSearch,customEraDraft)} disabled={!exploreSearch.trim()} style={{ width:"100%",marginTop:8,padding:"9px",borderRadius:10,background:exploreSearch.trim()?C.pink:C.surfaceHi,border:"none",color:exploreSearch.trim()?C.bg:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:exploreSearch.trim()?"pointer":"default" }}>+ Create &amp; Track</button>
+                  </div>
+                </>
+              );
+            })()}
+            <p style={{ fontSize:10,color:C.textDim,textAlign:"center",marginTop:20,lineHeight:1.5 }}>Custom groups track at the group level · official album/version art coming soon</p>
           </div>
         </div>
       )}
@@ -6888,7 +6961,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
   return (
     <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden", position:"relative" }}>
       {/* EraRoom deep-link overlay from Era Boards */}
-      {eraRoomDeep && <EraRoom group={eraRoomDeep.group} era={eraRoomDeep.era} color={eraRoomDeep.color} onBack={()=>setEraRoomDeep(null)} onBinderCreated={()=>{ refreshBinderCount(); setEraRoomDeep(null); setSection("albums"); }} />}
+      {eraRoomDeep && <EraRoom group={eraRoomDeep.group} era={eraRoomDeep.era} color={eraRoomDeep.color} onBack={()=>setEraRoomDeep(null)} onBinderCreated={()=>{ refreshBinderCount(); setEraRoomDeep(null); setSection("albums"); }} onGoToTradeHub={()=>{ setEraRoomDeep(null); setSection("albums"); }} />}
       {showAddCard && (
         <div style={{ position:"absolute",inset:0,zIndex:50,background:C.bg,overflowY:"auto" }}>
           <AddCardForm onBack={()=>setShowAddCard(false)} onSaved={card=>{ setCards(cs=>[card,...cs]); setShowAddCard(false); }} />
@@ -10684,7 +10757,8 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
 
         {/* ── SOCIAL STORY RAIL — personal/social bubbles (NOT pass categories) ── */}
         {/* Pass categories (Fit Check, Merch, etc.) stay in Backstage Passes page only */}
-        <div style={{ display:"flex",gap:11,overflowX:"auto",scrollbarWidth:"none",padding:`${scrolled?3:5}px 14px ${scrolled?3:5}px`,transition:"padding .28s ease",alignItems:"flex-start" }}>
+        {/* Collapses fully on scroll — same maxHeight/opacity technique as the title block above */}
+        <div style={{ display:"flex",gap:11,overflowX:"auto",scrollbarWidth:"none",overflowY:"hidden",maxHeight:scrolled?0:74,opacity:scrolled?0:1,padding:scrolled?"0 14px":"5px 14px",transition:"max-height .28s ease, opacity .2s ease, padding .28s ease",alignItems:"flex-start" }}>
           {/* Your Pass — always first */}
           <div onClick={()=>go?.("passes")} className="tap" style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:2,cursor:"pointer" }}>
             <div style={{ width:scrolled?36:42,height:scrolled?36:42,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.berry})`,padding:2,boxShadow:`0 0 12px ${C.accent}50`,transition:"all .28s ease",flexShrink:0 }}>
@@ -11625,9 +11699,11 @@ function getEraData(group, era, color) {
 }
 
 // ─── ERA ROOM COMPONENT ───────────────────────────────────────────────────────
-function EraRoom({ group, era, color, onBack, onBinderCreated }) {
+function EraRoom({ group, era, color, onBack, onBinderCreated, onGoToTradeHub }) {
   const [tab, setTab] = useState("templates");
   const [toast, setToast] = useState(null);
+  const [showTradeSheet, setShowTradeSheet] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
   const [likedPosts, setLikedPosts] = useState({});
   const [binderLoading, setBinderLoading] = useState(false);
   // Persists across reloads — seeded from v2 localStorage so "Open Albums" survives page refresh
@@ -11781,17 +11857,37 @@ function EraRoom({ group, era, color, onBack, onBinderCreated }) {
           </div>
 
           {/* Era title */}
-          <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:26,letterSpacing:"-0.03em",lineHeight:1.05,marginBottom:4 }}>{era}</h2>
-          <p style={{ fontSize:12,color:C.textMid,lineHeight:1.5,marginBottom:10 }}>Build this era from templates to trades. Start a binder, track every member, save your wants, and keep it all in My World.</p>
+          <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:scrolled?18:26,letterSpacing:"-0.03em",lineHeight:1.05,marginBottom:4,transition:"font-size .25s ease" }}>{era}</h2>
 
-          {/* Palette strip + mood */}
-          <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:14 }}>
-            <div style={{ display:"flex",gap:3 }}>
-              {palette.map((p,i)=>(
-                <div key={i} style={{ width:18,height:6,borderRadius:3,background:p,boxShadow:`0 0 8px ${p}66` }} />
+          {/* Collapsible: description, palette/mood, stat icons — the bulk of the header height */}
+          <div style={{ overflow:"hidden", maxHeight:scrolled?0:230, opacity:scrolled?0:1, transition:"max-height .28s ease, opacity .2s ease" }}>
+            <p style={{ fontSize:12,color:C.textMid,lineHeight:1.5,marginBottom:10 }}>Build this era from templates to trades. Start a binder, track every member, save your wants, and keep it all in My World.</p>
+
+            {/* Palette strip + mood */}
+            <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:14 }}>
+              <div style={{ display:"flex",gap:3 }}>
+                {palette.map((p,i)=>(
+                  <div key={i} style={{ width:18,height:6,borderRadius:3,background:p,boxShadow:`0 0 8px ${p}66` }} />
+                ))}
+              </div>
+              <p style={{ fontSize:9.5,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:600,letterSpacing:"0.03em" }}>{data.mood}</p>
+            </div>
+
+            {/* Progress stats */}
+            <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6 }}>
+              {[
+                { label:"Saved",     value:savedCount,   color:color,   icon:"💾" },
+                { label:"Wishlist",  value:wishCount,    color:C.gold,  icon:"⭐" },
+                { label:"Binder",    value:hasBinder?1:0,color:C.mint,  icon:"📁" },
+                { label:"ISO",       value:isoCount,     color:C.rose,  icon:"🔁" },
+              ].map(s=>(
+                <div key={s.label} style={{ background:C.surface,border:`1px solid ${s.color}25`,borderRadius:12,padding:"7px 6px",textAlign:"center" }}>
+                  <p style={{ fontSize:16,marginBottom:2 }}>{s.icon}</p>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:15,color:s.value>0?s.color:C.textDim,lineHeight:1 }}>{s.value}</p>
+                  <p style={{ fontSize:8.5,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:600,marginTop:2,textTransform:"uppercase",letterSpacing:"0.06em" }}>{s.label}</p>
+                </div>
               ))}
             </div>
-            <p style={{ fontSize:9.5,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:600,letterSpacing:"0.03em" }}>{data.mood}</p>
           </div>
 
           {/* Binder CTA */}
@@ -11813,22 +11909,6 @@ function EraRoom({ group, era, color, onBack, onBinderCreated }) {
             )}
           </div>
 
-          {/* Progress stats */}
-          <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:14 }}>
-            {[
-              { label:"Saved",     value:savedCount,   color:color,   icon:"💾" },
-              { label:"Wishlist",  value:wishCount,    color:C.gold,  icon:"⭐" },
-              { label:"Binder",    value:hasBinder?1:0,color:C.mint,  icon:"📁" },
-              { label:"ISO",       value:isoCount,     color:C.rose,  icon:"🔁" },
-            ].map(s=>(
-              <div key={s.label} style={{ background:C.surface,border:`1px solid ${s.color}25`,borderRadius:12,padding:"7px 6px",textAlign:"center" }}>
-                <p style={{ fontSize:16,marginBottom:2 }}>{s.icon}</p>
-                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:15,color:s.value>0?s.color:C.textDim,lineHeight:1 }}>{s.value}</p>
-                <p style={{ fontSize:8.5,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:600,marginTop:2,textTransform:"uppercase",letterSpacing:"0.06em" }}>{s.label}</p>
-              </div>
-            ))}
-          </div>
-
           {/* Tabs */}
           <div style={{ display:"flex",gap:5,overflowX:"auto",scrollbarWidth:"none",paddingBottom:12 }}>
             {TABS.map(t=>(
@@ -11841,7 +11921,7 @@ function EraRoom({ group, era, color, onBack, onBinderCreated }) {
       </div>
 
       {/* ── Scrollable content ── */}
-      <div style={{ flex:1,overflowY:"auto",padding:"6px 20px calc(120px + env(safe-area-inset-bottom))" }}>
+      <div onScroll={e=>setScrolled(e.target.scrollTop>40)} style={{ flex:1,overflowY:"auto",padding:"6px 20px calc(120px + env(safe-area-inset-bottom))" }}>
 
         {/* ──── TEMPLATES ──── */}
         {tab==="templates" && (
@@ -12058,7 +12138,7 @@ function EraRoom({ group, era, color, onBack, onBinderCreated }) {
                           <p style={{ fontSize:12,color:C.text,lineHeight:1.4,fontWeight:600 }}>{t.want}</p>
                         </div>
                       </div>
-                      <button className="tap" style={{ width:"100%",padding:"9px",borderRadius:11,background:`${uc}18`,border:`1.5px solid ${uc}44`,color:uc,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,cursor:"pointer" }}>
+                      <button onClick={()=>setShowTradeSheet(true)} className="tap" style={{ width:"100%",padding:"9px",borderRadius:11,background:`${uc}18`,border:`1.5px solid ${uc}44`,color:uc,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,cursor:"pointer" }}>
                         Create Trade Listing
                       </button>
                     </div>
@@ -12118,6 +12198,31 @@ function EraRoom({ group, era, color, onBack, onBinderCreated }) {
         )}
 
       </div>
+
+      {/* Trade Listing — honest status sheet (real Trade Hub flow needs an owned card, not a mock want-ad) */}
+      {showTradeSheet && (
+        <div onClick={()=>setShowTradeSheet(false)} style={{ position:"fixed",inset:0,zIndex:460,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:"22px 20px 36px",width:"100%",maxHeight:"70vh",overflowY:"auto",animation:"slideUp .25s ease" }}>
+            <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 18px" }} />
+            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14 }}>
+              <h3 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17,color:C.text }}>⇄ Trade Listings</h3>
+              <button onClick={()=>setShowTradeSheet(false)} style={{ background:"none",border:"none",color:C.textMid,fontSize:20,cursor:"pointer" }}>✕</button>
+            </div>
+            <p style={{ fontSize:12.5,color:C.textMid,lineHeight:1.7,marginBottom:16 }}>
+              Trade listings here are being connected to the full Trade Hub. The {era} posts on this page are example ISO/FT activity, not real listings yet — so this button doesn't create one against them.
+            </p>
+            {onGoToTradeHub ? (
+              <button onClick={()=>{ setShowTradeSheet(false); onGoToTradeHub(); }} className="tap" style={{ width:"100%",padding:"12px",borderRadius:13,background:color,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer" }}>
+                Go to Trade Hub →
+              </button>
+            ) : (
+              <div style={{ background:`${color}10`,border:`1px solid ${color}28`,borderRadius:12,padding:"11px 13px" }}>
+                <p style={{ fontSize:11.5,color:C.textMid,lineHeight:1.6 }}>You can list your real cards for trade from <span style={{ color,fontWeight:700 }}>My World → Collections → Trade Hub</span>.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -13724,7 +13829,23 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
   const [composing, setComposing] = useState(false);
   const [draft, setDraft] = useState({ text:"", tag:"", type:"general", image:null });
   const [memeMode, setMemeMode] = useState(null);
+  const [commentsOpenFor, setCommentsOpenFor] = useState(null);
+  const [replyDraft, setReplyDraft] = useState("");
+  const [toast, setToast] = useState(null);
+  const showToast = msg => { setToast(msg); setTimeout(()=>setToast(null), 2400); };
   const imgRef = useRef(null);
+
+  // Mock comments — UI only, not persisted. No backend comments table exists yet.
+  const MOCK_COMMENT_POOL = [
+    { user:"@stanforlife",   text:"omg same energy, this is everything 😭" },
+    { user:"@kpopdaily_",    text:"wait this is so real, screenshotting this" },
+    { user:"@bunnybiased",   text:"the way I felt this in my soul" },
+    { user:"@seoulboundfan", text:"need updates on this asap pls 🙏" },
+  ];
+  const getMockComments = (postId) => {
+    const seed = postId % MOCK_COMMENT_POOL.length;
+    return [MOCK_COMMENT_POOL[seed], MOCK_COMMENT_POOL[(seed+1)%MOCK_COMMENT_POOL.length]];
+  };
 
   const POST_TYPES = [
     { id:"concert", label:"🎤 Concert", color:C.pink },
@@ -13764,7 +13885,12 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
   };
 
   return (
-    <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
+    <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden", position:"relative" }}>
+      {toast && (
+        <div style={{ position:"absolute",bottom:130,left:"50%",transform:"translateX(-50%)",background:C.surface,border:`1px solid ${C.accent}66`,borderRadius:14,padding:"10px 18px",fontSize:12.5,color:C.text,zIndex:502,whiteSpace:"nowrap",boxShadow:`0 8px 30px ${C.accent}40`,fontFamily:"'Epilogue',sans-serif",fontWeight:800,pointerEvents:"none",letterSpacing:"-0.01em" }}>
+          ✦ {toast}
+        </div>
+      )}
       {/* Header */}
       <div style={{ padding:"6px 16px 0", flexShrink:0 }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
@@ -13898,7 +14024,7 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
               <button onClick={()=>{ setLiked(l=>({...l,[p.id]:!l[p.id]})); setPosts(ps=>ps.map(x=>x.id===p.id?{...x,likes:x.likes+(liked[p.id]?-1:1)}:x)); }} className="tap" style={{ background:"none",border:"none",fontSize:12.5,color:liked[p.id]?C.rose:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>
                 {liked[p.id]?"♥":"♡"} {p.likes+(liked[p.id]?1:0)}
               </button>
-              <button style={{ background:"none",border:"none",fontSize:12.5,color:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>💬 {p.comments}</button>
+              <button onClick={()=>{ setReplyDraft(""); setCommentsOpenFor(p.id); }} className="tap" style={{ background:"none",border:"none",fontSize:12.5,color:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>💬 {p.comments}</button>
               <button onClick={()=>setMemeMode(memeMode===p.id?null:p.id)} style={{ background:"none",border:"none",fontSize:12.5,color:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>😂</button>
               <button onClick={()=>{ setSaved(s=>({...s,[p.id]:!s[p.id]})); setPosts(ps=>ps.map(x=>x.id===p.id?{...x,saved:!x.saved}:x)); }} style={{ background:"none",border:"none",fontSize:13,color:saved[p.id]?C.gold:C.textMid,cursor:"pointer",marginLeft:"auto" }}>
                 {saved[p.id]?"🔖":"🏷️"}
@@ -13918,6 +14044,50 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
 
         {sortedPosts.length===0&&<Empty emoji="📱" title="Nothing posted yet" sub="Be the first to share something with the Fanverse." action="+ Post Now" onAction={()=>setComposing(true)} />}
       </Screen>
+
+      {/* Comments — mock only, not persisted. No backend comments table exists yet. */}
+      {commentsOpenFor!=null && (()=>{
+        const activePost = posts.find(x=>x.id===commentsOpenFor);
+        if (!activePost) return null;
+        const mockComments = getMockComments(activePost.id);
+        return (
+          <div onClick={()=>setCommentsOpenFor(null)} style={{ position:"fixed",inset:0,zIndex:470,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+            <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:"22px 20px",width:"100%",maxHeight:"80vh",display:"flex",flexDirection:"column",animation:"slideUp .25s ease" }}>
+              <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 16px",flexShrink:0 }} />
+              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexShrink:0 }}>
+                <h3 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,color:C.text }}>Comments</h3>
+                <button onClick={()=>setCommentsOpenFor(null)} style={{ background:"none",border:"none",color:C.textMid,fontSize:20,cursor:"pointer" }}>✕</button>
+              </div>
+              {/* Post context */}
+              <div style={{ display:"flex",gap:8,alignItems:"flex-start",paddingBottom:14,marginBottom:14,borderBottom:`1px solid ${C.border}`,flexShrink:0 }}>
+                <div style={{ width:30,height:30,borderRadius:"50%",background:`linear-gradient(135deg,${activePost.color},${activePost.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.bg,fontSize:12,flexShrink:0 }}>{activePost.avatar}</div>
+                <div style={{ flex:1,minWidth:0 }}>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5 }}>{activePost.user}</p>
+                  <p style={{ fontSize:11.5,color:C.textMid,lineHeight:1.5,marginTop:2 }}>{activePost.text}</p>
+                </div>
+              </div>
+              {/* Mock comments */}
+              <div style={{ flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:12,marginBottom:14 }}>
+                {mockComments.map((c,i)=>(
+                  <div key={i} style={{ display:"flex",gap:8,alignItems:"flex-start" }}>
+                    <div style={{ width:26,height:26,borderRadius:"50%",background:C.surface,border:`1px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.textMid,fontSize:10,flexShrink:0 }}>{c.user[1].toUpperCase()}</div>
+                    <div style={{ flex:1,minWidth:0 }}>
+                      <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11 }}>{c.user}</p>
+                      <p style={{ fontSize:11.5,color:C.text,lineHeight:1.5,marginTop:1 }}>{c.text}</p>
+                    </div>
+                  </div>
+                ))}
+                <p style={{ fontSize:9.5,color:C.textDim,textAlign:"center",marginTop:4 }}>Sample comments · live comments are coming soon</p>
+              </div>
+              {/* Reply input — disabled submit, honest toast */}
+              <div style={{ display:"flex",gap:8,flexShrink:0,paddingTop:4 }}>
+                <input value={replyDraft} onChange={e=>setReplyDraft(e.target.value)} placeholder="Add a comment…" style={{ flex:1,background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:99,padding:"10px 14px",fontSize:12.5,color:C.text,fontFamily:"'Epilogue',sans-serif",outline:"none" }} />
+                <button onClick={()=>{ setReplyDraft(""); showToast("Live comments are coming soon — your reply wasn't saved."); }} disabled={!replyDraft.trim()} className="tap" style={{ background:replyDraft.trim()?C.accent:C.surface,border:`1.5px solid ${replyDraft.trim()?C.accent:C.border}`,borderRadius:99,padding:"0 16px",color:replyDraft.trim()?C.bg:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:replyDraft.trim()?"pointer":"default",flexShrink:0 }}>Post</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -22506,7 +22676,7 @@ const MOCK_SCRAPBOOKS = [
   { id:"sb2", name:"SKZ MANIAC 2022", concert:"Stray Kids MANIAC", color:C.accent, emoji:"🖤", coverPhoto:null, memoriesCount:2, collabCode:"SKZ2022" },
 ];
 
-function ScrapbookTab({ isVip, onUpgrade }) {
+function ScrapbookTab({ isVip, onUpgrade, onBack }) {
   const [books, setBooks] = useState(ls.get("backstage_scrapbooks", MOCK_SCRAPBOOKS));
   const [selected, setSelected] = useState(null);
   const [adding, setAdding] = useState(false);
@@ -22555,7 +22725,10 @@ function ScrapbookTab({ isVip, onUpgrade }) {
   return (
     <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
       <div style={{ padding:"18px 20px 0", display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0, marginBottom:14 }}>
-        <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22 }}>Scrapbook 📸</h2>
+        <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+          {onBack&&<button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>}
+          <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22 }}>Scrapbook 📸</h2>
+        </div>
         <div style={{ display:"flex",gap:7 }}>
           <button onClick={()=>{setChooseTemplate(true);setAdding(true);}} style={{ background:`${C.pink}18`,border:`1.5px solid ${C.pink}33`,borderRadius:11,padding:"7px 12px",color:C.pink,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,cursor:"pointer" }}>🎭 Template</button>
           <button onClick={()=>{setChooseTemplate(false);setAdding(true);}} style={{ background:C.accent,border:"none",borderRadius:11,padding:"7px 14px",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer" }}>+ New</button>
@@ -24177,7 +24350,7 @@ function AppInner() {
         {modal==="myshows"&&<ModalWrapper><MyShowsPage onBack={()=>setModal(null)} isVip={isVip} onUpgrade={openUpgrade} go={go} /></ModalWrapper>}
         {modal==="outfits"&&<ToolModalWrapper title="Outfit Generator ✨"><OutfitGenerator user={user} weather={weatherData} isVip={isVip} onUpgrade={openUpgrade} /></ToolModalWrapper>}
         {modal==="trip"&&<ToolModalWrapper title="Trip Planner ✈️"><TripPlanner isVip={isVip} onUpgrade={openUpgrade} /></ToolModalWrapper>}
-        {modal==="scrapbook"&&<ModalWrapper><ScrapbookTab isVip={isVip} onUpgrade={openUpgrade} /></ModalWrapper>}
+        {modal==="scrapbook"&&<ModalWrapper><ScrapbookTab isVip={isVip} onUpgrade={openUpgrade} onBack={()=>setModal(null)} /></ModalWrapper>}
         {modal==="friends"&&<ModalWrapper><FriendsPage onBack={()=>setModal(null)} onNotif={showNotif} /></ModalWrapper>}
         {modal==="fanmap"&&<ModalWrapper><FanverseMap onBack={()=>setModal(null)} /></ModalWrapper>}
         {modal==="chats"&&<ModalWrapper><DirectMessages onBack={()=>setModal(null)} user={user} onViewProfile={(fan)=>setPublicProfileFan({...fan,fromDM:true})} /></ModalWrapper>}
