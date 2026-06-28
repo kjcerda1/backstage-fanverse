@@ -5941,6 +5941,32 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
   const [rsvped, setRsvped] = useState(()=>ls.get("backstage_rsvped",{}));
   const setGoingPersisted   = (fn) => setGoing(prev=>{ const next=typeof fn==="function"?fn(prev):fn; ls.set("backstage_going",next); return next; });
   const setRsvpedPersisted  = (fn) => setRsvped(prev=>{ const next=typeof fn==="function"?fn(prev):fn; ls.set("backstage_rsvped",next); return next; });
+  const [customMeetups, setCustomMeetups] = useState(()=>ls.get("backstage_custom_meetups",[]));
+  const [showCreateMeetup, setShowCreateMeetup] = useState(false);
+  const [createForm, setCreateForm] = useState({ title:"", type:"meetup", date:"", time:"", place:"", city:"" });
+  const allMeetups = [...customMeetups, ...MOCK_MEETUPS];
+  const submitMeetup = () => {
+    if(!createForm.title.trim() || !createForm.place.trim()) return;
+    const colorByType = { meetup:C.lavender, cupsleeve:C.gold, freebie:C.pink, trade:C.mint, afterparty:C.accent };
+    const entry = { id:`mu-custom-${Date.now()}`, ...createForm, group:"Community", color:colorByType[createForm.type]||C.lavender, organizer:"@you", rsvps:1 };
+    const next = [entry, ...customMeetups];
+    setCustomMeetups(next); ls.set("backstage_custom_meetups", next);
+    setRsvpedPersisted(r=>({...r,[entry.id]:true}));
+    setCreateForm({ title:"", type:"meetup", date:"", time:"", place:"", city:"" });
+    setShowCreateMeetup(false);
+  };
+  const shareMeetup = async (m) => {
+    const text = `${m.title} · ${m.date} · ${m.time} · ${m.place}${m.city?`, ${m.city}`:""} — join me on Backstage 💜`;
+    if(navigator.share) { try { await navigator.share({ title:m.title, text }); return; } catch(e) { /* user cancelled or unsupported */ } }
+    try { await navigator.clipboard.writeText(text); } catch(e) {}
+  };
+  const [meetupDetail, setMeetupDetail] = useState(null);
+  const [chatRoom, setChatRoom] = useState(null);
+  const NAME_POOL = ["@mia_stays","@armyvibes","@skz_olivia","@btsbuddy","@hannisluv","@taeloves","@minjoonie","@cupsleeve_kay","@ot8forever","@hyunjinhz","@purplevelvet","@danielcrew"];
+  const attendeesFor = (m) => {
+    const n = Math.min(m.rsvps||1, 8);
+    return Array.from({ length:n }, (_,i)=>NAME_POOL[(i + (m.id?.length||0)) % NAME_POOL.length]);
+  };
 
   // Live events from backend — useEvents handles mock flag + data state labeling
   const userGroups = user?.fandoms || user?.favorite_groups || [];
@@ -6118,7 +6144,7 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
             {Object.keys(rsvped).filter(id=>rsvped[id]).length > 0 && (
               <div style={{ marginBottom:18 }}>
                 <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:13, marginBottom:10, color:C.accent }}>✓ My RSVPs</p>
-                {MOCK_MEETUPS.filter(m=>rsvped[m.id]).map(m=>(
+                {allMeetups.filter(m=>rsvped[m.id]).map(m=>(
                   <div key={m.id} style={{ background:`${m.color}10`, border:`1.5px solid ${m.color}55`, borderRadius:14, padding:12, marginBottom:8, display:"flex", gap:10, alignItems:"center" }}>
                     <span style={{ fontSize:20 }}>{m.type==="cupsleeve"?"🧋":m.type==="freebie"?"🎁":m.type==="trade"?"🃏":m.type==="afterparty"?"🎉":"📍"}</span>
                     <div style={{ flex:1 }}>
@@ -6135,13 +6161,13 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
             <Card style={{ background:`${C.accent}0a`, border:`1px solid ${C.accent}22`, marginBottom:14 }}>
               <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13, marginBottom:4 }}>Host a meetup</p>
               <p style={{ fontSize:11.5, color:C.textMid, marginBottom:12 }}>Create a pre-show meetup, cup sleeve event, trading session, or after party.</p>
-              <Btn small>+ Create Meetup</Btn>
+              <Btn small onClick={()=>setShowCreateMeetup(true)}>+ Create Meetup</Btn>
             </Card>
 
             {/* Upcoming fan events */}
             <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:13, marginBottom:10, color:C.text }}>Upcoming Fan Events</p>
-            {MOCK_MEETUPS.filter(m=>m.type!=="afterparty").map(m=>(
-              <div key={m.id} style={{ background:C.surface, border:`1.5px solid ${rsvped[m.id]?m.color:C.border}`, borderRadius:18, padding:14, marginBottom:10 }}>
+            {allMeetups.filter(m=>m.type!=="afterparty").map(m=>(
+              <div key={m.id} onClick={()=>setMeetupDetail(m)} className="tap" style={{ background:C.surface, border:`1.5px solid ${rsvped[m.id]?m.color:C.border}`, borderRadius:18, padding:14, marginBottom:10, cursor:"pointer" }}>
                 <div style={{ display:"flex", gap:10, alignItems:"center" }}>
                   <span style={{ fontSize:24 }}>{m.type==="cupsleeve"?"🧋":m.type==="freebie"?"🎁":m.type==="trade"?"🃏":"📍"}</span>
                   <div style={{ flex:1 }}>
@@ -6149,11 +6175,11 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
                     <p style={{ fontSize:10.5, color:C.textMid }}>{m.date} · {m.time} · {m.place}</p>
                     {m.city&&<p style={{ fontSize:10, color:C.textDim, marginTop:2 }}>📍 {m.city}</p>}
                   </div>
-                  <Pill color={m.color} small style={{ cursor:"pointer" }} onClick={()=>setRsvpedPersisted(r=>({...r,[m.id]:!r[m.id]}))}>
+                  <Pill color={m.color} small style={{ cursor:"pointer" }} onClick={e=>{e.stopPropagation();setRsvpedPersisted(r=>({...r,[m.id]:!r[m.id]}));}}>
                     {rsvped[m.id]?"✓ Going":"RSVP"}
                   </Pill>
                 </div>
-                {m.organizer&&<p style={{ fontSize:10, color:C.textDim, marginTop:6, paddingLeft:34 }}>👤 {m.organizer} · {m.rsvps} going</p>}
+                {m.organizer&&<p style={{ fontSize:10, color:C.textDim, marginTop:6, paddingLeft:34 }}>👤 {m.organizer} · {m.rsvps} going · tap for details</p>}
               </div>
             ))}
           </div>
@@ -6161,8 +6187,8 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
         {view==="parties" && (
           <div style={{ paddingTop:4 }}>
             <p style={{ fontSize:12, color:C.textMid, marginBottom:14 }}>K-pop after parties near upcoming shows. Age restrictions enforced by venues.</p>
-            {MOCK_MEETUPS.filter(m=>m.type==="afterparty").map(m=>(
-              <div key={m.id} style={{ background:`linear-gradient(140deg,${m.color}18,${m.color}06)`, border:`2px solid ${m.color}44`, borderRadius:20, padding:18, marginBottom:14 }}>
+            {allMeetups.filter(m=>m.type==="afterparty").map(m=>(
+              <div key={m.id} onClick={()=>setMeetupDetail(m)} className="tap" style={{ background:`linear-gradient(140deg,${m.color}18,${m.color}06)`, border:`2px solid ${m.color}44`, borderRadius:20, padding:18, marginBottom:14, cursor:"pointer" }}>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
                   <div><Pill color={m.color} active small>🎉 After Party</Pill>
                     <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:17, marginTop:8 }}>{m.title}</p>
@@ -6179,15 +6205,98 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
                   {m.entry&&<Pill color={C.mint} small>Entry: {m.entry}</Pill>}
                   {m.music&&<Pill color={m.color} small>{m.music}</Pill>}
                 </div>
-                <Btn color={m.color} small onClick={()=>setRsvpedPersisted(r=>({...r,[m.id]:!r[m.id]}))}>
-                  {rsvped[m.id]?"✓ You're Going!":"RSVP →"}
-                </Btn>
+                <div style={{ display:"flex", gap:8 }}>
+                  <Btn color={m.color} small style={{ flex:1 }} onClick={e=>{e.stopPropagation();setRsvpedPersisted(r=>({...r,[m.id]:!r[m.id]}));}}>
+                    {rsvped[m.id]?"✓ You're Going!":"RSVP →"}
+                  </Btn>
+                  {rsvped[m.id]&&(
+                    <button onClick={e=>{e.stopPropagation();shareMeetup(m);}} style={{ width:44, borderRadius:13, background:`${m.color}14`, border:`1.5px solid ${m.color}44`, color:m.color, fontSize:16, cursor:"pointer" }}>↗</button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
         )}
         {view==="fans" && <FanBuddyMatcher go={go} />}
       </Screen>
+      {showCreateMeetup && (
+        <div onClick={()=>setShowCreateMeetup(false)} style={{ position:"fixed",inset:0,zIndex:460,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:`linear-gradient(160deg,${C.surfaceHi},${C.cosmic})`,borderRadius:"22px 22px 0 0",padding:"22px 20px 36px",width:"100%",maxHeight:"85vh",overflowY:"auto",animation:"slideUp .25s ease",border:`1px solid ${C.accent}33` }}>
+            <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 18px" }} />
+            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6 }}>
+              <h3 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18,color:C.text }}>✨ Host a Meetup</h3>
+              <button onClick={()=>setShowCreateMeetup(false)} style={{ background:"none",border:"none",color:C.textMid,fontSize:20,cursor:"pointer" }}>✕</button>
+            </div>
+            <p style={{ fontSize:11.5,color:C.textMid,marginBottom:18 }}>Pre-show meetup, cup sleeve event, trading session, or after party — give fans a place to find you.</p>
+
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:14 }}>
+              {[["meetup","📍 Meetup"],["cupsleeve","🧋 Cup Sleeve"],["freebie","🎁 Freebie"],["trade","🃏 Trade"],["afterparty","🎉 After Party"]].map(([val,label])=>(
+                <Pill key={val} color={C.accent} active={createForm.type===val} small style={{ cursor:"pointer" }} onClick={()=>setCreateForm(f=>({...f,type:val}))}>{label}</Pill>
+              ))}
+            </div>
+
+            {[["title","Event title"],["place","Venue / location"],["city","City, State"]].map(([key,ph])=>(
+              <input key={key} value={createForm[key]} onChange={e=>setCreateForm(f=>({...f,[key]:e.target.value}))} placeholder={ph}
+                style={{ width:"100%",padding:"12px 14px",borderRadius:13,background:C.surface,border:`1.5px solid ${C.border}`,color:C.text,fontFamily:"'Epilogue',sans-serif",fontSize:13,marginBottom:10,boxSizing:"border-box" }} />
+            ))}
+            <div style={{ display:"flex", gap:10, marginBottom:18 }}>
+              <input value={createForm.date} onChange={e=>setCreateForm(f=>({...f,date:e.target.value}))} placeholder="Date (e.g. May 24)"
+                style={{ flex:1,padding:"12px 14px",borderRadius:13,background:C.surface,border:`1.5px solid ${C.border}`,color:C.text,fontFamily:"'Epilogue',sans-serif",fontSize:13,boxSizing:"border-box" }} />
+              <input value={createForm.time} onChange={e=>setCreateForm(f=>({...f,time:e.target.value}))} placeholder="Time (e.g. 4:00 PM)"
+                style={{ flex:1,padding:"12px 14px",borderRadius:13,background:C.surface,border:`1.5px solid ${C.border}`,color:C.text,fontFamily:"'Epilogue',sans-serif",fontSize:13,boxSizing:"border-box" }} />
+            </div>
+
+            <button onClick={submitMeetup} disabled={!createForm.title.trim()||!createForm.place.trim()} className="tap" style={{ width:"100%",padding:"14px",borderRadius:15,background:createForm.title.trim()&&createForm.place.trim()?`linear-gradient(135deg,${C.accent},${C.pink})`:C.surface,border:"none",color:createForm.title.trim()&&createForm.place.trim()?C.bg:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,cursor:createForm.title.trim()&&createForm.place.trim()?"pointer":"not-allowed",boxShadow:createForm.title.trim()&&createForm.place.trim()?`0 6px 20px ${C.accent}40`:"none" }}>
+              ✨ Publish Meetup
+            </button>
+          </div>
+        </div>
+      )}
+      {meetupDetail && !chatRoom && (
+        <div onClick={()=>setMeetupDetail(null)} style={{ position:"fixed",inset:0,zIndex:470,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:`linear-gradient(160deg,${C.surfaceHi},${C.cosmic})`,borderRadius:"22px 22px 0 0",padding:"22px 20px 36px",width:"100%",maxHeight:"85vh",overflowY:"auto",animation:"slideUp .25s ease",border:`1px solid ${meetupDetail.color}33` }}>
+            <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 18px" }} />
+            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6 }}>
+              <div>
+                <Pill color={meetupDetail.color} active small>{meetupDetail.type==="afterparty"?"🎉 After Party":meetupDetail.type==="cupsleeve"?"🧋 Cup Sleeve":meetupDetail.type==="freebie"?"🎁 Freebie":meetupDetail.type==="trade"?"🃏 Trade":"📍 Meetup"}</Pill>
+                <h3 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18,color:C.text,marginTop:8 }}>{meetupDetail.title}</h3>
+              </div>
+              <button onClick={()=>setMeetupDetail(null)} style={{ background:"none",border:"none",color:C.textMid,fontSize:20,cursor:"pointer" }}>✕</button>
+            </div>
+            <p style={{ fontSize:11.5,color:C.textMid,marginBottom:14 }}>{meetupDetail.date} · {meetupDetail.time} · {meetupDetail.place}{meetupDetail.city?`, ${meetupDetail.city}`:""}</p>
+            {meetupDetail.description&&<p style={{ fontSize:12,color:C.textMid,lineHeight:1.6,marginBottom:14 }}>{meetupDetail.description}</p>}
+            {meetupDetail.organizer&&(
+              <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:16,padding:"10px 12px",background:`${meetupDetail.color}0c`,borderRadius:13,border:`1px solid ${meetupDetail.color}28` }}>
+                <span style={{ fontSize:16 }}>👤</span>
+                <p style={{ fontSize:12,color:C.textMid }}>Hosted by <span style={{ color:meetupDetail.color,fontWeight:700 }}>{meetupDetail.organizer}</span></p>
+              </div>
+            )}
+
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,marginBottom:8,color:C.text }}>{meetupDetail.rsvps||0} fans going</p>
+            <div style={{ display:"flex",flexWrap:"wrap",gap:8,marginBottom:18 }}>
+              {attendeesFor(meetupDetail).map(name=>(
+                <div key={name} style={{ display:"flex",alignItems:"center",gap:6,background:C.surface,border:`1px solid ${C.border}`,borderRadius:99,padding:"5px 10px 5px 5px" }}>
+                  <div style={{ width:20,height:20,borderRadius:"50%",background:`linear-gradient(135deg,${meetupDetail.color},${meetupDetail.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:800,color:C.bg }}>{name[1].toUpperCase()}</div>
+                  <p style={{ fontSize:10.5,color:C.textMid }}>{name}</p>
+                </div>
+              ))}
+              {(meetupDetail.rsvps||0) > 8 && <Pill color={C.textDim} xs>+{meetupDetail.rsvps-8} more</Pill>}
+            </div>
+
+            <div style={{ display:"flex",gap:10 }}>
+              <button onClick={()=>{ setRsvpedPersisted(r=>({...r,[meetupDetail.id]:true})); setChatRoom({ id:`meetup-${meetupDetail.id}`, name:meetupDetail.title, type:"meetup", members:(meetupDetail.rsvps||1), color:meetupDetail.color }); }} className="tap" style={{ flex:1,padding:"13px",borderRadius:14,background:`linear-gradient(140deg,${meetupDetail.color}ee,${meetupDetail.color}88)`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,cursor:"pointer" }}>💬 Join Event Chat</button>
+              {meetupDetail.organizer&&(
+                <button onClick={()=>setChatRoom({ id:`host-${meetupDetail.id}`, name:`${meetupDetail.organizer} (Host)`, type:"dm", members:2, color:meetupDetail.color })} className="tap" style={{ flex:1,padding:"13px",borderRadius:14,background:"transparent",border:`1.5px solid ${meetupDetail.color}55`,color:meetupDetail.color,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,cursor:"pointer" }}>📩 Message Host</button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      {chatRoom && (
+        <div style={{ position:"fixed",inset:0,zIndex:480,background:C.bg }}>
+          <ChatRoom room={chatRoom} onBack={()=>{ setChatRoom(null); setMeetupDetail(null); }} />
+        </div>
+      )}
     </div>
   );
 }
