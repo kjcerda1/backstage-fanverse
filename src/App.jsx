@@ -6061,6 +6061,36 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
   const [meetupDetail, setMeetupDetail] = useState(null);
   const [chatRoom, setChatRoom] = useState(null);
 
+  // ── Phase 2: host dashboard + host-only attendees + friends-going preview ──
+  const [showHostDashboard, setShowHostDashboard] = useState(false);
+  const [hostedMeetups, setHostedMeetups] = useState([]);
+  const [hostedLoading, setHostedLoading] = useState(false);
+  const loadHostedMeetups = async () => {
+    setHostedLoading(true);
+    const d = await api.get("/api/meetups/mine");
+    setHostedMeetups(Array.isArray(d?.meetups) ? d.meetups.map(fromApiMeetup) : []);
+    setHostedLoading(false);
+  };
+  useEffect(()=>{ if(showHostDashboard) loadHostedMeetups(); }, [showHostDashboard]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const [attendeesView, setAttendeesView] = useState(null); // { meetup, loading, error, attendees }
+  const loadAttendees = async (m) => {
+    setAttendeesView({ meetup:m, loading:true, error:null, attendees:[] });
+    const d = await api.get(`/api/meetups/${m.id}/attendees`);
+    if(d?.error) { setAttendeesView({ meetup:m, loading:false, error:d.error, attendees:[] }); return; }
+    setAttendeesView({ meetup:m, loading:false, error:null, attendees:d?.attendees||[] });
+  };
+
+  const [friendsGoing, setFriendsGoing] = useState(null); // { count, friends } for the open meetupDetail
+  useEffect(()=>{
+    if(!meetupDetail?.isApi) { setFriendsGoing(null); return; }
+    let cancelled = false;
+    api.get(`/api/meetups/${meetupDetail.id}/friends-going`).then(d=>{
+      if(!cancelled) setFriendsGoing(d?.error ? null : { count:d?.count||0, friends:d?.friends||[] });
+    }).catch(()=>{ if(!cancelled) setFriendsGoing(null); });
+    return ()=>{ cancelled = true; };
+  }, [meetupDetail?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Live events from backend — useEvents handles mock flag + data state labeling
   const userGroups = user?.fandoms || user?.favorite_groups || [];
   const { events: liveEvents, dataState: eventsState } = useEvents({ groups: userGroups });
@@ -6258,7 +6288,10 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
               </div>
               <p style={{ fontSize:11.5, color:C.textMid, marginBottom:12 }}>{isVip ? "Create a pre-show meetup, cup sleeve event, trading session, or after party." : "Hosting is a VIP perk — unlock it to create meetups, cup sleeve events, and after parties for the Fanverse."}</p>
               {isVip ? (
-                <Btn small onClick={()=>setShowCreateMeetup(true)}>+ Create Meetup</Btn>
+                <div style={{ display:"flex", gap:8 }}>
+                  <Btn small style={{ flex:1 }} onClick={()=>setShowCreateMeetup(true)}>+ Create Meetup</Btn>
+                  <button onClick={()=>setShowHostDashboard(true)} className="tap" style={{ flex:1, padding:"10px 14px", borderRadius:13, background:"transparent", border:`1.5px solid ${C.accent}44`, color:C.accent, fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:11.5, cursor:"pointer" }}>📊 My Hosted Events</button>
+                </div>
               ) : (
                 <button onClick={onUpgrade} className="tap" style={{ width:"100%", padding:"10px 14px", borderRadius:13, background:"linear-gradient(140deg,#f0cc88,#d4a820,#f0cc88)", backgroundSize:"200%", animation:"vipShimmer 3s linear infinite", border:"none", color:"#0a0a14", fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:11.5, cursor:"pointer", boxShadow:"0 4px 18px rgba(240,204,136,0.35)" }}>✨ Unlock Hosting with VIP</button>
               )}
@@ -6389,7 +6422,18 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
             )}
 
             {/* Attendee identities are host-only (Phase 2) — public view shows an aggregate count only. */}
-            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,marginBottom:18,color:C.text }}>👥 {meetupDetail.rsvps||0} fans going</p>
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,marginBottom:friendsGoing?.count>0?8:18,color:C.text }}>👥 {meetupDetail.rsvps||0} fans going</p>
+
+            {friendsGoing?.count>0 && (
+              <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:18,padding:"9px 12px",background:`${C.berry}0e`,borderRadius:13,border:`1px solid ${C.berry}2c` }}>
+                <div style={{ display:"flex" }}>
+                  {friendsGoing.friends.slice(0,4).map((f,i)=>(
+                    <div key={f.id} style={{ width:22,height:22,borderRadius:"50%",background:`linear-gradient(135deg,${C.berry},${C.accent})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9.5,fontWeight:800,color:C.bg,marginLeft:i>0?-7:0,border:`1.5px solid ${C.surfaceHi}` }}>{(f.display_name||f.username||"B")[0].toUpperCase()}</div>
+                  ))}
+                </div>
+                <p style={{ fontSize:11.5,color:C.text }}>💜 {friendsGoing.count} from your Circle {friendsGoing.count===1?"is":"are"} going</p>
+              </div>
+            )}
 
             <div style={{ display:"flex",gap:10 }}>
               <button onClick={()=>{ if(!rsvped[meetupDetail.id]) toggleRsvp(meetupDetail); setChatRoom({ id:`meetup-${meetupDetail.id}`, name:meetupDetail.title, type:"meetup", members:(meetupDetail.rsvps||1), color:meetupDetail.color }); }} className="tap" style={{ flex:1,padding:"13px",borderRadius:14,background:`linear-gradient(140deg,${meetupDetail.color}ee,${meetupDetail.color}88)`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,cursor:"pointer" }}>💬 Join Event Chat</button>
@@ -6403,6 +6447,73 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
       {chatRoom && (
         <div style={{ position:"fixed",inset:0,zIndex:480,background:C.bg }}>
           <ChatRoom room={chatRoom} onBack={()=>{ setChatRoom(null); setMeetupDetail(null); }} />
+        </div>
+      )}
+      {showHostDashboard && !attendeesView && (
+        <div style={{ position:"fixed",inset:0,zIndex:490,background:C.bg,display:"flex",flexDirection:"column" }}>
+          <div style={{ padding:"16px 20px",display:"flex",alignItems:"center",gap:10,flexShrink:0,borderBottom:`1px solid ${C.border}` }}>
+            <button onClick={()=>setShowHostDashboard(false)} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
+            <div style={{ flex:1 }}>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16 }}>📊 My Hosted Events</p>
+              <p style={{ fontSize:10,color:C.textMid }}>Manage the meetups and after parties you've created</p>
+            </div>
+          </div>
+          <div style={{ flex:1,overflowY:"auto",padding:"16px 20px calc(40px + env(safe-area-inset-bottom))" }}>
+            {hostedLoading ? (
+              <p style={{ fontSize:12,color:C.textMid,textAlign:"center",marginTop:40 }}>Loading your events…</p>
+            ) : hostedMeetups.length===0 ? (
+              <Empty emoji="🎤" title="You haven't hosted anything yet." sub="Create a meetup to start building your Fanverse following." action="+ Create a Meetup" onAction={()=>{ setShowHostDashboard(false); setShowCreateMeetup(true); }} />
+            ) : hostedMeetups.map(m=>(
+              <div key={m.id} style={{ background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:18,padding:14,marginBottom:10 }}>
+                <div style={{ display:"flex",gap:10,alignItems:"flex-start",marginBottom:10 }}>
+                  <span style={{ fontSize:22 }}>{m.type==="cupsleeve"?"🧋":m.type==="freebie"?"🎁":m.type==="trade"?"🃏":m.type==="afterparty"?"🎉":"📍"}</span>
+                  <div style={{ flex:1 }}>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5 }}>{m.title}</p>
+                    <p style={{ fontSize:10.5,color:C.textMid,marginBottom:4 }}>{m.date} · {m.time}</p>
+                    <LocationTag venue={m.place} city={m.city} color={m.color} />
+                  </div>
+                  <Pill color={m.color} active xs>{m.rsvps||0} going</Pill>
+                </div>
+                <div style={{ display:"flex",gap:8 }}>
+                  <button onClick={()=>loadAttendees(m)} className="tap" style={{ flex:1,padding:"9px",borderRadius:11,background:`${m.color}14`,border:`1.5px solid ${m.color}44`,color:m.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>👥 View Attendees</button>
+                  <button onClick={()=>setChatRoom({ id:`meetup-${m.id}`, name:m.title, type:"meetup", members:(m.rsvps||1), color:m.color })} className="tap" style={{ flex:1,padding:"9px",borderRadius:11,background:"transparent",border:`1.5px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>💬 Group Chat</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {attendeesView && (
+        <div onClick={()=>setAttendeesView(null)} style={{ position:"fixed",inset:0,zIndex:500,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:`linear-gradient(160deg,${C.surfaceHi},${C.cosmic})`,borderRadius:"22px 22px 0 0",padding:"22px 20px 36px",width:"100%",maxHeight:"75vh",overflowY:"auto",animation:"slideUp .25s ease",border:`1px solid ${attendeesView.meetup.color}33` }}>
+            <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 18px" }} />
+            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14 }}>
+              <div>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16 }}>👥 Attendees</p>
+                <p style={{ fontSize:11,color:C.textMid }}>{attendeesView.meetup.title}</p>
+              </div>
+              <button onClick={()=>setAttendeesView(null)} style={{ background:"none",border:"none",color:C.textMid,fontSize:20,cursor:"pointer" }}>✕</button>
+            </div>
+            {attendeesView.loading ? (
+              <p style={{ fontSize:12,color:C.textMid,textAlign:"center",padding:"20px 0" }}>Loading attendees…</p>
+            ) : attendeesView.error ? (
+              <p style={{ fontSize:12,color:C.rose,textAlign:"center",padding:"20px 0" }}>{attendeesView.error==="Only the host can view the attendee list"?"Only the host can view the attendee list.":attendeesView.error}</p>
+            ) : attendeesView.attendees.length===0 ? (
+              <Empty emoji="🤍" title="No RSVPs yet" sub="Share your meetup to start building the guest list." />
+            ) : (
+              <>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,marginBottom:12,color:C.text }}>{attendeesView.attendees.length} going</p>
+                <div style={{ display:"flex",flexWrap:"wrap",gap:8 }}>
+                  {attendeesView.attendees.map(a=>(
+                    <div key={a.id} style={{ display:"flex",alignItems:"center",gap:6,background:C.surface,border:`1px solid ${C.border}`,borderRadius:99,padding:"5px 10px 5px 5px" }}>
+                      <div style={{ width:20,height:20,borderRadius:"50%",background:`linear-gradient(135deg,${attendeesView.meetup.color},${attendeesView.meetup.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:800,color:C.bg }}>{(a.display_name||a.username||"B")[0].toUpperCase()}</div>
+                      <p style={{ fontSize:10.5,color:C.textMid }}>{a.username?`@${a.username}`:a.display_name}</p>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>

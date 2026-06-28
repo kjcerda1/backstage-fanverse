@@ -2200,6 +2200,77 @@ app.get('/api/meetups', optionalAuth, async (req, res) => {
   res.json({ meetups });
 });
 
+// Host dashboard list — meetups the requester hosts. Count only, never attendee identities.
+app.get('/api/meetups/mine', requireAuth, async (req, res) => {
+  if (MOCK_MODE) return res.json({ meetups: [], mock: true });
+  const { data, error } = await supabase
+    .from('meetups')
+    .select('*, meetup_rsvps(count)')
+    .eq('host_id', req.userId)
+    .order('created_at', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  const meetups = data.map(m => ({ ...m, rsvp_count: m.meetup_rsvps?.[0]?.count || 0 }));
+  res.json({ meetups });
+});
+
+// Host-only (or admin) attendee list. 403 for anyone else — full RSVP identities
+// must never be exposed outside this check. Safe fields only: no email, no private profile data.
+app.get('/api/meetups/:id/attendees', requireAuth, async (req, res) => {
+  const { id } = req.params;
+  if (MOCK_MODE) return res.json({ attendees: [], mock: true });
+  const { data: meetup, error: meetupErr } = await supabase.from('meetups').select('id, host_id').eq('id', id).single();
+  if (meetupErr || !meetup) return res.status(404).json({ error: 'Meetup not found' });
+  if (meetup.host_id !== req.userId && !isAdminEmail(req.userEmail)) {
+    return res.status(403).json({ error: 'Only the host can view the attendee list' });
+  }
+  const { data: rsvps, error: rsvpErr } = await supabase
+    .from('meetup_rsvps')
+    .select('user_id, created_at, users(username, display_name, avatar_url)')
+    .eq('meetup_id', id)
+    .order('created_at', { ascending: true });
+  if (rsvpErr) return res.status(500).json({ error: rsvpErr.message });
+  const attendees = (rsvps || []).map(r => ({
+    id: r.user_id,
+    username: r.users?.username || null,
+    display_name: r.users?.display_name || r.users?.username || 'Backstage fan',
+    avatar_url: r.users?.avatar_url || null,
+    rsvped_at: r.created_at,
+  }));
+  res.json({ attendees, count: attendees.length });
+});
+
+// Friends-going preview — intersects this meetup's RSVPs with the requester's own
+// accepted `friends` rows (same model /api/circle uses). Never returns non-friend
+// attendee identities. Small, safe response only: a count and a short preview list.
+app.get('/api/meetups/:id/friends-going', requireAuth, async (req, res) => {
+  const { id } = req.params;
+  if (MOCK_MODE) return res.json({ count: 0, friends: [], mock: true });
+  try {
+    const { data: friendRows, error: friendErr } = await supabase
+      .from('friends').select('friend_id').eq('user_id', req.userId).eq('status', 'accepted');
+    if (friendErr) throw friendErr;
+    const friendIds = (friendRows || []).map(r => r.friend_id).filter(Boolean);
+    if (!friendIds.length) return res.json({ count: 0, friends: [] });
+
+    const { data: rsvps, error: rsvpErr } = await supabase
+      .from('meetup_rsvps').select('user_id').eq('meetup_id', id).in('user_id', friendIds);
+    if (rsvpErr) throw rsvpErr;
+    const goingIds = (rsvps || []).map(r => r.user_id);
+    if (!goingIds.length) return res.json({ count: 0, friends: [] });
+
+    const { data: users, error: userErr } = await supabase
+      .from('users').select('id, username, display_name, avatar_url').in('id', goingIds.slice(0, 6));
+    if (userErr) throw userErr;
+    const friends = (users || []).map(u => ({
+      id: u.id, username: u.username, display_name: u.display_name || u.username || 'Backstage fan', avatar_url: u.avatar_url || null,
+    }));
+    res.json({ count: goingIds.length, friends });
+  } catch (err) {
+    console.error('[GET /api/meetups/:id/friends-going] Error:', err.message);
+    res.json({ count: 0, friends: [] }); // graceful fallback — never block the fan-facing detail sheet
+  }
+});
+
 
 // ═════════════════════════════════════════════════════════════════════════════
 // MAP — /api/map/activity
