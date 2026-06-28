@@ -5966,20 +5966,93 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
   const [rsvped, setRsvped] = useState(()=>ls.get("backstage_rsvped",{}));
   const setGoingPersisted   = (fn) => setGoing(prev=>{ const next=typeof fn==="function"?fn(prev):fn; ls.set("backstage_going",next); return next; });
   const setRsvpedPersisted  = (fn) => setRsvped(prev=>{ const next=typeof fn==="function"?fn(prev):fn; ls.set("backstage_rsvped",next); return next; });
+  // customMeetups + apiMeetups: customMeetups is the offline/mock-backend fallback
+  // (preserves pre-Phase-1 behavior when the API is unreachable or in MOCK_MODE).
+  // apiMeetups holds real Supabase-backed meetups once /api/meetups responds for real.
   const [customMeetups, setCustomMeetups] = useState(()=>ls.get("backstage_custom_meetups",[]));
+  const [apiMeetups, setApiMeetups] = useState([]);
+  const [meetupsBackend, setMeetupsBackend] = useState("loading"); // 'real' | 'mock' | 'offline'
   const [showCreateMeetup, setShowCreateMeetup] = useState(false);
   const [createForm, setCreateForm] = useState({ title:"", type:"meetup", date:"", time:"", place:"", city:"", checkedIn:false });
-  const allMeetups = [...customMeetups, ...MOCK_MEETUPS];
-  const submitMeetup = () => {
+  const colorByType = { meetup:C.lavender, cupsleeve:C.gold, freebie:C.pink, trade:C.mint, afterparty:C.accent };
+
+  // "May 24" + "4:00 PM" → ISO timestamp for the backend's single `time` column.
+  // Approximate by design: no year field in the create form, so we infer the current
+  // year and roll to next year if that reading would already be >30 days in the past.
+  const toIsoTime = (dateStr, timeStr) => {
+    if(!dateStr || !timeStr) return null;
+    const year = new Date().getFullYear();
+    const d = new Date(`${dateStr} ${year} ${timeStr}`);
+    if(isNaN(d.getTime())) return null;
+    if(d.getTime() < Date.now() - 30*86400000) d.setFullYear(year+1);
+    return d.toISOString();
+  };
+  const fromApiMeetup = (m) => {
+    const dt = m.time ? new Date(m.time) : null;
+    return {
+      id: m.id, isApi: true, hostId: m.host_id,
+      title: m.title, type: m.type || "general",
+      date: dt && !isNaN(dt.getTime()) ? dt.toLocaleDateString("en-US",{month:"short",day:"numeric"}) : "",
+      time: dt && !isNaN(dt.getTime()) ? dt.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"}) : "",
+      place: m.location || "", city: m.city || "",
+      color: colorByType[m.type] || C.lavender,
+      organizer: m.users?.username ? `@${m.users.username}` : "@host",
+      rsvps: m.meetup_rsvps?.[0]?.count || 0,
+      rsvped: !!m.rsvped,
+    };
+  };
+
+  useEffect(()=>{
+    let cancelled = false;
+    api.get("/api/meetups").then(d=>{
+      if(cancelled) return;
+      if(d?.error) { setMeetupsBackend("offline"); return; }
+      if(d?.mock)  { setMeetupsBackend("mock"); return; }
+      const list = (d?.meetups||[]).map(fromApiMeetup);
+      setApiMeetups(list);
+      setRsvpedPersisted(r=>{ const next={...r}; list.forEach(m=>{ if(m.rsvped) next[m.id]=true; }); return next; });
+      setMeetupsBackend("real");
+    }).catch(()=>{ if(!cancelled) setMeetupsBackend("offline"); });
+    return ()=>{ cancelled = true; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const allMeetups = meetupsBackend==="real" ? [...apiMeetups, ...MOCK_MEETUPS] : [...customMeetups, ...MOCK_MEETUPS];
+
+  const submitMeetup = async () => {
     if(!createForm.title.trim() || !createForm.place.trim()) return;
-    const colorByType = { meetup:C.lavender, cupsleeve:C.gold, freebie:C.pink, trade:C.mint, afterparty:C.accent };
-    const entry = { id:`mu-custom-${Date.now()}`, ...createForm, group:"Community", color:colorByType[createForm.type]||C.lavender, organizer:"@you", rsvps:1 };
-    const next = [entry, ...customMeetups];
-    setCustomMeetups(next); ls.set("backstage_custom_meetups", next);
-    setRsvpedPersisted(r=>({...r,[entry.id]:true}));
+    const payload = { type:createForm.type, title:createForm.title.trim(), location:createForm.place.trim(), city:createForm.city.trim()||null, time:toIsoTime(createForm.date, createForm.time) };
+    const result = await api.post("/api/meetups/create", payload);
+    if(result?.meetup && !result?.mock) {
+      await api.post(`/api/meetups/${result.meetup.id}/rsvp`, {});
+      const mapped = fromApiMeetup({ ...result.meetup, meetup_rsvps:[{count:1}], rsvped:true, users:{ username:user?.username||user?.name||user?.stanName } });
+      setApiMeetups(list=>[mapped, ...list]);
+      setRsvpedPersisted(r=>({...r,[mapped.id]:true}));
+      setMeetupsBackend("real");
+    } else {
+      // Offline / MOCK_MODE backend — fall back to the original local-only flow.
+      const entry = { id:`mu-custom-${Date.now()}`, ...createForm, group:"Community", color:colorByType[createForm.type]||C.lavender, organizer:"@you", rsvps:1 };
+      const next = [entry, ...customMeetups];
+      setCustomMeetups(next); ls.set("backstage_custom_meetups", next);
+      setRsvpedPersisted(r=>({...r,[entry.id]:true}));
+    }
     setCreateForm({ title:"", type:"meetup", date:"", time:"", place:"", city:"", checkedIn:false });
     setShowCreateMeetup(false);
   };
+
+  // Unified RSVP toggle — real API for backend-sourced meetups, local-only for the
+  // static MOCK_MEETUPS seed cards (which have no corresponding row to sync).
+  const toggleRsvp = async (m) => {
+    if(!m.isApi) { setRsvpedPersisted(r=>({...r,[m.id]:!r[m.id]})); return; }
+    const goingNow = !!rsvped[m.id];
+    setRsvpedPersisted(r=>({...r,[m.id]:!goingNow}));
+    setApiMeetups(list=>list.map(x=>x.id===m.id?{...x,rsvps:Math.max(0,x.rsvps+(goingNow?-1:1))}:x));
+    const result = goingNow ? await api.del(`/api/meetups/${m.id}/rsvp`) : await api.post(`/api/meetups/${m.id}/rsvp`, {});
+    if(result?.error) {
+      setRsvpedPersisted(r=>({...r,[m.id]:goingNow}));
+      setApiMeetups(list=>list.map(x=>x.id===m.id?{...x,rsvps:Math.max(0,x.rsvps+(goingNow?1:-1))}:x));
+    }
+  };
+
   const shareMeetup = async (m) => {
     const text = `${m.title} · ${m.date} · ${m.time} · ${m.place}${m.city?`, ${m.city}`:""} — join me on Backstage 💜`;
     if(navigator.share) { try { await navigator.share({ title:m.title, text }); return; } catch(e) { /* user cancelled or unsupported */ } }
@@ -5987,11 +6060,6 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
   };
   const [meetupDetail, setMeetupDetail] = useState(null);
   const [chatRoom, setChatRoom] = useState(null);
-  const NAME_POOL = ["@mia_stays","@armyvibes","@skz_olivia","@btsbuddy","@hannisluv","@taeloves","@minjoonie","@cupsleeve_kay","@ot8forever","@hyunjinhz","@purplevelvet","@danielcrew"];
-  const attendeesFor = (m) => {
-    const n = Math.min(m.rsvps||1, 8);
-    return Array.from({ length:n }, (_,i)=>NAME_POOL[(i + (m.id?.length||0)) % NAME_POOL.length]);
-  };
 
   // Live events from backend — useEvents handles mock flag + data state labeling
   const userGroups = user?.fandoms || user?.favorite_groups || [];
@@ -6176,7 +6244,7 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
                       <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12.5 }}>{m.title}</p>
                       <p style={{ fontSize:10, color:C.textMid }}>{m.date} · {m.time} · {m.place}</p>
                     </div>
-                    <button onClick={()=>setRsvpedPersisted(r=>({...r,[m.id]:false}))} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:8, padding:"4px 10px", color:C.textMid, fontSize:10, cursor:"pointer" }}>Cancel</button>
+                    <button onClick={()=>toggleRsvp(m)} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:8, padding:"4px 10px", color:C.textMid, fontSize:10, cursor:"pointer" }}>Cancel</button>
                   </div>
                 ))}
               </div>
@@ -6207,7 +6275,7 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
                     <p style={{ fontSize:10.5, color:C.textMid, marginBottom:4 }}>{m.date} · {m.time}</p>
                     <LocationTag venue={m.place} city={m.city} color={m.color} checkedIn={m.checkedIn} />
                   </div>
-                  <Pill color={m.color} small style={{ cursor:"pointer" }} onClick={e=>{e.stopPropagation();setRsvpedPersisted(r=>({...r,[m.id]:!r[m.id]}));}}>
+                  <Pill color={m.color} small style={{ cursor:"pointer" }} onClick={e=>{e.stopPropagation();toggleRsvp(m);}}>
                     {rsvped[m.id]?"✓ Going":"RSVP"}
                   </Pill>
                 </div>
@@ -6239,7 +6307,7 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
                   {m.music&&<Pill color={m.color} small>{m.music}</Pill>}
                 </div>
                 <div style={{ display:"flex", gap:8 }}>
-                  <Btn color={m.color} small style={{ flex:1 }} onClick={e=>{e.stopPropagation();setRsvpedPersisted(r=>({...r,[m.id]:!r[m.id]}));}}>
+                  <Btn color={m.color} small style={{ flex:1 }} onClick={e=>{e.stopPropagation();toggleRsvp(m);}}>
                     {rsvped[m.id]?"✓ You're Going!":"RSVP →"}
                   </Btn>
                   {rsvped[m.id]&&(
@@ -6320,19 +6388,11 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
               </div>
             )}
 
-            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,marginBottom:8,color:C.text }}>{meetupDetail.rsvps||0} fans going</p>
-            <div style={{ display:"flex",flexWrap:"wrap",gap:8,marginBottom:18 }}>
-              {attendeesFor(meetupDetail).map(name=>(
-                <div key={name} style={{ display:"flex",alignItems:"center",gap:6,background:C.surface,border:`1px solid ${C.border}`,borderRadius:99,padding:"5px 10px 5px 5px" }}>
-                  <div style={{ width:20,height:20,borderRadius:"50%",background:`linear-gradient(135deg,${meetupDetail.color},${meetupDetail.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:800,color:C.bg }}>{name[1].toUpperCase()}</div>
-                  <p style={{ fontSize:10.5,color:C.textMid }}>{name}</p>
-                </div>
-              ))}
-              {(meetupDetail.rsvps||0) > 8 && <Pill color={C.textDim} xs>+{meetupDetail.rsvps-8} more</Pill>}
-            </div>
+            {/* Attendee identities are host-only (Phase 2) — public view shows an aggregate count only. */}
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,marginBottom:18,color:C.text }}>👥 {meetupDetail.rsvps||0} fans going</p>
 
             <div style={{ display:"flex",gap:10 }}>
-              <button onClick={()=>{ setRsvpedPersisted(r=>({...r,[meetupDetail.id]:true})); setChatRoom({ id:`meetup-${meetupDetail.id}`, name:meetupDetail.title, type:"meetup", members:(meetupDetail.rsvps||1), color:meetupDetail.color }); }} className="tap" style={{ flex:1,padding:"13px",borderRadius:14,background:`linear-gradient(140deg,${meetupDetail.color}ee,${meetupDetail.color}88)`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,cursor:"pointer" }}>💬 Join Event Chat</button>
+              <button onClick={()=>{ if(!rsvped[meetupDetail.id]) toggleRsvp(meetupDetail); setChatRoom({ id:`meetup-${meetupDetail.id}`, name:meetupDetail.title, type:"meetup", members:(meetupDetail.rsvps||1), color:meetupDetail.color }); }} className="tap" style={{ flex:1,padding:"13px",borderRadius:14,background:`linear-gradient(140deg,${meetupDetail.color}ee,${meetupDetail.color}88)`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,cursor:"pointer" }}>💬 Join Event Chat</button>
               {meetupDetail.organizer&&(
                 <button onClick={()=>setChatRoom({ id:`host-${meetupDetail.id}`, name:`${meetupDetail.organizer} (Host)`, type:"dm", members:2, color:meetupDetail.color })} className="tap" style={{ flex:1,padding:"13px",borderRadius:14,background:"transparent",border:`1.5px solid ${meetupDetail.color}55`,color:meetupDetail.color,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,cursor:"pointer" }}>📩 Message Host</button>
               )}

@@ -2143,11 +2143,11 @@ app.post('/api/feed/like', requireAuth, async (req, res) => {
 // ═════════════════════════════════════════════════════════════════════════════
 
 app.post('/api/meetups/create', requireAuth, async (req, res) => {
-  const { eventId, type, title, location, time, capacity, vibe, ageRestriction, entryType, notes } = req.body;
+  const { eventId, type, title, location, city, time, capacity, vibe, ageRestriction, entryType, notes } = req.body;
   if (MOCK_MODE) return res.json({ success: true, mock: true, id: `mt_${Date.now()}`, title });
   const { data, error } = await supabase.from('meetups').insert({
     event_id: eventId, host_id: req.userId, type: type || 'general',
-    title, location, time, capacity: capacity || 50, vibe,
+    title, location, city, time, capacity: capacity || 50, vibe,
     age_restriction: ageRestriction, entry_type: entryType, notes,
   }).select().single();
   if (error) return res.status(500).json({ error: error.message });
@@ -2162,6 +2162,18 @@ app.post('/api/meetups/:id/rsvp', requireAuth, async (req, res) => {
   res.json({ success: true, going: true });
 });
 
+// Un-RSVP — RLS already scopes deletes to the requester's own row (user_id = auth.uid()).
+app.delete('/api/meetups/:id/rsvp', requireAuth, async (req, res) => {
+  const { id } = req.params;
+  if (MOCK_MODE) return res.json({ success: true, mock: true, going: false });
+  const { error } = await supabase.from('meetup_rsvps').delete().eq('meetup_id', id).eq('user_id', req.userId);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true, going: false });
+});
+
+// Public response intentionally omits attendee identities — only an aggregate count
+// (meetup_rsvps(count)) plus whether the requesting user has RSVP'd. Full attendee
+// lists are host-only and land in a later phase.
 app.get('/api/meetups', optionalAuth, async (req, res) => {
   const { eventId, city, type } = req.query;
   if (MOCK_MODE) {
@@ -2170,12 +2182,22 @@ app.get('/api/meetups', optionalAuth, async (req, res) => {
       { id: 'mt2', type: 'afterparty', title: 'STAY After Party 🪩', location: 'Sound Nightclub', time: '11:30 PM', going: 203, capacity: 300, vibe: 'club', ageRestriction: '21+' },
     ], mock: true });
   }
-  let query = supabase.from('meetups').select('*, users(username, avatar_url), meetup_rsvps(count)');
+  // FK hint required: meetups<->users is reachable both directly (host_id) and via
+  // the meetup_rsvps junction, so PostgREST can't auto-resolve which relationship to embed.
+  let query = supabase.from('meetups').select('*, users!meetups_host_id_fkey(username, avatar_url), meetup_rsvps(count)');
   if (eventId) query = query.eq('event_id', eventId);
+  if (city)    query = query.eq('city', city);
   if (type)    query = query.eq('type', type);
   const { data, error } = await query.order('created_at', { ascending: false });
   if (error) return res.status(500).json({ error: error.message });
-  res.json({ meetups: data });
+
+  let myRsvpIds = new Set();
+  if (req.userId && data.length) {
+    const { data: mine } = await supabase.from('meetup_rsvps').select('meetup_id').eq('user_id', req.userId);
+    myRsvpIds = new Set((mine || []).map(r => r.meetup_id));
+  }
+  const meetups = data.map(m => ({ ...m, rsvped: myRsvpIds.has(m.id) }));
+  res.json({ meetups });
 });
 
 
