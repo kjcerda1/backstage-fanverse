@@ -6182,11 +6182,18 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
               </div>
             )}
 
-            {/* Host CTA */}
-            <Card style={{ background:`${C.accent}0a`, border:`1px solid ${C.accent}22`, marginBottom:14 }}>
-              <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13, marginBottom:4 }}>Host a meetup</p>
-              <p style={{ fontSize:11.5, color:C.textMid, marginBottom:12 }}>Create a pre-show meetup, cup sleeve event, trading session, or after party.</p>
-              <Btn small onClick={()=>setShowCreateMeetup(true)}>+ Create Meetup</Btn>
+            {/* Host CTA — VIP-gated */}
+            <Card style={{ background:isVip?`${C.accent}0a`:`linear-gradient(135deg,${C.gold}10,${C.berry}0c)`, border:`1px solid ${isVip?`${C.accent}22`:`${C.gold}33`}`, marginBottom:14 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
+                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13 }}>Host a meetup</p>
+                {!isVip && <Pill color={C.gold} active xs>✨ VIP</Pill>}
+              </div>
+              <p style={{ fontSize:11.5, color:C.textMid, marginBottom:12 }}>{isVip ? "Create a pre-show meetup, cup sleeve event, trading session, or after party." : "Hosting is a VIP perk — unlock it to create meetups, cup sleeve events, and after parties for the Fanverse."}</p>
+              {isVip ? (
+                <Btn small onClick={()=>setShowCreateMeetup(true)}>+ Create Meetup</Btn>
+              ) : (
+                <button onClick={onUpgrade} className="tap" style={{ width:"100%", padding:"10px 14px", borderRadius:13, background:"linear-gradient(140deg,#f0cc88,#d4a820,#f0cc88)", backgroundSize:"200%", animation:"vipShimmer 3s linear infinite", border:"none", color:"#0a0a14", fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:11.5, cursor:"pointer", boxShadow:"0 4px 18px rgba(240,204,136,0.35)" }}>✨ Unlock Hosting with VIP</button>
+              )}
             </Card>
 
             {/* Upcoming fan events */}
