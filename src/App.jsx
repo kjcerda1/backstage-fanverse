@@ -1473,6 +1473,19 @@ const Pill = ({ children, color = C.accent, active, onClick, small, xs, style: s
   }}>{children}</span>
 );
 
+// Reusable venue/city tag — user-entered only, no GPS, no live tracking.
+const LocationTag = ({ venue, city, color=C.accent, checkedIn, style:s }) => {
+  if(!venue && !city) return null;
+  return (
+    <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap", ...s }}>
+      <span style={{ display:"inline-flex", alignItems:"center", gap:5, padding:"4px 10px", borderRadius:99, background:`${color}14`, border:`1px solid ${color}38`, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color }}>
+        📍 {checkedIn ? "Checked in at " : ""}{venue || city}
+      </span>
+      {venue && city && <span style={{ fontSize:10.5, color:C.textDim }}>Near {city}</span>}
+    </div>
+  );
+};
+
 const Btn = ({ children, color=C.accent, onClick, ghost, style:s, disabled, small, icon }) => (
   <button onClick={disabled?undefined:onClick} className="tap" style={{
     width:"100%", padding:small?"10px 14px":"13px 16px", borderRadius:13,
@@ -5943,7 +5956,7 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
   const setRsvpedPersisted  = (fn) => setRsvped(prev=>{ const next=typeof fn==="function"?fn(prev):fn; ls.set("backstage_rsvped",next); return next; });
   const [customMeetups, setCustomMeetups] = useState(()=>ls.get("backstage_custom_meetups",[]));
   const [showCreateMeetup, setShowCreateMeetup] = useState(false);
-  const [createForm, setCreateForm] = useState({ title:"", type:"meetup", date:"", time:"", place:"", city:"" });
+  const [createForm, setCreateForm] = useState({ title:"", type:"meetup", date:"", time:"", place:"", city:"", checkedIn:false });
   const allMeetups = [...customMeetups, ...MOCK_MEETUPS];
   const submitMeetup = () => {
     if(!createForm.title.trim() || !createForm.place.trim()) return;
@@ -5952,7 +5965,7 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
     const next = [entry, ...customMeetups];
     setCustomMeetups(next); ls.set("backstage_custom_meetups", next);
     setRsvpedPersisted(r=>({...r,[entry.id]:true}));
-    setCreateForm({ title:"", type:"meetup", date:"", time:"", place:"", city:"" });
+    setCreateForm({ title:"", type:"meetup", date:"", time:"", place:"", city:"", checkedIn:false });
     setShowCreateMeetup(false);
   };
   const shareMeetup = async (m) => {
@@ -6172,8 +6185,8 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
                   <span style={{ fontSize:24 }}>{m.type==="cupsleeve"?"🧋":m.type==="freebie"?"🎁":m.type==="trade"?"🃏":"📍"}</span>
                   <div style={{ flex:1 }}>
                     <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13.5 }}>{m.title}</p>
-                    <p style={{ fontSize:10.5, color:C.textMid }}>{m.date} · {m.time} · {m.place}</p>
-                    {m.city&&<p style={{ fontSize:10, color:C.textDim, marginTop:2 }}>📍 {m.city}</p>}
+                    <p style={{ fontSize:10.5, color:C.textMid, marginBottom:4 }}>{m.date} · {m.time}</p>
+                    <LocationTag venue={m.place} city={m.city} color={m.color} checkedIn={m.checkedIn} />
                   </div>
                   <Pill color={m.color} small style={{ cursor:"pointer" }} onClick={e=>{e.stopPropagation();setRsvpedPersisted(r=>({...r,[m.id]:!r[m.id]}));}}>
                     {rsvped[m.id]?"✓ Going":"RSVP"}
@@ -6192,7 +6205,8 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
                   <div><Pill color={m.color} active small>🎉 After Party</Pill>
                     <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:17, marginTop:8 }}>{m.title}</p>
-                    <p style={{ fontSize:11, color:C.textMid }}>{m.date} · {m.time} · {m.place}</p>
+                    <p style={{ fontSize:11, color:C.textMid, marginBottom:6 }}>{m.date} · {m.time}</p>
+                    <LocationTag venue={m.place} city={m.city} color={m.color} checkedIn={m.checkedIn} />
                   </div>
                   {m.rsvps>50&&<div style={{ background:`${C.gold}18`, border:`1px solid ${C.gold}44`, borderRadius:12, padding:"8px 12px", textAlign:"center" }}>
                     <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:18, color:C.gold }}>{m.rsvps}</p>
@@ -6235,10 +6249,21 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
               ))}
             </div>
 
-            {[["title","Event title"],["place","Venue / location"],["city","City, State"]].map(([key,ph])=>(
-              <input key={key} value={createForm[key]} onChange={e=>setCreateForm(f=>({...f,[key]:e.target.value}))} placeholder={ph}
-                style={{ width:"100%",padding:"12px 14px",borderRadius:13,background:C.surface,border:`1.5px solid ${C.border}`,color:C.text,fontFamily:"'Epilogue',sans-serif",fontSize:13,marginBottom:10,boxSizing:"border-box" }} />
-            ))}
+            <input value={createForm.title} onChange={e=>setCreateForm(f=>({...f,title:e.target.value}))} placeholder="Event title"
+              style={{ width:"100%",padding:"12px 14px",borderRadius:13,background:C.surface,border:`1.5px solid ${C.border}`,color:C.text,fontFamily:"'Epilogue',sans-serif",fontSize:13,marginBottom:14,boxSizing:"border-box" }} />
+
+            <p style={{ fontSize:11,color:C.accent,fontWeight:700,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.04em" }}>📍 Tag a location</p>
+            <input value={createForm.place} onChange={e=>setCreateForm(f=>({...f,place:e.target.value}))} placeholder="Venue (e.g. Zouk Nightclub)"
+              style={{ width:"100%",padding:"12px 14px",borderRadius:13,background:C.surface,border:`1.5px solid ${C.border}`,color:C.text,fontFamily:"'Epilogue',sans-serif",fontSize:13,marginBottom:10,boxSizing:"border-box" }} />
+            <input value={createForm.city} onChange={e=>setCreateForm(f=>({...f,city:e.target.value}))} placeholder="City, State"
+              style={{ width:"100%",padding:"12px 14px",borderRadius:13,background:C.surface,border:`1.5px solid ${C.border}`,color:C.text,fontFamily:"'Epilogue',sans-serif",fontSize:13,marginBottom:10,boxSizing:"border-box" }} />
+            <label style={{ display:"flex",alignItems:"center",gap:9,marginBottom:14,cursor:"pointer" }}>
+              <input type="checkbox" checked={createForm.checkedIn} onChange={e=>setCreateForm(f=>({...f,checkedIn:e.target.checked}))}
+                style={{ width:16,height:16,accentColor:C.accent,cursor:"pointer" }} />
+              <span style={{ fontSize:11.5,color:C.textMid }}>✓ I'm checked in here now — show "Checked in at" on this event</span>
+            </label>
+            <p style={{ fontSize:10,color:C.textDim,marginBottom:18,lineHeight:1.5 }}>Venue and city only — Backstage never requests your exact location or live GPS.</p>
+
             <div style={{ display:"flex", gap:10, marginBottom:18 }}>
               <input value={createForm.date} onChange={e=>setCreateForm(f=>({...f,date:e.target.value}))} placeholder="Date (e.g. May 24)"
                 style={{ flex:1,padding:"12px 14px",borderRadius:13,background:C.surface,border:`1.5px solid ${C.border}`,color:C.text,fontFamily:"'Epilogue',sans-serif",fontSize:13,boxSizing:"border-box" }} />
@@ -6263,7 +6288,11 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
               </div>
               <button onClick={()=>setMeetupDetail(null)} style={{ background:"none",border:"none",color:C.textMid,fontSize:20,cursor:"pointer" }}>✕</button>
             </div>
-            <p style={{ fontSize:11.5,color:C.textMid,marginBottom:14 }}>{meetupDetail.date} · {meetupDetail.time} · {meetupDetail.place}{meetupDetail.city?`, ${meetupDetail.city}`:""}</p>
+            <p style={{ fontSize:11.5,color:C.textMid,marginBottom:10 }}>{meetupDetail.date} · {meetupDetail.time}</p>
+            <div style={{ marginBottom:14 }}>
+              <p style={{ fontSize:9.5,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:5 }}>Venue</p>
+              <LocationTag venue={meetupDetail.place} city={meetupDetail.city} color={meetupDetail.color} checkedIn={meetupDetail.checkedIn} />
+            </div>
             {meetupDetail.description&&<p style={{ fontSize:12,color:C.textMid,lineHeight:1.6,marginBottom:14 }}>{meetupDetail.description}</p>}
             {meetupDetail.organizer&&(
               <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:16,padding:"10px 12px",background:`${meetupDetail.color}0c`,borderRadius:13,border:`1px solid ${meetupDetail.color}28` }}>
