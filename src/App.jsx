@@ -1474,8 +1474,20 @@ const Pill = ({ children, color = C.accent, active, onClick, small, xs, style: s
 );
 
 // Reusable venue/city tag — user-entered only, no GPS, no live tracking.
-const LocationTag = ({ venue, city, color=C.accent, checkedIn, style:s }) => {
+// glass=true renders a frosted gold/fuchsia/purple gradient badge for premium surfaces (Feed, Passes).
+const LocationTag = ({ venue, city, color=C.accent, checkedIn, glass, style:s }) => {
   if(!venue && !city) return null;
+  if(glass) {
+    return (
+      <div style={{ display:"inline-flex", alignItems:"center", gap:7, flexWrap:"wrap", padding:"6px 12px", borderRadius:99, background:"rgba(255,255,255,0.06)", backdropFilter:"blur(14px)", WebkitBackdropFilter:"blur(14px)", border:"1px solid rgba(255,255,255,0.16)", boxShadow:`0 0 20px ${C.berry}1f, inset 0 1px 0 rgba(255,255,255,0.1)`, ...s }}>
+        <span style={{ fontSize:12 }}>📍</span>
+        <span style={{ fontSize:11, fontFamily:"'Epilogue',sans-serif", fontWeight:800, background:`linear-gradient(110deg,${C.gold},${C.pink},${C.berry})`, WebkitBackgroundClip:"text", backgroundClip:"text", color:"transparent" }}>
+          {checkedIn ? "Checked in at " : ""}{venue || city}
+        </span>
+        {venue && city && <span style={{ fontSize:9.5, color:"rgba(255,255,255,0.55)" }}>· Near {city}</span>}
+      </div>
+    );
+  }
   return (
     <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap", ...s }}>
       <span style={{ display:"inline-flex", alignItems:"center", gap:5, padding:"4px 10px", borderRadius:99, background:`${color}14`, border:`1px solid ${color}38`, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color }}>
@@ -13965,7 +13977,7 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
   const [sort, setSort] = useState("trending");
   const [filter, setFilter] = useState("all");
   const [composing, setComposing] = useState(false);
-  const [draft, setDraft] = useState({ text:"", tag:"", type:"general", image:null });
+  const [draft, setDraft] = useState({ text:"", tag:"", type:"general", image:null, locationOn:false, venue:"", city:"", checkedIn:false });
   const [memeMode, setMemeMode] = useState(null);
   const [commentsOpenFor, setCommentsOpenFor] = useState(null);
   const [replyDraft, setReplyDraft] = useState("");
@@ -14009,10 +14021,10 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
 
   const addPost = () => {
     if(!draft.text.trim()) return;
-    const newPost = { id:Date.now(), user:`@${user?.username||user?.name||user?.stanName||"you"}`, avatar:(user?.username||user?.name||user?.stanName||"Y")[0].toUpperCase(), color:C.accent, type:draft.type||"general", text:draft.text, likes:0, comments:0, time:"now", tag:draft.tag||"General", saved:false, meme:null, image:draft.image||null };
+    const newPost = { id:Date.now(), user:`@${user?.username||user?.name||user?.stanName||"you"}`, avatar:(user?.username||user?.name||user?.stanName||"Y")[0].toUpperCase(), color:C.accent, type:draft.type||"general", text:draft.text, likes:0, comments:0, time:"now", tag:draft.tag||"General", saved:false, meme:null, image:draft.image||null, venue:draft.locationOn&&draft.venue.trim()?draft.venue.trim():null, city:draft.locationOn&&draft.city.trim()?draft.city.trim():null, checkedIn:draft.locationOn&&draft.checkedIn };
     const next = [newPost, ...posts];
     setPosts(next); ls.set("backstage_feed_posts", next.slice(0,50));
-    setDraft({text:"",tag:"",type:"general",image:null}); setComposing(false);
+    setDraft({ text:"", tag:"", type:"general", image:null, locationOn:false, venue:"", city:"", checkedIn:false }); setComposing(false);
   };
 
   const handleImgUpload = (e) => {
@@ -14118,6 +14130,24 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
               <button onClick={()=>imgRef.current?.click()} style={{ width:"100%",padding:"10px",borderRadius:11,background:"transparent",border:`2px dashed ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",marginBottom:10,display:"flex",alignItems:"center",justifyContent:"center",gap:7 }}>📸 Add Photo</button>
             )}
             <input ref={imgRef} type="file" accept="image/*" onChange={handleImgUpload} style={{ display:"none" }} />
+
+            {/* Location tag — user-entered venue/city only, no GPS */}
+            <button onClick={()=>setDraft(d=>({...d,locationOn:!d.locationOn}))} style={{ width:"100%", padding:"9px 12px", borderRadius:11, marginBottom:draft.locationOn?10:12, background:draft.locationOn?"rgba(255,255,255,0.06)":"transparent", backdropFilter:draft.locationOn?"blur(10px)":"none", border:`1.5px solid ${draft.locationOn?"rgba(255,255,255,0.18)":C.border}`, color:draft.locationOn?C.gold:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:7 }}>
+              📍 {draft.locationOn?"Tagging a location":"Tag a location"}
+            </button>
+            {draft.locationOn && (
+              <div style={{ marginBottom:12, padding:12, borderRadius:13, background:"rgba(255,255,255,0.04)", backdropFilter:"blur(12px)", border:"1px solid rgba(255,255,255,0.14)", boxShadow:`0 0 22px ${C.berry}1a, inset 0 1px 0 rgba(255,255,255,0.08)`, animation:"up .15s ease" }}>
+                <input value={draft.venue} onChange={e=>setDraft(d=>({...d,venue:e.target.value}))} placeholder="Venue (e.g. Allegiant Stadium)"
+                  style={{ width:"100%",padding:"10px 12px",borderRadius:11,background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.14)",color:C.text,fontFamily:"'Epilogue',sans-serif",fontSize:12.5,marginBottom:8,boxSizing:"border-box" }} />
+                <input value={draft.city} onChange={e=>setDraft(d=>({...d,city:e.target.value}))} placeholder="City, State"
+                  style={{ width:"100%",padding:"10px 12px",borderRadius:11,background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.14)",color:C.text,fontFamily:"'Epilogue',sans-serif",fontSize:12.5,marginBottom:9,boxSizing:"border-box" }} />
+                <label style={{ display:"flex",alignItems:"center",gap:8,cursor:"pointer" }}>
+                  <input type="checkbox" checked={draft.checkedIn} onChange={e=>setDraft(d=>({...d,checkedIn:e.target.checked}))} style={{ width:14,height:14,accentColor:C.gold,cursor:"pointer" }} />
+                  <span style={{ fontSize:10.5,color:C.textMid }}>✓ Checked in here now</span>
+                </label>
+              </div>
+            )}
+
             {/* Tag selector */}
             <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginBottom:12 }}>
               {["BTS","Stray Kids","aespa","NewJeans","BLACKPINK","ATEEZ","NCT"].map(t=>(
@@ -14156,6 +14186,7 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
             <p style={{ fontSize:13, lineHeight:1.68, marginBottom:11 }}>{p.text}</p>
             {/* Post image (Phase 5) */}
             {p.image&&<img src={p.image} alt="post" style={{ width:"100%",maxHeight:220,objectFit:"cover",borderRadius:14,marginBottom:11 }} />}
+            {(p.venue||p.city)&&<div style={{ marginBottom:11 }}><LocationTag venue={p.venue} city={p.city} checkedIn={p.checkedIn} glass /></div>}
             {/* Social proof */}
             {p.likes>500&&<p style={{ fontSize:10, color:C.accent, fontFamily:"'Epilogue',sans-serif", fontWeight:600, marginBottom:8 }}>🔥 {p.likes.toLocaleString()} fans loved this</p>}
             <div style={{ display:"flex", gap:16, alignItems:"center" }}>
@@ -21301,7 +21332,7 @@ function BackstagePasses({ onBack, user }) {
   ];
   const FANREACTIONS = ["💜","😭","✨","🫶","🎤","⚡"];
   const MOCK_PASSES = [
-    {id:"p1",type:"fitcheck",   caption:"arrived in full concert era 💜",                     username:"@armywrld",    expires:"Tonight",   color:C.pink,    grad:PASS_TYPES[0].grad,  viewed:false,likes:12,reactions:{"💜":8,"✨":3,"🫶":1}},
+    {id:"p1",type:"fitcheck",   caption:"arrived in full concert era 💜",                     username:"@armywrld",    expires:"Tonight",   color:C.pink,    grad:PASS_TYPES[0].grad,  viewed:false,likes:12,reactions:{"💜":8,"✨":3,"🫶":1}, venue:"Allegiant Stadium", city:"Las Vegas, NV", checkedIn:true},
     {id:"p2",type:"merch",      caption:"merch line at 5am, worth it no regrets",             username:"@merchhunter", expires:"24 Hours",  color:C.gold,    grad:PASS_TYPES[1].grad,  viewed:false,likes:8, reactions:{"💜":5,"😭":2,"⚡":1}},
     {id:"p3",type:"freebie",    caption:"handing out freebies at gate 4 come find me!!",      username:"@freebieera",  expires:"Tonight",   color:C.mint,    grad:PASS_TYPES[2].grad,  viewed:true, likes:31,reactions:{"💜":18,"🫶":9,"✨":4}},
     {id:"p4",type:"biasmoment", caption:"PULLED MY BIAS WRECKER I AM NOT OKAY",               username:"@standancer",  expires:"Era Memory",color:C.gold,    grad:PASS_TYPES[7].grad,  viewed:false,likes:47,reactions:{"😭":22,"💜":15,"⚡":10}},
@@ -21313,7 +21344,7 @@ function BackstagePasses({ onBack, user }) {
 
   const [passes, setPasses]     = useState(()=>ls.get(KEY,MOCK_PASSES));
   const [creating, setCreating] = useState(false);
-  const [draft, setDraft]       = useState({type:"fitcheck",caption:"",duration:"tonight",venue:false,toCapsule:false,image:null});
+  const [draft, setDraft]       = useState({type:"fitcheck",caption:"",duration:"tonight",venueOn:false,venue:"",city:"",checkedIn:false,toCapsule:false,image:null});
   const [filter, setFilter]     = useState("all");
   const [section, setSection]   = useState("live"); // live | circle | capsule
   const [viewing, setViewing]   = useState(null);
@@ -21334,10 +21365,10 @@ function BackstagePasses({ onBack, user }) {
     if(!draft.caption.trim()) return;
     const t=PASS_TYPES.find(tp=>tp.id===draft.type)||PASS_TYPES[0];
     const dur=DURATIONS.find(d=>d.id===draft.duration)||DURATIONS[0];
-    const newPass={id:`p${Date.now()}`,type:draft.type,caption:draft.caption,username:`@${user?.name||user?.username||"stan"}`,expires:dur.label,color:t.color,grad:t.grad,viewed:false,likes:0,reactions:{},venue:draft.venue?"📍 Allegiant Stadium":null,inCapsule:draft.toCapsule};
+    const newPass={id:`p${Date.now()}`,type:draft.type,caption:draft.caption,username:`@${user?.name||user?.username||"stan"}`,expires:dur.label,color:t.color,grad:t.grad,viewed:false,likes:0,reactions:{},venue:draft.venueOn&&draft.venue.trim()?draft.venue.trim():null,city:draft.venueOn&&draft.city.trim()?draft.city.trim():null,checkedIn:draft.venueOn&&draft.checkedIn,inCapsule:draft.toCapsule};
     setPasses(ps=>[newPass,...ps]);
     if(draft.toCapsule){ const caps=ls.get("backstage_concert_capsules",[]); ls.set("backstage_concert_capsules",[...caps,{...newPass,concertId:"bts-lv-1",category:draft.type,savedAt:Date.now()}]); }
-    setDraft({type:"fitcheck",caption:"",duration:"tonight",venue:false,toCapsule:false,image:null}); setShowDetails(false); setCreating(false);
+    setDraft({type:"fitcheck",caption:"",duration:"tonight",venueOn:false,venue:"",city:"",checkedIn:false,toCapsule:false,image:null}); setShowDetails(false); setCreating(false);
   };
 
   // Section filtering
@@ -21463,7 +21494,7 @@ function BackstagePasses({ onBack, user }) {
                   <div style={{ background:C.surface,padding:"8px 10px" }}>
                     <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5 }}>
                       <p style={{ fontSize:9,color:C.textMid,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1 }}>{pass.username} · {pass.expires}</p>
-                      {pass.venue&&<p style={{ fontSize:8,color:C.textDim,flexShrink:0,marginLeft:4 }}>{pass.venue}</p>}
+                      {pass.venue&&<p style={{ fontSize:8,flexShrink:0,marginLeft:4,fontWeight:700,background:`linear-gradient(110deg,${C.gold},${C.pink},${C.berry})`,WebkitBackgroundClip:"text",backgroundClip:"text",color:"transparent" }}>📍 {pass.venue}</p>}
                     </div>
                     {/* Fandom reactions */}
                     <div style={{ display:"flex",gap:4,flexWrap:"wrap" }}>
@@ -21506,7 +21537,8 @@ function BackstagePasses({ onBack, user }) {
             {/* Caption */}
             <p style={{ fontFamily:"'Epilogue',sans-serif",fontStyle:"italic",fontWeight:700,fontSize:22,color:"#fff",lineHeight:1.3,marginBottom:10,textShadow:"0 2px 16px rgba(0,0,0,0.8)" }}>"{viewing.caption}"</p>
             {/* Meta */}
-            <p style={{ fontSize:11,color:"rgba(255,255,255,0.6)",marginBottom:16 }}>{viewing.username} · {viewing.expires}{viewing.venue?` · ${viewing.venue}`:""}</p>
+            <p style={{ fontSize:11,color:"rgba(255,255,255,0.6)",marginBottom:viewing.venue||viewing.city?8:16 }}>{viewing.username} · {viewing.expires}</p>
+            {(viewing.venue||viewing.city)&&<div style={{ marginBottom:16 }}><LocationTag venue={viewing.venue} city={viewing.city} checkedIn={viewing.checkedIn} glass /></div>}
             {/* Fandom reactions */}
             <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
               {FANREACTIONS.map(emoji=>(
@@ -21614,14 +21646,26 @@ function BackstagePasses({ onBack, user }) {
                   ))}
                 </div>
                 {/* Venue + Capsule toggles */}
-                <div style={{ display:"flex",gap:7,marginBottom:4 }}>
-                  <button onClick={()=>setDraft(d=>({...d,venue:!d.venue}))} style={{ flex:1,padding:"8px 10px",borderRadius:11,border:`1.5px solid ${draft.venue?C.mint:C.border}`,background:draft.venue?`${C.mint}18`:C.surfaceHi,color:draft.venue?C.mint:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10,cursor:"pointer",transition:"all .18s",display:"flex",alignItems:"center",justifyContent:"center",gap:5 }}>
-                    📍 {draft.venue?"Venue ✓":"Add Venue"}
+                <div style={{ display:"flex",gap:7,marginBottom:draft.venueOn?8:4 }}>
+                  <button onClick={()=>setDraft(d=>({...d,venueOn:!d.venueOn}))} style={{ flex:1,padding:"8px 10px",borderRadius:11,border:`1.5px solid ${draft.venueOn?"rgba(255,255,255,0.22)":C.border}`,background:draft.venueOn?"rgba(255,255,255,0.07)":C.surfaceHi,backdropFilter:draft.venueOn?"blur(10px)":"none",color:draft.venueOn?C.gold:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10,cursor:"pointer",transition:"all .18s",display:"flex",alignItems:"center",justifyContent:"center",gap:5 }}>
+                    📍 {draft.venueOn?"Venue ✓":"Add Venue"}
                   </button>
                   <button onClick={()=>setDraft(d=>({...d,toCapsule:!d.toCapsule}))} style={{ flex:1,padding:"8px 10px",borderRadius:11,border:`1.5px solid ${draft.toCapsule?C.accent:C.border}`,background:draft.toCapsule?`${C.accent}18`:C.surfaceHi,color:draft.toCapsule?C.accent:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10,cursor:"pointer",transition:"all .18s",display:"flex",alignItems:"center",justifyContent:"center",gap:5 }}>
                     ✦ {draft.toCapsule?"Capsule ✓":"+ Capsule"}
                   </button>
                 </div>
+                {draft.venueOn && (
+                  <div style={{ marginBottom:8, padding:10, borderRadius:12, background:"rgba(255,255,255,0.05)", backdropFilter:"blur(14px)", border:"1px solid rgba(255,255,255,0.16)", boxShadow:`0 0 20px ${C.berry}1f, inset 0 1px 0 rgba(255,255,255,0.08)`, animation:"up .15s ease" }}>
+                    <input value={draft.venue} onChange={e=>setDraft(d=>({...d,venue:e.target.value}))} placeholder="Venue (e.g. Allegiant Stadium)"
+                      style={{ width:"100%",padding:"9px 11px",borderRadius:10,background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.14)",color:"#fff",fontFamily:"'Epilogue',sans-serif",fontSize:11.5,marginBottom:7,boxSizing:"border-box" }} />
+                    <input value={draft.city} onChange={e=>setDraft(d=>({...d,city:e.target.value}))} placeholder="City, State"
+                      style={{ width:"100%",padding:"9px 11px",borderRadius:10,background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.14)",color:"#fff",fontFamily:"'Epilogue',sans-serif",fontSize:11.5,marginBottom:8,boxSizing:"border-box" }} />
+                    <label style={{ display:"flex",alignItems:"center",gap:7,cursor:"pointer" }}>
+                      <input type="checkbox" checked={draft.checkedIn} onChange={e=>setDraft(d=>({...d,checkedIn:e.target.checked}))} style={{ width:13,height:13,accentColor:C.gold,cursor:"pointer" }} />
+                      <span style={{ fontSize:9.5,color:"rgba(255,255,255,0.65)" }}>✓ Checked in here now</span>
+                    </label>
+                  </div>
+                )}
               </div>
             )}
 
