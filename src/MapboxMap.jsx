@@ -20,7 +20,7 @@ export const CITY_DENSITY_GEOJSON = {
     { type:"Feature", geometry:{ type:"Point", coordinates:[ -0.1278,  51.5074] },
       properties:{ city:"London",      fans:3100, intensity:0.26, level:"Active",          event:"Stray Kids EU leg",     trending:false, color:"#c4b5fd" }},
     { type:"Feature", geometry:{ type:"Point", coordinates:[  2.3522,  48.8566] },
-      properties:{ city:"Paris",       fans:2000, intensity:0.17, level:"Active",          event:"General activity",      trending:false, color:"#80ffdf" }},
+      properties:{ city:"Paris",       fans:2000, intensity:0.17, level:"Active",          event:"General activity",      trending:false, color:"#9fe0c8" }},
     { type:"Feature", geometry:{ type:"Point", coordinates:[ 13.4050,  52.5200] },
       properties:{ city:"Berlin",      fans:1400, intensity:0.12, level:"Active",          event:"General activity",      trending:false, color:"#b8b8d8" }},
     { type:"Feature", geometry:{ type:"Point", coordinates:[126.9780,  37.5665] },
@@ -30,7 +30,7 @@ export const CITY_DENSITY_GEOJSON = {
     { type:"Feature", geometry:{ type:"Point", coordinates:[121.4737,  31.2304] },
       properties:{ city:"Shanghai",    fans:2900, intensity:0.24, level:"Active",          event:"General activity",      trending:false, color:"#f0a8cc" }},
     { type:"Feature", geometry:{ type:"Point", coordinates:[120.9842,  14.5995] },
-      properties:{ city:"Manila",      fans:2200, intensity:0.18, level:"Active",          event:"General activity",      trending:false, color:"#80ffdf" }},
+      properties:{ city:"Manila",      fans:2200, intensity:0.18, level:"Active",          event:"General activity",      trending:false, color:"#9fe0c8" }},
     { type:"Feature", geometry:{ type:"Point", coordinates:[100.5018,  13.7563] },
       properties:{ city:"Bangkok",     fans:1800, intensity:0.15, level:"Active",          event:"General activity",      trending:false, color:"#ff9fa8" }},
     { type:"Feature", geometry:{ type:"Point", coordinates:[ 36.8219,  -1.2921] },
@@ -38,7 +38,7 @@ export const CITY_DENSITY_GEOJSON = {
     { type:"Feature", geometry:{ type:"Point", coordinates:[-46.6333, -23.5505] },
       properties:{ city:"São Paulo",   fans:1100, intensity:0.09, level:"Active",          event:"General activity",      trending:false, color:"#c4b5fd" }},
     { type:"Feature", geometry:{ type:"Point", coordinates:[151.2093, -33.8688] },
-      properties:{ city:"Sydney",      fans:900,  intensity:0.08, level:"Steady",          event:"General activity",      trending:false, color:"#80ffdf" }},
+      properties:{ city:"Sydney",      fans:900,  intensity:0.08, level:"Steady",          event:"General activity",      trending:false, color:"#9fe0c8" }},
   ],
 };
 
@@ -46,6 +46,69 @@ export const CITY_DENSITY_GEOJSON = {
 export const CONCERT_CHECKINS_GEOJSON = { type:"FeatureCollection", features:[] };
 export const NEARBY_FANS_GEOJSON      = { type:"FeatureCollection", features:[] };
 const EMPTY_FC                        = { type:"FeatureCollection", features:[] };
+
+function curvedLineFeature(a, b, kind, label) {
+  const [lng1, lat1] = a.geometry.coordinates;
+  const [lng2, lat2] = b.geometry.coordinates;
+  const steps = 36;
+  const coordinates = [];
+  const lift = Math.min(18, Math.max(6, Math.abs(lng2 - lng1) * 0.035 + Math.abs(lat2 - lat1) * 0.08));
+
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const lng = lng1 + (lng2 - lng1) * t;
+    const lat = lat1 + (lat2 - lat1) * t + Math.sin(Math.PI * t) * lift;
+    coordinates.push([lng, Math.max(-82, Math.min(82, lat))]);
+  }
+
+  return {
+    type: "Feature",
+    geometry: { type: "LineString", coordinates },
+    properties: {
+      kind,
+      label,
+      from: a.properties.city,
+      to: b.properties.city,
+    },
+  };
+}
+
+export function buildFanverseArcGeoJSON(densityData = CITY_DENSITY_GEOJSON) {
+  const features = densityData.features || [];
+  const arcs = [];
+  const eventGroups = {};
+
+  features.forEach(f => {
+    const event = f.properties.event;
+    if (!event || event === "General activity") return;
+    (eventGroups[event] = eventGroups[event] || []).push(f);
+  });
+
+  Object.entries(eventGroups).forEach(([event, group]) => {
+    if (group.length < 2) return;
+    const sorted = [...group].sort((a, b) => b.properties.fans - a.properties.fans);
+    for (let i = 0; i < sorted.length - 1; i++) {
+      arcs.push(curvedLineFeature(sorted[i], sorted[i + 1], "tour", event));
+    }
+  });
+
+  const hub = [...features].sort((a, b) => b.properties.fans - a.properties.fans)[0];
+  if (hub) {
+    [...features]
+      .filter(f => f !== hub && f.properties.trending)
+      .sort((a, b) => b.properties.fans - a.properties.fans)
+      .slice(0, 3)
+      .forEach(f => {
+        const duplicate = arcs.some(arc =>
+          (arc.properties.from === hub.properties.city && arc.properties.to === f.properties.city) ||
+          (arc.properties.from === f.properties.city && arc.properties.to === hub.properties.city)
+        );
+        if (!duplicate) arcs.push(curvedLineFeature(hub, f, "flow", "Top fandom hub flow"));
+      });
+  }
+
+  return { type:"FeatureCollection", features: arcs.slice(0, 5) };
+}
 
 // ─── Cosmic starfield — edge-zone pearls (x%, y%, size-px, anim-delay-s) ─────
 // Positions are near the border (outside the 50% vignette transparent zone)
@@ -115,29 +178,28 @@ function applyCosmicStyle(map) {
 
   const paintOverrides = [
     // Clear land/water separation — land brighter purple, water near-black blue
-    ["background",               "background-color",  "#0a0820"],
-    ["water",                    "fill-color",        "#030810"],   // dark blue-black — clearly distinct from land
-    ["land",                     "background-color",  "#1e1948"],   // rich purple — stands out against water
-    ["landuse",                  "fill-color",        "#1a1540"],
-    ["landuse-shadow",           "fill-color",        "#1a1540"],
-    ["national-park",            "fill-color",        "#171438"],
-    // Crisp country boundaries
-    ["admin-0-boundary",         "line-color",        "rgba(184,162,255,0.55)"],
-    ["admin-0-boundary",         "line-opacity",      0.82],
-    ["admin-0-boundary",         "line-width",        0.9],
-    ["admin-0-boundary-disputed","line-color",        "rgba(184,162,255,0.28)"],
-    ["admin-0-boundary-disputed","line-opacity",      0.50],
-    ["admin-1-boundary",         "line-color",        "rgba(184,162,255,0.14)"],
-    ["admin-1-boundary",         "line-opacity",      0.48],
-    ["admin-state-province",     "line-color",        "rgba(184,162,255,0.14)"],
-    ["admin-state-province",     "line-opacity",      0.48],
-    // Clearly readable country labels
-    ["country-label",            "text-color",        "rgba(210,195,255,0.75)"],
+    // NOTE: dark-v11's actual background-type layer is "land" (no layer is literally
+    // named "background" in this style) — verified against the live style JSON.
+    // Land must read clearly lighter than water — this is a readable map first.
+    ["water",                    "fill-color",        "#0d0730"],   // deep midnight purple — still dark, not pure black
+    ["land",                     "background-color",  "#2a1a5c"],   // clearly lighter violet — continents must pop
+    ["landuse",                  "fill-color",        "#301f66"],
+    ["national-park",            "fill-color",        "#2c1c5e"],
+    // Crisp, visible country boundaries — gold-violet tint
+    ["admin-0-boundary",         "line-color",        "rgba(224,202,255,0.75)"],
+    ["admin-0-boundary",         "line-opacity",      0.90],
+    ["admin-0-boundary",         "line-width",        1.0],
+    ["admin-0-boundary-disputed","line-color",        "rgba(224,202,255,0.38)"],
+    ["admin-0-boundary-disputed","line-opacity",      0.55],
+    ["admin-1-boundary",         "line-color",        "rgba(224,202,255,0.20)"],
+    ["admin-1-boundary",         "line-opacity",      0.50],
+    // Subdued but legible labels — quiet, not dominant, not invisible
+    ["country-label",            "text-color",        "rgba(220,208,255,0.68)"],
     ["country-label",            "text-halo-color",   "#080618"],
-    ["country-label",            "text-opacity",      0.78],
-    ["state-label",              "text-color",        "rgba(184,162,255,0.28)"],
-    ["state-label",              "text-opacity",      0.30],
-    ["settlement-major-label",   "text-color",        "rgba(184,162,255,0.38)"],
+    ["country-label",            "text-opacity",      0.68],
+    ["state-label",              "text-color",        "rgba(184,162,255,0.22)"],
+    ["state-label",              "text-opacity",      0.24],
+    ["settlement-major-label",   "text-color",        "rgba(200,185,255,0.40)"],
     ["settlement-major-label",   "text-halo-color",   "#080618"],
     ["settlement-major-label",   "text-opacity",      0.42],
     ["settlement-minor-label",   "text-color",        "rgba(184,162,255,0.20)"],
@@ -158,7 +220,14 @@ function applyCosmicStyle(map) {
 // ─── Layer definitions ────────────────────────────────────────────────────────
 function buildLayers(showHeatmap) {
   return [
-    // ── Heatmap ───────────────────────────────────────────────────────────────
+    // Purposeful activity arcs — kept deliberately faint. These support the
+    // city orbs; they must never read as "lines" before the eye finds the
+    // glowing cities themselves. Capped in buildFanverseArcGeoJSON.
+    { id:"fan-arcs-glow", type:"line", source:"fan-arcs",
+      paint:{ "line-color":["case",["==",["get","kind"],"tour"],"#f0cc88","#c4b5fd"], "line-width":["case",["==",["get","kind"],"tour"],1.0,0.8], "line-opacity":0.14, "line-blur":1.4 }},
+    { id:"fan-arcs-core", type:"line", source:"fan-arcs",
+      paint:{ "line-color":["case",["==",["get","kind"],"tour"],"#f0cc88","#d8b4e8"], "line-width":["case",["==",["get","kind"],"tour"],0.4,0.3], "line-opacity":0.26 }},
+// ── Heatmap ───────────────────────────────────────────────────────────────
     {
       id: "fan-heatmap", type: "heatmap", source: "fan-density", maxzoom: 6,
       paint: {
@@ -177,16 +246,16 @@ function buildLayers(showHeatmap) {
     // ── City glow — 4 layered halos (reduced for clarity, not fog) ───────────
     // Wide atmospheric bloom — kept subtle, well below labels
     { id:"fan-glow-atmosphere", type:"circle", source:"fan-density",
-      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,48,12000,150], "circle-color":["get","color"], "circle-opacity":0.03, "circle-blur":1.2 }},
+      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,52,12000,165], "circle-color":["get","color"], "circle-opacity":0.05, "circle-blur":1.2 }},
     // Soft outer glow
     { id:"fan-glow-outer", type:"circle", source:"fan-density",
-      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,34,12000,105], "circle-color":["get","color"], "circle-opacity":0.07, "circle-blur":0.95 }},
+      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,36,12000,112], "circle-color":["get","color"], "circle-opacity":0.10, "circle-blur":0.95 }},
     // Mid glow
     { id:"fan-glow-mid", type:"circle", source:"fan-density",
-      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,19,12000,56], "circle-color":["get","color"], "circle-opacity":0.16, "circle-blur":0.38 }},
+      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,20,12000,60], "circle-color":["get","color"], "circle-opacity":0.20, "circle-blur":0.38 }},
     // Inner halo — tight, sharp aura ring
     { id:"fan-glow-inner", type:"circle", source:"fan-density",
-      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,10,12000,28], "circle-color":["get","color"], "circle-opacity":0.36, "circle-blur":0.12 }},
+      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,11,12000,30], "circle-color":["get","color"], "circle-opacity":0.42, "circle-blur":0.12 }},
     // Bright crisp core dot — slightly larger to compensate for tighter halos
     { id:"fan-core", type:"circle", source:"fan-density",
       paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,7,12000,24], "circle-color":["get","color"], "circle-opacity":1.0, "circle-stroke-width":1.8, "circle-stroke-color":"rgba(235,218,255,0.72)" }},
@@ -211,20 +280,22 @@ function buildLayers(showHeatmap) {
     { id:"concert-checkins", type:"circle", source:"concert-checkins",
       paint:{ "circle-radius":8, "circle-color":"#f0cc88", "circle-opacity":0.8, "circle-blur":0.2 }},
     { id:"nearby-fans", type:"circle", source:"nearby-fans",
-      paint:{ "circle-radius":6, "circle-color":"#64c88c", "circle-opacity":0.85, "circle-stroke-width":1, "circle-stroke-color":"rgba(255,255,255,0.3)" }},
+      paint:{ "circle-radius":6, "circle-color":"#8fcdab", "circle-opacity":0.85, "circle-stroke-width":1, "circle-stroke-color":"rgba(255,255,255,0.3)" }},
 
-    // ── Selected city — premium ring set (RAF-animated, empty until tap) ──────
+    // ── Selected city — premium ring set, tuned ~25% down from a prior pass
+    // that blew out into a "giant white flashlight." Keep a colored core,
+    // a soft halo, and the map underneath still readable. ─────────────────
     { id:"sel-bloom", type:"circle", source:"selected-city",
-      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,65,12000,178], "circle-color":["get","color"], "circle-opacity":0.06, "circle-blur":1.15 }},
+      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,50,12000,135], "circle-color":["get","color"], "circle-opacity":0.05, "circle-blur":1.15 }},
     // Slow outermost ring
     { id:"sel-ring-outermost", type:"circle", source:"selected-city",
-      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,46,12000,120], "circle-color":"rgba(0,0,0,0)", "circle-opacity":0, "circle-stroke-width":1, "circle-stroke-color":["get","color"], "circle-stroke-opacity":0.20 }},
+      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,40,12000,100], "circle-color":"rgba(0,0,0,0)", "circle-opacity":0, "circle-stroke-width":1, "circle-stroke-color":["get","color"], "circle-stroke-opacity":0.16 }},
     { id:"sel-ring-outer", type:"circle", source:"selected-city",
-      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,34,12000,95], "circle-color":"rgba(0,0,0,0)", "circle-opacity":0, "circle-stroke-width":1.5, "circle-stroke-color":["get","color"], "circle-stroke-opacity":0.38 }},
+      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,29,12000,80], "circle-color":"rgba(0,0,0,0)", "circle-opacity":0, "circle-stroke-width":1.3, "circle-stroke-color":["get","color"], "circle-stroke-opacity":0.30 }},
     { id:"sel-ring-inner", type:"circle", source:"selected-city",
-      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,22,12000,64], "circle-color":"rgba(0,0,0,0)", "circle-opacity":0, "circle-stroke-width":2, "circle-stroke-color":["get","color"], "circle-stroke-opacity":0.65 }},
+      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,19,12000,54], "circle-color":"rgba(0,0,0,0)", "circle-opacity":0, "circle-stroke-width":1.7, "circle-stroke-color":["get","color"], "circle-stroke-opacity":0.52 }},
     { id:"sel-core", type:"circle", source:"selected-city",
-      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,11,12000,28], "circle-color":"#ffffff", "circle-opacity":1.0, "circle-stroke-width":3, "circle-stroke-color":["get","color"], "circle-stroke-opacity":1 }},
+      paint:{ "circle-radius":["interpolate",["linear"],["get","fans"],800,9,12000,21], "circle-color":["get","color"], "circle-opacity":0.92, "circle-stroke-width":2.2, "circle-stroke-color":"rgba(255,255,255,0.75)", "circle-stroke-opacity":1 }},
   ];
 }
 
@@ -265,9 +336,13 @@ const MapboxMap = forwardRef(function MapboxMap({
     if (!containerRef.current || !MAPBOX_TOKEN || mapRef.current) return;
     injectMapboxCSS();
     let map;
+    let cancelled = false;
 
     loadMapboxGL().then(mapboxgl => {
-      if (!containerRef.current) return;
+      // Guards against the StrictMode dev double-invoke: if cleanup already
+      // ran (or another instance already attached) before this promise
+      // resolved, bail instead of creating a zombie map on a stale container.
+      if (cancelled || !containerRef.current || mapRef.current) return;
       mapboxgl.accessToken = MAPBOX_TOKEN;
 
       map = new mapboxgl.Map({
@@ -305,6 +380,7 @@ const MapboxMap = forwardRef(function MapboxMap({
         applyCosmicStyle(map);
 
         map.addSource("fan-density",      { type:"geojson", data: densityData });
+        map.addSource("fan-arcs",         { type:"geojson", data: buildFanverseArcGeoJSON(densityData) });
         map.addSource("concert-checkins", { type:"geojson", data: CONCERT_CHECKINS_GEOJSON });
         map.addSource("nearby-fans",      { type:"geojson", data: NEARBY_FANS_GEOJSON });
         map.addSource("selected-city",    { type:"geojson", data: EMPTY_FC });
@@ -313,7 +389,7 @@ const MapboxMap = forwardRef(function MapboxMap({
         // so country and continent labels show through. Core dots and our custom
         // fan-labels stay on top (no beforeId = appended above everything).
         const firstSymbolId = map.getStyle().layers.find(l => l.type === 'symbol')?.id;
-        const BELOW_LABELS = new Set(['fan-heatmap','fan-glow-atmosphere','fan-glow-outer','fan-glow-mid','fan-glow-inner','fan-pulse']);
+        const BELOW_LABELS = new Set(['fan-arcs-glow','fan-arcs-core','fan-heatmap','fan-glow-atmosphere','fan-glow-outer','fan-glow-mid','fan-glow-inner','fan-pulse']);
         buildLayers(showHeatmap).forEach(layer => {
           map.addLayer(layer, BELOW_LABELS.has(layer.id) && firstSymbolId ? firstSymbolId : undefined);
         });
@@ -338,17 +414,17 @@ const MapboxMap = forwardRef(function MapboxMap({
             map.setPaintProperty("fan-pulse", "circle-radius", [
               "interpolate",["linear"],["get","fans"], 800,22*pMult, 12000,74*pMult,
             ]);
-            map.setPaintProperty("sel-ring-outermost", "circle-stroke-opacity", Math.max(0, 0.10 + s3 * 0.14));
+            map.setPaintProperty("sel-ring-outermost", "circle-stroke-opacity", Math.max(0, 0.08 + s3 * 0.10));
             map.setPaintProperty("sel-ring-outermost", "circle-radius", [
-              "interpolate",["linear"],["get","fans"], 800,46*(1+s3*0.08), 12000,120*(1+s3*0.08),
+              "interpolate",["linear"],["get","fans"], 800,40*(1+s3*0.06), 12000,100*(1+s3*0.06),
             ]);
-            map.setPaintProperty("sel-ring-outer", "circle-stroke-opacity", Math.max(0, 0.20 + s1 * 0.22));
+            map.setPaintProperty("sel-ring-outer", "circle-stroke-opacity", Math.max(0, 0.16 + s1 * 0.16));
             map.setPaintProperty("sel-ring-outer", "circle-radius", [
-              "interpolate",["linear"],["get","fans"], 800,34*(1+s1*0.14), 12000,95*(1+s1*0.14),
+              "interpolate",["linear"],["get","fans"], 800,29*(1+s1*0.10), 12000,80*(1+s1*0.10),
             ]);
-            map.setPaintProperty("sel-ring-inner", "circle-stroke-opacity", Math.max(0, 0.40 + s2 * 0.28));
+            map.setPaintProperty("sel-ring-inner", "circle-stroke-opacity", Math.max(0, 0.32 + s2 * 0.20));
             map.setPaintProperty("sel-ring-inner", "circle-radius", [
-              "interpolate",["linear"],["get","fans"], 800,22*(1+s2*0.10), 12000,64*(1+s2*0.10),
+              "interpolate",["linear"],["get","fans"], 800,19*(1+s2*0.08), 12000,54*(1+s2*0.08),
             ]);
           } catch (_) {
             return;
@@ -368,16 +444,21 @@ const MapboxMap = forwardRef(function MapboxMap({
     }).catch(err => console.warn("[MapboxMap] load error:", err));
 
     return () => {
+      cancelled = true;
       cancelAnimationFrame(rafRef.current);
       readyRef.current = false;
       if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; }
+      else if (map) { map.remove(); }
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Live density data ──────────────────────────────────────────────────────
   useEffect(() => {
     if (!readyRef.current || !mapRef.current) return;
-    try { mapRef.current.getSource("fan-density")?.setData(densityData); } catch (_) {}
+    try {
+      mapRef.current.getSource("fan-density")?.setData(densityData);
+      mapRef.current.getSource("fan-arcs")?.setData(buildFanverseArcGeoJSON(densityData));
+    } catch (_) {}
   }, [densityData]);
 
   // ── Heatmap toggle ─────────────────────────────────────────────────────────
@@ -399,19 +480,30 @@ const MapboxMap = forwardRef(function MapboxMap({
         const notSel = ["!=", ["get","city"], city];
         // Dim all non-selected cities, spotlight the selected one
         mapRef.current.setPaintProperty("fan-core",            "circle-opacity", ["case", notSel, 0.18, 1.0]);
-        mapRef.current.setPaintProperty("fan-glow-atmosphere", "circle-opacity", ["case", notSel, 0.01, 0.05]);
-        mapRef.current.setPaintProperty("fan-glow-outer",      "circle-opacity", ["case", notSel, 0.01, 0.09]);
-        mapRef.current.setPaintProperty("fan-glow-mid",        "circle-opacity", ["case", notSel, 0.02, 0.18]);
-        mapRef.current.setPaintProperty("fan-glow-inner",      "circle-opacity", ["case", notSel, 0.03, 0.40]);
+        mapRef.current.setPaintProperty("fan-glow-atmosphere", "circle-opacity", ["case", notSel, 0.01, 0.07]);
+        mapRef.current.setPaintProperty("fan-glow-outer",      "circle-opacity", ["case", notSel, 0.01, 0.12]);
+        mapRef.current.setPaintProperty("fan-glow-mid",        "circle-opacity", ["case", notSel, 0.02, 0.22]);
+        mapRef.current.setPaintProperty("fan-glow-inner",      "circle-opacity", ["case", notSel, 0.03, 0.46]);
         mapRef.current.setPaintProperty("fan-labels",          "text-opacity",   ["case", notSel, 0.10, 1.0]);
+        // Even "emphasized" arcs stay thin filaments, not bands — they support
+        // the selected city, they never compete with it.
+        const connectedArc = ["any", ["==", ["get","from"], city], ["==", ["get","to"], city]];
+        mapRef.current.setPaintProperty("fan-arcs-glow", "line-opacity", ["case", connectedArc, 0.36, 0.06]);
+        mapRef.current.setPaintProperty("fan-arcs-core", "line-opacity", ["case", connectedArc, 0.55, 0.10]);
+        mapRef.current.setPaintProperty("fan-arcs-glow", "line-width", ["case", connectedArc, 1.5, 0.7]);
+        mapRef.current.setPaintProperty("fan-arcs-core", "line-width", ["case", connectedArc, 0.5, 0.22]);
       } else {
         // Restore all layers to default values matching buildLayers()
         mapRef.current.setPaintProperty("fan-core",            "circle-opacity", 1.0);
-        mapRef.current.setPaintProperty("fan-glow-atmosphere", "circle-opacity", 0.03);
-        mapRef.current.setPaintProperty("fan-glow-outer",      "circle-opacity", 0.07);
-        mapRef.current.setPaintProperty("fan-glow-mid",        "circle-opacity", 0.16);
-        mapRef.current.setPaintProperty("fan-glow-inner",      "circle-opacity", 0.36);
+        mapRef.current.setPaintProperty("fan-glow-atmosphere", "circle-opacity", 0.05);
+        mapRef.current.setPaintProperty("fan-glow-outer",      "circle-opacity", 0.10);
+        mapRef.current.setPaintProperty("fan-glow-mid",        "circle-opacity", 0.20);
+        mapRef.current.setPaintProperty("fan-glow-inner",      "circle-opacity", 0.42);
         mapRef.current.setPaintProperty("fan-labels",          "text-opacity",   0.95);
+        mapRef.current.setPaintProperty("fan-arcs-glow", "line-opacity", 0.14);
+        mapRef.current.setPaintProperty("fan-arcs-core", "line-opacity", 0.26);
+        mapRef.current.setPaintProperty("fan-arcs-glow", "line-width", ["case",["==",["get","kind"],"tour"],1.0,0.8]);
+        mapRef.current.setPaintProperty("fan-arcs-core", "line-width", ["case",["==",["get","kind"],"tour"],0.4,0.3]);
       }
     } catch (_) {}
   }, [selectedCityFeature]);
@@ -464,18 +556,38 @@ const MapboxMap = forwardRef(function MapboxMap({
           <div key={i} style={{ position:"absolute", left:`${x}%`, top:`${y}%`, width:s, height:s, borderRadius:"50%", background: i%5===0?"rgba(240,168,204,0.7)": i%3===0?"rgba(100,200,140,0.5)": "rgba(184,162,255,0.55)", animation:`pulse ${2+i*0.18}s ease-in-out infinite`, animationDelay:`${(i*0.19)%3}s`, pointerEvents:"none" }} />
         ))}
 
+        {/* Purposeful arcs: shared events and top-hub fandom flow only */}
+        <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position:"absolute", inset:0, pointerEvents:"none", zIndex:1 }}>
+          {buildFanverseArcGeoJSON({ type:"FeatureCollection", features: CITY_DENSITY_GEOJSON.features }).features.map((arc, i) => {
+            const from = cityDots.find(c => c.city === arc.properties.from);
+            const to = cityDots.find(c => c.city === arc.properties.to);
+            if (!from || !to) return null;
+            const mx = (from.x + to.x) / 2;
+            const my = (from.y + to.y) / 2 - 7;
+            const d = `M ${from.x} ${from.y} Q ${mx} ${my} ${to.x} ${to.y}`;
+            const connected = selName && (arc.properties.from === selName || arc.properties.to === selName);
+            const dimmed = selName && !connected;
+            const color = arc.properties.kind === "tour" ? "#f0cc88" : "#d8b4e8";
+            // Barely-there filaments — they support the city orbs, never compete with them.
+            return <g key={`${arc.properties.from}-${arc.properties.to}-${i}`} style={{ opacity: dimmed ? 0.08 : connected ? 0.55 : 0.22, transition:"opacity .25s" }}>
+              <path d={d} stroke={color} strokeWidth={connected ? 0.40 : 0.26} fill="none" style={{ filter:"blur(0.5px)" }} />
+              <path d={d} stroke={color} strokeWidth={connected ? 0.14 : 0.08} fill="none" />
+            </g>;
+          })}
+        </svg>
+
         {/* City nodes */}
         {cityDots.map((city, i) => {
           const isSel  = city.city === selName;
           const hasSel = selName !== null;
           const scale  = Math.max(0.18, city.fans / 12000);
-          const coreR  = isSel ? 16 : Math.max(4, 9 * scale);
-          const bloomR = isSel ? 110 : (32 * scale + 14);
-          const corOp  = isSel ? 1   : hasSel ? 0.20 : 0.88;
-          const bloomOp= isSel ? 0.35 : hasSel ? 0.02 : scale * 0.18;
+          const coreR  = isSel ? 13 : Math.max(4, 9 * scale);
+          const bloomR = isSel ? 88 : (32 * scale + 14);
+          const corOp  = isSel ? 0.92 : hasSel ? 0.20 : 0.88;
+          const bloomOp= isSel ? 0.28 : hasSel ? 0.02 : scale * 0.18;
 
           return (
-            <div key={city.city} style={{ position:"absolute", left:`${city.x}%`, top:`${city.y}%`, transform:"translate(-50%,-50%)", transition:"all 0.42s cubic-bezier(.4,0,.2,1)", zIndex: isSel ? 20 : 1 }}>
+            <div key={city.city} onClick={() => onCityClick?.(city)} style={{ position:"absolute", left:`${city.x}%`, top:`${city.y}%`, transform:"translate(-50%,-50%)", transition:"all 0.42s cubic-bezier(.4,0,.2,1)", zIndex: isSel ? 20 : 1, cursor:onCityClick?"pointer":"default" }}>
               <div style={{ position:"absolute", width:bloomR, height:bloomR, borderRadius:"50%", background:city.color, opacity:bloomOp, filter:`blur(${isSel?22:9}px)`, top:"50%", left:"50%", transform:"translate(-50%,-50%)", transition:"all 0.42s ease", animation:isSel?`ambientGlow 2s ease-in-out infinite`:`pulse ${2.8+i*0.35}s ease-in-out infinite`, animationDelay:`${i*0.28}s` }} />
               {isSel && [
                 { size:92, delay:"0s",    border:"1px",   opacity:0.5 },
@@ -486,7 +598,7 @@ const MapboxMap = forwardRef(function MapboxMap({
                   <div style={{ width:"100%", height:"100%", borderRadius:"50%", border:`${border} solid ${city.color}`, opacity, animation:"mapPulse 2.6s ease-out infinite", animationDelay:delay }} />
                 </div>
               ))}
-              <div style={{ width:coreR, height:coreR, borderRadius:"50%", background:city.color, opacity:corOp, position:"relative", boxShadow:isSel?`0 0 28px ${city.color},0 0 10px ${city.color},0 0 4px white`:`0 0 6px ${city.color}55`, transition:"all 0.42s ease", border: isSel?"2px solid rgba(255,255,255,0.85)":"none" }} />
+              <div style={{ width:coreR, height:coreR, borderRadius:"50%", background:city.color, opacity:corOp, position:"relative", boxShadow:isSel?`0 0 20px ${city.color},0 0 7px ${city.color}`:`0 0 6px ${city.color}55`, transition:"all 0.42s ease", border: isSel?"1.5px solid rgba(255,255,255,0.60)":"none" }} />
               {isSel && (
                 <div style={{ position:"absolute", top:"calc(100% + 10px)", left:"50%", transform:"translateX(-50%)", pointerEvents:"none", animation:"up .3s ease", textAlign:"center", whiteSpace:"nowrap" }}>
                   <p style={{ fontSize:11, color:"white", fontFamily:"'Epilogue',sans-serif", fontWeight:800, letterSpacing:"0.02em", textShadow:`0 0 16px ${city.color},0 0 8px ${city.color}` }}>{city.city}</p>
@@ -497,8 +609,9 @@ const MapboxMap = forwardRef(function MapboxMap({
           );
         })}
 
-        {/* Edge vignette */}
-        <div style={{ position:"absolute", inset:0, background:"radial-gradient(ellipse 85% 85% at 50% 50%,transparent 55%,rgba(5,4,16,0.55) 100%)", pointerEvents:"none" }} />
+        {/* Edge vignette — dimensional but keeps the city-dot field readable */}
+        <div style={{ position:"absolute", inset:0, background:"radial-gradient(ellipse 80% 80% at 50% 46%,transparent 58%,rgba(5,4,16,0.42) 82%,rgba(3,2,12,0.70) 100%)", pointerEvents:"none" }} />
+        <div style={{ position:"absolute", inset:0, background:"radial-gradient(ellipse 48% 36% at 80% 8%, rgba(196,181,253,0.10), transparent 60%)", pointerEvents:"none" }} />
         <div style={{ position:"absolute", top:0, left:0, bottom:0, width:"12%", background:"linear-gradient(90deg,rgba(120,60,220,0.08),transparent)", pointerEvents:"none" }} />
         <div style={{ position:"absolute", top:0, right:0, bottom:0, width:"12%", background:"linear-gradient(270deg,rgba(240,100,160,0.06),transparent)", pointerEvents:"none" }} />
 
@@ -514,28 +627,40 @@ const MapboxMap = forwardRef(function MapboxMap({
     <div style={{ width:"100%", height:"100%", position:"relative", borderRadius:"inherit" }}>
       <div ref={containerRef} style={{ width:"100%", height:"100%", borderRadius:"inherit" }} />
 
-      {/* Globe depth vignette — darkens edges, adds spherical depth */}
+      {/* Globe depth vignette — darkens edges for dimension, but keeps the
+          center two-thirds of the map fully legible (this is a tool, not a poster). */}
       <div style={{
         position:      "absolute",
         inset:         0,
         borderRadius:  "inherit",
         pointerEvents: "none",
-        background:    "radial-gradient(ellipse 74% 74% at 50% 50%, transparent 50%, rgba(3,2,12,0.72) 100%)",
+        background:    "radial-gradient(ellipse 78% 78% at 50% 46%, transparent 58%, rgba(5,3,16,0.40) 82%, rgba(3,2,14,0.68) 100%)",
         zIndex:        1,
       }} />
 
-      {/* Iridescent aurora — lavender/pink/teal/gold blobs in the dark edge zone.
-          ambientGlow breathes them slowly (scale 1→1.08, opacity 0.6→1). */}
+      {/* Purple horizon glow — subtle top-right atmosphere accent, kept light
+          so it reads as dimension, not as a colored overlay covering geography. */}
+      <div style={{
+        position:      "absolute",
+        inset:         0,
+        borderRadius:  "inherit",
+        pointerEvents: "none",
+        background:    "radial-gradient(ellipse 50% 36% at 80% 8%, rgba(196,181,253,0.12), transparent 60%)",
+        zIndex:        1,
+      }} />
+
+      {/* Iridescent aurora — lavender/pink/teal/gold blobs confined to the dark
+          edge zone only, so they never wash out the land/water itself. */}
       <div style={{
         position:      "absolute",
         inset:         0,
         borderRadius:  "inherit",
         pointerEvents: "none",
         background:    [
-          "radial-gradient(ellipse 55% 42% at 8% 14%, rgba(184,162,255,0.10), transparent 70%)",
-          "radial-gradient(ellipse 50% 38% at 93% 18%, rgba(240,168,204,0.08), transparent 68%)",
-          "radial-gradient(ellipse 55% 44% at 91% 84%, rgba(142,239,212,0.07), transparent 72%)",
-          "radial-gradient(ellipse 48% 36% at 9% 87%, rgba(248,215,128,0.06), transparent 68%)",
+          "radial-gradient(ellipse 42% 32% at 6% 10%, rgba(184,162,255,0.09), transparent 70%)",
+          "radial-gradient(ellipse 40% 30% at 95% 12%, rgba(240,168,204,0.08), transparent 66%)",
+          "radial-gradient(ellipse 42% 32% at 93% 90%, rgba(142,239,212,0.05), transparent 72%)",
+          "radial-gradient(ellipse 38% 28% at 5% 92%, rgba(248,215,128,0.06), transparent 68%)",
         ].join(","),
         animation:     "ambientGlow 16s ease-in-out infinite",
         zIndex:        2,
@@ -548,9 +673,10 @@ const MapboxMap = forwardRef(function MapboxMap({
         borderRadius:  "inherit",
         pointerEvents: "none",
         boxShadow:     [
-          "inset 0 0 55px rgba(184,162,255,0.09)",
+          "inset 0 0 55px rgba(184,162,255,0.10)",
           "inset 0 0 28px rgba(240,168,204,0.06)",
           "inset 0 0 18px rgba(142,239,212,0.04)",
+          "inset 0 0 60px rgba(3,2,12,0.32)",
         ].join(", "),
         zIndex:        2,
       }} />

@@ -14472,43 +14472,35 @@ const MOCK_FANVERSE_USERS = [
 function FanverseMap({ onBack }) {
   const [view, setView] = useState("world");
   const [proximityOn, setProximityOn] = useState(()=>ls.get("backstage_proximity_sharing", false));
-  const [selectedCity, setSelectedCity] = useState(null);
+  const [selectedCityName, setSelectedCityName] = useState(null);
   const [showControls, setShowControls] = useState(false);
   const [activeFilters, setActiveFilters] = useState(["trending","concerts","events","hubs"]);
   const worldMapRef   = useRef(null);
   const heatmapMapRef = useRef(null);
-  const chipTimerRef  = useRef(null);
 
-  // Derive full GeoJSON feature so MapboxMap can highlight it on the globe
-  const selectedCityFeature = selectedCity
-    ? CITY_DENSITY_GEOJSON.features.find(f => f.properties.city === selectedCity.city) ?? null
+  // One source of truth: the selected city name. The full feature and display
+  // properties are derived from the shared city activity dataset.
+  const selectedCityFeature = selectedCityName
+    ? CITY_DENSITY_GEOJSON.features.find(f => f.properties.city === selectedCityName) ?? null
     : null;
-
-  // Auto-dismiss the info chip after 5s — user can also tap × to dismiss early
-  useEffect(() => {
-    if (selectedCity) {
-      clearTimeout(chipTimerRef.current);
-      chipTimerRef.current = setTimeout(() => setSelectedCity(null), 5000);
-    }
-    return () => clearTimeout(chipTimerRef.current);
-  }, [selectedCity?.city]); // eslint-disable-line react-hooks/exhaustive-deps
+  const selectedCity = selectedCityFeature?.properties ?? null;
+  const selectedCityType = selectedCity?.trending ? "Trending" : /tour|msg|comeback|bts|aespa|stray kids|newjeans/i.test(selectedCity?.event || "") ? "Concert" : selectedCity?.event && selectedCity.event !== "General activity" ? "Event" : "Hub";
 
   function flyToCity(feature) {
     const [lng, lat] = feature.geometry.coordinates;
     // Tapping the same city again resets the view
-    if (selectedCity?.city === feature.properties.city) {
-      setSelectedCity(null);
+    if (selectedCityName === feature.properties.city) {
+      setSelectedCityName(null);
       worldMapRef.current?.flyTo(60, 28, 1.3);
       return;
     }
-    setSelectedCity(feature.properties);
+    setSelectedCityName(feature.properties.city);
     setView("world");
     setTimeout(() => worldMapRef.current?.flyTo(lng, lat, 4.5), 80);
   }
 
   function resetView() {
-    setSelectedCity(null);
-    clearTimeout(chipTimerRef.current);
+    setSelectedCityName(null);
     worldMapRef.current?.flyTo(60, 28, 1.3);
   }
 
@@ -14519,10 +14511,10 @@ function FanverseMap({ onBack }) {
   }
 
   const LOCAL_FANS = [
-    { name:"starryy ✦", handle:"@starryy_atiny", dist:"2km away", status:"Going solo", statusColor:C.accent, groups:["ATINY","Same bias","Hongjoong"], avatar:"S", color:C.accent },
-    { name:"luna_zz", handle:"@luna_zz", dist:"3km away", status:"Looking for friends", statusColor:C.pink, groups:["ATINY","Same bias","Wooyoung"], avatar:"L", color:C.pink },
-    { name:"yoosangie", handle:"@yoosangie", dist:"4km away", status:"Going with 1 friend", statusColor:C.mint, groups:["ATINY","Yeonjun","Photocard"], avatar:"Y", color:C.mint },
-    { name:"micaela ✦", handle:"@micaela", dist:"5km away", status:"Going solo", statusColor:C.silver, groups:["ATINY","Sun","Freebies"], avatar:"M", color:C.silver },
+    { name:"starryy ✦", handle:"@starryy_atiny", dist:"Dallas area", status:"Going solo", statusColor:C.accent, groups:["ATINY","Same bias","Hongjoong"], avatar:"S", color:C.accent },
+    { name:"luna_zz", handle:"@luna_zz", dist:"Dallas area", status:"Looking for friends", statusColor:C.pink, groups:["ATINY","Same bias","Wooyoung"], avatar:"L", color:C.pink },
+    { name:"yoosangie", handle:"@yoosangie", dist:"Dallas area", status:"Going with 1 friend", statusColor:C.mint, groups:["ATINY","Yeonjun","Photocard"], avatar:"Y", color:C.mint },
+    { name:"micaela ✦", handle:"@micaela", dist:"Dallas area", status:"Going solo", statusColor:C.silver, groups:["ATINY","Sun","Freebies"], avatar:"M", color:C.silver },
   ];
 
   return (
@@ -14562,19 +14554,20 @@ function FanverseMap({ onBack }) {
               border:"none",
               boxShadow:[
                 "0 36px 100px rgba(0,0,0,0.72)",             // outer depth
-                "0 0 0 1.5px rgba(184,162,255,0.44)",          // lavender glass ring
-                "0 0 0 2.5px rgba(240,168,204,0.16)",          // pink second ring
-                "0 0 0 3.5px rgba(142,239,212,0.08)",          // teal third ring
+                "0 0 0 1.5px rgba(214,189,255,0.50)",          // lavender-gold glass ring
+                "0 0 0 2.5px rgba(248,215,128,0.14)",          // soft gold second ring
+                "0 0 0 3.5px rgba(240,168,204,0.10)",          // pink third ring
                 "0 0 0 5px rgba(0,0,0,0.30)",                  // dark separation gap
-                "inset 0 1.5px 0 rgba(255,255,255,0.28)",     // top inner pearl — crisp glass edge
+                "inset 0 1.5px 0 rgba(255,255,255,0.30)",     // top inner pearl — crisp glass edge
                 "inset 1px 0 0 rgba(255,255,255,0.09)",       // left inner edge light
-                "inset -0.5px 0 0 rgba(142,239,212,0.07)",    // right teal edge reflection
+                "inset -0.5px 0 0 rgba(248,215,128,0.08)",    // right gold edge reflection
                 "inset 0 -1px 0 rgba(0,0,0,0.55)",            // bottom inner depth
-                "0 0 80px rgba(184,162,255,0.11)",             // ambient lavender bloom
+                "0 0 80px rgba(184,162,255,0.13)",             // ambient lavender bloom
+                "0 28px 70px rgba(120,60,220,0.16)",           // luxury-card bottom purple glow
                 selectedCity ? `0 0 100px ${selectedCity.color}1e` : null,
               ].filter(Boolean).join(", ")
             }}>
-              <MapboxMap ref={worldMapRef} densityData={CITY_DENSITY_GEOJSON} showHeatmap={false} onCityClick={p=>setSelectedCity(p)} selectedCityFeature={selectedCityFeature} />
+              <MapboxMap ref={worldMapRef} densityData={CITY_DENSITY_GEOJSON} showHeatmap={false} onCityClick={p => { const feature = CITY_DENSITY_GEOJSON.features.find(f => f.properties.city === p.city); if (feature) flyToCity(feature); }} selectedCityFeature={selectedCityFeature} />
               {/* Top-left glass corner catch — premium liquid glass highlight */}
               <div style={{ position:"absolute",top:0,left:0,width:"44%",height:"28%",pointerEvents:"none",zIndex:1,background:"linear-gradient(138deg,rgba(200,185,255,0.08) 0%,rgba(200,185,255,0.03) 32%,transparent 58%)" }} />
               {/* Activity type legend */}
@@ -14586,31 +14579,34 @@ function FanverseMap({ onBack }) {
                   </div>
                 ))}
               </div>
-              {/* Selected city info pill — top of map */}
+              {/* Selected city tooltip */}
               {selectedCity && (
-                <div style={{ position:"absolute",top:10,left:12,right:12, background:"rgba(6,4,20,0.90)", backdropFilter:"blur(28px)", WebkitBackdropFilter:"blur(28px)", borderRadius:18, padding:"10px 14px", border:`1.5px solid ${selectedCity.color}55`, zIndex:2, display:"flex", alignItems:"center", gap:10, boxShadow:[`0 10px 36px ${selectedCity.color}28`, `0 0 0 0.5px ${selectedCity.color}2a`, "inset 0 1.5px 0 rgba(255,255,255,0.20)", "inset 0 -1px 0 rgba(0,0,0,0.38)", "0 2px 12px rgba(0,0,0,0.50)"].join(", ") }}>
-                  <div style={{ position:"relative",flexShrink:0,width:10,height:10 }}>
-                    <div style={{ position:"absolute",inset:-3,borderRadius:"50%",background:selectedCity.color,opacity:0.25,animation:"pulse 1.4s ease infinite" }} />
-                    <div style={{ width:10,height:10,borderRadius:"50%",background:selectedCity.color }} />
+                <div style={{ position:"absolute",top:12,left:12,width:"min(228px,calc(100% - 24px))", background:"rgba(8,6,22,0.82)", backdropFilter:"blur(24px)", WebkitBackdropFilter:"blur(24px)", borderRadius:14, padding:"10px 12px", border:"1px solid rgba(214,189,255,0.30)", zIndex:4, boxShadow:["0 10px 26px rgba(120,60,220,0.14)", "inset 0 1px 0 rgba(255,255,255,0.14)", "0 6px 18px rgba(0,0,0,0.40)"].join(", ") }}>
+                  <div style={{ display:"flex",alignItems:"flex-start",gap:9 }}>
+                    <div style={{ position:"relative",flexShrink:0,width:12,height:12,marginTop:2 }}>
+                      <div style={{ position:"absolute",inset:-6,borderRadius:"50%",background:selectedCity.color,opacity:0.18,animation:"pulse 1.5s ease infinite" }} />
+                      <div style={{ width:12,height:12,borderRadius:"50%",background:selectedCity.color,boxShadow:`0 0 14px ${selectedCity.color}` }} />
+                    </div>
+                    <div style={{ minWidth:0,flex:1 }}>
+                      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8 }}>
+                        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13.5,color:"white",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{selectedCity.city}</p>
+                        <button onClick={resetView} aria-label="Clear selected city" style={{ background:"none",border:"none",color:"rgba(255,255,255,0.50)",fontSize:16,cursor:"pointer",lineHeight:1,padding:0,marginTop:-1 }}>x</button>
+                      </div>
+                      <p style={{ fontSize:10.5,color:"rgba(255,255,255,0.78)",marginTop:3,fontWeight:700 }}>{selectedCity.fans >= 1000 ? `${(selectedCity.fans/1000).toFixed(selectedCity.fans>=10000?0:1)}K fans glowing` : `${selectedCity.fans} fans glowing`}</p>
+                      <p style={{ fontSize:9.5,color:"rgba(255,255,255,0.58)",marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{selectedCity.level} / {selectedCity.event}</p>
+                      <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginTop:8 }}>
+                        <span style={{ borderRadius:99,padding:"3px 8px",background:`${selectedCity.color}1f`,border:`1px solid ${selectedCity.color}55`,color:selectedCity.color,fontSize:8.5,fontFamily:"'Epilogue',sans-serif",fontWeight:800,letterSpacing:"0.02em" }}>{selectedCityType}</span>
+                        <button onClick={zoomToSelected} style={{ background:"rgba(255,255,255,0.055)",border:"1px solid rgba(255,255,255,0.10)",borderRadius:99,padding:"3px 8px",color:"rgba(255,255,255,0.72)",fontSize:8.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",whiteSpace:"nowrap" }}>Zoom in</button>
+                      </div>
+                    </div>
                   </div>
-                  <div style={{ flex:1,minWidth:0 }}>
-                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,color:"white",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>📍 {selectedCity.city}</p>
-                    <p style={{ fontSize:9.5,color:"rgba(255,255,255,0.68)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",marginTop:1 }}>{selectedCity.level} · {selectedCity.event}</p>
-                  </div>
-                  <div style={{ display:"flex",flexDirection:"column",alignItems:"flex-end",gap:3,flexShrink:0 }}>
-                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,background:`linear-gradient(135deg,${selectedCity.color},${selectedCity.color}bb)`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent" }}>
-                      {selectedCity.fans >= 1000 ? `${(selectedCity.fans/1000).toFixed(selectedCity.fans>=10000?0:1)}K fans` : `${selectedCity.fans} fans`}
-                    </p>
-                    <button onClick={zoomToSelected} style={{ background:`${selectedCity.color}22`,border:`1px solid ${selectedCity.color}55`,borderRadius:99,padding:"2px 8px",color:selectedCity.color,fontSize:8.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",letterSpacing:"0.02em",whiteSpace:"nowrap" }}>Zoom in →</button>
-                  </div>
-                  <button onClick={resetView} style={{ background:"none",border:"none",color:"rgba(255,255,255,0.50)",fontSize:18,cursor:"pointer",lineHeight:1,padding:"0 2px",flexShrink:0 }}>×</button>
                 </div>
               )}
             </div>
 
             {/* Viewing city pill — shown below map when a city is selected */}
             {selectedCity && (
-              <div onClick={resetView} className="tap" style={{ margin:"-6px 18px 10px",display:"flex",alignItems:"center",justifyContent:"space-between", background:"rgba(6,4,18,0.75)", backdropFilter:"blur(22px)", WebkitBackdropFilter:"blur(22px)", border:`1px solid ${selectedCity.color}3a`, borderRadius:99, padding:"7px 16px", cursor:"pointer", boxShadow:[`0 0 0 0.5px ${selectedCity.color}22`, "inset 0 1px 0 rgba(255,255,255,0.11)", "0 3px 14px rgba(0,0,0,0.32)"].join(", ") }}>
+              <div onClick={resetView} className="tap" style={{ margin:"-6px 18px 10px",display:"flex",alignItems:"center",justifyContent:"space-between", background:"rgba(8,6,18,0.70)", backdropFilter:"blur(22px)", WebkitBackdropFilter:"blur(22px)", border:"1px solid rgba(214,189,255,0.22)", borderRadius:99, padding:"7px 16px", cursor:"pointer", boxShadow:["inset 0 1px 0 rgba(255,255,255,0.10)", "0 3px 14px rgba(0,0,0,0.28)"].join(", ") }}>
                 <div style={{ display:"flex",alignItems:"center",gap:7 }}>
                   <div style={{ width:6,height:6,borderRadius:"50%",background:selectedCity.color,animation:"pulse 1.4s ease infinite" }} />
                   <p style={{ fontSize:11,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>Viewing {selectedCity.city}</p>
@@ -14627,13 +14623,13 @@ function FanverseMap({ onBack }) {
               </div>
               {[...CITY_DENSITY_GEOJSON.features]
                 .sort((a,b) => {
-                  if (selectedCity?.city === a.properties.city) return -1;
-                  if (selectedCity?.city === b.properties.city) return  1;
+                  if (selectedCityName === a.properties.city) return -1;
+                  if (selectedCityName === b.properties.city) return  1;
                   return b.properties.fans - a.properties.fans;
                 })
                 .slice(0,5)
-                .map((feature,i)=>{ const p = feature.properties; const isSelected = selectedCity?.city === p.city; return (
-                <div key={p.city} onClick={()=>flyToCity(feature)} className="tap" style={{ background:isSelected?`linear-gradient(135deg,${p.color}18,rgba(255,255,255,0.06))`:"linear-gradient(135deg,rgba(255,255,255,0.05),rgba(255,255,255,0.025))", backdropFilter:"blur(18px)", border:`1px solid ${isSelected?p.color+"66":"rgba(255,255,255,0.07)"}`, borderRadius:22, padding:"16px 18px", marginBottom:10, display:"flex", alignItems:"center", gap:14, cursor:"pointer", transition:"border-color .22s,background .22s,box-shadow .22s", boxShadow:isSelected?`0 0 32px ${p.color}22,0 6px 20px rgba(0,0,0,0.36)`:"0 2px 12px rgba(0,0,0,0.2)" }}>
+                .map((feature,i)=>{ const p = feature.properties; const isSelected = selectedCityName === p.city; return (
+                <div key={p.city} onClick={()=>flyToCity(feature)} className="tap" style={{ background:isSelected?`linear-gradient(135deg,${p.color}1c,rgba(255,255,255,0.06))`:"linear-gradient(135deg,rgba(255,255,255,0.05),rgba(255,255,255,0.025))", backdropFilter:"blur(18px)", border:isSelected?"1px solid rgba(214,189,255,0.45)":"1px solid rgba(255,255,255,0.07)", borderRadius:22, padding:"16px 18px", marginBottom:10, display:"flex", alignItems:"center", gap:14, cursor:"pointer", transition:"border-color .22s,background .22s,box-shadow .22s,transform .22s", transform:isSelected?"translateY(-2px)":"none", boxShadow:isSelected?`0 0 26px ${p.color}22,0 8px 20px rgba(0,0,0,0.36)`:"0 2px 12px rgba(0,0,0,0.2)" }}>
                   {/* Glowing activity orb */}
                   <div style={{ position:"relative",flexShrink:0,width:isSelected?42:36,height:isSelected?42:36,display:"flex",alignItems:"center",justifyContent:"center",transition:"width .3s,height .3s" }}>
                     <div style={{ position:"absolute",inset:isSelected?-6:-4,borderRadius:"50%",background:p.color,opacity:isSelected?0.2:0.12,animation:"ambientGlow 2s ease infinite" }} />
@@ -14670,6 +14666,7 @@ function FanverseMap({ onBack }) {
                 <div style={{ width:20,height:20,borderRadius:"50%",background:"white",transform:`translateX(${proximityOn?18:0}px)`,transition:"transform .25s",boxShadow:"0 1px 4px rgba(0,0,0,0.3)" }} />
               </div>
             </div>
+            <p style={{ fontSize:9.5,color:C.textDim,lineHeight:1.5,marginTop:-8,marginBottom:16,fontFamily:"'Instrument Sans',sans-serif" }}>🔒 Nearby is approximate. Exact location is never shown.</p>
 
             {proximityOn ? (
               <>
@@ -14696,7 +14693,7 @@ function FanverseMap({ onBack }) {
                     <div style={{ width:46,height:46,borderRadius:"50%",background:`linear-gradient(135deg,${fan.color},${fan.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17,color:C.bg,flexShrink:0 }}>{fan.avatar}</div>
                     <div style={{ flex:1 }}>
                       <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13.5 }}>{fan.name}</p>
-                      <p style={{ fontSize:10.5, color:C.textMid }}>Dallas, TX · {fan.dist}</p>
+                      <p style={{ fontSize:10.5, color:C.textMid }}>Dallas, TX / {fan.dist}</p>
                       <div style={{ display:"flex", gap:5, marginTop:5, flexWrap:"wrap" }}>
                         {fan.groups.map(g=><Pill key={g} color={C.accentDim} xs>{g}</Pill>)}
                       </div>
