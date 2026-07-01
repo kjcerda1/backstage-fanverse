@@ -235,6 +235,7 @@ app.get('/api/health', (req, res) => {
     has_stripe:          HAS_STRIPE,
     has_stripe_webhook:  !!process.env.STRIPE_WEBHOOK_SECRET,
     has_firebase:        HAS_FIREBASE,
+    has_email:           HAS_EMAIL,
     has_spotify:         HAS_SPOTIFY,
     has_mapbox:          HAS_MAPBOX,
     has_ticketmaster:    HAS_TICKETMASTER,
@@ -2271,6 +2272,48 @@ app.get('/api/meetups/:id/friends-going', requireAuth, async (req, res) => {
   }
 });
 
+// Invite from Circle — host-only. Fire-and-forget notification delivery, not a
+// persisted invite/RSVP record (attendance is already tracked via meetup_rsvps).
+app.post('/api/meetups/:id/invite', requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const userIds = Array.isArray(req.body?.userIds) ? req.body.userIds.filter(Boolean) : [];
+  if (!userIds.length) return res.status(400).json({ error: 'userIds required' });
+  if (MOCK_MODE) return res.json({ success: true, invited: userIds.length, mock: true });
+  try {
+    const { data: meetup, error: meetupErr } = await supabase.from('meetups').select('id, host_id, title').eq('id', id).single();
+    if (meetupErr || !meetup) return res.status(404).json({ error: 'Meetup not found' });
+    if (meetup.host_id !== req.userId && !isAdminEmail(req.userEmail)) {
+      return res.status(403).json({ error: 'Only the host can invite fans to this meetup' });
+    }
+    // Only invite the host's own accepted Circle friends — never arbitrary user IDs.
+    const { data: friendRows } = await supabase.from('friends').select('friend_id').eq('user_id', req.userId).eq('status', 'accepted');
+    const circleIdSet = new Set((friendRows || []).map(r => r.friend_id));
+    const targets = userIds.filter(uid => circleIdSet.has(uid));
+    if (!targets.length) return res.json({ success: true, invited: 0 });
+
+    const host = await getPublicUser(req.userId);
+    const hostName = host?.username || 'A Backstage fan';
+    await Promise.all(targets.map(userId => deliverNotification({
+      userId,
+      type: 'meetup_invite',
+      title: `@${hostName} invited you to a meetup`,
+      body: meetup.title,
+      actorId: req.userId,
+      entityId: meetup.id,
+      entityType: 'meetup',
+      // targetModal must be explicitly nulled — deliverNotification defaults it to
+      // 'friends', and modal takes priority over tab in the frontend's onNavigate.
+      targetModal: null,
+      targetTab: 'concerts',
+      channels: ['in_app', 'push', 'email'],
+    })));
+    res.json({ success: true, invited: targets.length });
+  } catch (err) {
+    console.error('[POST /api/meetups/:id/invite] Error:', err.message);
+    res.status(500).json({ error: 'Could not send invites' });
+  }
+});
+
 
 // ═════════════════════════════════════════════════════════════════════════════
 // MAP — /api/map/activity
@@ -2896,6 +2939,25 @@ async function isBlockedEitherWay(userIdA, userIdB) {
   }
 }
 
+// Used to decide whether a new DM thread's recipient starts pre-accepted (Circle
+// friends land straight in the Inbox) or pending (shows under Message Requests).
+async function areCircleFriends(userIdA, userIdB) {
+  if (!supabase || !userIdA || !userIdB || userIdA === userIdB) return false;
+  try {
+    const { data } = await supabase
+      .from('friends')
+      .select('user_id')
+      .eq('user_id', userIdA)
+      .eq('friend_id', userIdB)
+      .eq('status', 'accepted')
+      .maybeSingle();
+    return !!data;
+  } catch (err) {
+    console.warn('[Circle] Friendship check failed (non-fatal, treating as not-friends):', err.message);
+    return false;
+  }
+}
+
 // Returns the set of user IDs blocked by — or who have blocked — the given user.
 // Used to filter feeds/lists in bulk without an N+1 query per item.
 async function getBlockedUserIdSet(userId) {
@@ -3260,19 +3322,22 @@ app.get('/api/circle', requireAuth, async (req, res) => {
     const db = makeUserClient(req);
     const { data: rows, error } = await db
       .from('friends')
-      .select('friend_id, status')
+      .select('friend_id, status, created_at')
       .eq('user_id', req.userId)
       .eq('status', 'accepted');
     if (error) throw error;
     const ids = (rows || []).map(r => r.friend_id).filter(Boolean);
-    if (!ids.length) return res.json({ friends: [], circle: [] });
+    if (!ids.length) return res.json({ friends: [], circle: [], members: [] });
+    const acceptedAtById = Object.fromEntries((rows || []).map(r => [r.friend_id, r.created_at]));
     const { data: users, error: userErr } = await db
       .from('users')
       .select('id, username, display_name, fandoms, city, bio, avatar_url, is_vip')
       .in('id', ids);
     if (userErr) throw userErr;
-    const friends = (users || []).map(toPublicCard);
-    res.json({ friends, circle: friends });
+    const friends = (users || []).map(u => ({ ...toPublicCard(u), accepted_at: acceptedAtById[u.id] || null }));
+    // `members` is an alias of the same list — the frontend's InvitePage circle
+    // fetch reads d.members, which this endpoint never actually populated before.
+    res.json({ friends, circle: friends, members: friends });
   } catch (err) {
     console.error('[GET /api/circle] Error:', err.message);
     res.status(503).json({ error: 'Circle unavailable' });
@@ -3321,21 +3386,31 @@ app.get('/api/messages/threads', requireAuth, async (req, res) => {
   try {
     const { data: memberRows, error } = await supabase
       .from('message_thread_members')
-      .select('thread_id')
+      .select('thread_id, accepted, deleted_at')
       .eq('user_id', req.userId);
     if (error) throw error;
-    const threadIds = [...new Set((memberRows || []).map(r => r.thread_id))];
+    const myRows = (memberRows || []).filter(r => !r.deleted_at);
+    const threadIds = [...new Set(myRows.map(r => r.thread_id))];
     if (!threadIds.length) return res.json({ threads: [] });
+    const acceptedByThread = Object.fromEntries(myRows.map(r => [r.thread_id, !!r.accepted]));
 
-    const [{ data: allMembers }, { data: messages }] = await Promise.all([
+    const [{ data: allMembers }, { data: messages }, { data: threadRows }] = await Promise.all([
       supabase.from('message_thread_members').select('thread_id, user_id').in('thread_id', threadIds),
       supabase.from('messages').select('id, thread_id, sender_user_id, body, gif, created_at').in('thread_id', threadIds).order('created_at', { ascending: true }),
+      supabase.from('message_threads').select('id, created_by').in('id', threadIds),
     ]);
     const otherIds = [...new Set((allMembers || []).map(m => m.user_id).filter(id => id !== req.userId))];
-    const { data: profiles } = otherIds.length
-      ? await supabase.from('users').select('id, username, display_name, fandoms, city, bio, avatar_url, is_vip').in('id', otherIds)
-      : { data: [] };
+    const [{ data: profiles }, { data: circleRows }] = await Promise.all([
+      otherIds.length
+        ? supabase.from('users').select('id, username, display_name, fandoms, city, bio, avatar_url, is_vip').in('id', otherIds)
+        : Promise.resolve({ data: [] }),
+      otherIds.length
+        ? supabase.from('friends').select('friend_id').eq('user_id', req.userId).eq('status', 'accepted').in('friend_id', otherIds)
+        : Promise.resolve({ data: [] }),
+    ]);
     const profileById = Object.fromEntries((profiles || []).map(p => [p.id, toPublicCard(p)]));
+    const circleIdSet = new Set((circleRows || []).map(r => r.friend_id));
+    const createdByThread = Object.fromEntries((threadRows || []).map(t => [t.id, t.created_by]));
     const messagesByThread = {};
     (messages || []).forEach(m => {
       if (!messagesByThread[m.thread_id]) messagesByThread[m.thread_id] = [];
@@ -3346,7 +3421,18 @@ app.get('/api/messages/threads', requireAuth, async (req, res) => {
       const other = (allMembers || []).find(m => m.thread_id === id && m.user_id !== req.userId);
       const safeProfile = profileById[other?.user_id] || { id: other?.user_id, username: 'fan', display_name: 'Backstage fan', avatar: 'B' };
       const threadMessages = messagesByThread[id] || [];
-      return { id, fan: safeProfile, messages: threadMessages, last_message: threadMessages[threadMessages.length - 1] || null, unread: 0 };
+      return {
+        id,
+        fan: safeProfile,
+        messages: threadMessages,
+        last_message: threadMessages[threadMessages.length - 1] || null,
+        unread: 0,
+        // isCircle/accepted/initiatedByMe let the frontend split Inbox vs Message Requests
+        // without trusting stale localStorage — this is the authoritative source.
+        isCircle: circleIdSet.has(other?.user_id),
+        accepted: acceptedByThread[id] || false,
+        initiatedByMe: createdByThread[id] === req.userId,
+      };
     });
     res.json({ threads });
   } catch (err) {
@@ -3368,14 +3454,18 @@ app.post('/api/messages/thread', requireAuth, async (req, res) => {
     if (!threadId) {
       const { data: thread, error: threadErr } = await supabase
         .from('message_threads')
-        .insert({})
+        .insert({ created_by: req.userId })
         .select('id')
         .single();
       if (threadErr) throw threadErr;
       threadId = thread.id;
+      // Circle friends land straight in each other's Inbox. Otherwise the recipient's
+      // membership starts unaccepted, and the thread shows under Message Requests
+      // until they Accept, Reply, or Block/Delete it.
+      const alreadyCircle = await areCircleFriends(req.userId, targetUserId);
       const { error: memberErr } = await supabase.from('message_thread_members').insert([
-        { thread_id: threadId, user_id: req.userId },
-        { thread_id: threadId, user_id: targetUserId },
+        { thread_id: threadId, user_id: req.userId, accepted: true },
+        { thread_id: threadId, user_id: targetUserId, accepted: alreadyCircle },
       ]);
       if (memberErr) throw memberErr;
     }
@@ -3422,7 +3512,7 @@ app.post('/api/messages/thread/:id/send', requireAuth, async (req, res) => {
   try {
     const { data: membership } = await supabase
       .from('message_thread_members')
-      .select('thread_id')
+      .select('thread_id, accepted')
       .eq('thread_id', req.params.id)
       .eq('user_id', req.userId)
       .single();
@@ -3437,6 +3527,10 @@ app.post('/api/messages/thread/:id/send', requireAuth, async (req, res) => {
         return res.status(403).json({ error: 'blocked', message: 'You cannot message this user.' });
       }
     }
+    // Replying to a pending Message Request implicitly accepts it.
+    if (!membership.accepted) {
+      await supabase.from('message_thread_members').update({ accepted: true }).eq('thread_id', req.params.id).eq('user_id', req.userId);
+    }
     const insert = { thread_id: req.params.id, sender_user_id: req.userId, body };
     if (gif) insert.gif = gif;
     const { data, error } = await supabase
@@ -3446,10 +3540,62 @@ app.post('/api/messages/thread/:id/send', requireAuth, async (req, res) => {
       .single();
     if (error) throw error;
     await supabase.from('message_threads').update({ updated_at: new Date().toISOString() }).eq('id', req.params.id);
+
+    const otherId = otherMembers?.[0]?.user_id;
+    if (otherId) {
+      const sender = await getPublicUser(req.userId);
+      const senderName = sender?.username || 'A Backstage fan';
+      await deliverNotification({
+        userId: otherId,
+        type: 'dm_received',
+        title: `New message from ${senderName}`,
+        body: gif ? 'Sent you a GIF' : (body || '').slice(0, 120),
+        actorId: req.userId,
+        entityId: req.params.id,
+        entityType: 'thread',
+        targetModal: 'chats',
+        channels: ['in_app', 'push'],
+      });
+    }
+
     res.json({ message: data });
   } catch (err) {
     console.error('[POST /api/messages/thread/send] Error:', err.message);
     res.status(503).json({ error: 'Could not send message' });
+  }
+});
+
+// Accept a pending Message Request — moves the thread into the recipient's Inbox.
+app.patch('/api/messages/thread/:id/accept', requireAuth, async (req, res) => {
+  if (MOCK_MODE) return res.json({ success: true, mock: true });
+  try {
+    const { error } = await supabase
+      .from('message_thread_members')
+      .update({ accepted: true })
+      .eq('thread_id', req.params.id)
+      .eq('user_id', req.userId);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[PATCH /api/messages/thread/accept] Error:', err.message);
+    res.status(500).json({ error: 'Could not accept message request' });
+  }
+});
+
+// Per-user soft delete/hide — never removes the thread for the other participant.
+app.delete('/api/messages/thread/:id', requireAuth, async (req, res) => {
+  if (MOCK_MODE) return res.json({ success: true, mock: true });
+  try {
+    const { error } = await supabase
+      .from('message_thread_members')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('thread_id', req.params.id)
+      .eq('user_id', req.userId);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[DELETE /api/messages/thread] Error:', err.message);
+    res.status(500).json({ error: 'Could not delete conversation' });
   }
 });
 
@@ -4197,28 +4343,16 @@ app.post('/api/trades/review', requireAuth, async (req, res) => {
 
 
 // ═════════════════════════════════════════════════════════════════════════════
-// NOTIFICATIONS (Firebase FCM)
+// NOTIFICATIONS (Firebase FCM HTTP v1 — real push, not the deprecated legacy server key)
 // ═════════════════════════════════════════════════════════════════════════════
 //
-// CURRENT STATE:
-//   In-app notifications work via localStorage (backstage_notif_inbox).
-//   /api/save-token stores FCM tokens in Supabase fcm_tokens table.
-//   /api/send-notification is a stub — Firebase Admin SDK not wired.
-//   firebase-messaging-sw.js does NOT exist in public/ yet.
-//
-// TO ENABLE REAL PUSH (FCM HTTP v1 — NOT the deprecated legacy server key):
-//   1. npm install firebase-admin on the backend.
-//   2. Set FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY
-//      from your Firebase service account JSON (never commit this file).
-//   3. Initialize: admin.initializeApp({ credential: admin.credential.cert({ ... }) })
-//   4. Wire /api/send-notification to admin.messaging().send({ token, notification, data })
-//   5. Push `data` payload should include: { targetModal, targetTab, targetId }
-//      so the frontend click handler can deep-link into the right screen.
-//   6. Frontend needs firebase-messaging-sw.js in public/ and VAPID key in .env.
-//
-// WHY HTTP v1 (not legacy):
-//   Legacy FCM server key approach is deprecated as of June 2024.
-//   HTTP v1 uses OAuth2 service account credentials — more secure.
+// LIVE: admin.initializeApp() runs at startup when FIREBASE_SERVICE_ACCOUNT_JSON or
+// FIREBASE_PROJECT_ID/FIREBASE_CLIENT_EMAIL/FIREBASE_PRIVATE_KEY are set (see top of
+// file). /api/save-token stores tokens in fcm_tokens. Both /api/send-notification
+// below and the shared deliverNotification() helper call admin.messaging().send()
+// for real device push, with data.{targetModal,targetTab,targetId} so the frontend's
+// notificationclick handler can deep-link. If Firebase env vars are missing on Render,
+// both gracefully report delivered:0 instead of throwing — see HAS_FIREBASE guards.
 // ═════════════════════════════════════════════════════════════════════════════
 
 app.post('/api/save-token', requireAuth, async (req, res) => {
