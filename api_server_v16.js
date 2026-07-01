@@ -2969,7 +2969,7 @@ function toClientNotification(n) {
   return {
     id: n.id,
     type: n.type,
-    icon: n.type === 'friend_request_accepted' ? 'star' : 'friend',
+    icon: n.type === 'friend_request_accepted' ? 'star' : n.type === 'dm_received' ? 'chat' : 'friend',
     title: n.title,
     body: n.body,
     read: !!n.read,
@@ -3446,6 +3446,30 @@ app.post('/api/messages/thread/:id/send', requireAuth, async (req, res) => {
       .single();
     if (error) throw error;
     await supabase.from('message_threads').update({ updated_at: new Date().toISOString() }).eq('id', req.params.id);
+
+    // Notify the other thread member(s) of the new DM — in-app + device push.
+    // Fire-and-forget: notification failures must never block message delivery.
+    try {
+      const actor = await getPublicUser(req.userId);
+      const actorName = actor?.username ? `@${actor.username}` : (actor?.display_name || 'Someone');
+      const preview = gif
+        ? 'Sent you a GIF ✦'
+        : (body && body.length > 90 ? `${body.slice(0, 87)}…` : (body || 'New message'));
+      await Promise.allSettled((otherMembers || []).map(m => deliverNotification({
+        userId: m.user_id,
+        type: 'dm_received',
+        title: `${actorName} sent you a message`,
+        body: preview,
+        actorId: req.userId,
+        entityId: req.params.id,
+        entityType: 'message_thread',
+        targetModal: 'chats',
+        channels: ['in_app', 'push'],
+      })));
+    } catch (notifErr) {
+      console.warn('[POST /api/messages/thread/send] notify failed:', notifErr.message);
+    }
+
     res.json({ message: data });
   } catch (err) {
     console.error('[POST /api/messages/thread/send] Error:', err.message);

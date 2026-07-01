@@ -3192,7 +3192,12 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go, onViewProfile
     api.get('/api/circle').then(d => {
       if (!alive) return;
       if (d?.error) return;
-      const members = Array.isArray(d?.members) ? d.members.map(m => ({
+      // Backend returns { friends, circle } (accepted members). Older builds used
+      // `members` — accept all three shapes so the circle actually populates.
+      const rawMembers = Array.isArray(d?.circle) ? d.circle
+                       : Array.isArray(d?.friends) ? d.friends
+                       : Array.isArray(d?.members) ? d.members : [];
+      const members = rawMembers.map(m => ({
         id:m.id,
         profileId:m.id,
         name:`@${m.handle || m.username || "fan"}`,
@@ -3205,7 +3210,7 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go, onViewProfile
         concerts:0,
         status:"accepted",
         realProfile:true,
-      })) : [];
+      }));
       setCircle(members);
       ls.set("backstage_circle", members);
     }).catch(() => {});
@@ -14823,8 +14828,10 @@ function FanverseMap({ onBack }) {
 
 // ─── MY CIRCLE (FRIENDS) ─────────────────────────────────────────────────────
 // GET /api/friends | POST /api/friends/add | DELETE /api/friends/:id
-function FriendsPage({ onBack, onNotif }) {
+function FriendsPage({ onBack, onNotif, onViewProfile }) {
+  const { tokenReady } = useAuth();
   const [friends, setFriends] = useState(ls.get("backstage_friends", MOCK_FRIENDS));
+  const [removingId, setRemovingId] = useState(null); // friend id pending a remove confirm
   const [view, setView] = useState("requests");
   const [search, setSearch] = useState("");
   const [incoming, setIncoming] = useState(()=>readFriendRequestStore().incoming);
@@ -14846,6 +14853,40 @@ function FriendsPage({ onBack, onNotif }) {
       setOutgoing(store.outgoing || []);
     }).catch(()=>{});
   },[]);
+
+  // Load accepted friends (My Circle) from the backend so the Friends tab reflects
+  // real accepted friendships across devices — not just this device's localStorage.
+  useEffect(()=>{
+    if(!tokenReady) return;
+    let alive = true;
+    api.get('/api/friends').then(d=>{
+      if(!alive || !Array.isArray(d?.friends)) return;
+      const backendFriends = d.friends.map(f=>({ ...normalizeFriendProfile(f), status:"accepted" }));
+      setFriends(prev=>{
+        const byId = new Map();
+        backendFriends.forEach(f=>byId.set(f.id, f));
+        // Keep any local-only accepted entries the backend hasn't caught up on yet.
+        prev.forEach(f=>{ if(f.status==="accepted" && !byId.has(f.id)) byId.set(f.id, f); });
+        const merged = [...byId.values()];
+        ls.set("backstage_friends", merged);
+        return merged;
+      });
+    }).catch(()=>{});
+    return ()=>{ alive=false; };
+  },[tokenReady]);
+
+  // Remove a friend from My Circle (bidirectional) — backend + local state cleanup.
+  const removeFriend = (fan) => {
+    setRemovingId(null);
+    setFriends(prev=>prev.filter(f=>f.id!==fan.id));
+    const circle = ls.get("backstage_circle",[]);
+    ls.set("backstage_circle", circle.filter(c=>c.id!==fan.id && c.profileId!==fan.id));
+    const statuses = ls.get("backstage_circle_statuses",{});
+    if(statuses[fan.id]){ delete statuses[fan.id]; ls.set("backstage_circle_statuses", statuses); }
+    if(fan.id) api.del(`/api/friends/${encodeURIComponent(fan.id)}`).catch(()=>{});
+    onNotif({ title:"Removed from your Circle", body:`${fan.name||"They"} is no longer in your Circle.`, icon:"friend", color:C.textMid });
+  };
+
   const persistRequests = (nextIncoming, nextOutgoing) => {
     setIncoming(nextIncoming);
     setOutgoing(nextOutgoing);
@@ -14957,19 +14998,39 @@ function FriendsPage({ onBack, onNotif }) {
           </div>
         )}
 
-        {displayList.map((fan,i)=>(
+        {displayList.map((fan,i)=>{
+          const isCircleFriend = view==="all"; // real accepted friends → tappable + removable
+          return (
           <div key={fan.id||i} style={{ background:C.surface, border:`1.5px solid ${C.border}`, borderRadius:18, padding:14, marginBottom:10, display:"flex", gap:12, alignItems:"center" }}>
-            <div style={{ width:46,height:46,borderRadius:"50%",background:`linear-gradient(135deg,${fan.color},${fan.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17,color:C.bg,flexShrink:0 }}>{fan.avatar}</div>
-            <div style={{ flex:1 }}>
-              <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13.5 }}>{fan.name}</p>
-              <p style={{ fontSize:10.5, color:C.textMid }}>{fan.dist || ""}</p>
-              <div style={{ display:"flex", gap:5, marginTop:5, flexWrap:"wrap" }}>
-                {(fan.groups||[]).slice(0,3).map(g=><Pill key={g} color={C.accentDim} xs>{g}</Pill>)}
+            <div
+              onClick={isCircleFriend && fan.id ? ()=>onViewProfile?.(fan) : undefined}
+              className={isCircleFriend && fan.id ? "tap" : undefined}
+              style={{ display:"flex", gap:12, alignItems:"center", flex:1, minWidth:0, cursor:isCircleFriend && fan.id ? "pointer" : "default" }}
+            >
+              <div style={{ width:46,height:46,borderRadius:"50%",background:`linear-gradient(135deg,${fan.color},${fan.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17,color:C.bg,flexShrink:0 }}>{fan.avatar}</div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13.5 }}>{fan.name}</p>
+                <p style={{ fontSize:10.5, color:C.textMid }}>{fan.dist || (isCircleFriend ? "Tap to view their Stage" : "")}</p>
+                <div style={{ display:"flex", gap:5, marginTop:5, flexWrap:"wrap" }}>
+                  {(fan.groups||[]).slice(0,3).map(g=><Pill key={g} color={C.accentDim} xs>{g}</Pill>)}
+                </div>
               </div>
             </div>
-            <Pill color={fan.statusColor||C.accent} active xs style={{ flexShrink:0, fontSize:8.5, textAlign:"center" }}>{fan.status||"Friend"}</Pill>
+            {isCircleFriend ? (
+              removingId===fan.id ? (
+                <div style={{ display:"flex", gap:6, flexShrink:0 }}>
+                  <button onClick={()=>removeFriend(fan)} className="tap" style={{ padding:"7px 10px",borderRadius:11,background:C.rose,border:"none",color:"#fff",fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,cursor:"pointer" }}>Remove</button>
+                  <button onClick={()=>setRemovingId(null)} className="tap" style={{ padding:"7px 10px",borderRadius:11,background:"transparent",border:`1px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,cursor:"pointer" }}>Keep</button>
+                </div>
+              ) : (
+                <button onClick={()=>setRemovingId(fan.id)} className="tap" title="Remove from Circle" style={{ flexShrink:0,padding:"7px 12px",borderRadius:11,background:"transparent",border:`1px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,cursor:"pointer" }}>Remove</button>
+              )
+            ) : (
+              <Pill color={fan.statusColor||C.accent} active xs style={{ flexShrink:0, fontSize:8.5, textAlign:"center" }}>{fan.status||"Friend"}</Pill>
+            )}
           </div>
-        ))}
+          );
+        })}
 
         {view!=="requests" && displayList.length === 0 && <Empty emoji="👯" title="No fans found" sub="Try Nearby to find fans going to the same show." />}
 
@@ -19069,15 +19130,15 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
             </div>
             {convos.map(convo=>(
               <div key={convo.id} onClick={()=>openConvo(convo)} style={{ display:"flex",gap:12,alignItems:"center",padding:"13px 0",borderBottom:`1px solid ${C.border}`,cursor:"pointer" }}>
-                {/* Avatar — tapping opens profile, not convo */}
-                <div onClick={e=>{ e.stopPropagation(); onViewProfile?.(convo.fan); }} className="tap" style={{ position:"relative",flexShrink:0,cursor:"pointer" }}>
+                {/* Avatar — tapping opens the conversation (profile is reachable from the chat header) */}
+                <div className="tap" style={{ position:"relative",flexShrink:0,cursor:"pointer" }}>
                   <div style={{ width:50,height:50,borderRadius:"50%",background:`linear-gradient(135deg,${convo.fan.color},${convo.fan.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19,color:C.bg,boxShadow:`0 0 12px ${convo.fan.color}28` }}>{convo.fan.avatar}</div>
                   {convo.unread>0&&<div style={{ position:"absolute",top:-2,right:-2,width:18,height:18,borderRadius:"50%",background:`linear-gradient(135deg,${C.rose},${C.berry})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.bg }}>{convo.unread}</div>}
                 </div>
                 <div style={{ flex:1,minWidth:0 }}>
                   <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3 }}>
-                    {/* Username — tapping opens profile */}
-                    <p onClick={e=>{ e.stopPropagation(); onViewProfile?.(convo.fan); }} className="tap" style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:convo.unread>0?800:600,fontSize:13.5,color:convo.unread>0?C.text:C.textMid,cursor:"pointer" }}>{convo.fan.name}</p>
+                    {/* Username — tapping opens the conversation */}
+                    <p className="tap" style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:convo.unread>0?800:600,fontSize:13.5,color:convo.unread>0?C.text:C.textMid,cursor:"pointer" }}>{convo.fan.name}</p>
                     <p style={{ fontSize:9.5,color:C.textDim }}>{convo.lastTime}</p>
                   </div>
                   {(()=>{
@@ -24708,7 +24769,7 @@ function AppInner() {
         {modal==="outfits"&&<ToolModalWrapper title="Outfit Generator ✨"><OutfitGenerator user={user} weather={weatherData} isVip={isVip} onUpgrade={openUpgrade} /></ToolModalWrapper>}
         {modal==="trip"&&<ToolModalWrapper title="Trip Planner ✈️"><TripPlanner isVip={isVip} onUpgrade={openUpgrade} /></ToolModalWrapper>}
         {modal==="scrapbook"&&<ModalWrapper><ScrapbookTab isVip={isVip} onUpgrade={openUpgrade} onBack={()=>setModal(null)} /></ModalWrapper>}
-        {modal==="friends"&&<ModalWrapper><FriendsPage onBack={()=>setModal(null)} onNotif={showNotif} /></ModalWrapper>}
+        {modal==="friends"&&<ModalWrapper><FriendsPage onBack={()=>setModal(null)} onNotif={showNotif} onViewProfile={setFullProfileFan} /></ModalWrapper>}
         {modal==="fanmap"&&<ModalWrapper><FanverseMap onBack={()=>setModal(null)} /></ModalWrapper>}
         {modal==="chats"&&<ModalWrapper><DirectMessages onBack={()=>setModal(null)} user={user} onViewProfile={(fan)=>setPublicProfileFan({...fan,fromDM:true})} /></ModalWrapper>}
         {modal==="qr"&&<ModalWrapper><QRPage onBack={()=>setModal(null)} user={user} onNotif={showNotif} /></ModalWrapper>}
