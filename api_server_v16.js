@@ -4298,6 +4298,90 @@ app.post('/api/send-notification', requireAuth, async (req, res) => {
   }
 });
 
+// ─── PUSH DIAGNOSTICS ─────────────────────────────────────────────────────────
+// Inspects the current user's saved FCM tokens and backend push readiness so the
+// in-app Notification Diagnostics panel can tell real device push from mock/no-op.
+// A token is "mock" when it was saved by the frontend fallback (mock-fcm-…) — i.e.
+// the browser never obtained a real FCM token (missing VITE_FIREBASE_* vars, denied
+// permission, or unsupported browser).
+const isMockToken = (t) => typeof t === 'string' && t.startsWith('mock-fcm-');
+
+app.get('/api/notifications/diagnostics', requireAuth, async (req, res) => {
+  const base = {
+    backend_firebase_configured: HAS_FIREBASE,
+    backend_admin_ready: !!(HAS_FIREBASE && admin.apps.length),
+    firebase_source: process.env.FIREBASE_SERVICE_ACCOUNT_JSON ? 'service_account_json'
+                   : process.env.FIREBASE_PROJECT_ID ? 'project_id_fields' : 'none',
+  };
+  if (MOCK_MODE) return res.json({ ...base, mock_mode: true, tokens: { total: 0, real: 0, mock: 0 }, platforms: [] });
+  try {
+    const { data: rows } = await supabase.from('fcm_tokens').select('token, platform, updated_at').eq('user_id', req.userId);
+    const tokens = rows || [];
+    const real = tokens.filter(r => !isMockToken(r.token));
+    const mock = tokens.filter(r => isMockToken(r.token));
+    res.json({
+      ...base,
+      tokens: { total: tokens.length, real: real.length, mock: mock.length },
+      platforms: [...new Set(tokens.map(r => r.platform).filter(Boolean))],
+      last_saved: tokens.map(r => r.updated_at).sort().reverse()[0] || null,
+      ready_for_push: base.backend_admin_ready && real.length > 0,
+    });
+  } catch (err) {
+    console.error('[notifications/diagnostics] Error:', err.message);
+    res.status(500).json({ ...base, error: 'Could not read tokens' });
+  }
+});
+
+// Sends a real test push to the current user's own real FCM tokens and reports the
+// per-token outcome (delivered / failed with the Firebase error code). Mock tokens
+// are counted but skipped — they can never receive a device push.
+app.post('/api/notifications/test', requireAuth, async (req, res) => {
+  if (MOCK_MODE) return res.json({ success: true, mock: true, delivered: 0 });
+
+  // Always drop an in-app notification so the user sees *something* land, even
+  // when device push isn't wired up yet.
+  await deliverNotification({
+    userId: req.userId,
+    type: 'dm_received',
+    title: 'Backstage test notification ✦',
+    body: 'If you can see this in your inbox, in-app notifications are working.',
+    targetModal: 'notifications',
+    channels: ['in_app'],
+  });
+
+  if (!HAS_FIREBASE || !admin.apps.length) {
+    return res.json({ success: true, in_app: true, push_configured: false, delivered: 0,
+      note: 'Backend Firebase Admin is not configured — add FIREBASE_SERVICE_ACCOUNT_JSON on the server to enable device push.' });
+  }
+  try {
+    const { data: rows } = await supabase.from('fcm_tokens').select('token, platform').eq('user_id', req.userId);
+    const tokens = rows || [];
+    const realTokens = tokens.filter(r => !isMockToken(r.token));
+    const mockCount = tokens.length - realTokens.length;
+    if (!realTokens.length) {
+      return res.json({ success: true, in_app: true, push_configured: true, delivered: 0,
+        tokens: { total: tokens.length, real: 0, mock: mockCount },
+        note: tokens.length
+          ? 'Only mock tokens are saved — the browser never got a real FCM token. Check the VITE_FIREBASE_* vars on the frontend and grant notification permission.'
+          : 'No device tokens saved yet. Enable notifications in the app first.' });
+    }
+    const results = await Promise.allSettled(realTokens.map(({ token }) => admin.messaging().send({
+      token,
+      notification: { title: 'Backstage test push ✦', body: 'Device push is working. You are all set!' },
+      data: { targetModal: 'notifications', targetTab: '', targetId: '' },
+      webpush: { fcmOptions: { link: process.env.FRONTEND_URL || '/' } },
+    })));
+    const delivered = results.filter(r => r.status === 'fulfilled').length;
+    const errors = results.filter(r => r.status === 'rejected').map(r => r.reason?.errorInfo?.code || r.reason?.code || r.reason?.message || 'unknown');
+    res.json({ success: true, in_app: true, push_configured: true,
+      tokens: { total: tokens.length, real: realTokens.length, mock: mockCount },
+      delivered, failed: results.length - delivered, errors });
+  } catch (err) {
+    console.error('[notifications/test] Error:', err.message);
+    res.status(500).json({ error: 'Test push failed', detail: err.message });
+  }
+});
+
 
 // ─── EMAIL HELPER ─────────────────────────────────────────────────────────────
 // Uses Resend REST API (no new dependency — native fetch).

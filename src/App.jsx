@@ -15145,10 +15145,15 @@ function QRPage({ onBack, user, onNotif }) {
   const [scanned, setScanned] = useState(false);
   const [activeAction, setActiveAction] = useState("friend");
   const [qrCopied, setQrCopied] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState(null); // real scannable QR (data URL)
 
-  const handle = user?.username || user?.handle || user?.name || user?.stanName || "me";
-  const profileUrl = `${window.location.origin}/u/${handle}`;
-  const inviteUrl  = `${window.location.origin}/u/${handle}?ref=qr`;
+  // Only the real username produces a working /u/:handle link. Never fall back to a
+  // display name or the "me" placeholder — those resolve to a "Fan not found" page.
+  const rawHandle  = user?.username || user?.handle || "";
+  const handle     = String(rawHandle).replace(/^@/, "").trim().toLowerCase();
+  const hasHandle  = !!handle && handle !== "me";
+  const profileUrl = hasHandle ? `${window.location.origin}/u/${handle}` : "";
+  const inviteUrl  = hasHandle ? `${window.location.origin}/u/${handle}?ref=qr` : "";
   const fandoms    = user?.favorite_groups || user?.fandoms || [];
 
   const QR_ACTIONS = [
@@ -15161,12 +15166,29 @@ function QRPage({ onBack, user, onNotif }) {
   ];
   const activeQR = QR_ACTIONS.find(a=>a.id===activeAction) || QR_ACTIONS[0];
 
+  // Generate a real, scannable QR code encoding the active link. Loaded lazily so
+  // the qrcode lib is only pulled in when the QR screen is actually opened.
+  useEffect(() => {
+    let alive = true;
+    if (!activeQR.url) { setQrDataUrl(null); return; }
+    import('qrcode')
+      .then(mod => (mod.default || mod).toDataURL(activeQR.url, {
+        margin: 1, width: 320, errorCorrectionLevel: 'M',
+        color: { dark: '#0a0a12', light: '#ffffff' },
+      }))
+      .then(url => { if (alive) setQrDataUrl(url); })
+      .catch(() => { if (alive) setQrDataUrl(null); });
+    return () => { alive = false; };
+  }, [activeQR.url]);
+
   const copyQRLink = () => {
+    if (!activeQR.url) { onNotif({title:"Add a username first",body:"Set a username in your profile to share your Backstage link.",icon:"link",color:C.lavender}); return; }
     navigator.clipboard?.writeText(activeQR.url).catch(()=>{});
     setQrCopied(true); setTimeout(()=>setQrCopied(false),2000);
     onNotif({title:"Link copied! 🔗",body:`Share it anywhere.`,icon:"🔗",color:C.mint});
   };
   const shareQRLink = async () => {
+    if (!activeQR.url) { copyQRLink(); return; }
     try {
       await navigator.share({ title:`@${handle} on Backstage`, url: activeQR.url });
     } catch { copyQRLink(); }
@@ -15213,14 +15235,23 @@ function QRPage({ onBack, user, onNotif }) {
                   ))}
                 </div>
               )}
-              {/* QR code grid */}
-              <div style={{ width:150,height:150,margin:"0 auto 12px",background:C.bg,borderRadius:16,display:"flex",alignItems:"center",justifyContent:"center",border:`2px solid ${C.accent}55`,position:"relative",zIndex:1 }}>
-                <div style={{ position:"absolute",inset:10,display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3,opacity:0.75 }}>
-                  {Array.from({length:49}).map((_,i)=><div key={i} style={{ background:[0,1,2,7,8,14,16,21,22,23,28,35,36,42,43,44,45,46,48].includes(i)?C.accent:"transparent",borderRadius:2 }} />)}
-                </div>
-                <div style={{ width:36,height:36,borderRadius:10,background:C.bg,border:`1.5px solid ${C.accent}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,zIndex:2,position:"relative" }}>{activeQR.icon}</div>
+              {/* QR code — real, scannable code encoding the active link */}
+              <div style={{ width:170,height:170,margin:"0 auto 12px",background:"#fff",borderRadius:16,display:"flex",alignItems:"center",justifyContent:"center",border:`2px solid ${C.accent}55`,position:"relative",zIndex:1,overflow:"hidden" }}>
+                {!hasHandle ? (
+                  <div style={{ padding:"0 16px",textAlign:"center" }}>
+                    <p style={{ fontSize:11,color:"#0a0a12",fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>Set a username to share your QR</p>
+                  </div>
+                ) : qrDataUrl ? (
+                  <>
+                    <img src={qrDataUrl} alt={`QR code for @${handle}`} style={{ width:"100%",height:"100%",display:"block" }} />
+                    {/* Center icon badge overlays the code's error-correction margin */}
+                    <div style={{ position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",width:34,height:34,borderRadius:9,background:"#fff",border:`1.5px solid ${C.accent}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15 }}>{activeQR.icon}</div>
+                  </>
+                ) : (
+                  <div style={{ width:26,height:26,borderRadius:"50%",border:`3px solid ${C.accent}`,borderTopColor:"transparent",animation:"rotate .7s linear infinite" }} />
+                )}
               </div>
-              <p style={{ fontSize:10.5,color:C.textMid,marginBottom:0,position:"relative",zIndex:1 }}>Scan to add me on Backstage</p>
+              <p style={{ fontSize:10.5,color:C.textMid,marginBottom:0,position:"relative",zIndex:1 }}>{hasHandle ? `Scan to open @${handle} on Backstage` : "Add a username in your profile to generate a QR"}</p>
             </div>
 
             {/* Copy / Share strip */}
@@ -22709,6 +22740,123 @@ function StandaloneNotifCenter({ onBack, onNavigate, user }) {
   return <NotificationCenter settings={settings} setSettings={saveSettings} onBack={onBack} notifOn={notifOn} requestNotif={requestNotif} onNavigate={onNavigate} />;
 }
 
+// ─── NOTIFICATION DIAGNOSTICS ─────────────────────────────────────────────────
+// Live self-test for push: shows whether the frontend Firebase vars are present,
+// whether the browser granted permission and registered a REAL FCM token (vs the
+// mock fallback), whether the backend Admin SDK is ready, and lets the user fire a
+// test notification to their own device + inbox.
+function NotificationDiagnostics({ requestNotif }) {
+  const [diag, setDiag] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [testResult, setTestResult] = useState(null);
+  const [testing, setTesting] = useState(false);
+  const [enabling, setEnabling] = useState(false);
+
+  const fe = {
+    apiKey:   !!import.meta.env.VITE_FIREBASE_API_KEY,
+    project:  !!import.meta.env.VITE_FIREBASE_PROJECT_ID,
+    vapid:    !!import.meta.env.VITE_FIREBASE_VAPID_KEY,
+    senderId: !!import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    appId:    !!import.meta.env.VITE_FIREBASE_APP_ID,
+  };
+  const feReady = fe.apiKey && fe.project && fe.vapid;
+  const perm = typeof Notification !== "undefined" ? Notification.permission : "unsupported";
+  const isStandalone = typeof window !== "undefined" &&
+    (window.matchMedia?.("(display-mode: standalone)")?.matches || window.navigator?.standalone === true);
+  const isIOS = typeof navigator !== "undefined" && /iP(hone|ad|od)/.test(navigator.userAgent || "");
+
+  const refresh = async () => {
+    setLoading(true);
+    const d = await api.get('/api/notifications/diagnostics');
+    setDiag(d && !d.error ? d : null);
+    setLoading(false);
+  };
+  useEffect(()=>{ refresh(); },[]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const enable = async () => { setEnabling(true); try { await requestNotif?.(); } finally { setEnabling(false); await refresh(); } };
+  const runTest = async () => {
+    setTesting(true);
+    const r = await api.post('/api/notifications/test', {});
+    setTestResult(r && !r.error ? r : { error: true });
+    setTesting(false);
+    await refresh();
+  };
+
+  const Row = ({ ok, warn, label, value }) => (
+    <div style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 0", borderBottom:`1px solid ${C.border}` }}>
+      <span style={{ width:18, textAlign:"center", fontSize:13, color: ok ? C.mint : warn ? C.gold : C.rose, flexShrink:0 }}>{ok ? "✓" : warn ? "!" : "✕"}</span>
+      <span style={{ flex:1, fontSize:12, color:C.text }}>{label}</span>
+      {value != null && <span style={{ fontSize:11, color:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700 }}>{value}</span>}
+    </div>
+  );
+
+  const realTokens = diag?.tokens?.real ?? 0;
+  const mockTokens = diag?.tokens?.mock ?? 0;
+  const readyForPush = !!diag?.ready_for_push;
+
+  return (
+    <div style={{ background:C.surface, border:`1.5px solid ${C.borderHi}`, borderRadius:16, padding:"14px 16px", marginBottom:18 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
+        <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:14 }}>🔬 Notification Diagnostics</p>
+        <button onClick={refresh} className="tap" style={{ background:"transparent", border:`1px solid ${C.border}`, borderRadius:99, color:C.textMid, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, padding:"4px 10px", cursor:"pointer" }}>↻ Refresh</button>
+      </div>
+
+      {/* Headline verdict */}
+      <div style={{ background: readyForPush ? `${C.mint}14` : realTokens>0 ? `${C.gold}14` : `${C.rose}12`, border:`1.5px solid ${readyForPush ? C.mint : realTokens>0 ? C.gold : C.rose}44`, borderRadius:12, padding:"10px 12px", marginBottom:12 }}>
+        <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:12.5, color: readyForPush ? C.mint : realTokens>0 ? C.gold : C.rose }}>
+          {loading ? "Checking…" : readyForPush ? "✓ Real FCM token saved — device push ready" : realTokens>0 ? "Real token saved, backend not ready" : mockTokens>0 ? "⚠ Only a MOCK token is saved" : "No device token yet"}
+        </p>
+        {!loading && !readyForPush && (
+          <p style={{ fontSize:10.5, color:C.textMid, marginTop:3, lineHeight:1.5 }}>
+            {realTokens===0 && mockTokens>0 ? "The browser fell back to a mock token — real device push can't be delivered. Check the frontend Firebase vars and grant permission below."
+              : realTokens===0 ? "Tap Enable notifications to register a device token."
+              : "Add FIREBASE_SERVICE_ACCOUNT_JSON on the backend to send pushes."}
+          </p>
+        )}
+      </div>
+
+      {/* Frontend */}
+      <p style={{ fontSize:9.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.textDim, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:2 }}>This device (frontend)</p>
+      <Row ok={feReady} label="Firebase web vars (VITE_FIREBASE_*)" value={feReady ? "present" : "missing"} />
+      <Row ok={perm==="granted"} warn={perm==="default"} label="Browser notification permission" value={perm} />
+      <Row ok={realTokens>0} warn={mockTokens>0 && realTokens===0} label="Saved device token" value={realTokens>0 ? `real ×${realTokens}` : mockTokens>0 ? `mock ×${mockTokens}` : "none"} />
+      {isIOS && <Row ok={isStandalone} warn={!isStandalone} label="Installed to Home Screen (required on iOS)" value={isStandalone ? "yes" : "no"} />}
+
+      {/* Backend */}
+      <p style={{ fontSize:9.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.textDim, textTransform:"uppercase", letterSpacing:"0.08em", margin:"12px 0 2px" }}>Backend (server)</p>
+      <Row ok={!!diag?.backend_firebase_configured} label="Firebase Admin configured" value={diag ? (diag.backend_firebase_configured ? "yes" : "no") : "…"} />
+      <Row ok={!!diag?.backend_admin_ready} label="Admin SDK initialized" value={diag ? (diag.backend_admin_ready ? "ready" : "no") : "…"} />
+
+      {/* Test result */}
+      {testResult && (
+        <div style={{ background:C.surfaceHi, border:`1px solid ${C.border}`, borderRadius:11, padding:"10px 12px", margin:"12px 0 0" }}>
+          {testResult.error ? (
+            <p style={{ fontSize:11.5, color:C.rose }}>Test failed — check your connection and try again.</p>
+          ) : (
+            <>
+              <p style={{ fontSize:11.5, color:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:700 }}>
+                {testResult.delivered>0 ? `✓ Delivered to ${testResult.delivered} device(s)` : "In-app notification sent — check your inbox"}
+              </p>
+              {testResult.note && <p style={{ fontSize:10.5, color:C.textMid, marginTop:4, lineHeight:1.5 }}>{testResult.note}</p>}
+              {Array.isArray(testResult.errors) && testResult.errors.length>0 && (
+                <p style={{ fontSize:10, color:C.gold, marginTop:4 }}>Errors: {testResult.errors.join(", ")}</p>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Actions */}
+      <div style={{ display:"flex", gap:8, marginTop:12 }}>
+        {perm!=="granted" || realTokens===0 ? (
+          <button onClick={enable} disabled={enabling} className="tap" style={{ flex:1, padding:"11px", borderRadius:12, background:C.accent, border:"none", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, cursor:"pointer", opacity:enabling?0.6:1 }}>{enabling ? "Enabling…" : "Enable notifications"}</button>
+        ) : null}
+        <button onClick={runTest} disabled={testing} className="tap" style={{ flex:1, padding:"11px", borderRadius:12, background:"transparent", border:`1.5px solid ${C.accent}`, color:C.accent, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, cursor:"pointer", opacity:testing?0.6:1 }}>{testing ? "Sending…" : "Send test notification"}</button>
+      </div>
+    </div>
+  );
+}
+
 // ─── NOTIFICATION CENTER ──────────────────────────────────────────────────────
 // GET /api/notifications/settings | POST /api/notifications/settings | POST /api/notifications/token
 //
@@ -22892,6 +23040,8 @@ function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNot
         </div>
       )}
       {tab==="settings" && (<div style={{ paddingTop:14 }}>
+        {/* Live push self-test */}
+        <NotificationDiagnostics requestNotif={requestNotif} />
         {/* Master toggle */}
         <div style={{ background:notifOn?`${C.mint}12`:C.surface, border:`1.5px solid ${notifOn?C.mint:C.border}`, borderRadius:16, padding:"14px 16px", marginBottom:18, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
           <div>
@@ -24041,6 +24191,31 @@ function ProfilePublicPage({ username }) {
     setCopied(true); setTimeout(()=>setCopied(false),2000);
   };
 
+  // Open this fan's full My Stage inside the app. Logged-out visitors are routed
+  // through auth first (and returned here). Logged-in visitors hand off to AppInner,
+  // which reads backstage_open_stage on mount and opens the full stage view.
+  const openFullStage = () => {
+    if (!isLoggedIn) {
+      ls.set('backstage_return_to', window.location.href);
+      window.location.href = '/';
+      return;
+    }
+    if (profile?.id) {
+      ls.set('backstage_open_stage', {
+        id: profile.id,
+        profileId: profile.id,
+        name: `@${profile.username || username}`,
+        username: profile.username || username,
+        display_name: profile.display_name || profile.username || username,
+        avatar: String(profile.display_name || profile.username || username || 'B').slice(0,1).toUpperCase(),
+        color: C.accent,
+        groups: profile.fandoms || [],
+        fandoms: profile.fandoms || [],
+      });
+    }
+    window.location.href = '/';
+  };
+
   const bg = { minHeight:'100vh', background:C.bg, color:C.text, fontFamily:"'Instrument Sans',sans-serif", display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'32px 24px' };
 
   if (loading) return (
@@ -24053,9 +24228,9 @@ function ProfilePublicPage({ username }) {
     <div style={bg}>
       <div style={{ textAlign:'center', maxWidth:360 }}>
         <div style={{ fontSize:48,marginBottom:16 }}>🔭</div>
-        <h1 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:22,marginBottom:8 }}>Profile not found</h1>
-        <p style={{ fontSize:14,color:C.textMid,marginBottom:24,lineHeight:1.6 }}>@{username} doesn't have a Backstage profile yet — or the link may have changed.</p>
-        <a href="/" style={{ display:'inline-block',padding:'12px 24px',borderRadius:99,background:C.accent,color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14,textDecoration:'none' }}>Open Backstage →</a>
+        <h1 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:22,marginBottom:8 }}>Fan not found</h1>
+        <p style={{ fontSize:14,color:C.textMid,marginBottom:24,lineHeight:1.6 }}>We couldn't find <span style={{ color:C.text,fontWeight:700 }}>@{username}</span> on Backstage — the username may have changed, or their profile isn't public yet.</p>
+        <a href="/" style={{ display:'inline-block',padding:'12px 24px',borderRadius:99,background:`linear-gradient(135deg,${C.accent},${C.berry})`,color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14,textDecoration:'none',boxShadow:`0 0 20px ${C.accent}40` }}>Open Backstage →</a>
       </div>
     </div>
   );
@@ -24120,6 +24295,11 @@ function ProfilePublicPage({ username }) {
             )}
           </div>
         )}
+
+        {/* View full stage — deep-links into the in-app My Stage for this fan */}
+        <button onClick={openFullStage} style={{ width:'100%',padding:'14px',borderRadius:14,background:isSelf?`linear-gradient(135deg,${C.accent},${C.berry})`:C.surfaceHi,border:`1.5px solid ${isSelf?'transparent':C.borderHi}`,color:isSelf?C.bg:C.text,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14,cursor:'pointer',marginBottom:12,boxShadow:isSelf?`0 0 20px ${C.accent}40`:'none' }}>
+          🎭 {isSelf ? 'View your Stage' : `View @${profile?.username||username}'s Stage`} →
+        </button>
 
         {/* Copy / open app links */}
         <div style={{ display:'flex',gap:8 }}>
@@ -24313,6 +24493,16 @@ function AppInner() {
         ls.del('backstage_return_to');
         window.location.href = returnTo;
       }
+    }
+  },[appState]);
+
+  // Deep-link into a fan's full My Stage when arriving from a /u/:username QR link.
+  useEffect(()=>{
+    if(appState!=="main") return;
+    const openStage = ls.get('backstage_open_stage', null);
+    if(openStage?.id){
+      ls.del('backstage_open_stage');
+      setFullProfileFan(openStage);
     }
   },[appState]);
 
