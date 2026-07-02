@@ -3614,6 +3614,8 @@ app.post('/api/profile/update', requireAuth, async (req, res) => {
     username, bio, city, showCity, fandoms, bias, nowPlaying, profileStyle, discoverable,
     // fan identity fields (My Stage editor)
     ult_group, bias_wrecker, fan_dna, concert_count, discovery_prefs,
+    // era boards blob (EraRoom syncToEraBoard — whole backstage_era_boards_v2 object)
+    eraBoards,
     // normalized location fields (sent by saveCity when user picks from autocomplete)
     city_display, city_key, region, region_code,
     country, country_code, continent, city_lat, city_lng, timezone,
@@ -3643,6 +3645,8 @@ app.post('/api/profile/update', requireAuth, async (req, res) => {
   if (Array.isArray(fan_dna))         updates.fan_dna         = fan_dna.filter(f => typeof f === 'string' && f.trim());
   if (concert_count !== undefined) updates.concert_count = concert_count;
   if (Array.isArray(discovery_prefs)) updates.discovery_prefs = discovery_prefs.filter(f => typeof f === 'string' && f.trim());
+  // era boards — whole-object jsonb, plain object only (never arrays/strings)
+  if (eraBoards !== undefined && eraBoards !== null && typeof eraBoards === 'object' && !Array.isArray(eraBoards)) updates.era_boards = eraBoards;
   // location — sparse, all optional
   if (city         !== undefined) updates.city         = city;
   if (city_display !== undefined) updates.city_display = city_display;

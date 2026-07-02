@@ -12342,6 +12342,21 @@ function getEraData(group, era, color) {
   return { ...vibe, templates, outfits, fanPosts, trades, group, era, color, members };
 }
 
+// ─── ERA BOARDS SERVER SYNC ──────────────────────────────────────────────────
+// Debounced push of the whole backstage_era_boards_v2 blob → users.era_boards.
+// Trailing 1.2s so rapid member-binder toggles collapse into one request.
+let _eraBoardsSyncTimer = null;
+function syncEraBoardsToServer() {
+  if (!API_URL) return;
+  clearTimeout(_eraBoardsSyncTimer);
+  _eraBoardsSyncTimer = setTimeout(() => {
+    try {
+      const all = JSON.parse(localStorage.getItem("backstage_era_boards_v2") || "{}");
+      api.post('/api/profile/update', { eraBoards: all }).catch(()=>{});
+    } catch {}
+  }, 1200);
+}
+
 // ─── ERA ROOM COMPONENT ───────────────────────────────────────────────────────
 function EraRoom({ group, era, color, onBack, onBinderCreated, onGoToTradeHub }) {
   const [tab, setTab] = useState("templates");
@@ -12391,6 +12406,7 @@ function EraRoom({ group, era, color, onBack, onBinderCreated, onGoToTradeHub })
       all[eraKey] = updated;
       localStorage.setItem("backstage_era_boards_v2", JSON.stringify(all));
       window.dispatchEvent(new CustomEvent("backstage:eraBoardsUpdated"));
+      syncEraBoardsToServer();
     } catch {}
   };
 
@@ -23970,6 +23986,16 @@ function AppInner() {
       return;
     }
     setUser(nextUser);
+    // Era boards — hydrate from server on fresh devices (local store empty).
+    // Never overwrites existing local data; server blob is pushed by syncEraBoardsToServer.
+    try {
+      const localBoards = JSON.parse(localStorage.getItem("backstage_era_boards_v2") || "{}");
+      const remoteBoards = nextUser.era_boards;
+      if (!Object.keys(localBoards).length && remoteBoards && typeof remoteBoards === 'object' && Object.keys(remoteBoards).length) {
+        localStorage.setItem("backstage_era_boards_v2", JSON.stringify(remoteBoards));
+        window.dispatchEvent(new CustomEvent("backstage:eraBoardsUpdated"));
+      }
+    } catch {}
     // Sync VIP from the merged profile (/api/users/me SELECT * includes is_vip).
     // IMPORTANT: only SET VIP to true here — never set it to false.
     // Reason: auth.user fires twice (cached session, then API result), and the
