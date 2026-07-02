@@ -3031,7 +3031,7 @@ function toClientNotification(n) {
   return {
     id: n.id,
     type: n.type,
-    icon: n.type === 'friend_request_accepted' ? 'star' : n.type === 'dm_received' ? 'chat' : 'friend',
+    icon: n.type === 'friend_request_accepted' ? 'star' : n.type === 'dm_received' ? 'chat' : (n.type || '').startsWith('trade') ? 'trade' : 'friend',
     title: n.title,
     body: n.body,
     read: !!n.read,
@@ -3050,9 +3050,48 @@ function toClientNotification(n) {
   };
 }
 
+// Maps an emitted notification `type` to a user-facing preference category.
+// A user can switch a whole category off in notification settings; types not
+// listed here are considered essential and are never suppressed.
+const NOTIF_CATEGORY = {
+  friend_request_received: 'friend_requests',
+  friend_request_accepted: 'friend_requests',
+  dm_received:             'messages',
+  meetup_invite:           'meetups',
+  trade_offer_received:    'trades',
+  trade_offer_accepted:    'trades',
+  trade_offer_declined:    'trades',
+  trade_message:           'trades',
+};
+
+// Reads a user's saved notification preferences. Opt-OUT model: a missing row (or
+// any read error) means "deliver everything" so nothing silently disappears.
+// Shape: { categories: { trades:true, ... }, push_enabled:true }
+async function getNotificationPrefs(userId) {
+  if (!userId || MOCK_MODE || !supabase) return null;
+  try {
+    const { data } = await supabase.from('notification_prefs').select('prefs').eq('user_id', userId).maybeSingle();
+    return data?.prefs || null;
+  } catch { return null; }
+}
+
 async function deliverNotification({ userId, type, title, body, actorId = null, entityId = null, entityType = null, targetModal = 'friends', targetTab = null, channels = ['in_app', 'push'], gif = null }) {
   if (!userId) return { ok: false, reason: 'no_user' };
   if (MOCK_MODE) return { ok: true, mock: true };
+
+  // Respect the recipient's category + channel preferences before doing anything.
+  const prefs = await getNotificationPrefs(userId);
+  if (prefs) {
+    const category = NOTIF_CATEGORY[type];
+    // Category turned off → suppress this notification entirely (no in-app, no push).
+    if (category && prefs.categories && prefs.categories[category] === false) {
+      return { ok: true, suppressed: true, reason: 'category_off' };
+    }
+    // Global phone-push toggle off → keep the in-app record, drop the device push.
+    if (prefs.push_enabled === false) {
+      channels = channels.filter(c => c !== 'push');
+    }
+  }
 
   const insert = {
     user_id: userId,
@@ -4492,6 +4531,39 @@ app.post('/api/notifications/test', requireAuth, async (req, res) => {
   }
 });
 
+// ─── NOTIFICATION PREFERENCES ─────────────────────────────────────────────────
+// Persists the user's notification settings server-side so deliverNotification can
+// respect category on/off + the global push toggle across devices. Opt-out model:
+// absence of a row means "deliver everything". The frontend keeps its localStorage
+// copy as an offline fallback and syncs here when authenticated.
+app.get('/api/notifications/settings', requireAuth, async (req, res) => {
+  if (MOCK_MODE) return res.json({ prefs: null, mock: true });
+  try {
+    const { data } = await supabase.from('notification_prefs').select('prefs, updated_at').eq('user_id', req.userId).maybeSingle();
+    res.json({ prefs: data?.prefs || null, updated_at: data?.updated_at || null });
+  } catch (err) {
+    console.error('[GET /api/notifications/settings] Error:', err.message);
+    res.json({ prefs: null });
+  }
+});
+
+app.post('/api/notifications/settings', requireAuth, async (req, res) => {
+  const prefs = req.body?.prefs && typeof req.body.prefs === 'object' ? req.body.prefs : null;
+  if (!prefs) return res.status(400).json({ error: 'prefs object required' });
+  if (MOCK_MODE) return res.json({ success: true, prefs, mock: true });
+  try {
+    const { error } = await supabase.from('notification_prefs').upsert(
+      { user_id: req.userId, prefs, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id' }
+    );
+    if (error) throw error;
+    res.json({ success: true, prefs });
+  } catch (err) {
+    console.error('[POST /api/notifications/settings] Error:', err.message);
+    res.status(500).json({ error: 'Could not save settings' });
+  }
+});
+
 
 // ─── EMAIL HELPER ─────────────────────────────────────────────────────────────
 // Uses Resend REST API (no new dependency — native fetch).
@@ -5332,6 +5404,24 @@ app.post('/api/listing-offers', requireAuth, async (req, res) => {
 
     // Move listing to pending
     await supabase.from('trade_listings').update({ status: 'pending', updated_at: new Date().toISOString() }).eq('id', listing_id);
+
+    // Notify the listing owner that a trade offer came in.
+    try {
+      const actor = await getPublicUser(req.userId);
+      const actorName = actor?.username ? `@${actor.username}` : 'A Backstage fan';
+      await deliverNotification({
+        userId: listing.user_id,
+        type: 'trade_offer_received',
+        title: `${actorName} sent you a trade offer`,
+        body: 'Tap to review it in Trade Hub.',
+        actorId: req.userId,
+        entityId: data.id,
+        entityType: 'listing_offer',
+        targetModal: null, targetTab: 'collect',
+        channels: ['in_app', 'push'],
+      });
+    } catch (notifErr) { console.warn('[ListingOffers POST] notify failed:', notifErr.message); }
+
     res.json({ offer: data });
   } catch (err) {
     console.error('[ListingOffers POST]', err.message);
@@ -5421,6 +5511,26 @@ app.patch('/api/listing-offers/:id', requireAuth, async (req, res) => {
 
     const { error } = await supabase.from('listing_offers').update(updates).eq('id', req.params.id);
     if (error) throw error;
+
+    // Notify the offer sender when the lister accepts or declines their offer.
+    if (action === 'accept' || action === 'decline') {
+      try {
+        const actor = await getPublicUser(req.userId);
+        const actorName = actor?.username ? `@${actor.username}` : 'The lister';
+        await deliverNotification({
+          userId: offer.sender_id,
+          type: action === 'accept' ? 'trade_offer_accepted' : 'trade_offer_declined',
+          title: action === 'accept' ? `${actorName} accepted your trade offer ✨` : `${actorName} declined your trade offer`,
+          body: action === 'accept' ? 'Open Trade Hub to arrange the swap.' : 'Browse other listings in Trade Hub.',
+          actorId: req.userId,
+          entityId: req.params.id,
+          entityType: 'listing_offer',
+          targetModal: null, targetTab: 'collect',
+          channels: ['in_app', 'push'],
+        });
+      } catch (notifErr) { console.warn('[ListingOffers PATCH] notify failed:', notifErr.message); }
+    }
+
     res.json({ ok: true });
   } catch (err) {
     console.error('[ListingOffers PATCH]', err.message);
@@ -5462,6 +5572,28 @@ app.post('/api/listing-offers/:id/messages', requireAuth, async (req, res) => {
       .insert({ offer_id: req.params.id, sender_id: req.userId, body: body.trim() })
       .select('*, sender:sender_id(id, username, display_name)').single();
     if (error) throw error;
+
+    // Notify the other party in the trade of the new chat message.
+    try {
+      const otherId = req.userId === offer.sender_id ? offer.listerId : offer.sender_id;
+      if (otherId) {
+        const actor = await getPublicUser(req.userId);
+        const actorName = actor?.username ? `@${actor.username}` : 'A Backstage fan';
+        const preview = body.trim().length > 90 ? `${body.trim().slice(0, 87)}…` : body.trim();
+        await deliverNotification({
+          userId: otherId,
+          type: 'trade_message',
+          title: `${actorName} messaged you about a trade`,
+          body: preview,
+          actorId: req.userId,
+          entityId: req.params.id,
+          entityType: 'listing_offer',
+          targetModal: null, targetTab: 'collect',
+          channels: ['in_app', 'push'],
+        });
+      }
+    } catch (notifErr) { console.warn('[Messages POST] notify failed:', notifErr.message); }
+
     res.json({ message: data });
   } catch (err) {
     console.error('[Messages POST]', err.message);

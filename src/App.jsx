@@ -2945,6 +2945,39 @@ const DEFAULT_NOTIF_SETTINGS = {
   wishlistMatch: true, shipping: true, chantReminder: false,
   afterglowReminder: true, hubActivity: false, kdramaReminder: false,
   quietHoursStart: "22:00", quietHoursEnd: "08:00", concertDayMode: true,
+  // Activity categories enforced server-side by deliverNotification (default on)
+  cat_friend_requests: true, cat_messages: true, cat_meetups: true, cat_trades: true,
+};
+
+// Activity categories the backend actually enforces (see NOTIF_CATEGORY server-side).
+// Turning one off suppresses that category's in-app + push notifications entirely.
+const NOTIF_ACTIVITY_CATS = [
+  { key:"cat_friend_requests", label:"🤝 Friend Requests", sub:"Requests & accepts in My Circle" },
+  { key:"cat_messages",        label:"💬 Direct Messages",  sub:"New DMs from your Circle" },
+  { key:"cat_meetups",         label:"📍 Meetup Invites",   sub:"When a host invites you" },
+  { key:"cat_trades",          label:"🃏 Trades",           sub:"Offers, accepts & trade chat" },
+];
+
+// Translate the local settings object into the server prefs shape and back.
+const settingsToPrefs = (s={}) => ({
+  push_enabled: s.phonePush !== false,
+  categories: {
+    friend_requests: s.cat_friend_requests !== false,
+    messages:        s.cat_messages !== false,
+    meetups:         s.cat_meetups !== false,
+    trades:          s.cat_trades !== false,
+  },
+});
+const prefsToSettings = (prefs) => {
+  if (!prefs || typeof prefs !== "object") return {};
+  const c = prefs.categories || {};
+  const out = {};
+  if (typeof prefs.push_enabled === "boolean") out.phonePush = prefs.push_enabled;
+  if (typeof c.friend_requests === "boolean") out.cat_friend_requests = c.friend_requests;
+  if (typeof c.messages === "boolean")        out.cat_messages = c.messages;
+  if (typeof c.meetups === "boolean")         out.cat_meetups = c.meetups;
+  if (typeof c.trades === "boolean")          out.cat_trades = c.trades;
+  return out;
 };
 
 // Notification types that trigger email backup when push is unavailable
@@ -23387,7 +23420,28 @@ function StandaloneNotifCenter({ onBack, onNavigate, user }) {
     const perm = window.Notification?.permission;
     setNotifOn(saved === true && perm === "granted");
   }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-  const saveSettings = (v) => { setSettings(v); ls.set(notifSettingsKey, v); };
+  // Save locally (offline fallback) AND sync the enforced prefs to the backend
+  // when authenticated, so deliverNotification respects them across devices.
+  const saveSettings = (v) => {
+    setSettings(v);
+    ls.set(notifSettingsKey, v);
+    if (user?.id) api.post('/api/notifications/settings', { prefs: settingsToPrefs(v) }).catch(()=>{});
+  };
+  // On open, pull server-side prefs and merge over the local copy (server wins for
+  // the categories it owns; local keeps everything else).
+  useEffect(()=>{
+    if (!user?.id) return;
+    let alive = true;
+    api.get('/api/notifications/settings').then(d=>{
+      if (!alive || !d?.prefs) return;
+      setSettings(prev=>{
+        const merged = { ...prev, ...prefsToSettings(d.prefs) };
+        ls.set(notifSettingsKey, merged);
+        return merged;
+      });
+    }).catch(()=>{});
+    return ()=>{ alive=false; };
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const requestNotif = async () => {
     ls.set(`backstage_push_prompted_${pushUserKey}`, true);
     const token = await requestNotificationPermission(user?.id || user?.name || "user");
@@ -23759,6 +23813,23 @@ function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNot
               {new Date(pushTest.ts).toLocaleString()} — {pushTest.error ? pushTest.error : `delivered: ${pushTest.delivered}, failed: ${pushTest.failed}${pushTest.note ? ` (${pushTest.note})` : ""}`}
             </p>
           )}
+        </Card>
+
+        {/* Activity — categories the backend actually enforces before sending */}
+        <SectionHeader title="Activity" />
+        <Card style={{ marginBottom:16 }}>
+          {NOTIF_ACTIVITY_CATS.map((item,i)=>(
+            <div key={item.key}>
+              {i>0&&<div style={{ height:1,background:C.border,margin:"12px 0" }} />}
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <div style={{ flex:1, paddingRight:12 }}>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:600, fontSize:13 }}>{item.label}</p>
+                  <p style={{ fontSize:10.5, color:C.textMid }}>{item.sub}</p>
+                </div>
+                <Toggle on={settings[item.key]!==false} onChange={v=>setSettings({...settings,[item.key]:v})} />
+              </div>
+            </div>
+          ))}
         </Card>
 
         {/* Channels */}
