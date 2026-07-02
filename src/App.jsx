@@ -5507,7 +5507,7 @@ function Onboarding({ onDone }) {
       fandoms:data.groups,
       favorite_groups:data.groups,
       bias:data.bias,
-      bias_wrecker:data.bias_wrecker || "",
+      bias_wrecker:data.biasWrecker || "",
       city:data.city,
       ...locationFields,
       show_city:true,
@@ -5519,7 +5519,7 @@ function Onboarding({ onDone }) {
     });
 
     if (!MOCK_AUTH && _supabase) {
-      const patchBody = { username:data.name, handle:data.name, backstage_name:data.name, display_name:data.name, fandoms:data.groups, favorite_groups:data.groups, bias:data.bias, bias_wrecker:data.bias_wrecker || "", city:data.city, ...locationFields, show_city:true, onboarding_complete:true, profile_complete:true };
+      const patchBody = { username:data.name, handle:data.name, backstage_name:data.name, display_name:data.name, fandoms:data.groups, favorite_groups:data.groups, bias:data.bias, bias_wrecker:data.biasWrecker || "", ult_group:data.ult || "", fan_dna:data.fanDNA || [], concert_count:data.concertCount || "", discovery_prefs:data.discoveryPrefs || [], city:data.city, ...locationFields, show_city:true, onboarding_complete:true, profile_complete:true };
       try {
         const session = await _supabase.auth.getSession();
         const token = session?.data?.session?.access_token;
@@ -21643,8 +21643,9 @@ function ProfileStudio({ profileStyle, setProfileStyle, isVip, onUpgrade, onBack
   const FAN_ROLE_TAG_OPTIONS = ["Trading","Freebies","Travel Buddy","Concert Buddy","Solo Concert Buddy","Collector","Photocard Trader","Fancam Editor","K-Drama Fan","Outfit Inspo","Local Fans","Cupsleeve Events","Fan Projects","Lightstick Crew","Merch Line Buddy","Giveaway Host","Bias Editor","Dance Challenge","New to Fandom","Multi-stan"];
   const [fanIdentity, setFanIdentity] = useState(()=>{
     const stored = ls.get("backstage_fan_identity", null);
-    // Discovery prefs → fan role tags mapping
-    const discPrefs = ls.get("backstage_discovery_preferences", []);
+    // Discovery prefs → fan role tags mapping (local first, server fallback for fresh devices)
+    const _localPrefs = ls.get("backstage_discovery_preferences", []);
+    const discPrefs = (Array.isArray(_localPrefs) && _localPrefs.length) ? _localPrefs : (user?.discovery_prefs || []);
     const DISC_MAP = {
       "Concert buddies 👯":"Concert Buddy","Concert buddies":"Concert Buddy",
       "Trades":"Trading","Trading":"Trading","Freebies":"Freebies",
@@ -21668,24 +21669,26 @@ function ProfileStudio({ profileStyle, setProfileStyle, isVip, onUpgrade, onBack
       const existingTags = Array.isArray(stored.fanRoleTags) ? stored.fanRoleTags : [];
       base.fanRoleTags = existingTags.length > 0 ? existingTags : seedRoleTags;
       // Fill individual blank fields from other sources (never overwrite non-empty)
+      if (!base.ult) base.ult = user?.ult_group || "";
       if (!base.biasWrecker) base.biasWrecker = user?.bias_wrecker || user?.biasWrecker || "";
       if (!base.city) base.city = user?.city || "";
-      if (!base.concertCount) base.concertCount = resumeCount || "";
+      if (!base.concertCount) base.concertCount = resumeCount || user?.concert_count || "";
+      if (!base.fanDNA.length && Array.isArray(user?.fan_dna) && user.fan_dna.length) base.fanDNA = user.fan_dna;
       return base;
     }
-    // No identity yet — seed from all available sources
+    // No identity yet — seed from all available sources (server profile first)
     return {
-      ult: user?.fandoms?.[0] || "",
+      ult: user?.ult_group || user?.fandoms?.[0] || "",
       bias: user?.bias || "",
       biasWrecker: user?.bias_wrecker || user?.biasWrecker || "",
       since: "",
-      concertCount: resumeCount || "",
+      concertCount: resumeCount || user?.concert_count || "",
       currentEra: "",
       favoriteSong: "",
       fanRoles: "",
       city: user?.city || "",
       fandoms: Array.isArray(user?.fandoms) ? user.fandoms : [],
-      fanDNA: [],
+      fanDNA: Array.isArray(user?.fan_dna) ? user.fan_dna : [],
       fanRoleTags: seedRoleTags,
     };
   });
@@ -21694,7 +21697,12 @@ function ProfileStudio({ profileStyle, setProfileStyle, isVip, onUpgrade, onBack
     return Array.isArray(raw) ? raw : []; // normalize: onboarding may have written object shape
   });
   const [resumeDraft, setResumeDraft] = useState("");
-  const saveFanIdentity = (next) => { setFanIdentity(next); ls.set("backstage_fan_identity", next); };
+  const saveFanIdentity = (next) => {
+    setFanIdentity(next); ls.set("backstage_fan_identity", next);
+    // Persist queryable identity fields to public.users (cross-device sync).
+    // Display-only fields (since, currentEra, favoriteSong, fanRoles) stay local.
+    if (API_URL) api.post('/api/profile/update', { ult_group:next.ult||"", bias:next.bias||"", bias_wrecker:next.biasWrecker||"", fan_dna:next.fanDNA||[], concert_count:next.concertCount||"" }).catch(()=>{});
+  };
   const addResumeEntry = () => {
     const trimmed = resumeDraft.trim();
     if(!trimmed) return;

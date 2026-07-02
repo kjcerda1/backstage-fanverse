@@ -2517,6 +2517,8 @@ app.patch('/api/users/me', requireAuth, async (req, res) => {
   const {
     username, handle, displayName, display_name, backstage_name,
     favorite_groups, fandoms, bias, city, bio,
+    // fan identity fields (onboarding + My Stage editor)
+    ult_group, bias_wrecker, fan_dna, concert_count, discovery_prefs,
     // normalized location fields
     city_display, city_key, region, region_code,
     country, country_code, continent, city_lat, city_lng, timezone,
@@ -2524,6 +2526,8 @@ app.patch('/api/users/me', requireAuth, async (req, res) => {
   const usernameValue = username ?? handle;
   const displayNameValue = displayName ?? display_name ?? backstage_name ?? usernameValue;
   const groupsInput = Array.isArray(favorite_groups) ? favorite_groups : fandoms;
+  const fanDnaClean = Array.isArray(fan_dna) ? fan_dna.filter(f => typeof f === 'string' && f.trim()) : undefined;
+  const discoveryPrefsClean = Array.isArray(discovery_prefs) ? discovery_prefs.filter(f => typeof f === 'string' && f.trim()) : undefined;
 
   // Reserved username check — reject before touching DB
   if (usernameValue !== undefined && isBackendReservedUsername(usernameValue)) {
@@ -2566,6 +2570,12 @@ app.patch('/api/users/me', requireAuth, async (req, res) => {
     if (fandomsClean     !== undefined) updates.fandoms       = fandomsClean;
     if (bias             !== undefined) updates.bias          = bias;
     if (bio              !== undefined) updates.bio           = bio;
+    // fan identity fields — all optional, sparse update only
+    if (ult_group           !== undefined) updates.ult_group       = ult_group;
+    if (bias_wrecker        !== undefined) updates.bias_wrecker    = bias_wrecker;
+    if (fanDnaClean         !== undefined) updates.fan_dna         = fanDnaClean;
+    if (concert_count       !== undefined) updates.concert_count   = concert_count;
+    if (discoveryPrefsClean !== undefined) updates.discovery_prefs = discoveryPrefsClean;
     // location fields — all optional, sparse update only
     if (city         !== undefined) updates.city         = city;
     if (city_display !== undefined) updates.city_display = city_display;
@@ -2582,7 +2592,7 @@ app.patch('/api/users/me', requireAuth, async (req, res) => {
     const { data, error } = await supabase
       .from('users')
       .upsert(updates, { onConflict: 'id' })
-      .select('id, username, display_name, fandoms, bias, city, city_display, city_key, region, region_code, country, country_code, continent, city_lat, city_lng, timezone, bio, is_vip, vip_source, vip_since, vip_expires_at, stripe_customer_id, show_city')
+      .select('id, username, display_name, fandoms, bias, ult_group, bias_wrecker, fan_dna, concert_count, discovery_prefs, city, city_display, city_key, region, region_code, country, country_code, continent, city_lat, city_lng, timezone, bio, is_vip, vip_source, vip_since, vip_expires_at, stripe_customer_id, show_city')
       .single();
 
     if (error) {
@@ -3602,6 +3612,8 @@ app.delete('/api/messages/thread/:id', requireAuth, async (req, res) => {
 app.post('/api/profile/update', requireAuth, async (req, res) => {
   const {
     username, bio, city, showCity, fandoms, bias, nowPlaying, profileStyle, discoverable,
+    // fan identity fields (My Stage editor)
+    ult_group, bias_wrecker, fan_dna, concert_count, discovery_prefs,
     // normalized location fields (sent by saveCity when user picks from autocomplete)
     city_display, city_key, region, region_code,
     country, country_code, continent, city_lat, city_lng, timezone,
@@ -3625,6 +3637,12 @@ app.post('/api/profile/update', requireAuth, async (req, res) => {
   if (nowPlaying    !== undefined) updates.now_playing    = nowPlaying;
   if (profileStyle  !== undefined) updates.profile_style  = profileStyle;
   if (discoverable  !== undefined) updates.discoverable   = discoverable;
+  // fan identity — sparse, all optional; arrays filtered to non-empty strings
+  if (ult_group     !== undefined) updates.ult_group     = ult_group;
+  if (bias_wrecker  !== undefined) updates.bias_wrecker  = bias_wrecker;
+  if (Array.isArray(fan_dna))         updates.fan_dna         = fan_dna.filter(f => typeof f === 'string' && f.trim());
+  if (concert_count !== undefined) updates.concert_count = concert_count;
+  if (Array.isArray(discovery_prefs)) updates.discovery_prefs = discovery_prefs.filter(f => typeof f === 'string' && f.trim());
   // location — sparse, all optional
   if (city         !== undefined) updates.city         = city;
   if (city_display !== undefined) updates.city_display = city_display;
