@@ -7402,8 +7402,217 @@ function PhotocardGrid({ cards, groups, groupFilter, setGroupFilter, go, onAddCa
   );
 }
 
+// ─── MY UNIVERSE — LIQUID GLASS DESIGN SYSTEM (page-scoped) ──────────────────
+// Local to My World / My Universe only. Every helper accepts mode "dark"|"light"
+// so this page can wire into a future app-wide theme without a global rewrite.
+// No mint/teal on this page — a refined soft blue takes its place.
+const MYU_BLUE      = "#78A8FF";
+const MYU_BLUE_SOFT = "#A7C7FF";
+const MYU_BLUE_GLOW = "rgba(120,168,255,0.28)";
+const MYU_INK       = "#130B24"; // deep plum text on light iridescent surfaces
+
+const myuTokens = (mode="dark") => mode==="light" ? {
+  pageBg: "radial-gradient(circle at 18% 0%,rgba(255,255,255,0.9),transparent 42%),linear-gradient(170deg,#F6EFFB 0%,#EDE2FA 45%,#F7E9F4 100%)",
+  text:"#221338", textMid:"rgba(34,19,56,0.66)", textDim:"rgba(34,19,56,0.42)",
+  hairline:"rgba(19,11,36,0.10)",
+} : {
+  pageBg: "radial-gradient(ellipse at 50% -12%,rgba(184,162,255,0.13),transparent 55%),#07050F",
+  text:"#F4F0FF", textMid:"rgba(244,240,255,0.68)", textDim:"rgba(244,240,255,0.42)",
+  hairline:"rgba(255,255,255,0.09)",
+};
+
+// Frosted structural surface — soft depth, thin borders, no harsh outlines.
+const myuGlass = (mode="dark", radius=24) => mode==="light" ? {
+  background:"linear-gradient(145deg,rgba(255,255,255,0.88),rgba(238,228,255,0.6) 52%,rgba(255,255,255,0.5))",
+  border:"1px solid rgba(255,255,255,0.85)", borderRadius:radius,
+  boxShadow:"0 14px 40px rgba(141,107,255,0.16), inset 0 1px 0 rgba(255,255,255,0.92)",
+  backdropFilter:"blur(18px) saturate(1.25)", WebkitBackdropFilter:"blur(18px) saturate(1.25)",
+  position:"relative", overflow:"hidden",
+} : {
+  background:"linear-gradient(145deg,rgba(255,255,255,0.10),rgba(184,162,255,0.06) 34%,rgba(120,168,255,0.045) 68%,rgba(7,5,15,0.72))",
+  border:"1px solid rgba(255,255,255,0.10)", borderRadius:radius,
+  boxShadow:"0 18px 50px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.16)",
+  backdropFilter:"blur(18px) saturate(1.25)", WebkitBackdropFilter:"blur(18px) saturate(1.25)",
+  position:"relative", overflow:"hidden",
+};
+
+// Calm category tile — icon + count + title + subtitle, faint color wash only.
+const myuTile = (mode="dark", color=C.accent) => ({
+  ...myuGlass(mode, 22),
+  background: mode==="light"
+    ? `linear-gradient(150deg,rgba(255,255,255,0.9),${color}14 60%,rgba(255,255,255,0.55))`
+    : `linear-gradient(150deg,rgba(255,255,255,0.085),${color}10 45%,rgba(7,5,15,0.68))`,
+});
+
+// Tab pill — glowing lavender/pink when active, calm glass otherwise.
+const myuPill = (mode="dark", active=false) => active ? {
+  flexShrink:0, padding:"9px 16px", borderRadius:99, fontSize:11.5,
+  fontFamily:"'Epilogue',sans-serif", fontWeight:800, cursor:"pointer", border:"none",
+  background:`linear-gradient(135deg,${C.accent},${C.pink}dd)`, color:"#0B0716",
+  boxShadow:`0 6px 20px ${C.accent}4a, 0 0 0 1px rgba(255,255,255,0.22), inset 0 1px 0 rgba(255,255,255,0.5)`,
+  display:"flex", alignItems:"center", transition:"all .2s",
+} : {
+  flexShrink:0, padding:"9px 16px", borderRadius:99, fontSize:11.5,
+  fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer",
+  background: mode==="light" ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.055)",
+  color: mode==="light" ? "rgba(34,19,56,0.72)" : "rgba(244,240,255,0.66)",
+  border: mode==="light" ? "1px solid rgba(255,255,255,0.8)" : "1px solid rgba(255,255,255,0.08)",
+  display:"flex", alignItems:"center", transition:"all .2s",
+};
+
+// Bottom sheets invert against the page: dark page → pearly light-iridescent
+// sheet; light page → deep plum dark-iridescent sheet.
+const myuSheet = (mode="dark") => mode==="light" ? {
+  background:"radial-gradient(circle at 16% 0%,rgba(184,162,255,0.34),transparent 36%),radial-gradient(circle at 84% 12%,rgba(120,168,255,0.22),transparent 40%),linear-gradient(160deg,rgba(30,16,58,0.97),rgba(19,11,36,0.98) 55%,rgba(34,13,52,0.97))",
+  border:"1px solid rgba(216,203,255,0.28)", borderBottom:"none",
+  boxShadow:"0 -22px 70px rgba(19,11,36,0.5), inset 0 1px 0 rgba(255,255,255,0.18)",
+  backdropFilter:"blur(26px) saturate(1.35)", WebkitBackdropFilter:"blur(26px) saturate(1.35)",
+} : {
+  background:"radial-gradient(circle at 14% 0%,rgba(255,255,255,0.92),transparent 32%),radial-gradient(circle at 86% 16%,rgba(167,199,255,0.34),transparent 38%),linear-gradient(135deg,rgba(250,238,255,0.96),rgba(228,210,255,0.92) 42%,rgba(246,218,242,0.9) 100%)",
+  border:"1px solid rgba(255,255,255,0.66)", borderBottom:"none",
+  boxShadow:"0 -22px 70px rgba(184,162,255,0.32), 0 -8px 28px rgba(240,168,204,0.18), inset 0 1px 0 rgba(255,255,255,0.78)",
+  backdropFilter:"blur(26px) saturate(1.35)", WebkitBackdropFilter:"blur(26px) saturate(1.35)",
+};
+
+// Ink + accent palette that stays legible on whichever sheet surface is active.
+const myuSheetInk = (mode="dark") => mode==="light" ? {
+  text:"#F1EAFF", mid:"rgba(241,234,255,0.66)", dim:"rgba(241,234,255,0.42)",
+  card:"rgba(255,255,255,0.07)", cardBorder:"1px solid rgba(216,203,255,0.2)",
+  track:"rgba(241,234,255,0.14)",
+  blue:MYU_BLUE, pink:C.pink, lavender:C.accent, gold:C.gold,
+} : {
+  text:MYU_INK, mid:"rgba(19,11,36,0.66)", dim:"rgba(19,11,36,0.42)",
+  card:"rgba(255,255,255,0.55)", cardBorder:"1px solid rgba(255,255,255,0.75)",
+  track:"rgba(19,11,36,0.10)",
+  blue:"#4F7DFF", pink:"#E86FAE", lavender:"#8D6BFF", gold:"#B8860B",
+};
+
+// ─── COLLECTION TRACKER ───────────────────────────────────────────────────────
+// Bottom-sheet opened from the Collection Status card. Data comes from the real
+// card/binder/set stores when present, with clean mock fallback — no backend
+// dependency (localStorage key: backstage_collection_tracker for saved hearts).
+const TRACKER_LS_KEY = "backstage_collection_tracker";
+const DEFAULT_TRACKER_GROUPS = [
+  { group:"BTS",        owned:6, total:6 },
+  { group:"ATEEZ",      owned:4, total:5 },
+  { group:"Stray Kids", owned:3, total:4 },
+];
+const DEFAULT_TRACKER_VERSIONS = [
+  { label:"Standard", owned:6, total:8 },
+  { label:"Limited",  owned:3, total:4 },
+  { label:"Digipack", owned:2, total:3 },
+  { label:"Platform", owned:1, total:2 },
+];
+const DEFAULT_TRACKER_ISO = [
+  { key:"iso-bts-proof",  group:"BTS",        album:"Proof",                    version:"Compact Ver.", emoji:"💜" },
+  { key:"iso-ateez-will", group:"ATEEZ",      album:"THE WORLD EP.FIN : WILL",  version:"Limited Ver.", emoji:"⚡" },
+  { key:"iso-skz-5star",  group:"Stray Kids", album:"5-STAR",                   version:"Digipack",     emoji:"🌟" },
+];
+
+function CollectionTrackerSheet({ mode="dark", onClose, stats, groups, versions, isoRows, onAddGroup }) {
+  const ink = myuSheetInk(mode);
+  const [savedIso, setSavedIso] = useState(()=>{ try { return ls.get(TRACKER_LS_KEY,{})?.savedIso || {}; } catch { return {}; } });
+  const toggleIso = (key) => setSavedIso(prev => {
+    const next = { ...prev, [key]: !prev[key] };
+    ls.set(TRACKER_LS_KEY, { ...(ls.get(TRACKER_LS_KEY,{})||{}), savedIso:next });
+    return next;
+  });
+  const SFF = { fontFamily:"'Epilogue',sans-serif" };
+  const sectionLabel = { ...SFF, fontSize:9.5, fontWeight:800, color:ink.dim, textTransform:"uppercase", letterSpacing:"0.13em", margin:"18px 0 10px" };
+  const OVERVIEW = [
+    { icon:"✦", label:"Actively collecting", val:stats.owned,     color:ink.lavender },
+    { icon:"♡", label:"Wanted / ISO",        val:stats.wanted,    color:ink.pink },
+    { icon:"⇄", label:"Tradeable",           val:stats.tradeable, color:ink.blue },
+  ];
+  return (
+    <div onClick={onClose} style={{ position:"fixed", inset:0, zIndex:640, background:"rgba(6,5,15,0.62)", backdropFilter:"blur(10px)", WebkitBackdropFilter:"blur(10px)", display:"flex", alignItems:"flex-end", animation:"in .2s ease" }}>
+      <div onClick={e=>e.stopPropagation()} style={{ ...myuSheet(mode), width:"100%", borderRadius:"30px 30px 0 0", maxHeight:"82vh", overflowY:"auto", padding:"12px 20px calc(30px + env(safe-area-inset-bottom))", animation:"slideUp .28s ease", color:ink.text }}>
+        <div style={{ width:38, height:4.5, borderRadius:99, background:ink.dim, opacity:0.5, margin:"0 auto 16px" }} />
+        {/* Header */}
+        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:4 }}>
+          <span style={{ fontSize:16, color:ink.lavender }}>✦</span>
+          <p style={{ ...SFF, fontWeight:900, fontSize:19, flex:1, color:ink.text }}>Collection Tracker</p>
+          <button onClick={onClose} aria-label="Close collection tracker" style={{ width:34, height:34, borderRadius:"50%", background:ink.card, border:ink.cardBorder, color:ink.mid, fontSize:15, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>✕</button>
+        </div>
+
+        {/* Overview */}
+        <p style={sectionLabel}>Overview</p>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8 }}>
+          {OVERVIEW.map(s=>(
+            <div key={s.label} style={{ background:ink.card, border:ink.cardBorder, borderRadius:16, padding:"12px 10px", textAlign:"center" }}>
+              <div style={{ width:26, height:26, borderRadius:"50%", margin:"0 auto 7px", background:`${s.color}22`, border:`1px solid ${s.color}55`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, color:s.color }}>{s.icon}</div>
+              <p style={{ ...SFF, fontWeight:900, fontSize:17, color:ink.text, lineHeight:1 }}>{s.val}</p>
+              <p style={{ fontSize:9, color:ink.mid, marginTop:4, lineHeight:1.3 }}>{s.label}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Groups */}
+        <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between" }}>
+          <p style={sectionLabel}>Groups</p>
+          {onAddGroup && <button onClick={onAddGroup} style={{ ...SFF, background:"transparent", border:"none", color:ink.blue, fontWeight:700, fontSize:10.5, cursor:"pointer" }}>＋ Add group</button>}
+        </div>
+        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+          {groups.map(g=>{
+            const pct = Math.round((g.owned / Math.max(g.total,1)) * 100);
+            return (
+              <div key={g.group} style={{ background:ink.card, border:ink.cardBorder, borderRadius:16, padding:"11px 14px" }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:7 }}>
+                  <p style={{ ...SFF, fontWeight:800, fontSize:12.5, color:ink.text }}>{g.group}</p>
+                  <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                    <span style={{ fontSize:10, color:ink.mid }}>{g.owned} / {g.total}</span>
+                    <span style={{ ...SFF, fontSize:9.5, fontWeight:800, color:pct>=100?ink.lavender:ink.blue, background:`${pct>=100?ink.lavender:ink.blue}1a`, border:`1px solid ${pct>=100?ink.lavender:ink.blue}40`, borderRadius:99, padding:"2px 8px" }}>{pct}%</span>
+                  </div>
+                </div>
+                <div style={{ height:5, borderRadius:99, background:ink.track, overflow:"hidden" }}>
+                  <div style={{ height:"100%", width:`${Math.min(pct,100)}%`, borderRadius:99, background:`linear-gradient(90deg,${ink.lavender},${ink.blue})`, transition:"width .4s ease" }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Album versions */}
+        <p style={sectionLabel}>Album Versions</p>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+          {versions.map(v=>(
+            <div key={v.label} style={{ background:ink.card, border:ink.cardBorder, borderRadius:14, padding:"10px 14px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <p style={{ ...SFF, fontWeight:700, fontSize:11.5, color:ink.text }}>{v.label}</p>
+              <span style={{ ...SFF, fontSize:10.5, fontWeight:800, color:ink.blue }}>{v.owned} / {v.total}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* ISO / Wanted */}
+        <p style={sectionLabel}>ISO / Wanted</p>
+        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+          {isoRows.length===0 && <p style={{ fontSize:11, color:ink.mid, textAlign:"center", padding:"10px 0" }}>Nothing on your wanted list yet — mark cards as ISO in a binder.</p>}
+          {isoRows.map(row=>(
+            <div key={row.key} style={{ background:ink.card, border:ink.cardBorder, borderRadius:16, padding:"10px 14px", display:"flex", gap:11, alignItems:"center" }}>
+              <div style={{ width:38, height:38, borderRadius:11, background:`${ink.lavender}1c`, border:`1px solid ${ink.lavender}38`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:17, flexShrink:0 }}>{row.emoji||"🃏"}</div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <p style={{ ...SFF, fontWeight:800, fontSize:12, color:ink.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{row.album}</p>
+                <p style={{ fontSize:10, color:ink.mid, marginTop:2 }}>{row.group}{row.version?` · ${row.version}`:""}</p>
+              </div>
+              <button onClick={()=>toggleIso(row.key)} aria-label={savedIso[row.key]?"Remove from saved":"Save to wanted"} style={{ width:34, height:34, borderRadius:"50%", flexShrink:0, background:savedIso[row.key]?`${ink.pink}22`:"transparent", border:`1px solid ${savedIso[row.key]?ink.pink:ink.dim}55`, color:savedIso[row.key]?ink.pink:ink.dim, fontSize:14, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", transition:"all .18s" }}>{savedIso[row.key]?"♥":"♡"}</button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
-  const [section, setSection] = useState("museum");
+  // "overview" is the dashboard landing; tab pills navigate into sections and
+  // tapping the active pill returns home. Reads a future app-wide theme setting
+  // if one ever exists — dark stays the default.
+  const uniMode = ls.get("backstage_theme_mode", "dark") === "light" ? "light" : "dark";
+  const T = myuTokens(uniMode);
+  const [section, setSection] = useState("overview");
+  const [albumView, setAlbumView] = useState("binders"); // binders | photocards | wanted
+  const [showCollectionTracker, setShowCollectionTracker] = useState(false);
+  const [shelfExpanded, setShelfExpanded] = useState(false);
   const [groupFilter, setGroupFilter] = useState("all");
   const [myWorldTheme, setMyWorldTheme] = useState(()=>ls.get("backstage_my_world_theme","Purple Galaxy"));
   const [featuredShelf, setFeaturedShelf] = useState(()=>ls.get("backstage_featured_shelf",{photocard:null,concert:null,capsule:null,outfit:null,biasMoment:null}));
@@ -7424,7 +7633,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
     {id:"Purple Galaxy",  emoji:"🌌", color:C.lavender},
     {id:"Pink Lightstick",emoji:"🩷", color:C.pink    },
     {id:"Golden Founder", emoji:"✦",  color:C.gold    },
-    {id:"Holo Binder",    emoji:"🌈", color:C.mint    },
+    {id:"Holo Binder",    emoji:"🌈", color:MYU_BLUE  },
     {id:"Soft MySpace",   emoji:"💜", color:C.berry   },
     {id:"Midnight Arena", emoji:"🎤", color:"#6699dd" },
   ];
@@ -7432,7 +7641,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
     "Purple Galaxy":  `radial-gradient(ellipse at 65% 0%,${C.lavender}22,transparent 55%),radial-gradient(ellipse at 20% 88%,${C.accent}10,transparent 50%)`,
     "Pink Lightstick":`radial-gradient(ellipse at 70% 0%,${C.pink}20,transparent 55%),radial-gradient(ellipse at 25% 85%,${C.rose}10,transparent 50%)`,
     "Golden Founder": `radial-gradient(ellipse at 60% 0%,${C.gold}18,transparent 55%),radial-gradient(ellipse at 15% 88%,${C.gold}08,transparent 50%)`,
-    "Holo Binder":    `radial-gradient(ellipse at 70% 5%,${C.mint}18,transparent 55%),radial-gradient(ellipse at 25% 80%,${C.sky}10,transparent 50%)`,
+    "Holo Binder":    `radial-gradient(ellipse at 70% 5%,${MYU_BLUE}18,transparent 55%),radial-gradient(ellipse at 25% 80%,${C.sky}10,transparent 50%)`,
     "Soft MySpace":   `radial-gradient(ellipse at 60% 0%,${C.berry}20,transparent 55%),radial-gradient(ellipse at 20% 88%,${C.blush}10,transparent 50%)`,
     "Midnight Arena": `radial-gradient(ellipse at 65% 5%,#6699dd22,transparent 55%),radial-gradient(ellipse at 15% 80%,#44668820,transparent 50%)`,
   };
@@ -7479,33 +7688,79 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
 
   const _concertResume = ls.get("backstage_concert_resume",[]);
   const _fanIdentity   = ls.get("backstage_fan_identity",null);
-  const MUSEUM_TILES = [
-    {id:"albums",       emoji:"📁", label:"Albums",       stat:binders.length,          unit:"binders",  color:C.accent  },
-    {id:"pcs",          emoji:"🃏", label:"Photocards",   stat:allCards.length,          unit:"cards",    color:C.pink    },
-    {id:"memories",     emoji:"📸", label:"Memories",     stat:4,                        unit:"moments",  color:C.sky     },
-    {id:"concerts",     emoji:"🎤", label:"Concerts",     stat:_concertResume.length||6, unit:"shows",    color:C.berry   },
-    {id:"capsules",     emoji:"💊", label:"Capsules",     stat:ls.get("backstage_capsules_count",2), unit:"saved", color:C.mint },
-    {id:"scrapbook",    emoji:"🗂️", label:"Scrapbooks",  stat:1,                        unit:"book",     color:C.lavender},
-    {id:"achievements", emoji:"🏅", label:"Achievements", stat:7,                        unit:"unlocked", color:C.gold    },
-    {id:"shrine",       emoji:"💜", label:"Bias Shrine",  stat:_fanIdentity?.bias?1:0,   unit:"set",      color:C.rose    },
-    {id:"eraboards",    emoji:"🎭", label:"Era Boards",   stat:eraBoards.length,         unit:"boards",   color:C.mint    },
-  ];
+  const _scrapbookCount = (ls.get("backstage_scrapbooks",[])||[]).length || 1;
   const FEATURED_OPTIONS = [
     {key:"photocard",  label:"Favorite Photocard",    emoji:"🃏", placeholder:"Felix — MANIAC era",        color:C.pink    },
     {key:"concert",    label:"Favorite Concert",       emoji:"🎤", placeholder:"ATEEZ Dallas 2025",         color:C.berry   },
-    {key:"capsule",    label:"Favorite Capsule",       emoji:"💊", placeholder:"BTS Vegas Night 2 ✦",      color:C.mint    },
+    {key:"capsule",    label:"Favorite Capsule",       emoji:"💊", placeholder:"BTS Vegas Night 2 ✦",      color:MYU_BLUE  },
     {key:"outfit",     label:"Favorite Outfit",        emoji:"✨", placeholder:"MANIAC era silver fit",     color:C.lavender},
     {key:"biasMoment", label:"Favorite Bias Moment",   emoji:"💜", placeholder:"Karina eye contact fancam", color:C.rose    },
   ];
 
-  const SECTIONS = [
-    { id:"museum",     label:"Museum",     icon:"🏛️" },
-    { id:"photocards", label:"Photocards", icon:"🃏" },
-    { id:"albums",     label:"Albums",     icon:"📁" },
-    { id:"eraboards",  label:"Era Boards", icon:"🎭" },
-    { id:"scrapbook",  label:"Scrapbook",  icon:"📸" },
-    { id:"wishlist",   label:"Wishlist",   icon:"⭐" },
+  // Simplified top tabs — Museum/Photocards/Wishlist are gone as top-level
+  // destinations. Photocards + ISO/Wanted now live inside Albums (albumView).
+  // Memories/Achievements launch their existing flows rather than swapping
+  // section content; tapping the active pill returns to the overview.
+  const TABS = [
+    { id:"albums",       label:"Albums" },
+    { id:"eraboards",    label:"Era Boards" },
+    { id:"scrapbook",    label:"Scrapbooks" },
+    { id:"memories",     label:"Memories" },
+    { id:"achievements", label:"Achievements" },
   ];
+  const openTab = (id) => {
+    if (id === "memories")     { go("scrapbook"); return; }
+    if (id === "achievements") { setShowAchievements(true); return; }
+    if (id === "albums") setAlbumView("binders");
+    setSection(prev => prev === id ? "overview" : id);
+  };
+
+  // Overview tiles — fewer, larger, calmer. Fan-native subtitles.
+  const OVERVIEW_TILES = [
+    { id:"albums",       icon:"📀", label:"Albums",       stat:binders.length,           sub:"Albums, photocards & wishlist tracking", color:C.accent,  onTap:()=>{ setAlbumView("binders"); setSection("albums"); } },
+    { id:"eraboards",    icon:"🎭", label:"Era Boards",   stat:eraBoards.length,         sub:"Track your eras & milestones",           color:MYU_BLUE,  onTap:()=>setSection("eraboards") },
+    { id:"scrapbook",    icon:"📖", label:"Scrapbooks",   stat:_scrapbookCount,          sub:"Stories from concerts & special moments", color:C.pink,   onTap:()=>setSection("scrapbook") },
+    { id:"memories",     icon:"📸", label:"Memories",     stat:4,                        sub:"Saved moments you'll never forget",      color:C.sky,     onTap:()=>go("scrapbook") },
+    { id:"concerts",     icon:"🎤", label:"Concerts",     stat:_concertResume.length||6, sub:"Shows you've been to and loved",         color:C.berry,   onTap:()=>go("myshows") },
+    { id:"achievements", icon:"🏆", label:"Achievements", stat:7,                        sub:"Milestones you've unlocked",             color:C.gold,    onTap:()=>setShowAchievements(true) },
+  ];
+
+  // ── Collection Tracker data — real stores first, clean mock fallback ────────
+  const trackerGroups = (()=>{
+    const map = new Map();
+    allCards.forEach(c=>{ const g=c.group_name||c.group; if(!g) return; const e=map.get(g)||{owned:0,wanted:0}; e.owned++; map.set(g,e); });
+    wishlist.forEach(w=>{ const g=w.group_name||w.group; if(!g) return; const e=map.get(g)||{owned:0,wanted:0}; e.wanted++; map.set(g,e); });
+    PC_CATALOG_SETS.forEach(s=>{
+      const d = pcSetData[s.id]||{};
+      const e = map.get(s.group)||{owned:0,wanted:0};
+      let touched = false;
+      s.members.forEach(m=>{ if(d[m]==="owned"){e.owned++;touched=true;} else if(d[m]==="wishlist"){e.wanted++;touched=true;} });
+      if (touched) map.set(s.group, e);
+    });
+    const rows = [...map.entries()].filter(([,v])=>v.owned+v.wanted>0)
+      .map(([group,v])=>({ group, owned:v.owned, total:v.owned+v.wanted }))
+      .sort((a,b)=>b.owned-a.owned);
+    return rows.length ? rows.slice(0,6) : DEFAULT_TRACKER_GROUPS;
+  })();
+  const trackerVersions = (()=>{
+    const map = new Map();
+    PC_CATALOG_SETS.forEach(s=>{
+      const d = pcSetData[s.id]||{};
+      const label = (s.version||"Standard").replace(/\s*Ver\.?$/i,"");
+      const e = map.get(label)||{owned:0,total:0};
+      s.members.forEach(m=>{ e.total++; if(d[m]==="owned") e.owned++; });
+      map.set(label, e);
+    });
+    const rows = [...map.entries()].map(([label,v])=>({label,...v})).filter(r=>r.owned>0).sort((a,b)=>b.owned-a.owned);
+    return rows.length ? rows.slice(0,4) : DEFAULT_TRACKER_VERSIONS;
+  })();
+  const trackerIso = (()=>{
+    const rows = [
+      ...wishlist.map((w,i)=>({ key:`iso-${w.id||i}`, group:w.group_name||w.group||"—", album:w.album||w.era||w.member||w.name||"Card", version:w.version||"", emoji:"🃏" })),
+      ...PC_CATALOG_SETS.flatMap(s=>s.members.filter(m=>(pcSetData[s.id]||{})[m]==="wishlist").map(m=>({ key:`set-${s.id}-${m}`, group:s.group, album:`${s.album} · ${m}`, version:s.version, emoji:s.emoji }))),
+    ];
+    return rows.length ? rows.slice(0,8) : DEFAULT_TRACKER_ISO;
+  })();
 
   return (
     <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden", position:"relative" }}>
@@ -7516,130 +7771,129 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
           <AddCardForm onBack={()=>setShowAddCard(false)} onSaved={card=>{ setCards(cs=>[card,...cs]); setShowAddCard(false); }} />
         </div>
       )}
-      {/* Atmospheric bg */}
-      <div style={{ position:"absolute",inset:0,background:`radial-gradient(ellipse at 80% 10%,${C.pink}06,transparent 45%),radial-gradient(ellipse at 10% 85%,${C.accent}05,transparent 50%)`,pointerEvents:"none",zIndex:0 }} />
+      {/* Atmospheric bg — one soft nebula, no competing washes */}
+      <div style={{ position:"absolute",inset:0,background:T.pageBg,pointerEvents:"none",zIndex:0 }} />
       {/* Theme overlay — changes with Decorate selection */}
-      <div style={{ position:"absolute",inset:0,background:THEME_BG[myWorldTheme]||THEME_BG["Purple Galaxy"],pointerEvents:"none",zIndex:0,transition:"background .5s ease" }} />
+      <div style={{ position:"absolute",inset:0,background:THEME_BG[myWorldTheme]||THEME_BG["Purple Galaxy"],pointerEvents:"none",zIndex:0,transition:"background .5s ease",opacity:uniMode==="light"?0.35:1 }} />
 
-      {/* Full-bleed My Universe hero band — replaces the slim flat header */}
-      <div style={{ padding:"22px 20px 16px", flexShrink:0, position:"relative", zIndex:1, overflow:"hidden", background:`linear-gradient(165deg,${C.plum}c8 0%,${C.cosmic}f0 55%,transparent 100%)`, borderBottom:`1px solid rgba(255,255,255,0.05)` }}>
-        {/* Backstage B watermark — subtle orb identity, not a literal logo render */}
-        <div aria-hidden style={{ position:"absolute", top:-44, right:-34, width:170, height:170, borderRadius:"50%", border:`1px solid ${C.accent}16`, background:`radial-gradient(circle at 38% 38%,${C.accent}12,transparent 70%)`, pointerEvents:"none" }} />
-        <p aria-hidden style={{ position:"absolute", top:2, right:20, fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:58, lineHeight:1, color:"transparent", WebkitTextStroke:`1px ${C.accent}1a`, pointerEvents:"none", userSelect:"none" }}>B</p>
-
+      {/* My Universe hero — editorial, spacious, minimal hard lines */}
+      <div style={{ padding:"24px 20px 14px", flexShrink:0, position:"relative", zIndex:1, overflow:"hidden" }}>
+        <div aria-hidden style={{ position:"absolute", top:-70, right:-50, width:220, height:220, borderRadius:"50%", background:`radial-gradient(circle at 40% 40%,${C.accent}14,${C.pink}08 55%,transparent 72%)`, filter:"blur(2px)", pointerEvents:"none" }} />
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", position:"relative" }}>
           <div>
-            <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.16em",marginBottom:4 }}>My World</p>
-            <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontStyle:"italic",fontWeight:800,fontSize:25,background:`linear-gradient(135deg,${C.lavender},${C.blush})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",lineHeight:1.1 }}>My Universe ✦</h2>
-            <p style={{ fontSize:9.5,color:C.textDim,marginTop:4, maxWidth:210 }}>Collections, capsules, memories, and scrapbooks.</p>
+            <p style={{ fontSize:9,color:T.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.2em",marginBottom:5 }}>My World</p>
+            <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontStyle:"italic",fontWeight:800,fontSize:27,background:`linear-gradient(135deg,${C.lavender},${C.blush} 70%,${MYU_BLUE_SOFT})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",lineHeight:1.12 }}>My Universe ✦</h2>
+            <p style={{ fontSize:10,color:T.textDim,marginTop:5, maxWidth:230, lineHeight:1.5 }}>Collections, capsules, memories, and scrapbooks.</p>
           </div>
           {isVip&&<VipBadge />}
         </div>
-        {/* Sub-nav */}
-        <div style={{ display:"flex", gap:6, overflowX:"auto", marginTop:16, paddingBottom:2, scrollbarWidth:"none", position:"relative" }}>
-          {SECTIONS.map(s=>(
-            <button key={s.id} onClick={()=>setSection(s.id)} className="tap" style={{ flexShrink:0, padding:"7px 14px", borderRadius:99, fontSize:11, fontFamily:"'Epilogue',sans-serif", fontWeight:700, background:section===s.id?`linear-gradient(140deg,${C.accent}cc,${C.accentDim})`:"rgba(255,255,255,0.05)", color:section===s.id?C.bg:C.textMid, border:section===s.id?"none":`1px solid rgba(255,255,255,0.07)`, cursor:"pointer", boxShadow:section===s.id?`0 4px 12px ${C.accent}28`:"none", display:"flex", gap:5, alignItems:"center" }}>
-              <span>{s.icon}</span><span>{s.label}</span>
+        {/* Tab rail — one soft glass strip, no line clutter */}
+        <div style={{ ...myuGlass(uniMode, 18), marginTop:16, padding:5, display:"flex", gap:4, overflowX:"auto", scrollbarWidth:"none" }}>
+          {TABS.map(s=>(
+            <button key={s.id} onClick={()=>openTab(s.id)} className="tap" aria-label={s.label} style={myuPill(uniMode, section===s.id)}>
+              {s.label}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Floating action orb + tray — single FAB consolidating Add / Ask AI / Decorate */}
+      {/* Floating action orb + tray — single FAB consolidating Add / Ask AI / Decorate.
+          Hidden while any bottom sheet is open so it never blocks sheet content. */}
       {showActionTray && (
         <div onClick={()=>setShowActionTray(false)} style={{ position:"absolute", inset:0, zIndex:4 }} />
       )}
       {showActionTray && (
-        <div style={{ position:"absolute", bottom:"calc(156px + env(safe-area-inset-bottom))", right:20, zIndex:6, display:"flex", flexDirection:"column", gap:6, background:`linear-gradient(160deg,${C.surfaceHi}f5,${C.cosmic}f5)`, border:`1px solid ${C.pink}30`, borderRadius:16, padding:7, boxShadow:`0 14px 36px rgba(0,0,0,0.55), 0 0 24px ${C.pink}1c, inset 0 1px 0 rgba(255,255,255,0.08)`, backdropFilter:"blur(14px)", minWidth:198 }}>
+        <div style={{ position:"absolute", bottom:"calc(156px + env(safe-area-inset-bottom))", right:20, zIndex:6, display:"flex", flexDirection:"column", gap:6, ...myuGlass(uniMode, 16), padding:7, minWidth:198 }}>
           {[
             { icon:"✦", label:"Add to My World", onClick:()=>{ setShowQuickAdd(true); setShowActionTray(false); } },
             { icon:"✨", label:"Ask Backstage AI", onClick:()=>{ go("assistant"); setShowActionTray(false); } },
-            { icon:"🎨", label:"Decorate My Universe", onClick:()=>{ setSection("museum"); setShowDecorate(true); setShowActionTray(false); } },
+            { icon:"🎨", label:"Decorate My Universe", onClick:()=>{ setSection("overview"); setShowDecorate(true); setShowActionTray(false); } },
           ].map(item=>(
-            <button key={item.label} onClick={item.onClick} className="tap" style={{ display:"flex", alignItems:"center", gap:9, padding:"9px 10px", borderRadius:11, background:"transparent", border:"none", color:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, cursor:"pointer", textAlign:"left" }}>
+            <button key={item.label} onClick={item.onClick} className="tap" style={{ display:"flex", alignItems:"center", gap:9, padding:"9px 10px", borderRadius:11, background:"transparent", border:"none", color:T.text, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, cursor:"pointer", textAlign:"left" }}>
               <span style={{ fontSize:14, width:20, textAlign:"center", flexShrink:0 }}>{item.icon}</span>
               <span>{item.label}</span>
             </button>
           ))}
         </div>
       )}
-      <button onClick={()=>setShowActionTray(v=>!v)} className="tap" style={{ position:"absolute", bottom:"calc(96px + env(safe-area-inset-bottom))", right:20, width:54, height:54, borderRadius:18, background:`linear-gradient(150deg,${C.pink},${C.accentDim})`, border:"1px solid rgba(255,255,255,0.28)", display:"flex", alignItems:"center", justifyContent:"center", color:"#0a0612", fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:24, cursor:"pointer", boxShadow:`0 10px 28px ${C.pink}40, 0 4px 14px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.4)`, zIndex:7, transform:showActionTray?"rotate(45deg)":"none", transition:"transform .2s" }}>+</button>
+      {!(showQuickAdd||showAchievements||showShrine||showSmartMatch||showCollectionTracker) && (
+        <button onClick={()=>setShowActionTray(v=>!v)} className="tap" aria-label="Add to My World" style={{ position:"absolute", bottom:"calc(96px + env(safe-area-inset-bottom))", right:20, width:56, height:56, borderRadius:"50%", background:`radial-gradient(circle at 32% 28%,rgba(255,255,255,0.55),transparent 40%),linear-gradient(150deg,${C.pink},${C.accent} 55%,${MYU_BLUE})`, border:"1px solid rgba(255,255,255,0.35)", display:"flex", alignItems:"center", justifyContent:"center", color:"#0a0612", fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:24, cursor:"pointer", boxShadow:`0 12px 32px ${C.accent}44, 0 4px 14px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.55)`, zIndex:7, transform:showActionTray?"rotate(45deg)":"none", transition:"transform .2s", backdropFilter:"blur(8px)" }}>+</button>
+      )}
 
       {/* CONTENT — all cards/stats scroll here */}
       <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))", position:"relative", zIndex:1 }}>
 
-        {/* Collection Status — dominant completion ring + scroll capsule row, no spreadsheet grid */}
-        <div style={{ ...VS.premiumHeroCard(C.accent, C.pink), padding:"16px 16px", marginBottom:12, display:"flex", gap:14, alignItems:"center" }}>
-          <div style={VS.orbitAccent(C.accent, 120)} />
-          <div style={VS.shimmerLine(C.accent)} />
-          <RingProgress value={completion} size={76} color={C.accent} color2={C.pink}>
-            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:18, color:C.text, lineHeight:1, position:"relative" }}>{completion}%</p>
-            <p style={{ fontSize:7, color:C.textMid, marginTop:1, position:"relative" }}>complete</p>
-          </RingProgress>
-          <div style={{ flex:1, minWidth:0, position:"relative" }}>
-            <p style={{ fontSize:9, color:C.lavender, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.13em", marginBottom:9 }}>✦ Collection Status</p>
-            <div style={{ display:"flex", gap:6, overflowX:"auto", scrollbarWidth:"none", paddingBottom:1 }}>
-              {[
-                { val:totalOwned, label:"Owned", color:C.text },
-                { val:wishlistTotal, label:"Wanted", color:C.gold },
-                { val:tradeableTotal, label:"Tradeable", color:C.rose },
-                { val:binders.length, label:"Albums", color:C.accent },
-              ].map(s=>(
-                <div key={s.label} style={{ flexShrink:0, background:"rgba(255,255,255,0.045)", border:"1px solid rgba(255,255,255,0.07)", borderRadius:99, padding:"5px 11px", whiteSpace:"nowrap" }}>
-                  <span style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:12, color:s.color }}>{s.val}</span>
-                  <span style={{ fontSize:8.5, color:C.textMid, marginLeft:4 }}>{s.label}</span>
-                </div>
-              ))}
+        {/* Collection Status — flagship liquid-glass card, fully tappable → Collection Tracker */}
+        <div role="button" aria-label="View collection tracker" onClick={()=>setShowCollectionTracker(true)} className="tap card-lift" style={{ ...myuGlass(uniMode, 26), padding:"18px 18px 0", marginBottom:14, cursor:"pointer" }}>
+          <div aria-hidden style={{ position:"absolute", top:-46, right:-30, width:150, height:150, borderRadius:"50%", background:`radial-gradient(circle,${MYU_BLUE_GLOW},transparent 65%)`, pointerEvents:"none" }} />
+          {/* Soft card-stack motif — quiet depth cue, not decoration overload */}
+          <div aria-hidden style={{ position:"absolute", right:16, top:16, width:34, height:46, borderRadius:8, background:`linear-gradient(150deg,${C.accent}30,${C.pink}18)`, border:"1px solid rgba(255,255,255,0.14)", transform:"rotate(9deg)", pointerEvents:"none" }} />
+          <div aria-hidden style={{ position:"absolute", right:28, top:20, width:34, height:46, borderRadius:8, background:`linear-gradient(150deg,${MYU_BLUE}26,${C.accent}14)`, border:"1px solid rgba(255,255,255,0.10)", transform:"rotate(-6deg)", pointerEvents:"none" }} />
+          <div style={{ display:"flex", gap:16, alignItems:"center", position:"relative" }}>
+            <RingProgress value={completion} size={80} color={C.accent} color2={C.pink}>
+              <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:19, color:T.text, lineHeight:1, position:"relative" }}>{completion}%</p>
+              <p style={{ fontSize:7, color:T.textMid, marginTop:1, position:"relative" }}>complete</p>
+            </RingProgress>
+            <div style={{ flex:1, minWidth:0 }}>
+              <p style={{ fontSize:9, color:C.lavender, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.15em", marginBottom:10 }}>✦ Collection Status</p>
+              <div style={{ display:"flex", gap:14 }}>
+                {[
+                  { val:totalOwned,     label:"Owned",     color:T.text },
+                  { val:wishlistTotal,  label:"Wanted",    color:C.gold },
+                  { val:tradeableTotal, label:"Tradeable", color:C.pink },
+                ].map(s=>(
+                  <div key={s.label}>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:19, color:s.color, lineHeight:1 }}>{s.val}</p>
+                    <p style={{ fontSize:9, color:T.textMid, marginTop:3 }}>{s.label}</p>
+                  </div>
+                ))}
+              </div>
             </div>
-            {completion>=75&&<p style={{ fontSize:9, color:C.mint, fontFamily:"'Epilogue',sans-serif", fontWeight:700, marginTop:8 }}>✦ Almost there!</p>}
+          </div>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:14, padding:"12px 2px", borderTop:`1px solid ${T.hairline}`, position:"relative" }}>
+            <span style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, color:MYU_BLUE }}>View collection tracker</span>
+            <span aria-hidden style={{ color:MYU_BLUE, fontSize:15, lineHeight:1 }}>›</span>
           </div>
         </div>
 
         {/* Smart nudge — polished collector alert */}
         {wishlistTotal > 0 && (
-          <div style={{ background:`linear-gradient(140deg,${C.rose}20,${C.rose}08,${C.surface})`, border:`1.5px solid ${C.rose}48`, borderRadius:16, padding:"11px 14px", marginBottom:12, display:"flex", gap:10, alignItems:"center", boxShadow:`0 8px 22px ${C.rose}1c, inset 0 1px 0 rgba(255,255,255,0.08)`, backdropFilter:"blur(10px)", position:"relative", overflow:"hidden" }}>
-            <div style={VS.orbitAccent(C.rose, 80)} />
-            <span style={{ fontSize:18, position:"relative", filter:`drop-shadow(0 0 8px ${C.rose}99)` }}>🔥</span>
+          <div style={{ ...myuGlass(uniMode, 18), padding:"11px 14px", marginBottom:12, display:"flex", gap:10, alignItems:"center" }}>
+            <span style={{ fontSize:17, position:"relative" }}>🔥</span>
             <div style={{ flex:1, position:"relative" }}>
-              <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, color:C.text }}>So close! <span style={{ color:C.rose, textShadow:`0 0 12px ${C.rose}66` }}>{wishlistTotal} card{wishlistTotal>1?"s":""}</span> away</p>
-              <p style={{ fontSize:10, color:C.textMid }}>Finish your collection — check Trade Hub</p>
+              <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, color:T.text }}>So close! <span style={{ color:C.rose }}>{wishlistTotal} card{wishlistTotal>1?"s":""}</span> away</p>
+              <p style={{ fontSize:10, color:T.textMid }}>Finish your collection — check Trade Hub</p>
             </div>
-            <button onClick={()=>setSection("wishlist")} style={{ ...VS.glowButton(C.rose, C.gold), padding:"7px 12px", fontSize:10, position:"relative" }}>Trade →</button>
+            <button onClick={()=>{ setAlbumView("wanted"); setSection("albums"); }} style={{ ...VS.glowButton(C.rose, C.gold), padding:"7px 12px", fontSize:10, position:"relative" }}>Trade →</button>
           </div>
         )}
 
         {/* VIP upsell */}
         {!isVip && (
-          <div onClick={onUpgrade} className="tap" style={{ background:`linear-gradient(140deg,${C.gold}22,${C.gold}08,${C.surface})`, border:`1.5px solid ${C.gold}50`, borderRadius:16, padding:"11px 14px", marginBottom:14, display:"flex", gap:10, alignItems:"center", cursor:"pointer", boxShadow:`0 8px 24px ${C.gold}1e, inset 0 1px 0 rgba(255,255,255,0.08)`, backdropFilter:"blur(10px)", position:"relative", overflow:"hidden" }}>
-            <div style={VS.orbitAccent(C.gold, 90)} />
-            <span style={{ fontSize:18, position:"relative", filter:`drop-shadow(0 0 8px ${C.gold}99)` }}>✦</span>
+          <div onClick={onUpgrade} className="tap" style={{ ...myuGlass(uniMode, 18), padding:"11px 14px", marginBottom:14, display:"flex", gap:10, alignItems:"center", cursor:"pointer" }}>
+            <span style={{ fontSize:17, position:"relative", filter:`drop-shadow(0 0 8px ${C.gold}88)` }}>✦</span>
             <div style={{ flex:1, position:"relative" }}>
               <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, color:C.gold }}>Unlock Backstage VIP</p>
-              <p style={{ fontSize:10, color:C.textMid }}>Unlimited binders · Trade analytics · Priority matches</p>
+              <p style={{ fontSize:10, color:T.textMid }}>Unlimited binders · Trade analytics · Priority matches</p>
             </div>
             <div style={{ ...VS.featurePill(C.gold), fontSize:9, position:"relative" }}>Upgrade →</div>
           </div>
         )}
 
-        {/* ── MY WORLD MUSEUM ─────────────────────────────────────────────── */}
-        {section==="museum" && (
+        {/* ── OVERVIEW — calm liquid-glass dashboard (replaces the Museum) ── */}
+        {section==="overview" && (
           <div>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
-              <div>
-                <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em",marginBottom:2 }}>Fan Archive</p>
-                <h3 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,color:C.text,lineHeight:1.1 }}>Your Fan Museum ✦</h3>
-              </div>
-              <button onClick={()=>setShowDecorate(d=>!d)} style={{ background:showDecorate?`${C.lavender}28`:`${C.lavender}12`, border:`1.5px solid ${showDecorate?C.lavender:C.lavender+"33"}`, borderRadius:10, padding:"7px 13px", color:C.lavender, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10.5, cursor:"pointer", transition:"all .2s" }}>🎨 Decorate</button>
+            <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:showDecorate?10:2 }}>
+              <button onClick={()=>setShowDecorate(d=>!d)} aria-label="Decorate My Universe" style={{ background:showDecorate?`${C.lavender}22`:"transparent", border:`1px solid ${showDecorate?C.lavender+"55":T.hairline}`, borderRadius:99, padding:"6px 13px", color:showDecorate?C.lavender:T.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10, cursor:"pointer", transition:"all .2s" }}>🎨 Decorate</button>
             </div>
             {showDecorate && (
-              <div style={{ ...VS.glowCard(C.lavender), padding:"14px 16px", marginBottom:14 }}>
-                <div style={VS.shimmerLine(C.lavender)} />
-                <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10 }}>World Theme</p>
+              <div style={{ ...myuGlass(uniMode, 20), padding:"14px 16px", marginBottom:14 }}>
+                <p style={{ fontSize:9,color:T.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10 }}>World Theme</p>
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8 }}>
                   {WORLD_THEMES.map(t=>(
-                    <div key={t.id} onClick={()=>saveTheme(t.id)} className="tap" style={{ borderRadius:12, padding:"10px 8px", textAlign:"center", cursor:"pointer", background:myWorldTheme===t.id?`${t.color}28`:`${t.color}0a`, border:`1.5px solid ${myWorldTheme===t.id?t.color:t.color+"33"}`, transition:"all .2s" }}>
+                    <div key={t.id} onClick={()=>saveTheme(t.id)} className="tap" style={{ borderRadius:12, padding:"10px 8px", textAlign:"center", cursor:"pointer", background:myWorldTheme===t.id?`${t.color}28`:`${t.color}0a`, border:`1px solid ${myWorldTheme===t.id?t.color:t.color+"30"}`, transition:"all .2s" }}>
                       <div style={{ fontSize:18, marginBottom:3 }}>{t.emoji}</div>
-                      <p style={{ fontSize:8.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:myWorldTheme===t.id?t.color:C.textMid, lineHeight:1.3 }}>{t.id}</p>
+                      <p style={{ fontSize:8.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:myWorldTheme===t.id?t.color:T.textMid, lineHeight:1.3 }}>{t.id}</p>
                       {myWorldTheme===t.id && <div style={{ width:5,height:5,borderRadius:"50%",background:t.color,margin:"4px auto 0" }} />}
                     </div>
                   ))}
@@ -7649,21 +7903,20 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
             {/* Era Boards: featured hero card */}
             {eraBoards.length > 0 && (() => {
               const latest = eraBoards[eraBoards.length - 1];
-              const pal = latest.palette || [C.mint, C.accent, C.rose];
+              const pal = latest.palette || [MYU_BLUE, C.accent, C.rose];
               const grpData = ERA_SEARCH_GROUPS.find(g => g.group === latest.group);
               const bc = grpData?.color || pal[0];
               return (
-                <div onClick={() => setEraRoomDeep({ group:latest.group, era:latest.era, color:bc })} className="tap" style={{ marginBottom:12, borderRadius:20, overflow:"hidden", cursor:"pointer", position:"relative", background:`linear-gradient(150deg,${bc}22 0%,${C.plum}cc 45%,${C.cosmic}f5 100%)`, border:`1.5px solid ${bc}48`, boxShadow:`0 14px 36px ${bc}22, inset 0 1px 0 rgba(255,255,255,0.1)`, backdropFilter:"blur(10px)" }}>
-                  <div style={VS.orbitAccent(bc, 130)} />
-                  <div style={{ height:5, background:`linear-gradient(90deg,${pal[0]},${pal[1]},${pal[2]})`, boxShadow:`0 0 12px ${bc}66`, position:"relative" }} />
+                <div onClick={() => setEraRoomDeep({ group:latest.group, era:latest.era, color:bc })} className="tap" style={{ ...myuGlass(uniMode, 20), marginBottom:12, cursor:"pointer" }}>
+                  <div style={{ height:4, background:`linear-gradient(90deg,${pal[0]},${pal[1]},${pal[2]})`, position:"relative" }} />
                   <div style={{ padding:"14px 16px 16px", position:"relative" }}>
                     <p style={{ fontSize:9, color:bc, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:4 }}>Continue Building</p>
-                    <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:20, color:C.text, lineHeight:1.1, marginBottom:3 }}>{latest.era}</p>
-                    <p style={{ fontSize:10.5, color:C.textMid, marginBottom:12, fontFamily:"'Epilogue',sans-serif", fontWeight:600 }}>{latest.group} · Era Room</p>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:20, color:T.text, lineHeight:1.1, marginBottom:3 }}>{latest.era}</p>
+                    <p style={{ fontSize:10.5, color:T.textMid, marginBottom:12, fontFamily:"'Epilogue',sans-serif", fontWeight:600 }}>{latest.group} · Era Room</p>
                     <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
                       <div style={{ display:"flex", gap:5 }}>
                         {(latest.savedTemplates||[]).length > 0 && <span style={{ background:`${bc}14`, border:`1px solid ${bc}30`, borderRadius:99, padding:"3px 9px", fontSize:9, color:bc, fontFamily:"'Epilogue',sans-serif", fontWeight:700 }}>{(latest.savedTemplates||[]).length} saved</span>}
-                        {latest.binderStarted && <span style={{ background:`${C.mint}14`, border:`1px solid ${C.mint}30`, borderRadius:99, padding:"3px 9px", fontSize:9, color:C.mint, fontFamily:"'Epilogue',sans-serif", fontWeight:700 }}>Binder active</span>}
+                        {latest.binderStarted && <span style={{ background:`${MYU_BLUE}14`, border:`1px solid ${MYU_BLUE}30`, borderRadius:99, padding:"3px 9px", fontSize:9, color:MYU_BLUE, fontFamily:"'Epilogue',sans-serif", fontWeight:700 }}>Binder active</span>}
                       </div>
                       <span style={{ background:`linear-gradient(135deg,${bc},${bc}88)`, borderRadius:10, padding:"7px 13px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:10 }}>Open →</span>
                     </div>
@@ -7671,149 +7924,55 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                 </div>
               );
             })()}
-            {/* Photocard Binder — promoted to a full-width featured tile, priority over the supporting grid */}
-            <div onClick={() => setSection("photocards")} className="tap card-lift" style={{ marginBottom:10, borderRadius:20, padding:"16px 16px", display:"flex", alignItems:"center", gap:14, background:`linear-gradient(155deg,${C.pink}1c 0%,${C.surfaceHi}f0 45%,${C.cosmic}f5 100%)`, border:`1px solid ${C.pink}34`, cursor:"pointer", position:"relative", overflow:"hidden", boxShadow:`0 10px 30px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.07)`, backdropFilter:"blur(10px)" }}>
-              <div style={VS.orbitAccent(C.pink, 100)} />
-              <div style={VS.shimmerLine(C.pink)} />
-              <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:3, width:58, flexShrink:0, position:"relative" }}>
-                {[...Array(6)].map((_,i) => (
-                  <div key={i} style={{ height:24, borderRadius:4, background:i < Math.min(allCards.length,6) ? `${C.pink}77` : `${C.pink}1c`, border:`1px solid ${C.pink}38` }} />
-                ))}
-              </div>
-              <div style={{ flex:1, position:"relative" }}>
-                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:23, color:C.pink, lineHeight:1 }}>{allCards.length}</p>
-                <p style={{ fontSize:9, color:C.textMid, marginTop:1 }}>cards in your binder</p>
-                <p style={{ fontSize:13, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.text, marginTop:5 }}>Photocard Binder</p>
-              </div>
-              <span style={{ background:`${C.pink}18`, border:`1px solid ${C.pink}38`, borderRadius:10, padding:"7px 11px", color:C.pink, fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:10, flexShrink:0, position:"relative" }}>Open →</span>
+            {/* Category tiles — fewer, larger, calmer. Icon + count + title + subtitle. */}
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:12 }}>
+              {OVERVIEW_TILES.map(tile=>(
+                <div key={tile.id} onClick={tile.onTap} className="tap card-lift" role="button" aria-label={tile.label} style={{ ...myuTile(uniMode, tile.color), padding:"16px 14px 14px", cursor:"pointer", minHeight:132, display:"flex", flexDirection:"column" }}>
+                  <div style={{ width:36, height:36, borderRadius:12, background:`${tile.color}1c`, border:`1px solid ${tile.color}33`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:17, marginBottom:10 }}>{tile.icon}</div>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:23, color:tile.color, lineHeight:1 }}>{tile.stat}</p>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:12.5, color:T.text, marginTop:5 }}>{tile.label}</p>
+                  <div style={{ display:"flex", alignItems:"flex-end", gap:6, marginTop:3, flex:1 }}>
+                    <p style={{ fontSize:9.5, color:T.textMid, lineHeight:1.45, flex:1 }}>{tile.sub}</p>
+                    <span aria-hidden style={{ color:T.textDim, fontSize:14, lineHeight:1, paddingBottom:1 }}>›</span>
+                  </div>
+                </div>
+              ))}
             </div>
-            {/* Supporting grid */}
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16 }}>
-              {/* Era Boards */}
-              <div onClick={() => setSection("eraboards")} className="tap card-lift" style={{ borderRadius:18, padding:"14px 14px", background:`linear-gradient(160deg,${C.mint}16,${C.surfaceHi})`, border:`1.5px solid ${C.mint}40`, cursor:"pointer", position:"relative", overflow:"hidden", boxShadow:`0 6px 22px ${C.mint}1c, inset 0 1px 0 rgba(255,255,255,0.07)`, backdropFilter:"blur(10px)" }}>
-                <div style={VS.orbitAccent(C.mint, 70)} />
-                <div style={{ position:"absolute", inset:0, background:`linear-gradient(160deg,${C.mint}08,transparent)`, pointerEvents:"none" }} />
-                <div style={{ display:"flex", gap:2, marginBottom:9 }}>
-                  {(eraBoards[0]?.palette || [C.mint,C.lavender,C.rose]).map((c,i) => (
-                    <div key={i} style={{ height:3, flex:1, borderRadius:99, background:c }} />
-                  ))}
-                </div>
-                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, color:C.mint, lineHeight:1 }}>{eraBoards.length}</p>
-                <p style={{ fontSize:9, color:C.textMid, marginTop:1 }}>boards</p>
-                <p style={{ fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.text, marginTop:6 }}>Era Boards</p>
-              </div>
-              {/* Albums & Binders */}
-              <div onClick={() => setSection("albums")} className="tap card-lift" style={{ borderRadius:18, padding:"14px 14px", background:`linear-gradient(160deg,${C.lavender}16,${C.surfaceHi})`, border:`1.5px solid ${C.lavender}40`, cursor:"pointer", position:"relative", overflow:"hidden", boxShadow:`0 6px 22px ${C.lavender}1c, inset 0 1px 0 rgba(255,255,255,0.07)`, backdropFilter:"blur(10px)" }}>
-                <div style={VS.orbitAccent(C.lavender, 70)} />
-                <div style={{ position:"absolute", inset:0, background:`linear-gradient(160deg,${C.lavender}08,transparent)`, pointerEvents:"none" }} />
-                <div style={{ display:"flex", flexDirection:"column", gap:3, marginBottom:9, width:50 }}>
-                  {[1,0.72,0.48].map((w,i) => (
-                    <div key={i} style={{ height:5, borderRadius:3, background:`${C.lavender}${i===0?"cc":i===1?"77":"33"}`, width:`${w*100}%` }} />
-                  ))}
-                </div>
-                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, color:C.lavender, lineHeight:1 }}>{binders.length}</p>
-                <p style={{ fontSize:9, color:C.textMid, marginTop:1 }}>binders</p>
-                <p style={{ fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.text, marginTop:6 }}>Albums & Binders</p>
-              </div>
-              {/* Concerts */}
-              <div onClick={() => go("myshows")} className="tap card-lift" style={{ borderRadius:18, padding:"14px 14px", background:`linear-gradient(160deg,${C.berry}16,${C.surfaceHi})`, border:`1.5px solid ${C.berry}40`, cursor:"pointer", position:"relative", overflow:"hidden", boxShadow:`0 6px 22px ${C.berry}1c, inset 0 1px 0 rgba(255,255,255,0.07)`, backdropFilter:"blur(10px)" }}>
-                <div style={VS.orbitAccent(C.berry, 70)} />
-                <div style={{ position:"absolute", inset:0, background:`linear-gradient(160deg,${C.berry}08,transparent)`, pointerEvents:"none" }} />
-                <div style={{ display:"flex", alignItems:"flex-end", gap:2.5, height:22, marginBottom:9, width:50 }}>
-                  {[70,100,55,85,65,90,50].map((h,i) => (
-                    <div key={i} style={{ flex:1, height:`${h}%`, borderRadius:"3px 3px 0 0", background:`${C.berry}${i%2===0?"cc":"55"}` }} />
-                  ))}
-                </div>
-                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, color:C.berry, lineHeight:1 }}>{_concertResume.length||6}</p>
-                <p style={{ fontSize:9, color:C.textMid, marginTop:1 }}>shows</p>
-                <p style={{ fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.text, marginTop:6 }}>Concerts</p>
-              </div>
-              {/* Memories */}
-              <div onClick={() => go("scrapbook")} className="tap card-lift" style={{ borderRadius:18, padding:"14px 14px", background:`linear-gradient(160deg,${C.sky}16,${C.surfaceHi})`, border:`1.5px solid ${C.sky}40`, cursor:"pointer", position:"relative", overflow:"hidden", boxShadow:`0 6px 22px ${C.sky}1c, inset 0 1px 0 rgba(255,255,255,0.07)`, backdropFilter:"blur(10px)" }}>
-                <div style={VS.orbitAccent(C.sky, 70)} />
-                <div style={{ position:"absolute", inset:0, background:`linear-gradient(160deg,${C.sky}08,transparent)`, pointerEvents:"none" }} />
-                <div style={{ position:"relative", width:36, height:26, marginBottom:9 }}>
-                  {[{rot:-7,op:"44"},{rot:0,op:"66"},{rot:6,op:"99"}].map((s,i) => (
-                    <div key={i} style={{ position:"absolute", top:0, left:0, right:0, bottom:0, borderRadius:4, background:`${C.sky}${s.op}`, border:`1px solid ${C.sky}44`, transform:`rotate(${s.rot}deg)` }} />
-                  ))}
-                </div>
-                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, color:C.sky, lineHeight:1 }}>4</p>
-                <p style={{ fontSize:9, color:C.textMid, marginTop:1 }}>moments</p>
-                <p style={{ fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.text, marginTop:6 }}>Memories</p>
-              </div>
-              {/* Time Capsules */}
-              <div onClick={() => go("capsule")} className="tap card-lift" style={{ borderRadius:18, padding:"14px 14px", background:`linear-gradient(160deg,${C.mint}16,${C.surfaceHi})`, border:`1.5px solid ${C.mint}40`, cursor:"pointer", position:"relative", overflow:"hidden", boxShadow:`0 6px 22px ${C.mint}1c, inset 0 1px 0 rgba(255,255,255,0.07)`, backdropFilter:"blur(10px)" }}>
-                <div style={VS.orbitAccent(C.mint, 70)} />
-                <div style={{ position:"absolute", inset:0, background:`linear-gradient(160deg,${C.mint}08,transparent)`, pointerEvents:"none" }} />
-                <div style={{ marginBottom:9 }}>
-                  <div style={{ width:26, height:26, borderRadius:"50%", background:`radial-gradient(circle at 35% 35%,${C.mint}cc,${C.mint}44)`, boxShadow:`0 0 14px ${C.mint}55`, border:`1.5px solid ${C.mint}88` }} />
-                </div>
-                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, color:C.mint, lineHeight:1 }}>{ls.get("backstage_capsules_count",2)}</p>
-                <p style={{ fontSize:9, color:C.textMid, marginTop:1 }}>saved</p>
-                <p style={{ fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.text, marginTop:6 }}>Time Capsules</p>
-              </div>
-              {/* Scrapbooks */}
-              <div onClick={() => setSection("scrapbook")} className="tap card-lift" style={{ borderRadius:18, padding:"14px 14px", background:`linear-gradient(160deg,${C.lavender}16,${C.surfaceHi})`, border:`1.5px solid ${C.lavender}40`, cursor:"pointer", position:"relative", overflow:"hidden", boxShadow:`0 6px 22px ${C.lavender}1c, inset 0 1px 0 rgba(255,255,255,0.07)`, backdropFilter:"blur(10px)" }}>
-                <div style={VS.orbitAccent(C.lavender, 70)} />
-                <div style={{ position:"absolute", inset:0, background:`linear-gradient(160deg,${C.lavender}08,transparent)`, pointerEvents:"none" }} />
-                <div style={{ position:"relative", width:36, height:26, marginBottom:9 }}>
-                  {[{off:4,op:"33"},{off:2,op:"55"},{off:0,op:"88"}].map((s,i) => (
-                    <div key={i} style={{ position:"absolute", top:s.off, left:s.off, right:s.off, bottom:0, borderRadius:4, background:`${C.lavender}${s.op}`, border:`1px solid ${C.lavender}44` }} />
-                  ))}
-                </div>
-                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, color:C.lavender, lineHeight:1 }}>1</p>
-                <p style={{ fontSize:9, color:C.textMid, marginTop:1 }}>book</p>
-                <p style={{ fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.text, marginTop:6 }}>Scrapbooks</p>
-              </div>
-              {/* Achievements */}
-              <div onClick={() => setShowAchievements(true)} className="tap card-lift" style={{ borderRadius:18, padding:"14px 14px", background:`linear-gradient(160deg,${C.gold}16,${C.surfaceHi})`, border:`1.5px solid ${C.gold}40`, cursor:"pointer", position:"relative", overflow:"hidden", boxShadow:`0 6px 22px ${C.gold}1c, inset 0 1px 0 rgba(255,255,255,0.07)`, backdropFilter:"blur(10px)" }}>
-                <div style={VS.orbitAccent(C.gold, 70)} />
-                <div style={{ position:"absolute", inset:0, background:`linear-gradient(160deg,${C.gold}08,transparent)`, pointerEvents:"none" }} />
-                <div style={{ display:"flex", gap:3.5, marginBottom:9, alignItems:"center" }}>
-                  {[...Array(5)].map((_,i) => (
-                    <div key={i} style={{ width:10, height:10, borderRadius:"50%", background:i < 5 ? C.gold : `${C.gold}22`, border:`1px solid ${C.gold}55`, boxShadow:`0 0 6px ${C.gold}44` }} />
-                  ))}
-                </div>
-                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, color:C.gold, lineHeight:1 }}>7</p>
-                <p style={{ fontSize:9, color:C.textMid, marginTop:1 }}>unlocked</p>
-                <p style={{ fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.text, marginTop:6 }}>Achievements</p>
-              </div>
-              {/* Bias Shrine */}
-              <div onClick={() => setShowShrine(true)} className="tap card-lift" style={{ borderRadius:18, padding:"14px 14px", background:`linear-gradient(160deg,${C.rose}16,${C.surfaceHi})`, border:`1.5px solid ${C.rose}40`, cursor:"pointer", position:"relative", overflow:"hidden", boxShadow:`0 6px 22px ${C.rose}1c, inset 0 1px 0 rgba(255,255,255,0.07)`, backdropFilter:"blur(10px)" }}>
-                <div style={VS.orbitAccent(C.rose, 70)} />
-                <div style={{ position:"absolute", inset:0, background:`linear-gradient(160deg,${C.rose}08,transparent)`, pointerEvents:"none" }} />
-                <div style={{ width:26, height:30, borderRadius:6, background:`${C.rose}1a`, border:`1.5px solid ${C.rose}55`, boxShadow:`0 0 12px ${C.rose}33`, marginBottom:9, display:"flex", alignItems:"center", justifyContent:"center" }}>
-                  <div style={{ width:14, height:14, borderRadius:"50%", background:`${C.rose}66`, border:`1.5px solid ${C.rose}`, boxShadow:`0 0 6px ${C.rose}44` }} />
-                </div>
-                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, color:C.rose, lineHeight:1 }}>{_fanIdentity?.bias ? 1 : 0}</p>
-                <p style={{ fontSize:9, color:C.textMid, marginTop:1 }}>set</p>
-                <p style={{ fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.text, marginTop:6 }}>Bias Shrine</p>
-              </div>
+            {/* Quiet feature chips — Bias Shrine + Time Capsules stay reachable without tile clutter */}
+            <div style={{ display:"flex", gap:8, marginBottom:18 }}>
+              <button onClick={()=>setShowShrine(true)} className="tap" style={{ flex:1, ...myuGlass(uniMode, 14), padding:"10px 12px", display:"flex", alignItems:"center", gap:8, cursor:"pointer", color:T.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, justifyContent:"center" }}>
+                💜 Bias Shrine{_fanIdentity?.bias ? " ✓" : ""}
+              </button>
+              <button onClick={()=>go("capsule")} className="tap" style={{ flex:1, ...myuGlass(uniMode, 14), padding:"10px 12px", display:"flex", alignItems:"center", gap:8, cursor:"pointer", color:T.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, justifyContent:"center" }}>
+                💊 Time Capsules · {ls.get("backstage_capsules_count",2)}
+              </button>
             </div>
-            <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em",marginBottom:8 }}>✦ Featured Shelf</p>
-            <div style={{ display:"flex", flexDirection:"column", gap:9, marginBottom:4 }}>
-              {FEATURED_OPTIONS.map(opt=>{
+            <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", marginBottom:8 }}>
+              <p style={{ fontSize:9,color:T.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.13em" }}>✦ Featured Shelf</p>
+              <button onClick={()=>setShelfExpanded(v=>!v)} style={{ background:"transparent", border:"none", color:MYU_BLUE, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10.5, cursor:"pointer" }}>{shelfExpanded?"Show less":"View all"}</button>
+            </div>
+            <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:4 }}>
+              {(shelfExpanded ? FEATURED_OPTIONS : FEATURED_OPTIONS.slice(0,3)).map(opt=>{
                 const val = featuredShelf[opt.key];
                 const isEditing = editingShelfKey===opt.key;
                 return (
-                  <div key={opt.key} style={{ ...VS.glowCard(opt.color), padding:"11px 14px" }}>
-                    <div style={VS.shimmerLine(opt.color)} />
-                    <div style={{ position:"relative", display:"flex", gap:10, alignItems:"center" }}>
-                      <div style={{ fontSize:18, flexShrink:0 }}>{opt.emoji}</div>
+                  <div key={opt.key} style={{ ...myuGlass(uniMode, 18), padding:"11px 14px" }}>
+                    <div style={{ position:"relative", display:"flex", gap:11, alignItems:"center" }}>
+                      <div style={{ width:34, height:34, borderRadius:11, background:`${opt.color}16`, border:`1px solid ${opt.color}2e`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:15, flexShrink:0 }}>{opt.emoji}</div>
                       <div style={{ flex:1, minWidth:0 }}>
                         <p style={{ fontSize:8.5,color:opt.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:2 }}>{opt.label}</p>
                         {isEditing ? (
                           <div style={{ display:"flex", gap:6, alignItems:"center" }}>
-                            <input value={shelfDraft} onChange={e=>setShelfDraft(e.target.value)} placeholder={opt.placeholder} style={{ flex:1, padding:"5px 8px", borderRadius:8, background:C.surfaceHi, border:`1.5px solid ${opt.color}44`, color:C.text, fontSize:11, fontFamily:"'Instrument Sans',sans-serif", outline:"none" }} autoFocus />
-                            <button onClick={()=>{ saveFeatured(opt.key,shelfDraft||null); setEditingShelfKey(null); }} style={{ background:opt.color, border:"none", borderRadius:8, padding:"5px 10px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10, cursor:"pointer" }}>✓</button>
-                            <button onClick={()=>setEditingShelfKey(null)} style={{ background:`${opt.color}18`, border:`1px solid ${opt.color}33`, borderRadius:8, padding:"5px 8px", color:opt.color, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10, cursor:"pointer" }}>✕</button>
+                            <input value={shelfDraft} onChange={e=>setShelfDraft(e.target.value)} placeholder={opt.placeholder} style={{ flex:1, minWidth:0, padding:"6px 9px", borderRadius:9, background:uniMode==="light"?"rgba(255,255,255,0.8)":C.surfaceHi, border:`1px solid ${opt.color}44`, color:T.text, fontSize:11, fontFamily:"'Instrument Sans',sans-serif", outline:"none" }} autoFocus />
+                            <button onClick={()=>{ saveFeatured(opt.key,shelfDraft||null); setEditingShelfKey(null); }} aria-label="Save" style={{ background:opt.color, border:"none", borderRadius:9, padding:"6px 10px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10, cursor:"pointer" }}>✓</button>
+                            <button onClick={()=>setEditingShelfKey(null)} aria-label="Cancel" style={{ background:"transparent", border:`1px solid ${T.hairline}`, borderRadius:9, padding:"6px 9px", color:T.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10, cursor:"pointer" }}>✕</button>
                           </div>
                         ) : (
-                          <p style={{ fontSize:12,color:val?C.text:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:val?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{val||opt.placeholder}</p>
+                          <p style={{ fontSize:12,color:val?T.text:T.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:val?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{val||opt.placeholder}</p>
                         )}
                       </div>
                       {!isEditing && (
-                        <button onClick={()=>{ setEditingShelfKey(opt.key); setShelfDraft(val||""); }} style={{ flexShrink:0,background:`${opt.color}18`,border:`1.5px solid ${opt.color}44`,borderRadius:9,padding:"5px 11px",color:opt.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10,cursor:"pointer" }}>{val?"Edit":"Set"}</button>
+                        <button onClick={()=>{ setEditingShelfKey(opt.key); setShelfDraft(val||""); }} style={{ flexShrink:0,background:val?"transparent":`${opt.color}16`,border:`1px solid ${val?T.hairline:opt.color+"3e"}`,borderRadius:99,padding:"6px 12px",color:val?T.textMid:opt.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10,cursor:"pointer" }}>{val?"View":"＋ Add"}</button>
                       )}
                     </div>
                   </div>
@@ -7823,17 +7982,25 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
           </div>
         )}
 
-        {section==="photocards" && (
-          <div>
+        {/* ── ALBUMS — owns binders, photocards, and ISO/Wanted (consolidated) ── */}
+        {section==="albums" && (
+          <div style={{ paddingTop:4 }}>
+            <div style={{ ...myuGlass(uniMode, 16), padding:4, display:"flex", gap:4, marginBottom:14 }}>
+              {[["binders","Binders"],["photocards","Photocards"],["wanted","ISO / Wanted"]].map(([id,label])=>(
+                <button key={id} onClick={()=>setAlbumView(id)} className="tap" style={{ ...myuPill(uniMode, albumView===id), flex:1, justifyContent:"center", padding:"9px 6px" }}>{label}</button>
+              ))}
+            </div>
+
+            {albumView==="photocards" && (<div>
             {/* Era Boards cross-link — shown when boards exist */}
             {eraBoards.length > 0 && (
-              <div onClick={()=>setSection("eraboards")} className="tap" style={{ display:"flex",alignItems:"center",gap:10,background:`${C.mint}0a`,border:`1px solid ${C.mint}28`,borderRadius:13,padding:"10px 14px",marginBottom:12,cursor:"pointer" }}>
+              <div onClick={()=>setSection("eraboards")} className="tap" style={{ display:"flex",alignItems:"center",gap:10,background:`${MYU_BLUE}0a`,border:`1px solid ${MYU_BLUE}28`,borderRadius:13,padding:"10px 14px",marginBottom:12,cursor:"pointer" }}>
                 <span style={{ fontSize:16 }}>🎭</span>
                 <div style={{ flex:1 }}>
-                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,color:C.text }}>Browse Era Boards</p>
-                  <p style={{ fontSize:10,color:C.textMid }}>Templates, fits, and wishlist linked to your saved eras</p>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,color:T.text }}>Browse Era Boards</p>
+                  <p style={{ fontSize:10,color:T.textMid }}>Templates, fits, and wishlist linked to your saved eras</p>
                 </div>
-                <span style={{ color:C.mint,fontSize:16 }}>→</span>
+                <span style={{ color:MYU_BLUE,fontSize:16 }}>→</span>
               </div>
             )}
             <div style={{ display:"flex",gap:0,background:C.surfaceHi,borderRadius:13,padding:3,marginBottom:14 }}>
@@ -7848,21 +8015,18 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
           </div>
         )}
 
-        {section==="albums" && (
-          <div style={{ paddingTop:4 }}>
+            {albumView==="binders" && (<div>
             {/* Albums hero banner */}
-            <div style={{ background:`linear-gradient(140deg,${C.plum},${C.cosmic})`,border:`1.5px solid ${C.accent}28`,borderRadius:20,padding:"16px 18px",marginBottom:12,position:"relative",overflow:"hidden" }}>
-              <div style={{ position:"absolute",inset:0,background:`radial-gradient(ellipse at 80% 20%,${C.lavender}12,transparent 55%)`,pointerEvents:"none" }} />
-              <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.accent}44,transparent)` }} />
+            <div style={{ ...myuGlass(uniMode, 20), padding:"16px 18px", marginBottom:12 }}>
               <div style={{ position:"relative" }}>
-                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:C.text,marginBottom:3 }}>📁 My Binders</p>
-                <p style={{ fontSize:11,color:C.textMid,lineHeight:1.55,marginBottom:isVip?0:12 }}>Track your complete photocard sets, era by era. Every version, every member, every pull.</p>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:T.text,marginBottom:3 }}>📀 My Binders</p>
+                <p style={{ fontSize:11,color:T.textMid,lineHeight:1.55,marginBottom:isVip?0:12 }}>Track your complete photocard sets, era by era. Every version, every member, every pull.</p>
                 {!isVip&&(
                   <div onClick={onUpgrade} className="tap" style={{ marginTop:10,background:`${C.gold}14`,border:`1px solid ${C.gold}33`,borderRadius:10,padding:"8px 12px",cursor:"pointer",display:"inline-flex",gap:8,alignItems:"center" }}>
                     <span style={{ fontSize:14 }}>✦</span>
                     <div>
                       <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,color:C.gold }}>Unlock your fan era</p>
-                      <p style={{ fontSize:9.5,color:C.textMid }}>Unlimited binders · Trade analytics from $4.99/mo</p>
+                      <p style={{ fontSize:9.5,color:T.textMid }}>Unlimited binders · Trade analytics from $4.99/mo</p>
                     </div>
                   </div>
                 )}
@@ -7870,16 +8034,59 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
             </div>
             {/* Era Boards cross-link */}
             {eraBoards.length > 0 && (
-              <div onClick={()=>setSection("eraboards")} className="tap" style={{ display:"flex",alignItems:"center",gap:10,background:`${C.mint}0a`,border:`1px solid ${C.mint}28`,borderRadius:13,padding:"10px 14px",marginBottom:14,cursor:"pointer" }}>
+              <div onClick={()=>setSection("eraboards")} className="tap" style={{ display:"flex",alignItems:"center",gap:10,background:`${MYU_BLUE}0a`,border:`1px solid ${MYU_BLUE}28`,borderRadius:13,padding:"10px 14px",marginBottom:14,cursor:"pointer" }}>
                 <span style={{ fontSize:16 }}>🎭</span>
                 <div style={{ flex:1 }}>
-                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,color:C.text }}>You have {eraBoards.length} Era Board{eraBoards.length!==1?"s":""}</p>
-                  <p style={{ fontSize:10,color:C.textMid }}>Templates, fits, trades, and wishlist — saved from Eras Explorer</p>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,color:T.text }}>You have {eraBoards.length} Era Board{eraBoards.length!==1?"s":""}</p>
+                  <p style={{ fontSize:10,color:T.textMid }}>Templates, fits, trades, and wishlist — saved from Eras Explorer</p>
                 </div>
-                <span style={{ color:C.mint,fontSize:16 }}>→</span>
+                <span style={{ color:MYU_BLUE,fontSize:16 }}>→</span>
               </div>
             )}
             <CollectTab cards={cards} setCards={setCards} isVip={isVip} onUpgrade={onUpgrade} user={user} onAddMemory={()=>setSection("scrapbook")} />
+            </div>)}
+
+            {albumView==="wanted" && (<div>
+            {wishlistTotal===0 ? (
+              <div style={{ textAlign:"center",padding:"32px 16px",background:`${C.gold}08`,border:`1.5px dashed ${C.gold}33`,borderRadius:20,marginBottom:14 }}>
+                <p style={{ fontSize:30,marginBottom:10 }}>♡</p>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14,marginBottom:5,color:T.text }}>No wishlist cards yet</p>
+                <p style={{ fontSize:12,color:T.textMid,lineHeight:1.6 }}>Open a binder and set cards to ISO, or mark set members as Wishlist to track what you're hunting.</p>
+              </div>
+            ) : wishlist.map((w,i)=>(
+              <div key={w.id||i} className="tap" style={{ ...myuGlass(uniMode, 18), padding:14, marginBottom:10, cursor:"pointer", display:"flex", gap:12, alignItems:"center" }}>
+                <div style={{ width:48,height:64,borderRadius:10,background:`linear-gradient(160deg,${C.gold}44,${C.gold}18)`,border:`1px solid ${C.gold}55`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0,overflow:"hidden" }}>
+                  {w.image_url ? <img src={w.image_url} alt="" style={{ width:"100%",height:"100%",objectFit:"cover" }} /> : "🃏"}
+                </div>
+                <div style={{ flex:1 }}>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:14, color:T.text, marginBottom:3 }}>{w.member||w.name}</p>
+                  <p style={{ fontSize:11, color:T.textMid, marginBottom:6 }}>{w.group_name||w.group}{(w.album||w.era)&&` · ${w.album||w.era}`}</p>
+                  <div style={{ ...VS.activePill(C.gold), fontSize:8.5 }}>♡ ISO</div>
+                </div>
+                <button onClick={()=>go("collect")} style={{ background:`${C.gold}18`, border:`1px solid ${C.gold}44`, borderRadius:10, padding:"7px 12px", color:C.gold, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10, cursor:"pointer" }}>Find →</button>
+              </div>
+            ))}
+            {/* Set ISO cards */}
+            {PC_CATALOG_SETS.flatMap(s=>s.members.filter(m=>(pcSetData[s.id]||{})[m]==="wishlist").map(m=>({setId:s.id,group:s.group,era:s.era,version:s.version,emoji:s.emoji,color:s.color,member:m}))).map((w,i)=>(
+              <div key={`set-iso-${w.setId}-${w.member}`} className="tap" style={{ ...myuGlass(uniMode, 18), padding:14, marginBottom:10, cursor:"pointer", display:"flex", gap:12, alignItems:"center" }}>
+                <div style={{ width:48,height:64,borderRadius:10,background:`linear-gradient(160deg,${w.color}44,${w.color}18)`,border:`1px solid ${w.color}55`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0 }}>{w.emoji}</div>
+                <div style={{ flex:1 }}>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:14, color:T.text, marginBottom:3 }}>{w.member}</p>
+                  <p style={{ fontSize:11, color:T.textMid, marginBottom:4 }}>{w.group} · {w.era} · {w.version}</p>
+                  <div style={{ display:"flex", gap:5 }}>
+                    <div style={{ ...VS.activePill(w.color), fontSize:8.5 }}>♡ ISO</div>
+                    <div style={{ fontSize:8.5, color:T.textDim, padding:"3px 7px", borderRadius:99, background:uniMode==="light"?"rgba(255,255,255,0.6)":C.surfaceHi }}>Set</div>
+                  </div>
+                </div>
+                <button onClick={()=>setAlbumView("photocards")} style={{ background:`${w.color}18`, border:`1px solid ${w.color}44`, borderRadius:10, padding:"7px 12px", color:w.color, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10, cursor:"pointer" }}>Sets →</button>
+              </div>
+            ))}
+            {isVip ? (
+              <button onClick={()=>setShowSmartMatch(true)} style={{ width:"100%", marginTop:8, padding:14, borderRadius:14, background:`${MYU_BLUE}0a`, border:`1px solid ${MYU_BLUE}44`, color:MYU_BLUE, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, cursor:"pointer" }}>✦ Smart Matching — Find My ISOs</button>
+            ) : (
+              <button onClick={onUpgrade} style={{ width:"100%", marginTop:8, padding:14, borderRadius:14, background:`${C.gold}08`, border:`1px dashed ${C.gold}33`, color:C.gold, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, cursor:"pointer" }}>✦ VIP: Unlimited Wishlist + Smart Matching</button>
+            )}
+            </div>)}
           </div>
         )}
 
@@ -7888,8 +8095,8 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
         {section==="eraboards" && (
           <div style={{ paddingTop:4 }}>
             {/* Section header */}
-            <div style={{ background:`linear-gradient(140deg,${C.plum},${C.cosmic})`,border:`1.5px solid ${C.mint}20`,borderRadius:18,padding:"14px 16px",marginBottom:16,position:"relative",overflow:"hidden" }}>
-              <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.mint}44,transparent)` }} />
+            <div style={{ background:`linear-gradient(140deg,${C.plum},${C.cosmic})`,border:`1.5px solid ${MYU_BLUE}20`,borderRadius:18,padding:"14px 16px",marginBottom:16,position:"relative",overflow:"hidden" }}>
+              <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${MYU_BLUE}44,transparent)` }} />
               <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:C.text,marginBottom:4 }}>🎭 Era Boards</p>
               <p style={{ fontSize:11,color:C.textMid,lineHeight:1.6 }}>Your saved eras, templates, pulls, fits, trades, and memories — all in one place.</p>
             </div>
@@ -7902,7 +8109,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
             ) : (
               <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
                 {eraBoards.map(board => {
-                  const pal = board.palette || [C.mint, C.accent, C.rose];
+                  const pal = board.palette || [MYU_BLUE, C.accent, C.rose];
                   const grpData = ERA_SEARCH_GROUPS.find(g=>g.group===board.group);
                   const boardColor = grpData?.color || pal[0];
                   const tmplCount = (board.savedTemplates||[]).length;
@@ -7919,7 +8126,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                             <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:16, color:C.text, lineHeight:1.1 }}>{board.era}</p>
                             <p style={{ fontSize:10.5, color:boardColor, fontFamily:"'Epilogue',sans-serif", fontWeight:700, marginTop:3, textTransform:"uppercase", letterSpacing:"0.04em" }}>{board.group}</p>
                           </div>
-                          {board.binderStarted && <span style={{ background:`${C.mint}18`, border:`1px solid ${C.mint}40`, borderRadius:99, padding:"4px 10px", fontSize:8.5, color:C.mint, fontFamily:"'Epilogue',sans-serif", fontWeight:700, letterSpacing:"0.04em" }}>📁 BINDER ✓</span>}
+                          {board.binderStarted && <span style={{ background:`${MYU_BLUE}18`, border:`1px solid ${MYU_BLUE}40`, borderRadius:99, padding:"4px 10px", fontSize:8.5, color:MYU_BLUE, fontFamily:"'Epilogue',sans-serif", fontWeight:700, letterSpacing:"0.04em" }}>📁 BINDER ✓</span>}
                         </div>
                         {/* Stat chips */}
                         <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:12 }}>
@@ -7948,79 +8155,50 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
           </div>
         )}
 
-        {section==="wishlist" && (
-          <div style={{ paddingTop:4 }}>
-            {wishlistTotal===0 ? (
-              <div style={{ textAlign:"center",padding:"32px 16px",background:`${C.gold}08`,border:`1.5px dashed ${C.gold}33`,borderRadius:20,marginBottom:14 }}>
-                <p style={{ fontSize:30,marginBottom:10 }}>♡</p>
-                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14,marginBottom:5 }}>No wishlist cards yet</p>
-                <p style={{ fontSize:12,color:C.textMid,lineHeight:1.6 }}>Open a binder and set cards to ISO, or mark set members as Wishlist to track what you're hunting.</p>
-              </div>
-            ) : wishlist.map((w,i)=>(
-              <div key={w.id||i} className="tap" style={{ ...VS.glowCard(C.gold), padding:14, marginBottom:10, cursor:"pointer", display:"flex", gap:12, alignItems:"center" }}>
-                <div style={{ width:48,height:64,borderRadius:10,background:`linear-gradient(160deg,${C.gold}44,${C.gold}18)`,border:`1.5px solid ${C.gold}55`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0,boxShadow:`0 0 12px ${C.gold}33`,overflow:"hidden" }}>
-                  {w.image_url ? <img src={w.image_url} alt="" style={{ width:"100%",height:"100%",objectFit:"cover" }} /> : "🃏"}
-                </div>
-                <div style={{ flex:1 }}>
-                  <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:14, color:C.text, marginBottom:3 }}>{w.member||w.name}</p>
-                  <p style={{ fontSize:11, color:C.textMid, marginBottom:6 }}>{w.group_name||w.group}{(w.album||w.era)&&` · ${w.album||w.era}`}</p>
-                  <div style={{ ...VS.activePill(C.gold), fontSize:8.5 }}>♡ ISO</div>
-                </div>
-                <button onClick={()=>go("collect")} style={{ background:`${C.gold}18`, border:`1.5px solid ${C.gold}44`, borderRadius:10, padding:"7px 12px", color:C.gold, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10, cursor:"pointer" }}>Find →</button>
-              </div>
-            ))}
-            {/* Set ISO cards */}
-            {PC_CATALOG_SETS.flatMap(s=>s.members.filter(m=>(pcSetData[s.id]||{})[m]==="wishlist").map(m=>({setId:s.id,group:s.group,era:s.era,version:s.version,emoji:s.emoji,color:s.color,member:m}))).map((w,i)=>(
-              <div key={`set-iso-${w.setId}-${w.member}`} className="tap" style={{ ...VS.glowCard(w.color), padding:14, marginBottom:10, cursor:"pointer", display:"flex", gap:12, alignItems:"center" }}>
-                <div style={{ width:48,height:64,borderRadius:10,background:`linear-gradient(160deg,${w.color}44,${w.color}18)`,border:`1.5px solid ${w.color}55`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0 }}>{w.emoji}</div>
-                <div style={{ flex:1 }}>
-                  <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:14, color:C.text, marginBottom:3 }}>{w.member}</p>
-                  <p style={{ fontSize:11, color:C.textMid, marginBottom:4 }}>{w.group} · {w.era} · {w.version}</p>
-                  <div style={{ display:"flex", gap:5 }}>
-                    <div style={{ ...VS.activePill(w.color), fontSize:8.5 }}>♡ ISO</div>
-                    <div style={{ fontSize:8.5, color:C.textDim, padding:"3px 7px", borderRadius:99, background:C.surfaceHi }}>Set</div>
-                  </div>
-                </div>
-                <button onClick={()=>setSection("photocards")} style={{ background:`${w.color}18`, border:`1.5px solid ${w.color}44`, borderRadius:10, padding:"7px 12px", color:w.color, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10, cursor:"pointer" }}>Sets →</button>
-              </div>
-            ))}
-            {isVip ? (
-              <button onClick={()=>setShowSmartMatch(true)} style={{ width:"100%", marginTop:8, padding:14, borderRadius:14, background:`${C.mint}0a`, border:`1.5px solid ${C.mint}44`, color:C.mint, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, cursor:"pointer" }}>✦ Smart Matching — Find My ISOs</button>
-            ) : (
-              <button onClick={onUpgrade} style={{ width:"100%", marginTop:8, padding:14, borderRadius:14, background:`${C.gold}08`, border:`1.5px dashed ${C.gold}33`, color:C.gold, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, cursor:"pointer" }}>✦ VIP: Unlimited Wishlist + Smart Matching</button>
-            )}
-          </div>
-        )}
       </Screen>
 
-      {/* ── Quick Add sheet ── */}
-      {showQuickAdd&&(
-        <div onClick={()=>setShowQuickAdd(false)} style={{ position:"fixed",inset:0,zIndex:400,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
-          <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:"22px 20px 36px",width:"100%",animation:"slideUp .25s ease" }}>
-            <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 18px" }} />
-            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17,marginBottom:18 }}>What do you want to add?</p>
-            <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
+      {/* ── Quick Add sheet — inverted iridescent surface (light over dark page) ── */}
+      {showQuickAdd&&(()=>{ const ink = myuSheetInk(uniMode); return (
+        <div onClick={()=>setShowQuickAdd(false)} style={{ position:"fixed",inset:0,zIndex:400,background:"rgba(6,5,15,0.62)",backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ ...myuSheet(uniMode),borderRadius:"30px 30px 0 0",padding:"14px 20px calc(32px + env(safe-area-inset-bottom))",width:"100%",animation:"slideUp .25s ease" }}>
+            <div style={{ width:38,height:4.5,borderRadius:99,background:ink.dim,opacity:0.5,margin:"0 auto 18px" }} />
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:18,marginBottom:16,color:ink.text }}>What do you want to add?</p>
+            <div style={{ display:"flex",flexDirection:"column",gap:9 }}>
               {[
-                {emoji:"📸",label:"Add Memory",sub:"Save a moment to a scrapbook",color:C.sky,action:()=>{setSection("scrapbook");setShowQuickAdd(false);}},
-                {emoji:"🃏",label:"Add Photocard",sub:"Log a card to your collection",color:C.pink,action:()=>{setSection("photocards");setShowQuickAdd(false);}},
-                {emoji:"📁",label:"New Binder",sub:"Start a new era tracker",color:C.accent,action:()=>{setSection("albums");setShowQuickAdd(false);}},
+                {emoji:"📸",label:"Add Memory",sub:"Save a moment to a scrapbook",color:ink.blue,action:()=>{setSection("scrapbook");setShowQuickAdd(false);}},
+                {emoji:"🃏",label:"Add Photocard",sub:"Log your latest pull",color:ink.pink,action:()=>{setAlbumView("photocards");setSection("albums");setShowQuickAdd(false);}},
+                {emoji:"📀",label:"New Binder",sub:"Start a new era tracker",color:ink.lavender,action:()=>{setAlbumView("binders");setSection("albums");setShowQuickAdd(false);}},
               ].map(opt=>(
-                <div key={opt.label} onClick={opt.action} className="tap" style={{ display:"flex",gap:14,alignItems:"center",padding:"13px 14px",borderRadius:16,background:`${opt.color}12`,border:`1.5px solid ${opt.color}30`,cursor:"pointer" }}>
-                  <span style={{ fontSize:22 }}>{opt.emoji}</span>
-                  <div>
-                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,color:C.text,marginBottom:2 }}>{opt.label}</p>
-                    <p style={{ fontSize:11,color:C.textMid }}>{opt.sub}</p>
+                <div key={opt.label} onClick={opt.action} className="tap" style={{ display:"flex",gap:13,alignItems:"center",padding:"13px 14px",borderRadius:17,background:ink.card,border:ink.cardBorder,cursor:"pointer" }}>
+                  <div style={{ width:40,height:40,borderRadius:12,background:`${opt.color}1c`,border:`1px solid ${opt.color}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:19,flexShrink:0 }}>{opt.emoji}</div>
+                  <div style={{ flex:1 }}>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,color:ink.text,marginBottom:2 }}>{opt.label}</p>
+                    <p style={{ fontSize:11,color:ink.mid }}>{opt.sub}</p>
                   </div>
+                  <span aria-hidden style={{ color:ink.dim,fontSize:15 }}>›</span>
                 </div>
               ))}
             </div>
           </div>
         </div>
+      ); })()}
+
+      {/* ── Collection Tracker sheet ── */}
+      {showCollectionTracker && (
+        <CollectionTrackerSheet
+          mode={uniMode}
+          onClose={()=>setShowCollectionTracker(false)}
+          stats={{ owned:totalOwned, wanted:wishlistTotal, tradeable:tradeableTotal }}
+          groups={trackerGroups}
+          versions={trackerVersions}
+          isoRows={trackerIso}
+          onAddGroup={()=>{ setShowCollectionTracker(false); setAlbumView("binders"); setSection("albums"); }}
+        />
       )}
 
       {/* ── Achievements sheet ── */}
       {showAchievements&&(
-        <div onClick={()=>setShowAchievements(false)} style={{ position:"fixed",inset:0,zIndex:400,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+        <div onClick={()=>setShowAchievements(false)} style={{ position:"fixed",inset:0,zIndex:400,background:"rgba(6,5,15,0.62)",backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
           <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:"22px 20px 36px",width:"100%",maxHeight:"80vh",overflowY:"auto",animation:"slideUp .25s ease" }}>
             <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 18px" }} />
             <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18,marginBottom:6 }}>🏅 Achievements</p>
@@ -8031,7 +8209,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                 {emoji:"🃏",label:"First Photocard",sub:"Log your first card",unlocked:allCards.length>0,color:C.pink},
                 {emoji:"⭐",label:"Wishlist Watcher",sub:"Add a card to ISO",unlocked:wishlistTotal>0,color:C.gold},
                 {emoji:"📸",label:"Memory Keeper",sub:"Save your first concert memory",unlocked:false,color:C.sky},
-                {emoji:"💊",label:"Capsule Keeper",sub:"Drop a moment in a capsule",unlocked:ls.get("backstage_capsules_count",0)>0,color:C.mint},
+                {emoji:"💊",label:"Capsule Keeper",sub:"Drop a moment in a capsule",unlocked:ls.get("backstage_capsules_count",0)>0,color:MYU_BLUE},
                 {emoji:"🏆",label:"Trade Passport",sub:"List a card for trade",unlocked:tradeableTotal>0,color:C.rose},
                 {emoji:"💜",label:"Bias Shrine",sub:"Set your bias in Stage Studio",unlocked:!!_fanIdentity?.bias,color:C.berry},
                 {emoji:"✦",label:"VIP Collector",sub:"Unlock Backstage VIP",unlocked:isVip,color:C.gold},
@@ -8054,7 +8232,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
 
       {/* ── Bias Shrine sheet ── */}
       {showShrine&&(
-        <div onClick={()=>setShowShrine(false)} style={{ position:"fixed",inset:0,zIndex:400,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+        <div onClick={()=>setShowShrine(false)} style={{ position:"fixed",inset:0,zIndex:400,background:"rgba(6,5,15,0.62)",backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
           <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:"22px 20px 36px",width:"100%",maxHeight:"80vh",overflowY:"auto",animation:"slideUp .25s ease" }}>
             <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 18px" }} />
             <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18,marginBottom:16 }}>💜 Bias Shrine</p>
@@ -8080,7 +8258,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                 {(()=>{
                   const biasSetCards = PC_CATALOG_SETS.flatMap(s=>s.members.filter(m=>m===_fanIdentity.bias).map(m=>({set:s,member:m,status:(pcSetData[s.id]||{})[m]||null})));
                   if(!biasSetCards.length) return null;
-                  const STATUS_META_SHRINE = {null:{label:"Missing",color:C.textDim},owned:{label:"✓ Owned",color:C.mint},wishlist:{label:"♡ ISO",color:C.gold},dupe:{label:"×2 Dupe",color:C.accent},trade:{label:"⇄ Trade",color:C.rose}};
+                  const STATUS_META_SHRINE = {null:{label:"Missing",color:C.textDim},owned:{label:"✓ Owned",color:MYU_BLUE},wishlist:{label:"♡ ISO",color:C.gold},dupe:{label:"×2 Dupe",color:C.accent},trade:{label:"⇄ Trade",color:C.rose}};
                   return (
                     <div style={{ marginBottom:14 }}>
                       <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10 }}>Set Cards · {_fanIdentity.bias}</p>
@@ -8121,7 +8299,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
 
       {/* ── Smart Match sheet (VIP only) ── */}
       {showSmartMatch&&(
-        <div onClick={()=>setShowSmartMatch(false)} style={{ position:"fixed",inset:0,zIndex:400,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+        <div onClick={()=>setShowSmartMatch(false)} style={{ position:"fixed",inset:0,zIndex:400,background:"rgba(6,5,15,0.62)",backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
           <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:"22px 20px 36px",width:"100%",maxHeight:"80vh",overflowY:"auto",animation:"slideUp .25s ease" }}>
             <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 18px" }} />
             <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6 }}>
@@ -8139,7 +8317,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
               <div>
                 <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10 }}>Potential Matches</p>
                 {[
-                  {user:"@trademaster",card:wishlist[0]?.member||"Felix",group:wishlist[0]?.group_name||"SKZ",reason:"Has dupe for trade",match:94,color:C.mint},
+                  {user:"@trademaster",card:wishlist[0]?.member||"Felix",group:wishlist[0]?.group_name||"SKZ",reason:"Has dupe for trade",match:94,color:MYU_BLUE},
                   {user:"@kpopswap",card:wishlist[0]?.member||"Felix",group:wishlist[0]?.group_name||"SKZ",reason:"Listed ISO match",match:87,color:C.accent},
                 ].map((m,i)=>(
                   <div key={i} style={{ display:"flex",gap:12,alignItems:"center",padding:"12px 13px",borderRadius:14,background:`${m.color}0c`,border:`1.5px solid ${m.color}28`,marginBottom:10 }}>
@@ -23906,10 +24084,10 @@ function ScrapbookTab({ isVip, onUpgrade, onBack }) {
       </Screen>
 
       {adding&&(
-        <div onClick={()=>{ setAdding(false); setChooseTemplate(false); setForm({ name:"", concert:"", emoji:"📸", color:C.accent, template:null, collaborators:[] }); }} style={{ position:"fixed",inset:0,zIndex:400,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
-          <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:22,width:"100%",animation:"slideUp .25s ease",maxHeight:"88vh",overflowY:"auto" }}>
-            <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 18px" }} />
-            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:17, marginBottom:chooseTemplate?12:16 }}>
+        <div onClick={()=>{ setAdding(false); setChooseTemplate(false); setForm({ name:"", concert:"", emoji:"📸", color:C.accent, template:null, collaborators:[] }); }} style={{ position:"fixed",inset:0,zIndex:400,background:"rgba(6,5,15,0.62)",backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ ...myuSheet("dark"),borderRadius:"30px 30px 0 0",padding:"14px 22px calc(28px + env(safe-area-inset-bottom))",width:"100%",animation:"slideUp .25s ease",maxHeight:"88vh",overflowY:"auto",color:MYU_INK }}>
+            <div style={{ width:38,height:4.5,borderRadius:99,background:"rgba(19,11,36,0.32)",margin:"0 auto 18px" }} />
+            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:18, marginBottom:chooseTemplate?12:16, color:MYU_INK }}>
               {chooseTemplate ? "🎭 Pick a Template" : "Create Scrapbook"}
             </p>
 
@@ -23925,26 +24103,32 @@ function ScrapbookTab({ isVip, onUpgrade, onBack }) {
                       style={{ borderRadius:14, padding:"12px 10px", background:form.template===tpl.id?`${tpl.color}28`:tpl.bg||`${tpl.color}10`, border:`1.5px solid ${form.template===tpl.id?tpl.color:tpl.color+"33"}`, cursor:"pointer", textAlign:"center", transition:"all .18s" }}
                     >
                       <div style={{ fontSize:22, marginBottom:4 }}>{tpl.emoji}</div>
-                      <p style={{ fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:form.template===tpl.id?tpl.color:C.textMid, lineHeight:1.3 }}>{tpl.label}</p>
+                      <p style={{ fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:form.template===tpl.id?tpl.color:"rgba(19,11,36,0.6)", lineHeight:1.3 }}>{tpl.label}</p>
                       {form.template===tpl.id&&<div style={{ width:6,height:6,borderRadius:"50%",background:tpl.color,margin:"5px auto 0" }} />}
                     </div>
                   ))}
                 </div>
-                {form.template&&<p style={{ fontSize:9.5,color:C.textMid,textAlign:"center",marginTop:2 }}>Template selected · fill in the details below</p>}
+                {form.template&&<p style={{ fontSize:9.5,color:"rgba(19,11,36,0.6)",textAlign:"center",marginTop:2 }}>Template selected · fill in the details below</p>}
               </div>
             )}
 
             {/* Name / concert fields — always shown */}
-            <div style={{ marginBottom:12 }}><Input label="Name *" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder="e.g. BTS Dallas 2026" /></div>
-            <div style={{ marginBottom:12 }}><Input label="Linked Concert" value={form.concert} onChange={e=>setForm({...form,concert:e.target.value})} placeholder="Concert name..." /></div>
+            <div style={{ marginBottom:12 }}>
+              <p style={{ fontSize:10, color:"rgba(19,11,36,0.6)", marginBottom:5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em" }}>Name *</p>
+              <Input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder="e.g. BTS Dallas 2026" />
+            </div>
+            <div style={{ marginBottom:12 }}>
+              <p style={{ fontSize:10, color:"rgba(19,11,36,0.6)", marginBottom:5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em" }}>Linked Concert</p>
+              <Input value={form.concert} onChange={e=>setForm({...form,concert:e.target.value})} placeholder="Concert name..." />
+            </div>
 
             {/* Color picker — only when not using a template */}
             {!form.template && (
               <div style={{ marginBottom:18 }}>
-                <p style={{ fontSize:9.5,color:C.textMid,marginBottom:7,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em" }}>Color</p>
+                <p style={{ fontSize:9.5,color:"rgba(19,11,36,0.6)",marginBottom:7,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em" }}>Color</p>
                 <div style={{ display:"flex", gap:10 }}>
-                  {[C.pink,C.accent,C.mint,C.silver,C.gold].map(col=>(
-                    <div key={col} onClick={()=>setForm({...form,color:col})} style={{ width:36,height:36,borderRadius:"50%",background:col,border:`3px solid ${form.color===col?C.white:"transparent"}`,cursor:"pointer",transition:"border-color .2s" }} />
+                  {[C.pink,C.accent,MYU_BLUE,C.silver,C.gold].map(col=>(
+                    <div key={col} onClick={()=>setForm({...form,color:col})} role="button" aria-label={`Pick color ${col}`} style={{ width:36,height:36,borderRadius:"50%",background:col,border:`3px solid ${form.color===col?MYU_INK:"transparent"}`,cursor:"pointer",transition:"border-color .2s" }} />
                   ))}
                 </div>
               </div>
