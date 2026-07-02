@@ -195,8 +195,6 @@ const FREE_LIMITS = {
   capsulePostsPerConcert: 3,     // enforced in ConcertCapsule via FREE_CAP
   fanCirclesCreated: 1,          // user-created circles (id starts "uc-")
   scrapbookMemories: 5,          // per scrapbook book (enforced in ScrapbookTab)
-  outfitAI: 3,                   // per month (enforced in OutfitGenerator)
-  tripPlanner: 1,                // per month
   activeTradeListings: 3,        // active listings at once
 };
 
@@ -1171,34 +1169,6 @@ const StatusChip = ({ label, style:s }) => {
     </div>
   );
 };
-
-// ComingSoonModal — soft bottom sheet for paused tools
-const COMING_SOON_COPY = {
-  outfits: { emoji:"✨", sub:"Your concert fit era is loading." },
-  trip:    { emoji:"✈️", sub:"Your full fan-day planner is being polished." },
-};
-function ComingSoonModal({ tool, onClose }) {
-  const copy = COMING_SOON_COPY[tool] || { emoji:"✦", sub:"We're polishing this tool before it goes live." };
-  return (
-    <div onClick={onClose} style={{ position:"fixed",inset:0,zIndex:850,background:"rgba(6,6,15,0.90)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
-      <div onClick={e=>e.stopPropagation()} style={{ width:"100%",background:`linear-gradient(160deg,${C.surfaceMid},${C.cosmic})`,borderRadius:"26px 26px 0 0",padding:"28px 24px 44px",border:`1.5px solid ${C.borderHi}`,borderBottom:"none",animation:"slideUp .28s ease",position:"relative",overflow:"hidden" }}>
-        <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.lavender}44,transparent)` }} />
-        {[{t:"8%",l:"80%",s:12},{t:"75%",l:"90%",s:8},{t:"55%",l:"5%",s:9}].map((sp,i)=>(
-          <div key={i} style={{ position:"absolute",top:sp.t,left:sp.l,fontSize:sp.s,opacity:0.3,animation:`sparkleFloat ${3+i*0.7}s ease-in-out infinite`,pointerEvents:"none",color:C.lavender }}>✦</div>
-        ))}
-        <div style={{ width:36,height:4,borderRadius:99,background:C.border,margin:"0 auto 26px" }} />
-        <div style={{ width:56,height:56,borderRadius:18,background:`${C.accent}18`,border:`1.5px solid ${C.accent}33`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,marginBottom:16,boxShadow:`0 8px 24px ${C.accent}14` }}>{copy.emoji}</div>
-        <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:8 }}>
-          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:22,background:`linear-gradient(135deg,${C.lavender},${C.blush})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent" }}>Coming Soon</p>
-          <StatusChip label="COMING SOON" />
-        </div>
-        <p style={{ fontSize:13.5,color:C.textMid,lineHeight:1.7,marginBottom:6 }}>We're polishing this tool before it goes live.</p>
-        <p style={{ fontSize:12,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:600,marginBottom:26,fontStyle:"italic" }}>{copy.sub}</p>
-        <button onClick={onClose} className="tap" style={{ width:"100%",padding:"13px",borderRadius:13,background:`linear-gradient(140deg,${C.accent}ee,${C.accentDim}88)`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer" }}>Got it</button>
-      </div>
-    </div>
-  );
-}
 
 // ═════════════════════════════════════════════════════════════════════════════
 // GIF / REACTION SYSTEM — provider-agnostic (backend proxies tenor/giphy/mock)
@@ -4369,12 +4339,10 @@ function HomeQuickActions({ user, go }) {
         </div>
       </div>
 
-      {/* Bottom row: 4 icon tiles */}
+      {/* Bottom row: icon tiles */}
       <div style={{ display:"flex",gap:9 }}>
         {[
           { icon:"💜",label:"My Circle",  dest:"invite",      color:C.pink,   soon:false },
-          { icon:"✈️",label:"Trip Plan",  dest:"trip",        color:C.accent, soon:true  },
-          { icon:"✨",label:"Outfit AI",  dest:"outfits",     color:C.sky,    soon:true  },
           { icon:"📋",label:"Checklist",  dest:"concertprep", color:C.gold,   soon:false },
         ].map(a=>(
           <button key={a.label} onClick={()=>go(a.dest)} className="tap" style={{
@@ -4614,7 +4582,7 @@ function HomeNextSteps({ user, go }) {
   if(!hasBinder)    STEPS.push({ emoji:"🃏",title:"Start a Binder",sub:"Track your photocard collection",dest:"collect",color:C.accent,cta:"Start Tracking" });
   // Always show these if profile is complete
   if(STEPS.length < 2) STEPS.push({ emoji:"🏙️",title:"Join a Hub",sub:"Find fans in your city",dest:"fanverse",color:C.mint,cta:"Find Hub" });
-  if(STEPS.length < 2) STEPS.push({ emoji:"✈️",title:"Plan a Trip",sub:"For your next concert",dest:"trip",color:C.silver,cta:"Plan Now" });
+  if(STEPS.length < 2) STEPS.push({ emoji:"🎤",title:"Browse Concerts",sub:"Find your next show",dest:"concerts",color:C.silver,cta:"Browse Shows" });
 
   const shown = STEPS.slice(0,3);
 
@@ -4700,7 +4668,6 @@ function HomeOutfitShop({ go }) {
     <div style={{ padding:"0 0 22px" }}>
       <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:13,padding:"0 18px" }}>
         <p style={VS.softSectionHeader}>Outfit Inspo 🛍️</p>
-        <button onClick={()=>go("outfits")} style={{ background:"none",border:"none",color:C.accentDim,fontSize:11,cursor:"pointer",fontWeight:600 }}>Generate Yours →</button>
       </div>
 
       {/* Horizontal scroll */}
@@ -6887,7 +6854,7 @@ function ShowDetail({ concert, onBack, going, setGoing, go, isVip, onUpgrade, rs
           </div>
         )}
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:18 }}>
-          {[["💬 Show Chat",()=>setChatOpen(!chatOpen)],["✈️ Trip Planner",()=>go("trip")],["📋 Prep Checklist",()=>go("concertprep")],["✨ Outfit Generator",()=>go("outfits")],["🎵 Fan Chants",()=>go("explore")],["📸 My Shows",()=>go("myshows")]].map(([label,action])=>(
+          {[["💬 Show Chat",()=>setChatOpen(!chatOpen)],["📋 Prep Checklist",()=>go("concertprep")],["🎵 Fan Chants",()=>go("explore")],["📸 My Shows",()=>go("myshows")]].map(([label,action])=>(
             <button key={label} onClick={action} className="tap" style={{ padding:14, borderRadius:14, background:C.surfaceHi, border:`1.5px solid ${C.border}`, color:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, cursor:"pointer", textAlign:"center" }}>{label}</button>
           ))}
         </div>
@@ -7398,7 +7365,11 @@ function PhotocardGrid({ cards, groups, groupFilter, setGroupFilter, go, onAddCa
 }
 
 function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
-  const [section, setSection] = useState("museum");
+  const softBlue = '#78A8FF';
+  const softBlue2 = '#A7C7FF';
+  const softBlueGlow = 'rgba(120,168,255,0.28)';
+  const [section, setSection] = useState('albums');
+  const [albumSubView, setAlbumSubView] = useState('binders');
   const [groupFilter, setGroupFilter] = useState("all");
   const [myWorldTheme, setMyWorldTheme] = useState(()=>ls.get("backstage_my_world_theme","Purple Galaxy"));
   const [featuredShelf, setFeaturedShelf] = useState(()=>ls.get("backstage_featured_shelf",{photocard:null,concert:null,capsule:null,outfit:null,biasMoment:null}));
@@ -7412,6 +7383,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
   const [showAchievements, setShowAchievements] = useState(false);
   const [showShrine, setShowShrine] = useState(false);
   const [showSmartMatch, setShowSmartMatch] = useState(false);
+  const [showCollectionTracker, setShowCollectionTracker] = useState(false);
   const [pcView, setPcView] = useState("sets");
   const [pcSetData, setPcSetData] = useState(()=>ls.get("backstage_photocard_sets",{}));
   const [showAddCard, setShowAddCard] = useState(false);
@@ -7419,7 +7391,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
     {id:"Purple Galaxy",  emoji:"🌌", color:C.lavender},
     {id:"Pink Lightstick",emoji:"🩷", color:C.pink    },
     {id:"Golden Founder", emoji:"✦",  color:C.gold    },
-    {id:"Holo Binder",    emoji:"🌈", color:C.mint    },
+    {id:"Holo Binder",    emoji:"🌈", color:softBlue    },
     {id:"Soft MySpace",   emoji:"💜", color:C.berry   },
     {id:"Midnight Arena", emoji:"🎤", color:"#6699dd" },
   ];
@@ -7427,7 +7399,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
     "Purple Galaxy":  `radial-gradient(ellipse at 65% 0%,${C.lavender}22,transparent 55%),radial-gradient(ellipse at 20% 88%,${C.accent}10,transparent 50%)`,
     "Pink Lightstick":`radial-gradient(ellipse at 70% 0%,${C.pink}20,transparent 55%),radial-gradient(ellipse at 25% 85%,${C.rose}10,transparent 50%)`,
     "Golden Founder": `radial-gradient(ellipse at 60% 0%,${C.gold}18,transparent 55%),radial-gradient(ellipse at 15% 88%,${C.gold}08,transparent 50%)`,
-    "Holo Binder":    `radial-gradient(ellipse at 70% 5%,${C.mint}18,transparent 55%),radial-gradient(ellipse at 25% 80%,${C.sky}10,transparent 50%)`,
+    "Holo Binder":    `radial-gradient(ellipse at 70% 5%,${softBlue}18,transparent 55%),radial-gradient(ellipse at 25% 80%,${C.sky}10,transparent 50%)`,
     "Soft MySpace":   `radial-gradient(ellipse at 60% 0%,${C.berry}20,transparent 55%),radial-gradient(ellipse at 20% 88%,${C.blush}10,transparent 50%)`,
     "Midnight Arena": `radial-gradient(ellipse at 65% 5%,#6699dd22,transparent 55%),radial-gradient(ellipse at 15% 80%,#44668820,transparent 50%)`,
   };
@@ -7457,6 +7429,21 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
   const wishlistTotal = wishlist.length + setStats.wishlist;
   const tradeableTotal = tradeable.length + setStats.dupe + setStats.trade;
   const completion = Math.round((totalOwned / Math.max(totalOwned + wishlistTotal, 1)) * 100);
+  const setWantedCards = PC_CATALOG_SETS.flatMap(s => s.members.filter(m => (pcSetData[s.id] || {})[m] === "wishlist").map(m => ({ setId:s.id, group:s.group, era:s.era, version:s.version, member:m, color:s.color, album:s.album })));
+  const trackerGroups = Array.from(new Set([...allCards.map(c => c.group_name || c.group), ...PC_CATALOG_SETS.map(s => s.group)].filter(Boolean))).slice(0, 4).map(group => {
+    const owned = allCards.filter(c => (c.group_name || c.group) === group).length + PC_CATALOG_SETS.filter(s => s.group === group).reduce((sum, set) => sum + Object.values(pcSetData[set.id] || {}).filter(v => v === "owned").length, 0);
+    const total = Math.max(owned + PC_CATALOG_SETS.filter(s => s.group === group).reduce((sum, set) => sum + set.members.length, 0), owned || 1);
+    return { group, owned, total, pct:Math.round((owned / Math.max(total, 1)) * 100) };
+  });
+  const trackerAlbumVersions = PC_CATALOG_SETS.reduce((acc, set) => {
+    const key = set.version || "Standard";
+    const data = acc[key] || { version:key, owned:0, total:0 };
+    data.total += set.members.length;
+    data.owned += Object.values(pcSetData[set.id] || {}).filter(v => v === "owned").length;
+    acc[key] = data;
+    return acc;
+  }, {});
+  const trackerWanted = [...wishlist.map(w => ({ label:w.member || w.name || "Wanted card", sub:[w.group_name || w.group, w.album || w.era].filter(Boolean).join(" - "), color:C.gold })), ...setWantedCards.map(w => ({ label:w.member, sub:[w.group, w.era, w.version].filter(Boolean).join(" - "), color:w.color || softBlue }))].slice(0, 6);
 
   const GROUPS = ["all", ...new Set(allCards.map(c=>c.group_name||c.group).filter(Boolean))].slice(0,6);
 
@@ -7479,27 +7466,26 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
     {id:"pcs",          emoji:"🃏", label:"Photocards",   stat:allCards.length,          unit:"cards",    color:C.pink    },
     {id:"memories",     emoji:"📸", label:"Memories",     stat:4,                        unit:"moments",  color:C.sky     },
     {id:"concerts",     emoji:"🎤", label:"Concerts",     stat:_concertResume.length||6, unit:"shows",    color:C.berry   },
-    {id:"capsules",     emoji:"💊", label:"Capsules",     stat:ls.get("backstage_capsules_count",2), unit:"saved", color:C.mint },
+    {id:"capsules",     emoji:"Caps", label:"Capsules",     stat:ls.get("backstage_capsules_count",2), unit:"saved", color:softBlue },
     {id:"scrapbook",    emoji:"🗂️", label:"Scrapbooks",  stat:1,                        unit:"book",     color:C.lavender},
     {id:"achievements", emoji:"🏅", label:"Achievements", stat:7,                        unit:"unlocked", color:C.gold    },
     {id:"shrine",       emoji:"💜", label:"Bias Shrine",  stat:_fanIdentity?.bias?1:0,   unit:"set",      color:C.rose    },
-    {id:"eraboards",    emoji:"🎭", label:"Era Boards",   stat:eraBoards.length,         unit:"boards",   color:C.mint    },
+    {id:"eraboards",    emoji:"Era", label:"Era Boards",   stat:eraBoards.length,         unit:"boards",   color:softBlue    },
   ];
   const FEATURED_OPTIONS = [
     {key:"photocard",  label:"Favorite Photocard",    emoji:"🃏", placeholder:"Felix — MANIAC era",        color:C.pink    },
     {key:"concert",    label:"Favorite Concert",       emoji:"🎤", placeholder:"ATEEZ Dallas 2025",         color:C.berry   },
-    {key:"capsule",    label:"Favorite Capsule",       emoji:"💊", placeholder:"BTS Vegas Night 2 ✦",      color:C.mint    },
+    {key:"capsule",    label:"Favorite Capsule",       emoji:"💊", placeholder:"BTS Vegas Night 2 ✦",      color:softBlue    },
     {key:"outfit",     label:"Favorite Outfit",        emoji:"✨", placeholder:"MANIAC era silver fit",     color:C.lavender},
     {key:"biasMoment", label:"Favorite Bias Moment",   emoji:"💜", placeholder:"Karina eye contact fancam", color:C.rose    },
   ];
 
   const SECTIONS = [
-    { id:"museum",     label:"Museum",     icon:"🏛️" },
-    { id:"photocards", label:"Photocards", icon:"🃏" },
-    { id:"albums",     label:"Albums",     icon:"📁" },
-    { id:"eraboards",  label:"Era Boards", icon:"🎭" },
-    { id:"scrapbook",  label:"Scrapbook",  icon:"📸" },
-    { id:"wishlist",   label:"Wishlist",   icon:"⭐" },
+    { id:'albums', label:'Albums', icon:'' },
+    { id:'eraboards', label:'Era Boards', icon:'' },
+    { id:'scrapbook', label:'Scrapbooks', icon:'' },
+    { id:'memories', label:'Memories', icon:'' },
+    { id:'achievements', label:'Achievements', icon:'' },
   ];
 
   return (
@@ -7534,7 +7520,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
         <div style={{ display:"flex", gap:6, overflowX:"auto", marginTop:16, paddingBottom:2, scrollbarWidth:"none", position:"relative" }}>
           {SECTIONS.map(s=>(
             <button key={s.id} onClick={()=>setSection(s.id)} className="tap" style={{ flexShrink:0, padding:"7px 14px", borderRadius:99, fontSize:11, fontFamily:"'Epilogue',sans-serif", fontWeight:700, background:section===s.id?`linear-gradient(140deg,${C.accent}cc,${C.accentDim})`:"rgba(255,255,255,0.05)", color:section===s.id?C.bg:C.textMid, border:section===s.id?"none":`1px solid rgba(255,255,255,0.07)`, cursor:"pointer", boxShadow:section===s.id?`0 4px 12px ${C.accent}28`:"none", display:"flex", gap:5, alignItems:"center" }}>
-              <span>{s.icon}</span><span>{s.label}</span>
+              {s.icon&&s.icon!==s.label&&<span>{s.icon}</span>}<span>{s.label}</span>
             </button>
           ))}
         </div>
@@ -7549,7 +7535,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
           {[
             { icon:"✦", label:"Add to My World", onClick:()=>{ setShowQuickAdd(true); setShowActionTray(false); } },
             { icon:"✨", label:"Ask Backstage AI", onClick:()=>{ go("assistant"); setShowActionTray(false); } },
-            { icon:"🎨", label:"Decorate My Universe", onClick:()=>{ setSection("museum"); setShowDecorate(true); setShowActionTray(false); } },
+            { icon:"🎨", label:"Decorate My Universe", onClick:()=>{ setSection("albums"); setShowDecorate(true); setShowActionTray(false); } },
           ].map(item=>(
             <button key={item.label} onClick={item.onClick} className="tap" style={{ display:"flex", alignItems:"center", gap:9, padding:"9px 10px", borderRadius:11, background:"transparent", border:"none", color:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, cursor:"pointer", textAlign:"left" }}>
               <span style={{ fontSize:14, width:20, textAlign:"center", flexShrink:0 }}>{item.icon}</span>
@@ -7564,7 +7550,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
       <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))", position:"relative", zIndex:1 }}>
 
         {/* Collection Status — dominant completion ring + scroll capsule row, no spreadsheet grid */}
-        <div style={{ ...VS.premiumHeroCard(C.accent, C.pink), padding:"16px 16px", marginBottom:12, display:"flex", gap:14, alignItems:"center" }}>
+        <div onClick={()=>setShowCollectionTracker(true)} role="button" tabIndex={0} onKeyDown={e=>{ if(e.key==="Enter"||e.key===" ") setShowCollectionTracker(true); }} className="tap" style={{ ...VS.premiumHeroCard(C.accent, C.pink), padding:"16px 16px", marginBottom:12, display:"flex", gap:14, alignItems:"center", cursor:"pointer", borderRadius:18, border:`1px solid ${softBlueGlow}` }}>
           <div style={VS.orbitAccent(C.accent, 120)} />
           <div style={VS.shimmerLine(C.accent)} />
           <RingProgress value={completion} size={76} color={C.accent} color2={C.pink}>
@@ -7586,7 +7572,8 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                 </div>
               ))}
             </div>
-            {completion>=75&&<p style={{ fontSize:9, color:C.mint, fontFamily:"'Epilogue',sans-serif", fontWeight:700, marginTop:8 }}>✦ Almost there!</p>}
+            {completion>=75&&<p style={{ fontSize:9, color:softBlue, fontFamily:"'Epilogue',sans-serif", fontWeight:700, marginTop:8 }}>Almost there!</p>}
+            <div style={{ display:"inline-flex", alignItems:"center", gap:6, color:softBlue2, fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:10, marginTop:9 }}>View collection tracker <span style={{ fontSize:15, lineHeight:1 }}>&rsaquo;</span></div>
           </div>
         </div>
 
@@ -7599,7 +7586,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
               <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, color:C.text }}>So close! <span style={{ color:C.rose, textShadow:`0 0 12px ${C.rose}66` }}>{wishlistTotal} card{wishlistTotal>1?"s":""}</span> away</p>
               <p style={{ fontSize:10, color:C.textMid }}>Finish your collection — check Trade Hub</p>
             </div>
-            <button onClick={()=>setSection("wishlist")} style={{ ...VS.glowButton(C.rose, C.gold), padding:"7px 12px", fontSize:10, position:"relative" }}>Trade →</button>
+            <button onClick={()=>{setSection("albums");setAlbumSubView("wishlist");}} style={{ ...VS.glowButton(C.rose, C.gold), padding:"7px 12px", fontSize:10, position:"relative" }}>Trade</button>
           </div>
         )}
 
@@ -7644,7 +7631,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
             {/* Era Boards: featured hero card */}
             {eraBoards.length > 0 && (() => {
               const latest = eraBoards[eraBoards.length - 1];
-              const pal = latest.palette || [C.mint, C.accent, C.rose];
+              const pal = latest.palette || [softBlue, C.accent, C.rose];
               const grpData = ERA_SEARCH_GROUPS.find(g => g.group === latest.group);
               const bc = grpData?.color || pal[0];
               return (
@@ -7658,7 +7645,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                     <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
                       <div style={{ display:"flex", gap:5 }}>
                         {(latest.savedTemplates||[]).length > 0 && <span style={{ background:`${bc}14`, border:`1px solid ${bc}30`, borderRadius:99, padding:"3px 9px", fontSize:9, color:bc, fontFamily:"'Epilogue',sans-serif", fontWeight:700 }}>{(latest.savedTemplates||[]).length} saved</span>}
-                        {latest.binderStarted && <span style={{ background:`${C.mint}14`, border:`1px solid ${C.mint}30`, borderRadius:99, padding:"3px 9px", fontSize:9, color:C.mint, fontFamily:"'Epilogue',sans-serif", fontWeight:700 }}>Binder active</span>}
+                        {latest.binderStarted && <span style={{ background:`${softBlue}14`, border:`1px solid ${softBlue}30`, borderRadius:99, padding:"3px 9px", fontSize:9, color:softBlue, fontFamily:"'Epilogue',sans-serif", fontWeight:700 }}>Binder active</span>}
                       </div>
                       <span style={{ background:`linear-gradient(135deg,${bc},${bc}88)`, borderRadius:10, padding:"7px 13px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:10 }}>Open →</span>
                     </div>
@@ -7667,7 +7654,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
               );
             })()}
             {/* Photocard Binder — promoted to a full-width featured tile, priority over the supporting grid */}
-            <div onClick={() => setSection("photocards")} className="tap card-lift" style={{ marginBottom:10, borderRadius:20, padding:"16px 16px", display:"flex", alignItems:"center", gap:14, background:`linear-gradient(155deg,${C.pink}1c 0%,${C.surfaceHi}f0 45%,${C.cosmic}f5 100%)`, border:`1px solid ${C.pink}34`, cursor:"pointer", position:"relative", overflow:"hidden", boxShadow:`0 10px 30px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.07)`, backdropFilter:"blur(10px)" }}>
+            <div onClick={() => { setSection("albums"); setAlbumSubView("photocards"); }} className="tap card-lift" style={{ marginBottom:10, borderRadius:20, padding:"16px 16px", display:"flex", alignItems:"center", gap:14, background:`linear-gradient(155deg,${C.pink}1c 0%,${C.surfaceHi}f0 45%,${C.cosmic}f5 100%)`, border:`1px solid ${C.pink}34`, cursor:"pointer", position:"relative", overflow:"hidden", boxShadow:`0 10px 30px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.07)`, backdropFilter:"blur(10px)" }}>
               <div style={VS.orbitAccent(C.pink, 100)} />
               <div style={VS.shimmerLine(C.pink)} />
               <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:3, width:58, flexShrink:0, position:"relative" }}>
@@ -7685,15 +7672,15 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
             {/* Supporting grid */}
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16 }}>
               {/* Era Boards */}
-              <div onClick={() => setSection("eraboards")} className="tap card-lift" style={{ borderRadius:18, padding:"14px 14px", background:`linear-gradient(160deg,${C.mint}16,${C.surfaceHi})`, border:`1.5px solid ${C.mint}40`, cursor:"pointer", position:"relative", overflow:"hidden", boxShadow:`0 6px 22px ${C.mint}1c, inset 0 1px 0 rgba(255,255,255,0.07)`, backdropFilter:"blur(10px)" }}>
-                <div style={VS.orbitAccent(C.mint, 70)} />
-                <div style={{ position:"absolute", inset:0, background:`linear-gradient(160deg,${C.mint}08,transparent)`, pointerEvents:"none" }} />
+              <div onClick={() => setSection("eraboards")} className="tap card-lift" style={{ borderRadius:18, padding:"14px 14px", background:`linear-gradient(160deg,${softBlue}16,${C.surfaceHi})`, border:`1.5px solid ${softBlue}40`, cursor:"pointer", position:"relative", overflow:"hidden", boxShadow:`0 6px 22px ${softBlue}1c, inset 0 1px 0 rgba(255,255,255,0.07)`, backdropFilter:"blur(10px)" }}>
+                <div style={VS.orbitAccent(softBlue, 70)} />
+                <div style={{ position:"absolute", inset:0, background:`linear-gradient(160deg,${softBlue}08,transparent)`, pointerEvents:"none" }} />
                 <div style={{ display:"flex", gap:2, marginBottom:9 }}>
-                  {(eraBoards[0]?.palette || [C.mint,C.lavender,C.rose]).map((c,i) => (
+                  {(eraBoards[0]?.palette || [softBlue,C.lavender,C.rose]).map((c,i) => (
                     <div key={i} style={{ height:3, flex:1, borderRadius:99, background:c }} />
                   ))}
                 </div>
-                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, color:C.mint, lineHeight:1 }}>{eraBoards.length}</p>
+                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, color:softBlue, lineHeight:1 }}>{eraBoards.length}</p>
                 <p style={{ fontSize:9, color:C.textMid, marginTop:1 }}>boards</p>
                 <p style={{ fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.text, marginTop:6 }}>Era Boards</p>
               </div>
@@ -7737,13 +7724,13 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                 <p style={{ fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.text, marginTop:6 }}>Memories</p>
               </div>
               {/* Time Capsules */}
-              <div onClick={() => go("capsule")} className="tap card-lift" style={{ borderRadius:18, padding:"14px 14px", background:`linear-gradient(160deg,${C.mint}16,${C.surfaceHi})`, border:`1.5px solid ${C.mint}40`, cursor:"pointer", position:"relative", overflow:"hidden", boxShadow:`0 6px 22px ${C.mint}1c, inset 0 1px 0 rgba(255,255,255,0.07)`, backdropFilter:"blur(10px)" }}>
-                <div style={VS.orbitAccent(C.mint, 70)} />
-                <div style={{ position:"absolute", inset:0, background:`linear-gradient(160deg,${C.mint}08,transparent)`, pointerEvents:"none" }} />
+              <div onClick={() => go("capsule")} className="tap card-lift" style={{ borderRadius:18, padding:"14px 14px", background:`linear-gradient(160deg,${softBlue}16,${C.surfaceHi})`, border:`1.5px solid ${softBlue}40`, cursor:"pointer", position:"relative", overflow:"hidden", boxShadow:`0 6px 22px ${softBlue}1c, inset 0 1px 0 rgba(255,255,255,0.07)`, backdropFilter:"blur(10px)" }}>
+                <div style={VS.orbitAccent(softBlue, 70)} />
+                <div style={{ position:"absolute", inset:0, background:`linear-gradient(160deg,${softBlue}08,transparent)`, pointerEvents:"none" }} />
                 <div style={{ marginBottom:9 }}>
-                  <div style={{ width:26, height:26, borderRadius:"50%", background:`radial-gradient(circle at 35% 35%,${C.mint}cc,${C.mint}44)`, boxShadow:`0 0 14px ${C.mint}55`, border:`1.5px solid ${C.mint}88` }} />
+                  <div style={{ width:26, height:26, borderRadius:"50%", background:`radial-gradient(circle at 35% 35%,${softBlue}cc,${softBlue}44)`, boxShadow:`0 0 14px ${softBlue}55`, border:`1.5px solid ${softBlue}88` }} />
                 </div>
-                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, color:C.mint, lineHeight:1 }}>{ls.get("backstage_capsules_count",2)}</p>
+                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, color:softBlue, lineHeight:1 }}>{ls.get("backstage_capsules_count",2)}</p>
                 <p style={{ fontSize:9, color:C.textMid, marginTop:1 }}>saved</p>
                 <p style={{ fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.text, marginTop:6 }}>Time Capsules</p>
               </div>
@@ -7822,13 +7809,13 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
           <div>
             {/* Era Boards cross-link — shown when boards exist */}
             {eraBoards.length > 0 && (
-              <div onClick={()=>setSection("eraboards")} className="tap" style={{ display:"flex",alignItems:"center",gap:10,background:`${C.mint}0a`,border:`1px solid ${C.mint}28`,borderRadius:13,padding:"10px 14px",marginBottom:12,cursor:"pointer" }}>
+              <div onClick={()=>setSection("eraboards")} className="tap" style={{ display:"flex",alignItems:"center",gap:10,background:`${softBlue}0a`,border:`1px solid ${softBlue}28`,borderRadius:13,padding:"10px 14px",marginBottom:12,cursor:"pointer" }}>
                 <span style={{ fontSize:16 }}>🎭</span>
                 <div style={{ flex:1 }}>
                   <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,color:C.text }}>Browse Era Boards</p>
                   <p style={{ fontSize:10,color:C.textMid }}>Templates, fits, and wishlist linked to your saved eras</p>
                 </div>
-                <span style={{ color:C.mint,fontSize:16 }}>→</span>
+                <span style={{ color:softBlue,fontSize:16 }}>→</span>
               </div>
             )}
             <div style={{ display:"flex",gap:0,background:C.surfaceHi,borderRadius:13,padding:3,marginBottom:14 }}>
@@ -7865,26 +7852,75 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
             </div>
             {/* Era Boards cross-link */}
             {eraBoards.length > 0 && (
-              <div onClick={()=>setSection("eraboards")} className="tap" style={{ display:"flex",alignItems:"center",gap:10,background:`${C.mint}0a`,border:`1px solid ${C.mint}28`,borderRadius:13,padding:"10px 14px",marginBottom:14,cursor:"pointer" }}>
+              <div onClick={()=>setSection("eraboards")} className="tap" style={{ display:"flex",alignItems:"center",gap:10,background:`${softBlue}0a`,border:`1px solid ${softBlue}28`,borderRadius:13,padding:"10px 14px",marginBottom:14,cursor:"pointer" }}>
                 <span style={{ fontSize:16 }}>🎭</span>
                 <div style={{ flex:1 }}>
                   <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,color:C.text }}>You have {eraBoards.length} Era Board{eraBoards.length!==1?"s":""}</p>
                   <p style={{ fontSize:10,color:C.textMid }}>Templates, fits, trades, and wishlist — saved from Eras Explorer</p>
                 </div>
-                <span style={{ color:C.mint,fontSize:16 }}>→</span>
+                <span style={{ color:softBlue,fontSize:16 }}>→</span>
               </div>
             )}
-            <CollectTab cards={cards} setCards={setCards} isVip={isVip} onUpgrade={onUpgrade} user={user} onAddMemory={()=>setSection("scrapbook")} />
+                        <div style={{ display:"flex", gap:0, background:C.surfaceHi, borderRadius:13, padding:3, marginBottom:14 }}>
+              {[["binders","Albums"],["photocards","Photocards"],["wishlist","ISO"],["tradeable","Tradeable"]].map(([id,label])=>(
+                <button key={id} onClick={()=>setAlbumSubView(id)} className="tap" style={{ flex:1, textAlign:"center", padding:"8px 4px", borderRadius:10, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:800, cursor:"pointer", background:albumSubView===id?softBlue:"transparent", color:albumSubView===id?C.bg:C.textMid, border:"none", transition:"all .18s" }}>{label}</button>
+              ))}
+            </div>
+            {albumSubView==="binders" && <CollectTab cards={cards} setCards={setCards} isVip={isVip} onUpgrade={onUpgrade} user={user} onAddMemory={()=>setSection("scrapbook")} />}
+            {albumSubView==="photocards" && (
+              <div>
+                <div style={{ display:"flex",gap:0,background:C.surfaceHi,borderRadius:13,padding:3,marginBottom:14 }}>
+                  {[["sets","Sets"],["cards","My Cards"]].map(([id,label])=>(
+                    <span key={id} onClick={()=>setPcView(id)} style={{ flex:1,textAlign:"center",padding:"8px 4px",borderRadius:10,fontSize:11.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:pcView===id?softBlue:"transparent",color:pcView===id?C.bg:C.textMid,transition:"all .18s" }}>{label}</span>
+                  ))}
+                </div>
+                {pcView==="sets"
+                  ? <PhotocardSetsView pcSetData={pcSetData} setPcSetData={setPcSetData} groupFilter={groupFilter} setGroupFilter={setGroupFilter} />
+                  : <PhotocardGrid cards={filteredCards} groups={GROUPS} groupFilter={groupFilter} setGroupFilter={setGroupFilter} go={go} onAddCard={()=>setShowAddCard(true)} rarityColors={RARITY_COLORS} rarityGlow={RARITY_GLOW} rarityBg={RARITY_BG} rarityBadge={RARITY_BADGE} />
+                }
+              </div>
+            )}
+            {albumSubView==="wishlist" && (
+              <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                {trackerWanted.length===0 ? <div style={{ textAlign:"center",padding:"28px 16px",background:`${C.gold}08`,border:`1.5px dashed ${C.gold}33`,borderRadius:18 }}><p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,marginBottom:5 }}>No ISO cards yet</p><p style={{ fontSize:11,color:C.textMid,lineHeight:1.5 }}>Open a binder or photocard set and mark cards as ISO to track what you are hunting.</p></div> : trackerWanted.map((w,i)=>(
+                  <div key={`${w.label}-${i}`} style={{ ...VS.glowCard(w.color || C.gold), padding:13, display:"flex", gap:10, alignItems:"center" }}>
+                    <div style={{ width:38,height:50,borderRadius:9,background:`${w.color || C.gold}18`,border:`1px solid ${(w.color || C.gold)}44`,display:"flex",alignItems:"center",justifyContent:"center",color:w.color || C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:900 }}>ISO</div>
+                    <div style={{ flex:1 }}><p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,color:C.text }}>{w.label}</p><p style={{ fontSize:10,color:C.textMid,marginTop:2 }}>{w.sub || "Wanted card"}</p></div>
+                  </div>
+                ))}
+                {isVip ? <button onClick={()=>setShowSmartMatch(true)} style={{ width:"100%", marginTop:4, padding:13, borderRadius:14, background:`${softBlue}12`, border:`1.5px solid ${softBlue}44`, color:softBlue2, fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:12, cursor:"pointer" }}>Smart Matching - Find My ISOs</button> : <button onClick={onUpgrade} style={{ width:"100%", marginTop:4, padding:13, borderRadius:14, background:`${C.gold}08`, border:`1.5px dashed ${C.gold}33`, color:C.gold, fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:12, cursor:"pointer" }}>VIP: Unlimited Wishlist + Smart Matching</button>}
+              </div>
+            )}
+            {albumSubView==="tradeable" && (
+              <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                {tradeable.length===0 && setStats.trade===0 && setStats.dupe===0 ? <div style={{ textAlign:"center",padding:"28px 16px",background:`${softBlue}08`,border:`1.5px dashed ${softBlue}33`,borderRadius:18 }}><p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,marginBottom:5 }}>No tradeable cards yet</p><p style={{ fontSize:11,color:C.textMid,lineHeight:1.5 }}>Mark duplicates or cards for trade from your binders.</p></div> : tradeable.slice(0,8).map((card,i)=>(
+                  <div key={card.id || i} style={{ ...VS.glowCard(C.rose), padding:13, display:"flex", gap:10, alignItems:"center" }}><div style={{ width:38,height:50,borderRadius:9,background:`${C.rose}18`,border:`1px solid ${C.rose}44`,display:"flex",alignItems:"center",justifyContent:"center",color:C.rose,fontFamily:"'Epilogue',sans-serif",fontWeight:900 }}>FT</div><div style={{ flex:1 }}><p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,color:C.text }}>{card.member || card.name || "Tradeable card"}</p><p style={{ fontSize:10,color:C.textMid,marginTop:2 }}>{[card.group_name || card.group, card.album || card.era].filter(Boolean).join(" - ")}</p></div></div>
+                ))}
+                {(setStats.trade>0 || setStats.dupe>0) && <div style={{ background:`${C.rose}10`,border:`1px solid ${C.rose}30`,borderRadius:14,padding:12,color:C.textMid,fontSize:11,lineHeight:1.5 }}>{setStats.trade + setStats.dupe} set card{setStats.trade + setStats.dupe === 1 ? "" : "s"} marked as duplicate or tradeable in Photocard Sets.</div>}
+              </div>
+            )}
           </div>
         )}
 
         {section==="scrapbook" && <ScrapbookTab isVip={isVip} onUpgrade={onUpgrade} />}
 
+        {section==="memories" && <CollectTab cards={cards} setCards={setCards} isVip={isVip} onUpgrade={onUpgrade} user={user} onAddMemory={()=>setSection("scrapbook")} />}
+
+        {section==="achievements" && (
+          <div style={{ paddingTop:4 }}>
+            <div style={{ background:`linear-gradient(140deg,${C.plum},${C.cosmic})`,border:`1.5px solid ${C.gold}28`,borderRadius:18,padding:"16px",marginBottom:14 }}>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:15,color:C.text,marginBottom:4 }}>Achievements</p>
+              <p style={{ fontSize:11,color:C.textMid,lineHeight:1.55,marginBottom:12 }}>Your fan milestones, unlocked one era at a time.</p>
+              <button onClick={()=>setShowAchievements(true)} className="tap" style={{ padding:"9px 14px",borderRadius:12,background:`${C.gold}18`,border:`1px solid ${C.gold}40`,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:11,cursor:"pointer" }}>View achievements</button>
+            </div>
+          </div>
+        )}
+
         {section==="eraboards" && (
           <div style={{ paddingTop:4 }}>
             {/* Section header */}
-            <div style={{ background:`linear-gradient(140deg,${C.plum},${C.cosmic})`,border:`1.5px solid ${C.mint}20`,borderRadius:18,padding:"14px 16px",marginBottom:16,position:"relative",overflow:"hidden" }}>
-              <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.mint}44,transparent)` }} />
+            <div style={{ background:`linear-gradient(140deg,${C.plum},${C.cosmic})`,border:`1.5px solid ${softBlue}20`,borderRadius:18,padding:"14px 16px",marginBottom:16,position:"relative",overflow:"hidden" }}>
+              <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${softBlue}44,transparent)` }} />
               <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:C.text,marginBottom:4 }}>🎭 Era Boards</p>
               <p style={{ fontSize:11,color:C.textMid,lineHeight:1.6 }}>Your saved eras, templates, pulls, fits, trades, and memories — all in one place.</p>
             </div>
@@ -7897,7 +7933,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
             ) : (
               <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
                 {eraBoards.map(board => {
-                  const pal = board.palette || [C.mint, C.accent, C.rose];
+                  const pal = board.palette || [softBlue, C.accent, C.rose];
                   const grpData = ERA_SEARCH_GROUPS.find(g=>g.group===board.group);
                   const boardColor = grpData?.color || pal[0];
                   const tmplCount = (board.savedTemplates||[]).length;
@@ -7914,7 +7950,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                             <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:16, color:C.text, lineHeight:1.1 }}>{board.era}</p>
                             <p style={{ fontSize:10.5, color:boardColor, fontFamily:"'Epilogue',sans-serif", fontWeight:700, marginTop:3, textTransform:"uppercase", letterSpacing:"0.04em" }}>{board.group}</p>
                           </div>
-                          {board.binderStarted && <span style={{ background:`${C.mint}18`, border:`1px solid ${C.mint}40`, borderRadius:99, padding:"4px 10px", fontSize:8.5, color:C.mint, fontFamily:"'Epilogue',sans-serif", fontWeight:700, letterSpacing:"0.04em" }}>📁 BINDER ✓</span>}
+                          {board.binderStarted && <span style={{ background:`${softBlue}18`, border:`1px solid ${softBlue}40`, borderRadius:99, padding:"4px 10px", fontSize:8.5, color:softBlue, fontFamily:"'Epilogue',sans-serif", fontWeight:700, letterSpacing:"0.04em" }}>📁 BINDER ✓</span>}
                         </div>
                         {/* Stat chips */}
                         <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:12 }}>
@@ -7976,11 +8012,11 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                     <div style={{ fontSize:8.5, color:C.textDim, padding:"3px 7px", borderRadius:99, background:C.surfaceHi }}>Set</div>
                   </div>
                 </div>
-                <button onClick={()=>setSection("photocards")} style={{ background:`${w.color}18`, border:`1.5px solid ${w.color}44`, borderRadius:10, padding:"7px 12px", color:w.color, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10, cursor:"pointer" }}>Sets →</button>
+                <button onClick={()=>{ setSection("albums"); setAlbumSubView("photocards"); }} style={{ background:`${w.color}18`, border:`1.5px solid ${w.color}44`, borderRadius:10, padding:"7px 12px", color:w.color, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10, cursor:"pointer" }}>Sets →</button>
               </div>
             ))}
             {isVip ? (
-              <button onClick={()=>setShowSmartMatch(true)} style={{ width:"100%", marginTop:8, padding:14, borderRadius:14, background:`${C.mint}0a`, border:`1.5px solid ${C.mint}44`, color:C.mint, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, cursor:"pointer" }}>✦ Smart Matching — Find My ISOs</button>
+              <button onClick={()=>setShowSmartMatch(true)} style={{ width:"100%", marginTop:8, padding:14, borderRadius:14, background:`${softBlue}0a`, border:`1.5px solid ${softBlue}44`, color:softBlue, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, cursor:"pointer" }}>✦ Smart Matching — Find My ISOs</button>
             ) : (
               <button onClick={onUpgrade} style={{ width:"100%", marginTop:8, padding:14, borderRadius:14, background:`${C.gold}08`, border:`1.5px dashed ${C.gold}33`, color:C.gold, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, cursor:"pointer" }}>✦ VIP: Unlimited Wishlist + Smart Matching</button>
             )}
@@ -7988,6 +8024,55 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
         )}
       </Screen>
 
+      {showCollectionTracker&&(
+        <div onClick={()=>setShowCollectionTracker(false)} style={{ position:"fixed",inset:0,zIndex:410,background:"rgba(6,6,15,0.72)",display:"flex",alignItems:"flex-end",animation:"in .2s ease",backdropFilter:"blur(7px)" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ width:"100%",maxHeight:"82vh",overflowY:"auto",background:`linear-gradient(165deg,${C.surfaceHi}f7,${C.plum}f5)`,borderRadius:"24px 24px 0 0",border:`1px solid ${softBlueGlow}`,padding:"18px 16px calc(30px + env(safe-area-inset-bottom))",boxShadow:`0 -18px 50px rgba(0,0,0,0.55), 0 0 28px ${softBlueGlow}`,animation:"slideUp .25s ease" }}>
+            <div style={{ width:36,height:4,borderRadius:99,background:softBlue2,opacity:.65,margin:"0 auto 16px" }} />
+            <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:14 }}>
+              <div>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:19,color:C.text,marginBottom:3 }}>Collection Tracker</p>
+                <p style={{ fontSize:11,color:C.textMid }}>Albums, photocards, binders, ISO, and trades.</p>
+              </div>
+              <button onClick={()=>setShowCollectionTracker(false)} aria-label="Close collection tracker" style={{ width:38,height:38,borderRadius:14,background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.12)",color:C.text,fontSize:18,cursor:"pointer" }}>x</button>
+            </div>
+            <div style={{ border:`1px solid ${softBlueGlow}`,borderRadius:17,padding:12,marginBottom:12,background:"rgba(255,255,255,0.045)" }}>
+              <p style={{ fontSize:9,color:softBlue2,fontFamily:"'Epilogue',sans-serif",fontWeight:900,textTransform:"uppercase",letterSpacing:"0.13em",marginBottom:9 }}>Overview</p>
+              <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8 }}>
+                {[{label:"Actively collecting",val:totalOwned,color:softBlue},{label:"Wanted / ISO",val:wishlistTotal,color:C.gold},{label:"Tradeable",val:tradeableTotal,color:C.rose}].map(item=>(
+                  <div key={item.label} style={{ borderRadius:14,padding:"11px 8px",background:`${item.color}12`,border:`1px solid ${item.color}36`,minWidth:0 }}>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:16,color:item.color,lineHeight:1 }}>{item.val}</p>
+                    <p style={{ fontSize:9.5,color:C.textMid,lineHeight:1.25,marginTop:5 }}>{item.label}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div style={{ border:`1px solid rgba(255,255,255,0.09)`,borderRadius:17,padding:12,marginBottom:12,background:"rgba(255,255,255,0.035)" }}>
+              <p style={{ fontSize:9,color:softBlue2,fontFamily:"'Epilogue',sans-serif",fontWeight:900,textTransform:"uppercase",letterSpacing:"0.13em",marginBottom:9 }}>Groups</p>
+              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
+                {(trackerGroups.length?trackerGroups:[{group:"BTS",owned:6,total:6,pct:100},{group:"ATEEZ",owned:4,total:5,pct:80}]).map(g=>(
+                  <div key={g.group} style={{ borderRadius:13,padding:"10px 11px",background:C.surface,border:`1px solid ${softBlueGlow}` }}><p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,color:C.text }}>{g.group}</p><p style={{ fontSize:10,color:C.textMid,marginTop:3 }}>{g.owned} / {g.total} <span style={{ color:softBlue,marginLeft:5 }}>{g.pct}%</span></p></div>
+                ))}
+              </div>
+            </div>
+            <div style={{ border:`1px solid rgba(255,255,255,0.09)`,borderRadius:17,padding:12,marginBottom:12,background:"rgba(255,255,255,0.035)" }}>
+              <p style={{ fontSize:9,color:softBlue2,fontFamily:"'Epilogue',sans-serif",fontWeight:900,textTransform:"uppercase",letterSpacing:"0.13em",marginBottom:9 }}>Album Versions</p>
+              <div style={{ display:"flex",gap:8,overflowX:"auto",scrollbarWidth:"none" }}>
+                {(Object.values(trackerAlbumVersions).length?Object.values(trackerAlbumVersions):[{version:"Standard",owned:6,total:8},{version:"Limited",owned:3,total:4},{version:"Platform",owned:1,total:2}]).map(v=>(
+                  <div key={v.version} style={{ flex:"0 0 auto",borderRadius:13,padding:"9px 12px",background:`${softBlue}0d`,border:`1px solid ${softBlue}32` }}><span style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:11,color:C.text }}>{v.version}</span><span style={{ marginLeft:8,color:softBlue,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:800 }}>{v.owned} / {v.total}</span></div>
+                ))}
+              </div>
+            </div>
+            <div style={{ border:`1px solid rgba(255,255,255,0.09)`,borderRadius:17,padding:12,background:"rgba(255,255,255,0.035)" }}>
+              <p style={{ fontSize:9,color:softBlue2,fontFamily:"'Epilogue',sans-serif",fontWeight:900,textTransform:"uppercase",letterSpacing:"0.13em",marginBottom:9 }}>ISO / Wanted</p>
+              <div style={{ display:"flex",gap:8,overflowX:"auto",scrollbarWidth:"none" }}>
+                {(trackerWanted.length?trackerWanted:[{label:"Proof Compact",sub:"BTS",color:C.gold},{label:"5-STAR Digipack",sub:"Stray Kids",color:softBlue}]).map((w,i)=>(
+                  <div key={`${w.label}-${i}`} style={{ flex:"0 0 190px",borderRadius:13,padding:"10px",background:`${(w.color||C.gold)}12`,border:`1px solid ${(w.color||C.gold)}34` }}><p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:11.5,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{w.label}</p><p style={{ fontSize:9.5,color:C.textMid,marginTop:3,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{w.sub}</p></div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {/* ── Quick Add sheet ── */}
       {showQuickAdd&&(
         <div onClick={()=>setShowQuickAdd(false)} style={{ position:"fixed",inset:0,zIndex:400,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
@@ -7997,7 +8082,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
             <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
               {[
                 {emoji:"📸",label:"Add Memory",sub:"Save a moment to a scrapbook",color:C.sky,action:()=>{setSection("scrapbook");setShowQuickAdd(false);}},
-                {emoji:"🃏",label:"Add Photocard",sub:"Log a card to your collection",color:C.pink,action:()=>{setSection("photocards");setShowQuickAdd(false);}},
+                {emoji:"🃏",label:"Add Photocard",sub:"Log a card to your collection",color:C.pink,action:()=>{setSection("albums");setAlbumSubView("photocards");setShowQuickAdd(false);}},
                 {emoji:"📁",label:"New Binder",sub:"Start a new era tracker",color:C.accent,action:()=>{setSection("albums");setShowQuickAdd(false);}},
               ].map(opt=>(
                 <div key={opt.label} onClick={opt.action} className="tap" style={{ display:"flex",gap:14,alignItems:"center",padding:"13px 14px",borderRadius:16,background:`${opt.color}12`,border:`1.5px solid ${opt.color}30`,cursor:"pointer" }}>
@@ -8026,7 +8111,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                 {emoji:"🃏",label:"First Photocard",sub:"Log your first card",unlocked:allCards.length>0,color:C.pink},
                 {emoji:"⭐",label:"Wishlist Watcher",sub:"Add a card to ISO",unlocked:wishlistTotal>0,color:C.gold},
                 {emoji:"📸",label:"Memory Keeper",sub:"Save your first concert memory",unlocked:false,color:C.sky},
-                {emoji:"💊",label:"Capsule Keeper",sub:"Drop a moment in a capsule",unlocked:ls.get("backstage_capsules_count",0)>0,color:C.mint},
+                {emoji:"💊",label:"Capsule Keeper",sub:"Drop a moment in a capsule",unlocked:ls.get("backstage_capsules_count",0)>0,color:softBlue},
                 {emoji:"🏆",label:"Trade Passport",sub:"List a card for trade",unlocked:tradeableTotal>0,color:C.rose},
                 {emoji:"💜",label:"Bias Shrine",sub:"Set your bias in Stage Studio",unlocked:!!_fanIdentity?.bias,color:C.berry},
                 {emoji:"✦",label:"VIP Collector",sub:"Unlock Backstage VIP",unlocked:isVip,color:C.gold},
@@ -8075,7 +8160,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                 {(()=>{
                   const biasSetCards = PC_CATALOG_SETS.flatMap(s=>s.members.filter(m=>m===_fanIdentity.bias).map(m=>({set:s,member:m,status:(pcSetData[s.id]||{})[m]||null})));
                   if(!biasSetCards.length) return null;
-                  const STATUS_META_SHRINE = {null:{label:"Missing",color:C.textDim},owned:{label:"✓ Owned",color:C.mint},wishlist:{label:"♡ ISO",color:C.gold},dupe:{label:"×2 Dupe",color:C.accent},trade:{label:"⇄ Trade",color:C.rose}};
+                  const STATUS_META_SHRINE = {null:{label:"Missing",color:C.textDim},owned:{label:"✓ Owned",color:softBlue},wishlist:{label:"♡ ISO",color:C.gold},dupe:{label:"×2 Dupe",color:C.accent},trade:{label:"⇄ Trade",color:C.rose}};
                   return (
                     <div style={{ marginBottom:14 }}>
                       <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10 }}>Set Cards · {_fanIdentity.bias}</p>
@@ -8134,7 +8219,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
               <div>
                 <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10 }}>Potential Matches</p>
                 {[
-                  {user:"@trademaster",card:wishlist[0]?.member||"Felix",group:wishlist[0]?.group_name||"SKZ",reason:"Has dupe for trade",match:94,color:C.mint},
+                  {user:"@trademaster",card:wishlist[0]?.member||"Felix",group:wishlist[0]?.group_name||"SKZ",reason:"Has dupe for trade",match:94,color:softBlue},
                   {user:"@kpopswap",card:wishlist[0]?.member||"Felix",group:wishlist[0]?.group_name||"SKZ",reason:"Listed ISO match",match:87,color:C.accent},
                 ].map((m,i)=>(
                   <div key={i} style={{ display:"flex",gap:12,alignItems:"center",padding:"12px 13px",borderRadius:14,background:`${m.color}0c`,border:`1.5px solid ${m.color}28`,marginBottom:10 }}>
@@ -11052,6 +11137,7 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
   const [hubsLoading, setHubsLoading] = useState(false);
   const [hubsLoaded, setHubsLoaded]   = useState(false);
   const [hubsTab, setHubsTab]         = useState("trending"); // trending | rising | nearby | global
+  const [hubDetail, setHubDetail]     = useState(null); // city object when a Hub card is tapped
 
   // ── Fan Circles state ──
   const [fanCircles, setFanCircles]     = useState(()=>{ const s=ls.get("backstage_fan_circles",null); return s&&s.length>0?s:SEED_CIRCLES; });
@@ -11396,7 +11482,10 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
       {view==="map" && <FanverseMapView />}
 
       {/* HUBS */}
-      {view==="hubs" && (
+      {view==="hubs" && hubDetail && (
+        <CityHubDetail city={hubDetail} user={user} onBack={()=>setHubDetail(null)} onViewProfile={onViewProfile} />
+      )}
+      {view==="hubs" && !hubDetail && (
         <div onScroll={e=>setScrolled(e.target.scrollTop>48)} style={{ flex:1,overflowY:"auto",overflowX:"hidden",padding:"14px 18px 100px" }}>
           <div onClick={()=>go("concerts")} className="tap" style={{ ...VS.glowCard(C.pink),padding:"13px 16px",marginBottom:16,cursor:"pointer" }}>
             <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.pink}55,transparent)` }} />
@@ -11473,7 +11562,7 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
             return cities.map(c => {
               const color = HUB_COLOR[c.hub_status] || C.accent;
               return (
-                <div key={c.city_key} className="tap" style={{ ...VS.glowCard(color), padding:"14px 16px", marginBottom:10, cursor:"pointer" }}>
+                <div key={c.city_key} onClick={()=>setHubDetail(c)} className="tap" style={{ ...VS.glowCard(color), padding:"14px 16px", marginBottom:10, cursor:"pointer" }}>
                   <div style={VS.innerGlow(color)} />
                   <div style={{ position:"relative", display:"flex", gap:12, alignItems:"flex-start" }}>
                     <div style={{ width:44,height:44,borderRadius:13,background:`${color}20`,border:`1.5px solid ${color}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:21,flexShrink:0,boxShadow:`0 0 10px ${color}12` }}>🏙️</div>
@@ -11507,7 +11596,7 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
                 </div>
               </div>
               {MOCK_HUBS.map(hub=>(
-                <div key={hub.id} className="tap" style={{ ...VS.glowCard(hub.color),padding:14,marginBottom:10,cursor:"pointer",display:"flex",gap:12,alignItems:"center" }}>
+                <div key={hub.id} onClick={()=>setHubDetail({ isMock:true, name:`${hub.fandom} in ${hub.name}`, city_display:`${hub.fandom} in ${hub.name}`, hub_status:"seed", total_fans:hub.members })} className="tap" style={{ ...VS.glowCard(hub.color),padding:14,marginBottom:10,cursor:"pointer",display:"flex",gap:12,alignItems:"center" }}>
                   <div style={VS.innerGlow(hub.color)} />
                   <div style={{ position:"relative",width:46,height:46,borderRadius:14,background:`${hub.color}20`,border:`1.5px solid ${hub.color}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0,boxShadow:`0 0 12px ${hub.color}14` }}>🏙️</div>
                   <div style={{ flex:1,position:"relative" }}>
@@ -12938,16 +13027,12 @@ function ExploreTab({ user, weather, isVip, onUpgrade, go, onBack }) {
     { id:"buildday", icon:"🗓️", label:"Build My Day",     sub:"AI-planned fan day with food, cafes & meetups",         color:C.pink,   wide:true, soon:false },
     { id:"chants",   icon:"🎵", label:"Chant Practice",   sub:"Learn fanchants before the show",                        color:C.accent,            soon:false },
     { id:"eras",     icon:"🎭", label:"Eras Explorer",    sub:"Browse every album & comeback era",                      color:C.pink,              soon:false },
-    { id:"outfits",  icon:"✨", label:"Outfit AI",        sub:"Your concert fit era is loading.",                        color:C.gold,              soon:true  },
-    { id:"trip",     icon:"✈️", label:"Trip Planner",     sub:"Your full fan-day planner is being polished.",            color:C.sky,               soon:true  },
     { id:"prep",     icon:"📋", label:"Concert Prep",     sub:"Packing list & day-of checklist",                        color:C.mint,              soon:false },
     { id:"comebacks",icon:"🔔", label:"Comebacks & Drops",sub:"Announcements for your followed groups",                  color:C.rose,              soon:false },
     { id:"kdramas",  icon:"🎬", label:"K-Dramas",         sub:"Track your watch list",                                  color:C.silver,            soon:false },
   ];
 
   const openTool = (id) => {
-    // Paused tools — show Coming Soon via go() which has the intercept
-    if (id === "outfits" || id === "trip") { go(id); return; }
     if (id === "eras") { setEraModal(true); return; }
     setView(id);
   };
@@ -13150,12 +13235,9 @@ function ExploreTab({ user, weather, isVip, onUpgrade, go, onBack }) {
 
         {/* View toggle */}
         <div style={{ display:"flex",gap:6,marginBottom:0,overflowX:"auto",scrollbarWidth:"none" }}>
-          {[["grid","⊞ All Tools"],["buildday","🗓️ Build My Day"],["comebacks","🔔 Comebacks"],["chants","🎵 Chants"],["outfits","✨ Outfits"],["trip","✈️ Trip"],["prep","📋 Prep"],["kdramas","🎬 K-Dramas"]].map(([id,label])=>{
-            const isSoon = id==="outfits"||id==="trip";
-            return (
-              <span key={id} onClick={()=>isSoon?go(id):setView(id)} className="tap" style={{ flexShrink:0, padding:"7px 13px", borderRadius:99, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:view===id?C.accent:C.surfaceHi, color:view===id?C.bg:C.textMid, border:`1px solid ${view===id?C.accent:C.border}`, transition:"all .18s", opacity:isSoon?0.75:1 }}>{label}{isSoon?" ✦":""}</span>
-            );
-          })}
+          {[["grid","⊞ All Tools"],["buildday","🗓️ Build My Day"],["comebacks","🔔 Comebacks"],["chants","🎵 Chants"],["prep","📋 Prep"],["kdramas","🎬 K-Dramas"]].map(([id,label])=>(
+            <span key={id} onClick={()=>setView(id)} className="tap" style={{ flexShrink:0, padding:"7px 13px", borderRadius:99, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:view===id?C.accent:C.surfaceHi, color:view===id?C.bg:C.textMid, border:`1px solid ${view===id?C.accent:C.border}`, transition:"all .18s" }}>{label}</span>
+          ))}
         </div>
       </div>
 
@@ -13195,8 +13277,6 @@ function ExploreTab({ user, weather, isVip, onUpgrade, go, onBack }) {
         {view==="buildday"&&<BuildMyDay go={go} />}
         {view==="comebacks"&&<ComebacksEraWatch user={user} go={go} isVip={isVip} onUpgrade={onUpgrade} onBack={()=>setView("grid")} />}
         {view==="chants"&&<ChantVault />}
-        {view==="outfits"&&<OutfitGenerator user={user} weather={weather} isVip={isVip} onUpgrade={onUpgrade} />}
-        {view==="trip"&&<TripPlanner isVip={isVip} onUpgrade={onUpgrade} />}
         {view==="prep"&&<ConcertPrep />}
         {view==="kdramas"&&<KDramaTracker />}
       </Screen>
@@ -13527,585 +13607,6 @@ function EraBoard() {
   );
 }
 
-// ─── OUTFIT GENERATOR (with VIP gate + Inspo Board) ──────────────────────────
-// POST /api/ai/outfit | GET /api/outfits/inspo | POST /api/outfits/save-inspo
-// ─── OUTFIT GENERATOR + SHOP THE LOOK ────────────────────────────────────────
-// POST /api/ai/outfit | POST /api/outfits/save | GET /api/outfits/saved
-// localStorage: backstage_saved_outfits | backstage_outfit_gen_count
-// ─── VIRTUAL TRY-ON — Pinterest × AI outfit try-on ───────────────────────────
-// Concept: upload your photo + link Pinterest board → browse outfits → "Try On"
-// In production this would use a virtual try-on API (e.g. Fashn.ai, TryOnDiffusion)
-function OutfitTryOn({ user, isVip, onUpgrade }) {
-  const [photo, setPhoto]           = useState(null);
-  const [pinterestUrl, setPinterestUrl] = useState("");
-  const [selectedOutfit, setSelectedOutfit] = useState(null);
-  const [tryOnResult, setTryOnResult] = useState(null);
-  const [loading, setLoading]       = useState(false);
-  const [step, setStep]             = useState("setup"); // setup | outfits | result
-  const fileRef = useRef(null);
-
-  const SAMPLE_OUTFITS = [
-    { id:1, label:"BTS GOLDEN — Warm Cozy",   emoji:"🧡", tags:["oversized","soft","BTS"],    color:C.gold   },
-    { id:2, label:"aespa MY WORLD — Futuristic", emoji:"🌌", tags:["silver","bold","aespa"],  color:C.mint   },
-    { id:3, label:"SKZ 5-STAR — Rock Chic",   emoji:"🖤", tags:["alt","leather","SKZ"],       color:C.accent },
-    { id:4, label:"NewJeans — Soft Bunny",    emoji:"🐰", tags:["pastel","cute","NJ"],        color:C.pink   },
-    { id:5, label:"BLACKPINK — Born Pink",    emoji:"🌸", tags:["glam","pink","BLACKPINK"],   color:C.rose   },
-    { id:6, label:"SEVENTEEN — Carat Blue",   emoji:"💎", tags:["clean","casual","SVT"],      color:C.sky    },
-  ];
-
-  const handlePhoto = (e) => {
-    const f = e.target.files[0]; if(!f) return;
-    const r = new FileReader();
-    r.onload = ev => setPhoto(ev.target.result);
-    r.readAsDataURL(f);
-  };
-
-  const handleTryOn = async (outfit) => {
-    if(!photo) { setStep("setup"); return; }
-    setSelectedOutfit(outfit);
-    setLoading(true);
-    // Simulate AI try-on processing (in production: call try-on API)
-    await new Promise(res=>setTimeout(res,2000));
-    setTryOnResult({ outfit, note:"Try-on preview ready! In the full version this would show you wearing the outfit using AI." });
-    setLoading(false);
-    setStep("result");
-  };
-
-  const openPinterest = () => {
-    const query = `kpop ${user?.groups?.[0]||"kpop"} concert outfit era style`;
-    window.open(`https://www.pinterest.com/search/pins/?q=${encodeURIComponent(query)}`, "_blank");
-  };
-
-  return (
-    <div style={{ padding:"16px 0 0" }}>
-      {/* Header info */}
-      <div style={{ ...VS.glowCard(C.pink), padding:"14px 16px", marginBottom:16 }}>
-        <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.pink}55,transparent)` }} />
-        <div style={{ position:"relative", display:"flex", gap:12, alignItems:"flex-start" }}>
-          <div style={{ fontSize:30 }}>👗</div>
-          <div style={{ flex:1 }}>
-            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:C.text,marginBottom:4 }}>Virtual Try-On</p>
-            <p style={{ fontSize:11,color:C.textMid,lineHeight:1.6 }}>Upload your photo, browse K-pop inspired outfits, and see how they look on you — powered by AI try-on technology.</p>
-            <p style={{ fontSize:10,color:C.pink,marginTop:6,fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>⚠️ AI results vary — this is a style preview, not a perfect render.</p>
-          </div>
-        </div>
-      </div>
-
-      {(step==="setup"||step==="outfits") && (
-        <>
-          {/* Step 1: Upload photo */}
-          <div style={{ marginBottom:14 }}>
-            <p style={{ ...VS.softSectionHeader, marginBottom:10 }}>Step 1 — Your Photo</p>
-            {photo ? (
-              <div style={{ position:"relative", borderRadius:18, overflow:"hidden", marginBottom:4 }}>
-                <img src={photo} alt="You" style={{ width:"100%", maxHeight:200, objectFit:"cover", borderRadius:18, border:`1.5px solid ${C.mint}44` }} />
-                <button onClick={()=>setPhoto(null)} style={{ position:"absolute",top:10,right:10,background:"rgba(6,6,15,0.85)",border:"none",borderRadius:"50%",width:30,height:30,color:C.text,cursor:"pointer",fontSize:14 }}>✕</button>
-                <div style={{ position:"absolute",bottom:10,left:10,...VS.activePill(C.mint),fontSize:9 }}>✓ Photo ready</div>
-              </div>
-            ) : (
-              <button onClick={()=>fileRef.current?.click()} style={{ width:"100%",padding:"18px",borderRadius:18,background:`${C.pink}0c`,border:`2px dashed ${C.pink}44`,color:C.pink,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:8 }}>
-                <span style={{ fontSize:32 }}>📸</span>
-                Upload Your Photo
-                <span style={{ fontSize:10,color:C.textMid,fontWeight:400 }}>Stored locally · never shared</span>
-              </button>
-            )}
-            <input ref={fileRef} type="file" accept="image/*" onChange={handlePhoto} style={{ display:"none" }} />
-          </div>
-
-          {/* Step 2: Pinterest board */}
-          <div style={{ marginBottom:16 }}>
-            <p style={{ ...VS.softSectionHeader, marginBottom:10 }}>Step 2 — Pinterest Inspo (optional)</p>
-            <div style={{ display:"flex",gap:8 }}>
-              <input
-                value={pinterestUrl}
-                onChange={e=>setPinterestUrl(e.target.value)}
-                placeholder="Paste your Pinterest board URL..."
-                style={{ flex:1,padding:"11px 13px",borderRadius:13,background:C.surfaceHi,border:`1.5px solid ${pinterestUrl?C.rose:C.border}`,color:C.text,fontSize:12,outline:"none" }}
-              />
-              <button onClick={openPinterest} style={{ padding:"11px 14px",borderRadius:13,background:`linear-gradient(140deg,#e60023,#ad081b)`,border:"none",color:"#fff",fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",gap:5,flexShrink:0 }}>
-                <span style={{ fontSize:16 }}>📌</span> Open
-              </button>
-            </div>
-            <p style={{ fontSize:9.5,color:C.textDim,marginTop:5 }}>Search Pinterest for K-pop outfits, copy the board link, paste it above.</p>
-          </div>
-
-          {/* Step 3: Choose outfit style */}
-          <div>
-            <p style={{ ...VS.softSectionHeader, marginBottom:10 }}>Step 3 — Pick a Style to Try On</p>
-            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:9 }}>
-              {SAMPLE_OUTFITS.map(outfit=>(
-                <div key={outfit.id} onClick={()=>photo?handleTryOn(outfit):(fileRef.current?.click())} className="tap" style={{ ...VS.glowCard(outfit.color),padding:"14px 12px",cursor:"pointer",position:"relative",overflow:"hidden" }}>
-                  <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${outfit.color}55,transparent)` }} />
-                  <p style={{ fontSize:24,marginBottom:8 }}>{outfit.emoji}</p>
-                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,color:C.text,marginBottom:6,lineHeight:1.3,position:"relative" }}>{outfit.label}</p>
-                  <div style={{ display:"flex",gap:4,flexWrap:"wrap",position:"relative" }}>
-                    {outfit.tags.map(t=><span key={t} style={{ fontSize:8,background:`${outfit.color}18`,color:outfit.color,borderRadius:99,padding:"2px 7px",fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>#{t}</span>)}
-                  </div>
-                  <div style={{ marginTop:10,width:"100%",padding:"7px",borderRadius:10,background:`linear-gradient(140deg,${outfit.color}cc,${outfit.color}88)`,textAlign:"center",position:"relative" }}>
-                    <p style={{ fontSize:10,color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800 }}>{photo?"👗 Try On":"📸 Add Photo First"}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* Loading state */}
-      {loading && (
-        <div style={{ textAlign:"center",padding:"40px 20px" }}>
-          <div style={{ fontSize:48,animation:"float 1s ease-in-out infinite",marginBottom:16 }}>✨</div>
-          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:16,marginBottom:8 }}>AI is styling you...</p>
-          <p style={{ fontSize:12,color:C.textMid }}>Applying {selectedOutfit?.label} to your photo</p>
-          <div style={{ display:"flex",justifyContent:"center",gap:6,marginTop:20 }}>
-            {[0,1,2].map(i=><div key={i} style={{ width:8,height:8,borderRadius:"50%",background:C.pink,animation:`pulse 1.4s ${i*0.2}s ease infinite` }} />)}
-          </div>
-        </div>
-      )}
-
-      {/* Result */}
-      {step==="result" && tryOnResult && !loading && (
-        <div>
-          <div style={{ ...VS.glowCard(C.mint),padding:"16px 16px 14px",marginBottom:14 }}>
-            <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.mint}55,transparent)` }} />
-            <div style={{ position:"relative",display:"flex",gap:12,alignItems:"flex-start" }}>
-              <div style={{ fontSize:32 }}>🎉</div>
-              <div style={{ flex:1 }}>
-                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:C.text,marginBottom:4 }}>Try-On Preview</p>
-                <p style={{ fontSize:11.5,color:tryOnResult.outfit.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,marginBottom:6 }}>{tryOnResult.outfit.label}</p>
-                <p style={{ fontSize:11,color:C.textMid,lineHeight:1.6 }}>{tryOnResult.note}</p>
-              </div>
-            </div>
-          </div>
-          {/* Show uploaded photo with overlay */}
-          {photo && (
-            <div style={{ position:"relative",borderRadius:18,overflow:"hidden",marginBottom:14 }}>
-              <img src={photo} alt="You" style={{ width:"100%",maxHeight:260,objectFit:"cover",filter:"brightness(0.9) saturate(1.1)" }} />
-              <div style={{ position:"absolute",inset:0,background:`linear-gradient(160deg,${tryOnResult.outfit.color}22,transparent 60%)` }} />
-              <div style={{ position:"absolute",bottom:12,left:12,right:12,background:"rgba(6,6,15,0.88)",borderRadius:12,padding:"10px 14px",backdropFilter:"blur(8px)" }}>
-                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,color:C.text,marginBottom:2 }}>{tryOnResult.outfit.emoji} {tryOnResult.outfit.label}</p>
-                <p style={{ fontSize:10,color:C.textMid }}>Full AI try-on rendering available in the complete version</p>
-              </div>
-            </div>
-          )}
-          <div style={{ display:"flex",gap:9 }}>
-            <button onClick={()=>{setStep("outfits");setTryOnResult(null);}} style={{ flex:1,padding:"11px",borderRadius:13,background:`${C.mint}18`,border:`1.5px solid ${C.mint}44`,color:C.mint,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}>← Try Another</button>
-            <button onClick={()=>window.open(`https://www.pinterest.com/search/pins/?q=${encodeURIComponent(tryOnResult.outfit.label+' kpop outfit')}`, "_blank")} style={{ flex:1,padding:"11px",borderRadius:13,background:`linear-gradient(140deg,#e60023,#ad081b)`,border:"none",color:"#fff",fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}>📌 Shop on Pinterest</button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function OutfitGenerator({ user, weather, isVip, onUpgrade }) {
-  const [group, setGroup] = useState(user?.groups?.[0]||"BTS");
-  const [vibe, setVibe] = useState("dark");
-  const [season, setSeason] = useState("spring");
-  const [result, setResult] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [view, setView] = useState("generator"); // generator | inspo | tryon
-  const [genCount, setGenCount] = useState(ls.get("backstage_outfit_gen_count",0));
-  const [savedInspo, setSavedInspo] = useState(ls.get("backstage_outfit_inspo",[]).map(i=>i.id));
-  const [savedOutfits, setSavedOutfits] = useState(ls.get("backstage_saved_outfits",[]));
-  const [savePulse, setSavePulse] = useState(false);
-  const [expandedItem, setExpandedItem] = useState(null);
-  const FREE_LIMIT = 3;
-
-  // Shop item data generated per result
-  const buildShopItems = (r) => {
-    const RETAILERS = ["Shein","Amazon","Target","H&M","ASOS","Zara","Urban Outfitters","Yesstyle"];
-    const TAGS = ["Budget pick","Fast shipping","Fan favorite","K-style","Trending","Idol pick"];
-    const pieces = [
-      { slot:"Top", name:r?.items?.[0]||"Cropped graphic tee", price:(Math.random()*25+9).toFixed(2), tag:TAGS[0], retailer:RETAILERS[0], gradientA:C.accent, gradientB:C.accentDim },
-      { slot:"Bottom", name:r?.items?.[1]||"Pleated mini skirt", price:(Math.random()*35+14).toFixed(2), tag:TAGS[3], retailer:RETAILERS[4], gradientA:C.pink, gradientB:C.pinkDim },
-      { slot:"Shoes", name:r?.items?.[2]||"Chunky platform boots", price:(Math.random()*55+22).toFixed(2), tag:TAGS[4], retailer:RETAILERS[1], gradientA:C.silver, gradientB:C.silverDim },
-      { slot:"Accessories", name:r?.items?.[3]||"Chain necklace + rings", price:(Math.random()*18+8).toFixed(2), tag:TAGS[2], retailer:RETAILERS[7], gradientA:C.gold, gradientB:C.goldDim },
-    ];
-    return pieces;
-  };
-
-  const generate = async () => {
-    if (!isVip && genCount >= FREE_LIMIT) { onUpgrade(); return; }
-    setLoading(true); setResult(null); setExpandedItem(null);
-    try {
-      const res = await fetch("/api/ai/outfit", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ group, vibe, season, weather }) });
-      if(res.ok){ const d = await res.json(); setResult(d.outfit); }
-      else throw new Error();
-    } catch {
-      await new Promise(r=>setTimeout(r,1100));
-      const vibeTitle = { dark:"Dark Era", soft:"Soft Glam", cozy:"Cozy Fan", bold:"Power Fit", cute:"Cute Mode" };
-      setResult({
-        title:`${group} ${vibeTitle[vibe]||vibe} Fit`,
-        subtitle:`Built for your concert night`,
-        confidence:Math.floor(Math.random()*10+88),
-        items:[
-          `${vibe==="dark"?"Cropped black hoodie":vibe==="soft"?"Lavender satin top":vibe==="cozy"?"Oversized knit crewneck":vibe==="bold"?"Cut-out bodysuit":"Babydoll blouse"}`,
-          `${vibe==="dark"?"Pleated mini skirt":vibe==="soft"?"Wide-leg cream trousers":vibe==="cozy"?"Boyfriend jeans, cuffed":vibe==="bold"?"Leather mini skirt":"Floral micro skirt"}`,
-          `${vibe==="dark"?"Chunky platform boots":vibe==="soft"?"Strappy heeled sandals":vibe==="cozy"?"Squishmallow sneakers":vibe==="bold"?"Knee-high stiletto boots":"Mary Jane platforms"}`,
-          `${vibe==="dark"?"Silver chains + black rings":vibe==="soft"?"Pearl clips + layered necklaces":vibe==="cozy"?"Fandom merch pin set":vibe==="bold"?"Corset belt + cuff rings":"Hair bow + charm bracelet"}`,
-          `${group} lightstick or mini merch keychain`,
-        ],
-        colors:[
-          vibe==="dark"?"Midnight Black":vibe==="soft"?"Soft Lavender":vibe==="cozy"?"Warm Cream":"Silver Chrome",
-          vibe==="dark"?"Accent: Deep Violet":"Accent: Blush Pink",
-        ],
-        tags:[
-          vibe==="dark"?"🌙 Night Show":vibe==="soft"?"✨ Soft Glam":"🔥 Trending",
-          season==="summer"?"☀️ Weather Ready":season==="winter"?"❄️ Layer Up":"🌸 Seasonal",
-          "💜 Fan-coded",
-        ],
-        tip:`Pro tip: ${vibe==="dark"?"Add a sheer overlay for the encore — keeps the fit clean through the whole show.":vibe==="soft"?"Bring a compact mirror — touch-ups between sets are real.":vibe==="cozy"?"Roll your jeans once more if you'll be standing for the full set.":"Bring a backup top — merch lines can be hot."}`,
-      });
-    }
-    const next = genCount + 1;
-    setGenCount(next); ls.set("backstage_outfit_gen_count", next);
-    setLoading(false);
-  };
-
-  const toggleInspo = (pin) => {
-    const isSaved = savedInspo.includes(pin.id);
-    const next = isSaved ? savedInspo.filter(i=>i!==pin.id) : [...savedInspo, pin.id];
-    setSavedInspo(next);
-    ls.set("backstage_outfit_inspo", MOCK_INSPO_PINS.filter(p=>next.includes(p.id)));
-  };
-
-  const saveOutfit = () => {
-    if(!result) return;
-    const entry = { ...result, id:`outfit-${Date.now()}`, group, vibe, season, savedAt:new Date().toISOString(), shopItems:buildShopItems(result) };
-    const next = [entry, ...savedOutfits.filter(o=>o.id!==entry.id)];
-    setSavedOutfits(next); ls.set("backstage_saved_outfits", next);
-    setSavePulse(true); setTimeout(()=>setSavePulse(false), 1800);
-  };
-
-  const shopItems = result ? buildShopItems(result) : [];
-
-  return (
-    <div>
-      {/* Tab bar */}
-      <div style={{ display:"flex", gap:8, marginBottom:14 }}>
-        {[["generator","✨ Generate"],["tryon","👗 Try On"],["inspo","🖼️ Inspo"],["saved","💾 Saved"]].map(([id,label])=>(
-          <span key={id} onClick={()=>setView(id)} className="tap" style={{ padding:"6px 12px", borderRadius:99, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:600, cursor:"pointer", background:view===id?C.accent:C.surfaceHi, color:view===id?C.bg:C.textMid, border:`1px solid ${view===id?C.accent:C.border}` }}>{label}</span>
-        ))}
-      </div>
-
-      {/* ── GENERATOR VIEW ── */}
-      {view==="generator" && (
-        <div style={{ paddingBottom:20 }}>
-          {/* ── COMING SOON GATE — remove to re-enable ── */}
-          <div style={{ position:"relative",borderRadius:22,overflow:"hidden",marginBottom:20,background:`linear-gradient(160deg,${C.cosmic},#0e0630)`,border:`1px solid ${C.accent}22` }}>
-            {/* Ambient glow */}
-            <div style={{ position:"absolute",top:"-30%",left:"50%",transform:"translateX(-50%)",width:280,height:280,borderRadius:"50%",background:`radial-gradient(circle,${C.accent}18,transparent 70%)`,pointerEvents:"none" }} />
-            {/* Blur overlay on bottom half */}
-            <div style={{ position:"absolute",bottom:0,left:0,right:0,height:"40%",background:`linear-gradient(to top,${C.cosmic}ee,transparent)`,pointerEvents:"none",zIndex:1 }} />
-            {/* Sparkle dots */}
-            {[{t:"8%",l:"10%"},{t:"12%",l:"88%"},{t:"70%",l:"5%"},{t:"75%",l:"92%"}].map((s,i)=>(
-              <div key={i} style={{ position:"absolute",top:s.t,left:s.l,color:C.lavender,fontSize:8,opacity:0.4,animation:`sparkleFloat ${2+i*0.5}s ease-in-out infinite`,animationDelay:`${i*0.4}s`,pointerEvents:"none" }}>✦</div>
-            ))}
-            <div style={{ position:"relative",zIndex:2,padding:"36px 24px 32px",textAlign:"center" }}>
-              <div style={{ width:56,height:56,borderRadius:18,background:`linear-gradient(135deg,${C.accent}28,${C.berry}18)`,border:`1px solid ${C.accent}33`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,margin:"0 auto 16px",boxShadow:`0 0 28px ${C.accent}20` }}>✨</div>
-              <div style={{ display:"inline-flex",alignItems:"center",gap:5,background:`${C.accent}14`,border:`1px solid ${C.accent}33`,borderRadius:99,padding:"3px 12px",marginBottom:14 }}>
-                <div style={{ width:5,height:5,borderRadius:"50%",background:C.accent,animation:"pulse 1.5s ease infinite" }} />
-                <span style={{ fontSize:9,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,letterSpacing:"0.1em" }}>COMING SOON</span>
-              </div>
-              <h3 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:20,marginBottom:8,background:`linear-gradient(135deg,${C.lavender},${C.blush})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent" }}>AI Outfit Studio</h3>
-              <p style={{ fontSize:12,color:C.textMid,lineHeight:1.75,marginBottom:20,maxWidth:280,margin:"0 auto 20px" }}>
-                Real concert-inspired fits. Fandom-coded styling. Era aesthetics, weather-aware planning, and personalized concert-day looks — all AI-powered.
-              </p>
-              {/* Feature previews */}
-              {[["🎤","Concert-day outfit planning"],["💜","Era & fandom-coded aesthetics"],["🌤","Weather-aware styling"],["📌","Pinterest-quality editorial fits"]].map(([icon,label],i)=>(
-                <div key={i} style={{ display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:i<3?`1px solid ${C.border}`:"none",textAlign:"left" }}>
-                  <span style={{ fontSize:14,flexShrink:0 }}>{icon}</span>
-                  <p style={{ fontSize:11.5,color:C.text }}>{label}</p>
-                </div>
-              ))}
-              <button style={{ marginTop:20,width:"100%",padding:"13px",borderRadius:12,border:`1px solid ${C.accent}44`,background:`${C.accent}14`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer" }}>
-                Get Early Access →
-              </button>
-            </div>
-          </div>
-          {/* Hidden generator code preserved below for reactivation */}
-          <div style={{display:"none"}}>
-          {!isVip && genCount >= FREE_LIMIT && (
-            <div onClick={onUpgrade} className="tap" style={{ background:`${C.gold}12`, border:`1.5px solid ${C.gold}44`, borderRadius:14, padding:13, marginBottom:14, textAlign:"center", cursor:"pointer" }}>
-              <p style={{ fontSize:13, color:C.gold, fontFamily:"'Epilogue',sans-serif", fontWeight:700 }}>This is a VIP feature ✨</p>
-              <p style={{ fontSize:11, color:C.textMid, marginTop:4 }}>Unlock your full fan experience</p>
-            </div>
-          )}
-          {!isVip && genCount < FREE_LIMIT && (
-            <p style={{ fontSize:10.5, color:C.textMid, marginBottom:12 }}>{FREE_LIMIT - genCount} free generation{FREE_LIMIT-genCount!==1?"s":""} left</p>
-          )}
-
-          {/* Group selector */}
-          <div style={{ marginBottom:12 }}>
-            <p style={{ fontSize:9.5,color:C.textMid,marginBottom:8,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em" }}>Group / Era</p>
-            <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
-              {ALL_GROUPS.slice(0,10).map(g=><Pill key={g} color={group===g?C.accent:C.textMid} active={group===g} onClick={()=>setGroup(g)} small style={{ cursor:"pointer" }}>{g}</Pill>)}
-            </div>
-          </div>
-
-          {/* Vibe + Season */}
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:14 }}>
-            <div>
-              <p style={{ fontSize:9.5,color:C.textMid,marginBottom:7,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em" }}>Vibe</p>
-              <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-                {["dark","soft","cozy","bold","cute"].map(v=><Pill key={v} color={vibe===v?C.pink:C.textMid} active={vibe===v} onClick={()=>setVibe(v)} small style={{ cursor:"pointer",width:"100%",justifyContent:"center" }}>{v}</Pill>)}
-              </div>
-            </div>
-            <div>
-              <p style={{ fontSize:9.5,color:C.textMid,marginBottom:7,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em" }}>Season</p>
-              <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-                {["spring","summer","fall","winter"].map(s=><Pill key={s} color={season===s?C.mint:C.textMid} active={season===s} onClick={()=>setSeason(s)} small style={{ cursor:"pointer",width:"100%",justifyContent:"center" }}>{s}</Pill>)}
-              </div>
-            </div>
-          </div>
-
-          {/* Weather chip */}
-          {weather&&(
-            <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:11, padding:"9px 13px", marginBottom:14, display:"flex", gap:8, alignItems:"center" }}>
-              <span style={{ fontSize:16 }}>🌤️</span>
-              <p style={{ fontSize:12 }}>Weather: {weather.temp_f}°F · {weather.condition}</p>
-            </div>
-          )}
-
-          <Btn onClick={generate} disabled={loading} color={C.accent}>
-            {loading ? (
-              <span style={{ display:"flex",alignItems:"center",gap:8 }}>
-                <span style={{ display:"inline-block",animation:"rotate 1s linear infinite",fontSize:14 }}>✦</span>
-                Generating your look...
-              </span>
-            ) : "✨ Generate Outfit"}
-          </Btn>
-
-          {/* ── RESULT CARD (Shop the Look) ── */}
-          {result && (
-            <div style={{ marginTop:20, animation:"up .4s ease" }}>
-
-              {/* Result header */}
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
-                <div>
-                  <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:18, letterSpacing:"-0.02em" }}>Outfit Result ✨</p>
-                  <p style={{ fontSize:11, color:C.textMid }}>{group} — {result.subtitle||"For your concert night"}</p>
-                </div>
-                <button onClick={saveOutfit} className="tap" style={{ background:savePulse?`${C.rose}22`:C.surfaceHi, border:`1.5px solid ${savePulse?C.rose:C.border}`, borderRadius:11, padding:"8px 14px", color:savePulse?C.rose:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, cursor:"pointer", transition:"all .3s", display:"flex", alignItems:"center", gap:5 }}>
-                  {savePulse?"♥ Saved!":"♡ Save"}
-                </button>
-              </div>
-
-              {/* Vibe tags */}
-              {result.tags && (
-                <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:14 }}>
-                  {result.tags.map(t=><Pill key={t} color={C.accent} small>{t}</Pill>)}
-                </div>
-              )}
-
-              {/* Hero visual card */}
-              <div style={{ background:`linear-gradient(160deg,#0d0720,#1a0a38,#0d0720)`, borderRadius:20, overflow:"hidden", position:"relative", marginBottom:18, minHeight:220, display:"flex", alignItems:"flex-end", border:`1px solid ${C.accent}33`, boxShadow:`0 8px 40px ${C.accent}18` }}>
-                {/* Glow orbs */}
-                <div style={{ position:"absolute", inset:0, background:`radial-gradient(ellipse at 20% 30%, ${C.accent}25 0%, transparent 60%), radial-gradient(ellipse at 80% 70%, ${C.pink}15 0%, transparent 55%)`, pointerEvents:"none" }} />
-                {/* Outfit silhouette - dark outfit on dark bg */}
-                <div style={{ position:"absolute", top:"50%", left:"50%", transform:"translate(-50%,-55%)", display:"flex", flexDirection:"column", alignItems:"center", gap:0, opacity:0.85 }}>
-                  {/* Hoodie */}
-                  <div style={{ width:70, height:55, borderRadius:"12px 12px 4px 4px", background:"#1a1a1a", border:"1px solid #333", position:"relative" }}>
-                    <div style={{ position:"absolute", top:-18, left:"50%", transform:"translateX(-50%)", width:28, height:28, borderRadius:"50%", background:"#111", border:"1px solid #333" }} />
-                    <div style={{ position:"absolute", top:10, left:-14, width:14, height:30, borderRadius:6, background:"#1a1a1a", border:"1px solid #333" }} />
-                    <div style={{ position:"absolute", top:10, right:-14, width:14, height:30, borderRadius:6, background:"#1a1a1a", border:"1px solid #333" }} />
-                  </div>
-                  {/* Skirt */}
-                  <div style={{ width:60, height:50, background:"#111", borderRadius:"2px 2px 10px 10px", border:"1px solid #333", marginTop:-2 }}>
-                    <div style={{ position:"absolute", bottom:0, left:0, right:0, height:20, background:"#0a0a0a", borderRadius:"0 0 10px 10px" }} />
-                  </div>
-                  {/* Boots */}
-                  <div style={{ display:"flex", gap:6, marginTop:2 }}>
-                    <div style={{ width:22, height:28, background:"#222", borderRadius:"3px 3px 5px 5px", border:"1px solid #444" }} />
-                    <div style={{ width:22, height:28, background:"#222", borderRadius:"3px 3px 5px 5px", border:"1px solid #444" }} />
-                  </div>
-                </div>
-                {/* Bottom overlay */}
-                <div style={{ position:"relative", zIndex:2, width:"100%", padding:"14px 18px", background:"linear-gradient(transparent, rgba(6,6,15,0.95))", display:"flex", justifyContent:"space-between", alignItems:"flex-end" }}>
-                  <div>
-                    <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:18, lineHeight:1.2 }}>{result.title}</p>
-                    <p style={{ fontSize:12, color:C.accent, marginTop:4, fontFamily:"'Epilogue',sans-serif", fontWeight:600 }}>Confidence: {result.confidence||92}%</p>
-                  </div>
-                  <button onClick={saveOutfit} className="tap" style={{ background:`linear-gradient(140deg,${C.accent},${C.pink})`, border:"none", borderRadius:13, padding:"10px 18px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:12, cursor:"pointer", boxShadow:`0 4px 18px ${C.accent}40` }}>+ Wear This ✦</button>
-                </div>
-              </div>
-
-              {/* Outfit breakdown */}
-              <div style={{ background:C.surface, border:`1.5px solid ${C.border}`, borderRadius:18, overflow:"hidden", marginBottom:18 }}>
-                <div style={{ padding:"13px 16px", borderBottom:`1px solid ${C.border}` }}>
-                  <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, color:C.textMid, textTransform:"uppercase", letterSpacing:"0.1em" }}>Outfit Breakdown</p>
-                </div>
-                {[["Top","👕"],["Bottom","👗"],["Shoes","👟"],["Accessories","💍"],].map(([slot,icon],i)=>{
-                  const item = result.items?.[i]||"";
-                  const isOpen = expandedItem===slot;
-                  return (
-                    <div key={slot}>
-                      <div onClick={()=>setExpandedItem(isOpen?null:slot)} className="tap" style={{ padding:"12px 16px", cursor:"pointer", display:"flex", gap:12, alignItems:"center", background:isOpen?`${C.accent}08`:"transparent" }}>
-                        <span style={{ fontSize:18, flexShrink:0 }}>{icon}</span>
-                        <div style={{ flex:1 }}>
-                          <p style={{ fontSize:10.5, color:C.textDim, fontFamily:"'Epilogue',sans-serif", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:2 }}>{slot}</p>
-                          <p style={{ fontSize:13, fontFamily:"'Epilogue',sans-serif", fontWeight:600 }}>{item}</p>
-                        </div>
-                        <span style={{ color:C.textDim, fontSize:13, transition:"transform .2s", transform:isOpen?"rotate(90deg)":"none" }}>›</span>
-                      </div>
-                      {isOpen && (
-                        <div style={{ padding:"10px 16px 14px 46px", background:`${C.accent}06`, animation:"up .2s ease" }}>
-                          <p style={{ fontSize:12, color:C.textMid, lineHeight:1.65 }}>Style tip: Pair with {i===0?"your bottom layer and tuck slightly for shape.":i===1?"a belt to define the waist.":i===2?"socks that peek out for an intentional look.":"less is more — pick 2 statement pieces."}</p>
-                        </div>
-                      )}
-                      {i<3&&<div style={{ height:1,background:C.border }} />}
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Pro tip */}
-              {result.tip && (
-                <div style={{ background:`${C.gold}10`, border:`1px solid ${C.gold}33`, borderRadius:13, padding:"10px 14px", marginBottom:18, display:"flex", gap:10 }}>
-                  <span style={{ fontSize:16, flexShrink:0 }}>💡</span>
-                  <p style={{ fontSize:12.5, color:C.gold, lineHeight:1.65 }}>{result.tip}</p>
-                </div>
-              )}
-
-              {/* ── SHOP THE LOOK ── */}
-              {(!isVip && genCount > FREE_LIMIT) ? (
-                <VipGate isVip={isVip} onUpgrade={onUpgrade} feature="Shop the Look">
-                  <div style={{ background:C.surface, borderRadius:18, padding:20, textAlign:"center" }}>
-                    <p style={{ fontSize:14, color:C.textMid }}>Shop section loading...</p>
-                  </div>
-                </VipGate>
-              ) : (
-                <div>
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
-                    <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:16 }}>Shop the Look 🛍️</p>
-                    <span style={{ fontSize:11, color:C.accentDim, fontFamily:"'Epilogue',sans-serif", fontWeight:600, cursor:"pointer" }}>See all →</span>
-                  </div>
-                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:20 }}>
-                    {shopItems.map((item,i)=>(
-                      <div key={i} style={{ background:C.surface, border:`1.5px solid ${C.border}`, borderRadius:18, overflow:"hidden", transition:"border-color .2s" }}>
-                        {/* Image placeholder */}
-                        <div style={{ height:88, background:`linear-gradient(160deg,${item.gradientA}55,${item.gradientB}33)`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:26, position:"relative", borderBottom:`1px solid ${C.border}` }}>
-                          {["👕","👗","👟","💍"][i]||"✨"}
-                          <div style={{ position:"absolute", top:7, left:7 }}>
-                            <span style={{ background:`${C.surfaceHi}ee`, border:`1px solid ${C.border}`, borderRadius:99, padding:"2px 7px", fontSize:8, color:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700 }}>{item.slot}</span>
-                          </div>
-                        </div>
-                        <div style={{ padding:"10px 11px 12px" }}>
-                          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, marginBottom:4, lineHeight:1.3 }}>{item.name.split(" ").slice(0,4).join(" ")}</p>
-                          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:15, color:C.accent, marginBottom:5 }}>${item.price}</p>
-                          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                            <span style={{ fontSize:9, background:`${C.accent}18`, color:C.accent, borderRadius:99, padding:"2px 7px", fontFamily:"'Epilogue',sans-serif", fontWeight:700 }}>{item.tag}</span>
-                          </div>
-                          <div style={{ marginTop:9 }}>
-                            <button onClick={()=>window.open(`https://${item.retailer.toLowerCase().replace(" ","")+".com"}?q=${encodeURIComponent(item.name)}`,"_blank")} className="tap" style={{ width:"100%", padding:"8px", borderRadius:10, background:`linear-gradient(140deg,${item.gradientA}33,${item.gradientA}18)`, border:`1px solid ${item.gradientA}44`, color:item.gradientA, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}>
-                              Shop → <span style={{ fontSize:9, opacity:0.7 }}>{item.retailer}</span>
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Complete the vibe */}
-                  <div style={{ background:C.surfaceHi, border:`1px solid ${C.border}`, borderRadius:16, padding:14, marginBottom:20 }}>
-                    <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13, marginBottom:10 }}>Complete the vibe ✨</p>
-                    <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-                      {[["💄","Add makeup inspo","Coming via AI"],["💅","Add nail ideas","Coming via AI"],["💇","Add hairstyle inspo","Coming via Pinterest"]].map(([icon,label,tag])=>(
-                        <div key={label} style={{ display:"flex", gap:10, alignItems:"center", padding:"8px 10px", background:C.surface, borderRadius:11, cursor:"pointer" }}>
-                          <span style={{ fontSize:18 }}>{icon}</span>
-                          <p style={{ flex:1, fontSize:12.5, fontFamily:"'Epilogue',sans-serif", fontWeight:600 }}>{label}</p>
-                          <span style={{ fontSize:10, color:C.textDim, fontStyle:"italic" }}>{tag}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Sticky action bar */}
-              <div style={{ background:C.surfaceHi, border:`1.5px solid ${C.borderHi}`, borderRadius:18, padding:"14px 16px", display:"flex", gap:10 }}>
-                <button onClick={saveOutfit} className="tap" style={{ flex:1, padding:"12px", borderRadius:13, background:savePulse?`${C.rose}22`:`${C.accent}18`, border:`1.5px solid ${savePulse?C.rose:C.accent}44`, color:savePulse?C.rose:C.accent, fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:12.5, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
-                  {savePulse?"♥ Saved!":"♡ Save Outfit"}
-                </button>
-                <button onClick={()=>{ saveOutfit(); }} className="tap" style={{ flex:1, padding:"12px", borderRadius:13, background:`linear-gradient(140deg,${C.pink}33,${C.accent}22)`, border:`1.5px solid ${C.pink}44`, color:C.pink, fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:12.5, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
-                  ✨ Wear to My Show
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-          </div>
-      )}
-
-      {/* ── VIRTUAL TRY-ON VIEW ── */}
-      {view==="tryon" && <OutfitTryOn user={user} isVip={isVip} onUpgrade={onUpgrade} />}
-
-      {/* ── INSPO BOARD VIEW ── */}
-      {view==="inspo" && (
-        <div>
-          <p style={{ fontSize:12, color:C.textMid, marginBottom:14 }}>Outfit inspo by group & vibe. Save looks to build your concert wardrobe.</p>
-          {!isVip && savedInspo.length >= 5 && (
-            <div onClick={onUpgrade} className="tap" style={{ background:`${C.gold}12`, border:`1.5px solid ${C.gold}44`, borderRadius:13, padding:12, marginBottom:14, cursor:"pointer", textAlign:"center" }}>
-              <p style={{ fontSize:12, color:C.gold }}>This is a VIP feature ✨ Unlock your full fan experience</p>
-            </div>
-          )}
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-            {MOCK_INSPO_PINS.map(pin=>(
-              <div key={pin.id} style={{ background:C.surface, border:`1.5px solid ${C.border}`, borderRadius:16, overflow:"hidden" }}>
-                <div style={{ height:100, background:`linear-gradient(160deg,${pin.gradientA},${pin.gradientB})`, position:"relative", display:"flex", alignItems:"center", justifyContent:"center", fontSize:30 }}>
-                  ✨
-                  <button onClick={()=>(!isVip&&savedInspo.length>=5&&!savedInspo.includes(pin.id))?onUpgrade():toggleInspo(pin)} style={{ position:"absolute",top:8,right:8,background:"rgba(6,6,15,0.7)",border:"none",borderRadius:"50%",width:28,height:28,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:14,color:savedInspo.includes(pin.id)?C.rose:C.textMid }}>
-                    {savedInspo.includes(pin.id)?"♥":"♡"}
-                  </button>
-                </div>
-                <div style={{ padding:"10px 12px" }}>
-                  <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, marginBottom:3 }}>{pin.title}</p>
-                  <p style={{ fontSize:10, color:C.textMid }}>{pin.group} · {pin.vibe}</p>
-                  <Pill color={C.accent} xs style={{ marginTop:6, cursor:"pointer" }}>Use vibe</Pill>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div style={{ marginTop:16, background:C.surface, border:`1px solid ${C.border}`, borderRadius:13, padding:12, textAlign:"center" }}>
-            <p style={{ fontSize:11.5, color:C.textMid }}>Pinterest API coming soon 🌸</p>
-            <button style={{ background:"none",border:`1px solid ${C.textDim}`,borderRadius:99,padding:"6px 14px",color:C.textDim,fontSize:11,fontFamily:"'Epilogue',sans-serif",fontWeight:600,cursor:"pointer",marginTop:8 }}>Open Pinterest Search ↗</button>
-          </div>
-        </div>
-      )}
-
-      {/* ── SAVED OUTFITS VIEW ── */}
-      {view==="saved" && (
-        <div>
-          {savedOutfits.length===0 ? (
-            <Empty emoji="👗" title="No saved outfits yet" sub="Generate a look and save it here for your next show." action="✨ Generate Outfit" onAction={()=>setView("generator")} />
-          ) : (
-            <div>
-              <p style={{ fontSize:12, color:C.textMid, marginBottom:14 }}>{savedOutfits.length} outfit{savedOutfits.length!==1?"s":""} saved</p>
-              {savedOutfits.map(outfit=>(
-                <div key={outfit.id} style={{ background:`linear-gradient(140deg,${C.accent}12,${C.pink}06)`, border:`1.5px solid ${C.accent}33`, borderRadius:18, padding:14, marginBottom:12 }}>
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
-                    <div>
-                      <Pill color={C.accent} active small>{outfit.group}</Pill>
-                      <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:15, marginTop:7 }}>{outfit.title}</p>
-                      <p style={{ fontSize:11, color:C.textMid }}>{outfit.vibe} · {outfit.season}</p>
-                    </div>
-                    <button onClick={()=>{ const next=savedOutfits.filter(o=>o.id!==outfit.id); setSavedOutfits(next); ls.set("backstage_saved_outfits",next); }} style={{ background:"none",border:"none",color:C.textDim,cursor:"pointer",fontSize:14 }}>🗑️</button>
-                  </div>
-                  <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
-                    {outfit.items?.slice(0,3).map((item,i)=>(
-                      <p key={i} style={{ fontSize:12, color:C.textMid }}>• {item}</p>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // PART 2 FEATURES (15–35)
@@ -16861,10 +16362,8 @@ function AIAssistant({ onBack, user, go }) {
   // Smart action cards — each has a route OR opens chat with a pre-fill
   const ACTIONS = [
     { icon:"📋", label:"Plan my concert day",   color:C.pink,   route:"concertday",  hint:"plan concert day" },
-    { icon:"✨", label:"Generate outfit",        color:C.gold,   route:"outfits",     hint:null },
     { icon:"📍", label:"Find fans nearby",       color:C.mint,   route:"fanmap",      hint:null },
     { icon:"🎵", label:"Chant practice",         color:C.accent, route:"tools",       hint:null },
-    { icon:"✈️", label:"Plan my trip",           color:C.sky,    route:"trip",        hint:null },
     { icon:"📦", label:"Packing checklist",      color:C.rose,   route:"concertprep", hint:null },
     { icon:"📸", label:"Start a scrapbook",      color:C.pink,   route:"scrapbook",   hint:null },
     { icon:"🃏", label:"Find trade matches",     color:C.silver, route:"collect",     hint:null },
@@ -17193,311 +16692,6 @@ function MiniGames({ onBack }) {
           </div>
         ))}
       </Screen>
-    </div>
-  );
-}
-// ─── TRIP PLANNER (VIP advanced) ─────────────────────────────────────────────
-function TripPlanner({ isVip, onUpgrade }) {
-  const CATS=[
-    {label:"Flight",icon:"✈️",color:C.sky},
-    {label:"Hotel",icon:"🏨",color:C.accent},
-    {label:"Venue",icon:"📍",color:C.pink},
-    {label:"Event",icon:"🎟",color:C.rose},
-    {label:"Food",icon:"🍜",color:C.gold},
-    {label:"Snacks",icon:"🧋",color:C.mint},
-    {label:"Shopping",icon:"🛍️",color:C.silver},
-    {label:"Concert Day",icon:"🎤",color:C.pink},
-    {label:"Custom",icon:"📌",color:C.textMid},
-  ];
-  const [items, setItems] = useState([
-    {id:1,day:"Apr 29",time:"3:00 PM",category:"Stay",activity:"Hotel check-in",place:"Omni Dallas Hotel",notes:"Confirmation: OMN-8823",icon:"🏨"},
-    {id:2,day:"Apr 29",time:"7:00 PM",category:"Food",activity:"Pre-concert dinner",place:"Pecan Lodge BBQ",notes:"Long lines — get here early!",icon:"🍜"},
-    {id:3,day:"Apr 30",time:"12:00 PM",category:"Concert Day",activity:"Cup Sleeve Event",place:"Starbucks Reserve",notes:"Bring photocards!",icon:"🎤"},
-    {id:4,day:"Apr 30",time:"4:00 PM",category:"Concert Day",activity:"Pre-show meetup",place:"Klyde Warren Park",notes:"Meet the ARMY crew",icon:"🎤"},
-  ]);
-  const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({day:"",time:"",category:"Food",activity:"",place:"",notes:""});
-  const [editId, setEditId] = useState(null);
-  const [placeSearch, setPlaceSearch] = useState("");
-  const [placeSuggestions] = useState([{name:"Pecan Lodge BBQ",address:"2702 Main St, Dallas"},{name:"Klyde Warren Park",address:"2012 Woodall Rodgers Fwy"},{name:"Deep Ellum",address:"Deep Ellum, Dallas, TX"}]);
-  // AI Itinerary state
-  const [aiView, setAiView] = useState(false);
-  const [aiCity, setAiCity] = useState("Las Vegas");
-  const [aiConcertTime, setAiConcertTime] = useState("8:00 PM");
-  const [aiArrival, setAiArrival] = useState("morning");
-  const [aiTransport, setAiTransport] = useState("rideshare");
-  const [aiBudget, setAiBudget] = useState("moderate");
-  const [aiVibe, setAiVibe] = useState("group");
-  const [aiFood, setAiFood] = useState("korean");
-  const [aiGenerating, setAiGenerating] = useState(false);
-  const [aiResult, setAiResult] = useState(null);
-
-  const save = ()=>{
-    if(!form.activity.trim())return;
-    const cat=CATS.find(c=>c.label===form.category);
-    if(editId){ setItems(items.map(i=>i.id===editId?{...form,id:editId,icon:cat?.icon||"📌"}:i)); setEditId(null); }
-    else setItems([...items,{...form,id:Date.now(),icon:cat?.icon||"📌"}]);
-    setForm({day:"",time:"",category:"Food",activity:"",place:"",notes:""});
-    setAdding(false);
-  };
-
-  const grouped=items.reduce((acc,item)=>{ const k=item.day||"Other"; if(!acc[k])acc[k]=[]; acc[k].push(item); return acc; },{});
-
-  const generateAIItinerary = async () => {
-    if(!isVip){ onUpgrade(); return; }
-    setAiGenerating(true); setAiResult(null);
-    try {
-      // Route through backend proxy when available; fall through to mock in prototype mode
-      if(API_URL) {
-        const data = await api.post('/api/ai/itinerary', { city: aiCity, time: aiConcertTime, arrival: aiArrival, transport: aiTransport, budget: aiBudget, vibe: aiVibe, food: aiFood });
-        if(data.day) { setAiResult(data.day); setAiGenerating(false); return; }
-      }
-      throw new Error('mock'); // always use mock when no backend
-    } catch(e) {
-      setAiResult([
-        {time:"8:30 AM",emoji:"☀️",activity:"Morning fuel",place:"Café nearby venue",category:"Snacks",tip:"Hydrate early!"},
-        {time:"11:00 AM",emoji:"🍜",activity:"KBBQ pre-show lunch",place:"Korean BBQ spot",category:"Food",tip:"Go early — lines get long"},
-        {time:"1:30 PM",emoji:"🛍️",activity:"Merch & lightstick run",place:"Venue merch area",category:"Shopping",tip:"Bring cash"},
-        {time:"3:00 PM",emoji:"🎁",activity:"Freebie exchange meetup",place:"Fan meetup point",category:"Concert Day",tip:"Bring dupes"},
-        {time:"5:00 PM",emoji:"🎤",activity:"Line up at venue gates",place:"Main entrance",category:"Concert Day",tip:"Gate B usually faster"},
-        {time:aiConcertTime,emoji:"🌟",activity:"Show starts 💜",place:"Main venue",category:"Concert Day",tip:""},
-        {time:"11:30 PM",emoji:"✨",activity:"After-show dessert run",place:"Late-night café",category:"Food",tip:"You deserve it"},
-      ]);
-    }
-    setAiGenerating(false);
-  };
-
-  const addAiToTrip = () => {
-    if(!aiResult) return;
-    const newItems = aiResult.map((s,i)=>({
-      id: Date.now()+i,
-      day: "AI Day",
-      time: s.time,
-      category: s.category||"Food",
-      activity: s.activity,
-      place: s.place||"",
-      notes: s.tip||"",
-      icon: s.emoji||"📌"
-    }));
-    setItems(prev=>[...prev,...newItems]);
-    setAiView(false); setAiResult(null);
-  };
-
-  // AI View
-  if(aiView) return (
-    <div>
-      <div style={{ display:"flex", gap:10, alignItems:"center", marginBottom:18 }}>
-        <button onClick={()=>{setAiView(false);setAiResult(null);}} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
-        <div>
-          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:17 }}>AI Itinerary Builder ✨</p>
-          <p style={{ fontSize:11, color:C.gold }}>VIP Feature</p>
-        </div>
-        <VipBadge small />
-      </div>
-
-      <div style={{ background:`linear-gradient(140deg,${C.gold}12,${C.accent}08)`, border:`1.5px solid ${C.gold}44`, borderRadius:18, padding:16, marginBottom:18 }}>
-        <p style={{ fontSize:12, color:C.textMid, lineHeight:1.6 }}>Tell me your vibe and I'll build a full fan day — breakfast, lunch, fan spots, and everything in between.</p>
-      </div>
-
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
-        <Input label="City" value={aiCity} onChange={e=>setAiCity(e.target.value)} placeholder="Las Vegas" />
-        <Input label="Concert Time" value={aiConcertTime} onChange={e=>setAiConcertTime(e.target.value)} placeholder="8:00 PM" />
-      </div>
-
-      {/* Preference chips */}
-      {[
-        { label:"Arrival", value:aiArrival, set:setAiArrival, opts:[{v:"early-morning",l:"Early Morning"},{v:"morning",l:"Morning"},{v:"afternoon",l:"Afternoon"},{v:"day-of",l:"Day-of Only"}] },
-        { label:"Transport", value:aiTransport, set:setAiTransport, opts:[{v:"rideshare",l:"Rideshare"},{v:"driving",l:"Driving"},{v:"walking",l:"Walking"},{v:"transit",l:"Transit"}] },
-        { label:"Budget", value:aiBudget, set:setAiBudget, opts:[{v:"budget",l:"Budget"},{v:"moderate",l:"Moderate"},{v:"splurge",l:"Splurge"}] },
-        { label:"Vibe", value:aiVibe, set:setAiVibe, opts:[{v:"solo",l:"Solo Fan"},{v:"group",l:"With My Crew"},{v:"couple",l:"Date Night"},{v:"family",l:"Family"}] },
-        { label:"Food", value:aiFood, set:setAiFood, opts:[{v:"korean",l:"Korean"},{v:"local",l:"Local Eats"},{v:"vegan",l:"Vegan"},{v:"quick",l:"Quick Bites"}] },
-      ].map(({ label, value, set, opts }) => (
-        <div key={label} style={{ marginBottom:12 }}>
-          <p style={{ fontSize:11, color:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, marginBottom:6, textTransform:"uppercase", letterSpacing:.5 }}>{label}</p>
-          <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-            {opts.map(o=>(
-              <button key={o.v} onClick={()=>set(o.v)} style={{ padding:"6px 12px", borderRadius:20, fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, border:`1.5px solid ${value===o.v?C.gold:`${C.gold}30`}`, background:value===o.v?`${C.gold}20`:"transparent", color:value===o.v?C.gold:C.textMid, cursor:"pointer", transition:"all .2s" }}>{o.l}</button>
-            ))}
-          </div>
-        </div>
-      ))}
-
-      <Btn onClick={generateAIItinerary} disabled={aiGenerating} color={C.gold} style={{ marginTop:6, marginBottom:18 }}>
-        {aiGenerating ? (
-          <span style={{ display:"flex",alignItems:"center",gap:8 }}>
-            <span style={{ display:"inline-block",animation:"rotate 1s linear infinite" }}>✦</span>
-            Building your fan day...
-          </span>
-        ) : "✨ Build My Fan Day"}
-      </Btn>
-
-      {aiResult && (
-        <div style={{ animation:"up .35s ease" }}>
-          <div style={{ background:C.surface, border:`1.5px solid ${C.borderHi}`, borderRadius:20, padding:18, marginBottom:16 }}>
-            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:15, marginBottom:14, color:C.gold }}>📅 Your Fan Day in {aiCity}</p>
-            {aiResult.map((stop,i)=>(
-              <div key={i} style={{ display:"flex", gap:12, marginBottom:0 }}>
-                <div style={{ display:"flex", flexDirection:"column", alignItems:"center", width:48, flexShrink:0 }}>
-                  <p style={{ fontSize:9, color:C.accentDim, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textAlign:"center", marginBottom:4, whiteSpace:"nowrap" }}>{stop.time}</p>
-                  <div style={{ width:34,height:34,borderRadius:10,background:`${C.gold}18`,border:`1.5px solid ${C.gold}33`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,flexShrink:0 }}>{stop.emoji}</div>
-                  {i<aiResult.length-1&&<div style={{ width:2,flex:1,background:C.border,marginTop:4,minHeight:20 }} />}
-                </div>
-                <div style={{ flex:1, paddingTop:2, paddingBottom:18 }}>
-                  <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13.5 }}>{stop.activity}</p>
-                  {stop.place&&<p style={{ fontSize:11, color:C.textMid, marginTop:2 }}>📍 {stop.place}</p>}
-                  {stop.tip&&<p style={{ fontSize:10.5, color:C.accentDim, marginTop:4, fontStyle:"italic" }}>💡 {stop.tip}</p>}
-                </div>
-              </div>
-            ))}
-          </div>
-          <div style={{ display:"flex", gap:10 }}>
-            <Btn onClick={addAiToTrip} color={C.gold} style={{ flex:1 }} small>✦ Add to My Trip</Btn>
-            <Btn ghost color={C.textMid} onClick={generateAIItinerary} style={{ flex:1 }} small>🔄 Regenerate</Btn>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-
-  return(
-    <div>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
-        <div>
-          <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:3 }}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="18" rx="2" stroke={C.textMid} strokeWidth="1.8"/><line x1="16" y1="2" x2="16" y2="6" stroke={C.textMid} strokeWidth="1.8" strokeLinecap="round"/><line x1="8" y1="2" x2="8" y2="6" stroke={C.textMid} strokeWidth="1.8" strokeLinecap="round"/><line x1="3" y1="10" x2="21" y2="10" stroke={C.textMid} strokeWidth="1.8"/></svg>
-            <p style={{ fontSize:12, color:C.textMid }}>May 22, 2025 · Dallas</p>
-          </div>
-          <div style={{ display:"flex", gap:0, background:C.surfaceHi, borderRadius:10, padding:2 }}>
-            <span style={{ padding:"5px 14px", borderRadius:8, fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, background:C.accent, color:C.bg }}>Itinerary</span>
-            <span style={{ padding:"5px 14px", borderRadius:8, fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:600, color:C.textMid, cursor:"pointer" }}>Details</span>
-          </div>
-        </div>
-        <button onClick={()=>{setEditId(null);setForm({day:"",time:"",category:"Food",activity:"",place:"",notes:""});setAdding(true);}} style={{ background:C.accent, border:"none", borderRadius:11, padding:"8px 14px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>+ Add</button>
-      </div>
-
-      {/* AI Itinerary CTA */}
-      <div onClick={()=>isVip?setAiView(true):onUpgrade()} className="tap" style={{ background:`linear-gradient(140deg,${C.gold}14,${C.accent}08)`, border:`1.5px solid ${C.gold}40`, borderRadius:16, padding:"13px 16px", marginBottom:16, cursor:"pointer", display:"flex", gap:12, alignItems:"center" }}>
-        <div style={{ width:42,height:42,borderRadius:12,background:`${C.gold}22`,border:`1.5px solid ${C.gold}55`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0 }}>✨</div>
-        <div style={{ flex:1 }}>
-          <div style={{ display:"flex",gap:6,alignItems:"center",marginBottom:2 }}>
-            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13 }}>✨ Build My Day with AI</p>
-            <VipBadge small />
-          </div>
-          <p style={{ fontSize:11, color:C.textMid }}>Enter city + concert time → full fan day generated</p>
-        </div>
-        <span style={{ color:C.gold, fontSize:16 }}>→</span>
-      </div>
-
-      {/* Fan Travel Hub — Coming Soon (affiliate booking paused) */}
-      <div style={{ marginBottom:18,background:`linear-gradient(140deg,${C.surfaceHi},${C.surface})`,border:`1px solid ${C.accent}22`,borderRadius:18,padding:"18px 16px",position:"relative",overflow:"hidden" }}>
-        <div style={{ position:"absolute",top:"-20%",right:"-10%",width:160,height:160,borderRadius:"50%",background:`radial-gradient(circle,${C.sky}14,transparent 70%)`,pointerEvents:"none" }} />
-        <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:4 }}>
-          <span style={{ fontSize:16 }}>✈️</span>
-          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14 }}>Fan Travel Hub</p>
-          <div style={{ background:`${C.accent}18`,border:`1px solid ${C.accent}33`,borderRadius:99,padding:"2px 8px" }}>
-            <span style={{ fontSize:8,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,letterSpacing:"0.08em" }}>COMING SOON</span>
-          </div>
-        </div>
-        <p style={{ fontSize:11,color:C.textMid,lineHeight:1.65,marginBottom:14 }}>Group travel coordination, hotel syncing, concert trip planning, and fandom meetup booking — all in one place.</p>
-        {[["🏨","Hotel blocks near the venue"],["✈️","Fan travel deals & group flights"],["🤝","Concert trip coordination with moots"]].map(([icon,label],i)=>(
-          <div key={i} style={{ display:"flex",alignItems:"center",gap:8,paddingTop:i>0?7:0,paddingBottom:i<2?7:0,borderBottom:i<2?`1px solid ${C.border}`:"none" }}>
-            <span style={{ fontSize:12 }}>{icon}</span>
-            <p style={{ fontSize:11,color:C.text }}>{label}</p>
-          </div>
-        ))}
-        <button style={{ marginTop:14,width:"100%",padding:"10px",borderRadius:10,border:`1px solid ${C.accent}44`,background:`${C.accent}10`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer" }}>
-          Join Waitlist →
-        </button>
-      </div>
-
-      {adding&&(
-        <div onClick={()=>setAdding(false)} style={{ position:"fixed",inset:0,zIndex:400,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
-          <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:26,width:"100%",animation:"slideUp .25s ease",maxHeight:"92vh",overflowY:"auto" }}>
-            <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 20px" }} />
-            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:17, marginBottom:6 }}>{editId?"Edit Item":"Add to Itinerary"}</p>
-            <p style={{ fontSize:11, color:C.textMid, marginBottom:18 }}>Select a type, fill in details, then save.</p>
-
-            {/* Structured type grid */}
-            <p style={{ fontSize:9.5,color:C.textMid,marginBottom:9,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em" }}>Type</p>
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8, marginBottom:18 }}>
-              {CATS.map(cat=>{
-                const isActive = form.category===cat.label;
-                return (
-                  <button key={cat.label} onClick={()=>setForm({...form,category:cat.label})} className="tap" style={{ padding:"12px 6px", borderRadius:14, background:isActive?`${cat.color}18`:C.surface, border:`1.5px solid ${isActive?cat.color:C.border}`, cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:5, transition:"all .15s" }}>
-                    <span style={{ fontSize:20 }}>{cat.icon}</span>
-                    <p style={{ fontSize:10, fontFamily:"'Epilogue',sans-serif", fontWeight:isActive?700:500, color:isActive?cat.color:C.textMid, textAlign:"center", lineHeight:1.3 }}>{cat.label}</p>
-                  </button>
-                );
-              })}
-            </div>
-
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:12 }}>
-              <Input label="Day" value={form.day} onChange={e=>setForm({...form,day:e.target.value})} placeholder="Apr 29" />
-              <Input label="Time" value={form.time} onChange={e=>setForm({...form,time:e.target.value})} placeholder="3:00 PM" />
-            </div>
-            <div style={{ marginBottom:12 }}><Input label="Description *" value={form.activity} onChange={e=>setForm({...form,activity:e.target.value})} placeholder={form.category==="Flight"?"Flight AA1234 → DFW":form.category==="Hotel"?"Omni Dallas Hotel":form.category==="Venue"?"AT&T Stadium":"What are you doing?"} /></div>
-            <div style={{ marginBottom:12 }}>
-              <Input label="Place / Location" value={form.place} onChange={e=>{setForm({...form,place:e.target.value});setPlaceSearch(e.target.value);}} placeholder="Where?" />
-              {placeSearch.length>1&&(
-                <div style={{ background:C.surface, border:`1.5px solid ${C.border}`, borderRadius:11, marginTop:6, overflow:"hidden" }}>
-                  {placeSuggestions.filter(p=>p.name.toLowerCase().includes(placeSearch.toLowerCase())).map((p,i)=>(
-                    <div key={i} onClick={()=>{setForm({...form,place:p.name});setPlaceSearch("");}} style={{ padding:"9px 13px", cursor:"pointer", borderBottom:i<placeSuggestions.length-1?`1px solid ${C.border}`:"none" }}>
-                      <p style={{ fontSize:12.5 }}>📍 {p.name}</p>
-                      <p style={{ fontSize:10, color:C.textMid }}>{p.address}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div style={{ marginBottom:18 }}><Textarea label="Notes / Tips" value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})} placeholder="Confirmation number, tip, reminder..." style={{ height:60 }} /></div>
-            <div style={{ display:"flex", gap:10 }}>
-              <Btn onClick={save} disabled={!form.activity.trim()} style={{ flex:1 }} small>Save to Itinerary</Btn>
-              <Btn ghost color={C.textMid} onClick={()=>setAdding(false)} style={{ width:80,flex:"none" }} small>Cancel</Btn>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {Object.entries(grouped).map(([day,dayItems])=>(
-        <div key={day} style={{ marginBottom:22 }}>
-          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10, color:C.accent, textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:12 }}>📅 {day}</p>
-          <div style={{ position:"relative" }}>
-            {/* Vertical timeline line */}
-            <div style={{ position:"absolute", left:19, top:8, bottom:8, width:1.5, background:`linear-gradient(180deg,${C.accent}40,${C.pink}20)`, zIndex:0 }} />
-            <div style={{ display:"flex", flexDirection:"column", gap:0 }}>
-              {dayItems.map((item,idx)=>{
-                const catDef = CATS.find(c=>c.label===item.category)||{color:C.textMid,icon:item.icon||"📌"};
-                const isHighlight = item.category==="Concert Day" || item.activity?.toLowerCase().includes("concert");
-                return (
-                  <div key={item.id} style={{ display:"flex", gap:12, marginBottom:12, position:"relative", zIndex:1 }}>
-                    {/* Timeline dot + icon */}
-                    <div style={{ flexShrink:0, display:"flex", flexDirection:"column", alignItems:"center" }}>
-                      <div style={{ width:38,height:38,borderRadius:11,background:isHighlight?`linear-gradient(140deg,${C.accent},${C.pink})`:`${catDef.color}18`,border:`1.5px solid ${isHighlight?C.accent:catDef.color}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,boxShadow:isHighlight?`0 4px 14px ${C.accent}30`:"none" }}>{catDef.icon}</div>
-                    </div>
-                    {/* Content */}
-                    <div style={{ flex:1, background:isHighlight?`linear-gradient(140deg,${C.accent}14,${C.pink}08)`:C.surface, border:`1.5px solid ${isHighlight?C.accent:C.border}`, borderRadius:14, padding:"10px 13px" }}>
-                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
-                        <div style={{ flex:1 }}>
-                          <p style={{ fontSize:10, color:isHighlight?C.accent:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:600, marginBottom:2 }}>{item.time}</p>
-                          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13.5, color:isHighlight?C.text:C.text }}>{item.activity}</p>
-                          {item.place&&<p style={{ fontSize:10.5,color:C.textMid,marginTop:3 }}>📍 {item.place}</p>}
-                          {item.notes&&<p style={{ fontSize:10.5,color:C.textDim,fontStyle:"italic",marginTop:3 }}>{item.notes}</p>}
-                        </div>
-                        <div style={{ display:"flex", gap:4, marginLeft:8 }}>
-                          <button onClick={()=>{setForm({...item});setEditId(item.id);setAdding(true);}} style={{ background:"none",border:"none",color:C.textDim,cursor:"pointer",fontSize:13 }}>✏️</button>
-                          <button onClick={()=>setItems(items.filter(i=>i.id!==item.id))} style={{ background:"none",border:"none",color:C.textDim,cursor:"pointer",fontSize:13 }}>🗑️</button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      ))}
-      {/* Add to itinerary button */}
-      <Btn onClick={()=>{setEditId(null);setForm({day:"",time:"",category:"Food",activity:"",place:"",notes:""});setAdding(true);}} icon="+" style={{ marginTop:4 }}>Add to itinerary</Btn>
     </div>
   );
 }
@@ -20587,7 +19781,12 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
     setNotifOn(saved === true && perm === "granted");
   }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const [section, setSection] = useState(()=>{ if(ls.get("backstage_open_studio",false)){ ls.set("backstage_open_studio",false); return "studio"; } return "main"; });
-  const [profileStyle, setProfileStyle] = useState(ls.get("backstage_profile_style", DEFAULT_PROFILE_STYLE));
+  const [profileStyle, setProfileStyle] = useState(()=>{
+    const cached = ls.get("backstage_profile_style", DEFAULT_PROFILE_STYLE);
+    // Backend is authoritative once it has saved data — hydrate from user profile if available
+    const backendStyle = user?.profile_style;
+    return (backendStyle && Object.keys(backendStyle).length > 0) ? { ...cached, ...backendStyle } : cached;
+  });
   const [privacySettings, setPrivacySettings] = useState(()=>{
     const cached = ls.get("backstage_privacy_settings", DEFAULT_PRIVACY);
     // Backend is authoritative for showCity — hydrate from user profile if available
@@ -21056,7 +20255,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
         <div style={{ marginBottom:18 }}>
           <SectionHeader title="My Content" />
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:9 }}>
-            {[["📸 My Shows","myshows"],["💬 Messages","chats"],["💸 Budget Tracker","budget"],["✨ Outfits","outfits"],["🎁 Invite Crew","invite"],["✦ Stage Studio","studio"]].map(([label,dest])=>(
+            {[["📸 My Shows","myshows"],["💬 Messages","chats"],["💸 Budget Tracker","budget"],["🎁 Invite Crew","invite"],["✦ Stage Studio","studio"]].map(([label,dest])=>(
               <button key={label} onClick={()=>["myshows","studio","kdramas"].includes(dest)?setSection(dest):go(dest)} className="tap" style={{ padding:"13px", borderRadius:16, background:dest==="studio"?`linear-gradient(140deg,${C.gold}14,${C.gold}06)`:C.surfaceHi, border:`1.5px solid ${dest==="studio"?C.gold:C.border}`, color:dest==="studio"?C.gold:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:600, fontSize:12, cursor:"pointer", textAlign:"center", boxShadow:dest==="studio"?`0 4px 14px ${C.gold}14`:"none" }}>{label}</button>
             ))}
             <button onClick={()=>go("signout")} className="tap" style={{ padding:"13px", borderRadius:16, background:"transparent", border:`1.5px solid ${C.rose}28`, color:C.rose, fontFamily:"'Epilogue',sans-serif", fontWeight:600, fontSize:12, cursor:"pointer", textAlign:"center" }}>🚪 Sign Out</button>
@@ -22622,6 +21821,7 @@ function ProfileStudio({ profileStyle, setProfileStyle, isVip, onUpgrade, onBack
 
   const save = () => {
     ls.set("backstage_profile_style", profileStyle);
+    if (API_URL) api.post('/api/profile/update', { profileStyle }).catch(()=>{});
     setSaveConfirm(true);
     setTimeout(() => { setSaveConfirm(false); if (onSaved) onSaved(); }, 1600);
   };
@@ -24750,14 +23950,9 @@ function AppInner() {
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [showVipCelebration, setShowVipCelebration] = useState(false);
   const [showVipTour, setShowVipTour] = useState(false);
-  const [showComingSoon, setShowComingSoon] = useState(false);
-  const [comingSoonTool, setComingSoonTool] = useState(null);
   // Public user profile — lifted to root so it covers tabs + nav (not a modal-internal overlay)
   const [publicProfileFan, setPublicProfileFan] = useState(null); // compact card
   const [fullProfileFan,   setFullProfileFan]   = useState(null); // full rich profile (above compact card)
-
-  // Tools paused for polish — intercept before they open
-  const COMING_SOON_TOOLS = ["outfits", "trip"];
 
   useEffect(()=>{
     const nextUser = normalizeProfile(auth.user || ls.get("backstage_session")?.user);
@@ -25051,9 +24246,7 @@ function AppInner() {
   };
 
   const go = (dest) => {
-    // Paused tools — show soft Coming Soon sheet instead of the full tool
-    if (COMING_SOON_TOOLS.includes(dest)) { setComingSoonTool(dest); setShowComingSoon(true); return; }
-    const FULL_MODALS = ["concertprep","myshows","trip","scrapbook","afterglow","friends","chats","qr","safety","events","concertday","timeline","tickets","nearby","trust","games","creator","backup","fanidentity","valuetracks","fanprojects","assistant","outfits","invite","contentgen","fanmap","explore","livefeed","budget","capsule","passes","notifications"];
+    const FULL_MODALS = ["concertprep","myshows","scrapbook","afterglow","friends","chats","qr","safety","events","concertday","timeline","tickets","nearby","trust","games","creator","backup","fanidentity","valuetracks","fanprojects","assistant","invite","contentgen","fanmap","explore","livefeed","budget","capsule","passes","notifications"];
     if(FULL_MODALS.includes(dest)){
       // Push a new history entry so the browser back button can close this modal
       window.history.pushState({ bsLevel:1, modal:dest }, '');
@@ -25261,9 +24454,6 @@ function AppInner() {
         {/* SMART NOTIFS */}
         {showSmartNotifs&&<SmartNotifs onClose={()=>setShowSmartNotifs(false)} />}
 
-        {/* COMING SOON MODAL — intercepts paused tools */}
-        {showComingSoon&&<ComingSoonModal tool={comingSoonTool} onClose={()=>setShowComingSoon(false)} />}
-
         {/* NOTIF PROMPT */}
         {showNotifPrompt&&appState==="main"&&(
           <div style={{ position:"absolute",top:0,left:0,right:0,bottom:0,zIndex:500,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .25s ease" }}>
@@ -25296,8 +24486,6 @@ function AppInner() {
         {/* ── ALL MODALS ── */}
         {modal==="concertprep"&&<ToolModalWrapper title="Concert Prep Guide 📋"><ConcertPrep /></ToolModalWrapper>}
         {modal==="myshows"&&<ModalWrapper><MyShowsPage onBack={()=>setModal(null)} isVip={isVip} onUpgrade={openUpgrade} go={go} /></ModalWrapper>}
-        {modal==="outfits"&&<ToolModalWrapper title="Outfit Generator ✨"><OutfitGenerator user={user} weather={weatherData} isVip={isVip} onUpgrade={openUpgrade} /></ToolModalWrapper>}
-        {modal==="trip"&&<ToolModalWrapper title="Trip Planner ✈️"><TripPlanner isVip={isVip} onUpgrade={openUpgrade} /></ToolModalWrapper>}
         {modal==="scrapbook"&&<ModalWrapper><ScrapbookTab isVip={isVip} onUpgrade={openUpgrade} onBack={()=>setModal(null)} /></ModalWrapper>}
         {modal==="friends"&&<ModalWrapper><FriendsPage onBack={()=>setModal(null)} onNotif={showNotif} go={go} onViewProfile={(fan)=>setPublicProfileFan({...fan,fromDM:false})} /></ModalWrapper>}
         {modal==="fanmap"&&<ModalWrapper><FanverseMap onBack={()=>setModal(null)} /></ModalWrapper>}
