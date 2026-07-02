@@ -514,8 +514,8 @@ const C = {
   rose:     "#ff8fa3",
   coral:    "#ff9f7f",
   // ── Cool accents ───────────────────────────────────────────────────────────
-  mint:     "#8eefd4",
-  mintDim:  "#4aab8e",
+  mint:     "#A8DDF2",   // opal lavender-blue — replaces green/mint app-wide (was "#8eefd4")
+  mintDim:  "#4E7F99",   // dimmed opal blue (was "#4aab8e")
   teal:     "#2dd4bf",   // vivid teal (new)
   sky:      "#88c8f0",
   // ── Neutral / metallic ─────────────────────────────────────────────────────
@@ -761,6 +761,50 @@ async function syncBackendFriendRequests() {
   const shaped = { incoming, outgoing };
   ls.set("backstage_friend_requests", shaped);
   return shaped;
+}
+
+// Refreshes the accepted Circle list from the real backend (GET /api/circle) into
+// backstage_friends — the single source every My Circle surface reads from. Any
+// locally-known pending/sent entries (not yet accepted, so /api/circle won't
+// return them) are preserved rather than clobbered.
+async function syncBackendCircle() {
+  const d = await api.get('/api/circle');
+  if (!d || d.error) return null;
+  const list = Array.isArray(d.members) ? d.members : Array.isArray(d.circle) ? d.circle : Array.isArray(d.friends) ? d.friends : [];
+  const shaped = list.map(m => ({
+    id: m.id,
+    profileId: m.id,
+    name: `@${m.handle || m.username || "fan"}`,
+    displayName: m.display_name || m.backstage_name || m.handle || "Backstage fan",
+    avatar: (m.display_name || m.handle || "B").slice(0,1).toUpperCase(),
+    color: C.accent,
+    type: "moot",
+    groups: m.favorite_groups || m.fandoms || [],
+    trust: 5.0,
+    concerts: 0,
+    status: "accepted",
+    acceptedAt: m.accepted_at || null,
+    realProfile: true,
+  }));
+  const prevPending = ls.get("backstage_friends", []).filter(f => f.status !== "accepted");
+  const merged = [...shaped, ...prevPending];
+  ls.set("backstage_friends", merged);
+  return merged;
+}
+
+// Renders a timestamp relative to now — computed at render time, never baked into
+// stored state, so it stays accurate instead of freezing at whatever it read on write.
+function formatRelativeOrDate(date) {
+  if (!date) return "";
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return "";
+  const secs = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (secs < 45) return "Just now";
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+  if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
+  if (secs < 172800) return "Yesterday";
+  if (secs < 604800) return `${Math.floor(secs / 86400)}d ago`;
+  return d.toLocaleDateString("en-US", { month:"short", day:"numeric", year: d.getFullYear()===new Date().getFullYear() ? undefined : "numeric" });
 }
 
 
@@ -1536,15 +1580,15 @@ const Card = ({ children, style:s, onClick, glow, color, accent }) => (
   }}>{children}</div>
 );
 
-const Screen = ({ children, pad=true, style:s, onScroll, ...rest }) => (
-  <div onScroll={onScroll} style={{ flex:1, overflowY:"auto", overflowX:"hidden", padding:pad?"0 20px calc(120px + env(safe-area-inset-bottom))":0, position:"relative", ...s }} {...rest}>
+const Screen = React.forwardRef(({ children, pad=true, style:s, onScroll, ...rest }, ref) => (
+  <div ref={ref} onScroll={onScroll} style={{ flex:1, overflowY:"auto", overflowX:"hidden", padding:pad?"0 20px calc(120px + env(safe-area-inset-bottom))":0, position:"relative", ...s }} {...rest}>
     {/* Subtle ambient glow layer on every scroll pane */}
     <div style={{ position:"sticky",top:0,left:0,right:0,height:0,overflow:"visible",pointerEvents:"none",zIndex:0 }}>
       <div style={{ position:"absolute",top:-30,right:-20,width:200,height:200,borderRadius:"50%",background:`radial-gradient(circle,${C.accent}05,transparent 70%)`,pointerEvents:"none" }} />
     </div>
     {children}
   </div>
-);
+));
 
 // ─── GLOBAL CARD STYLE HELPERS ────────────────────────────────────────────────
 const cosmicCard = (color=C.accent) => ({
@@ -2935,34 +2979,11 @@ const DEFAULT_PROFILE_STYLE = {
 };
 
 // ─── FCM / Push Notification Helper ──────────────────────────────────────────
-//
-// CURRENT STATE (in-app only):
-//   In-app notifications work via backstage_notif_inbox localStorage.
-//   Deep-link routing is implemented (NotificationCenter.handleNotifTap).
-//   This function requests browser permission but generates a MOCK token.
-//   No real Firebase SDK is imported — device push is not active.
-//
-// TO ENABLE REAL DEVICE/BROWSER PUSH:
-//   1. Create a Firebase project → enable Cloud Messaging.
-//   2. Add VITE_FIREBASE_* env vars (see .env.example) to initialize Firebase.
-//   3. Add VITE_FIREBASE_VAPID_KEY — the VAPID key the browser uses to register.
-//   4. Create public/firebase-messaging-sw.js (service worker for background push).
-//   5. Use firebase/messaging → getToken({ vapidKey: VITE_FIREBASE_VAPID_KEY })
-//      instead of the mock token below.
-//   6. Backend FIREBASE_PROJECT_ID + FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY
-//      enable Firebase Admin SDK to send via FCM HTTP v1 API.
-//   7. Push payload should include `data.targetModal` or `data.targetTab` so
-//      the notification click can deep-link into the correct Backstage screen.
-//
-// STATUS CHECKLIST:
-//   ✅ Browser permission request
-//   ✅ /api/save-token backend route
-//   ✅ In-app notification routing (handleNotifTap)
-//   ❌ firebase-messaging-sw.js (not created)
-//   ❌ Firebase SDK import (not installed)
-//   ❌ Real FCM token from getToken()
-//   ❌ /api/send-notification wired to Firebase Admin SDK
-//   ❌ Firebase env vars configured
+// Real device push is live: registers firebase-messaging-sw.js, calls
+// getMessaging()/getToken({vapidKey}), and saves the real FCM token via
+// /api/save-token. Falls back to a mock token only when VITE_FIREBASE_* env
+// vars aren't configured on this deploy (in-app notifications still work via
+// backstage_notif_inbox regardless — see deliverNotification() below).
 // ─────────────────────────────────────────────────────────────────────────────
 async function requestNotificationPermission(userId) {
   if (!("Notification" in window) || !("serviceWorker" in navigator)) return null;
@@ -3021,8 +3042,9 @@ async function requestNotificationPermission(userId) {
 //   push    — attempted if pushEnabled AND browser permission === 'granted'
 //   email   — attempted if push is unavailable AND priority >= high AND emailBackup
 async function deliverNotification({ notif, pushEnabled = false, emailBackup = true, priority = 'normal' }) {
-  // 1. In-app (always)
-  const entry = { ...notif, id: notif.id || `n-${Date.now()}`, read: false, time: 'Just now' };
+  // 1. In-app (always) — store createdAt, not a frozen "Just now" string, so the
+  // Notification Center can render an accurate relative time on every render.
+  const entry = { ...notif, id: notif.id || `n-${Date.now()}`, read: false, createdAt: notif.createdAt || new Date().toISOString() };
   const inbox = ls.get('backstage_notif_inbox', []);
   ls.set('backstage_notif_inbox', [entry, ...inbox].slice(0, 50));
 
@@ -5114,21 +5136,22 @@ function NotificationBell({ onOpen }) {
   },[]);
 
   return (
-    <div style={{ position:"absolute",top:14,right:16,zIndex:300 }}>
+    <div style={{ position:"absolute",top:16,right:14,zIndex:300 }}>
       <button
         onClick={onOpen}
         className="tap"
         title="Backstage Buzz"
         style={{
-          width:38,height:38,
-          borderRadius:12,
-          background:`linear-gradient(140deg,${C.surfaceMid},${C.surface})`,
-          border:`1.5px solid ${unread>0?C.accent:C.borderHi}`,
-          color:unread>0?C.accent:C.textMid,
-          fontSize:17,
+          width:34,height:34,
+          borderRadius:11,
+          background:"rgba(20,12,38,0.55)",
+          border:`1px solid ${unread>0?"rgba(184,162,255,0.45)":"rgba(214,189,255,0.18)"}`,
+          color:unread>0?C.lavender:C.textMid,
+          fontSize:14,
           cursor:"pointer",
           display:"flex",alignItems:"center",justifyContent:"center",
-          boxShadow:unread>0?`0 0 18px ${C.accent}30, 0 2px 8px rgba(0,0,0,0.3)`:`0 2px 8px rgba(0,0,0,0.2)`,
+          boxShadow:unread>0?`0 0 12px rgba(184,162,255,0.22), inset 0 1px 0 rgba(255,255,255,0.1)`:"inset 0 1px 0 rgba(255,255,255,0.05)",
+          backdropFilter:"blur(10px)",
           animation:unread>0?"bellPulse 2.5s ease-in-out infinite":"none",
           position:"relative",
           transition:"all .2s",
@@ -5137,14 +5160,14 @@ function NotificationBell({ onOpen }) {
         🔔
         {unread>0&&(
           <div style={{
-            position:"absolute",top:-4,right:-4,
-            width:16,height:16,borderRadius:"50%",
+            position:"absolute",top:-3,right:-3,
+            width:14,height:14,borderRadius:"50%",
             background:`linear-gradient(135deg,${C.rose},${C.berry})`,
             display:"flex",alignItems:"center",justifyContent:"center",
-            fontSize:8.5,color:"#fff",
+            fontSize:7.5,color:"#fff",
             fontFamily:"'Epilogue',sans-serif",fontWeight:800,
             animation:"notifBadgePop .3s ease",
-            boxShadow:`0 0 8px ${C.rose}60`,
+            boxShadow:`0 0 6px ${C.rose}55`,
             border:`1.5px solid ${C.bg}`,
           }}>{unread>9?"9+":unread}</div>
         )}
@@ -5156,25 +5179,24 @@ function NotificationBell({ onOpen }) {
 // ─── ASK BACKSTAGE BUTTON ─────────────────────────────────────────────────────
 function AskBackstageButton({ go }) {
   return (
-    <div style={{ position:"absolute",bottom:108,right:16,zIndex:300,width:46,height:46,display:"flex",alignItems:"center",justifyContent:"center" }}>
-      {/* Outer halo ring — "Backstage orb" ambient glow */}
-      <div style={{ position:"absolute",inset:-6,borderRadius:"50%",background:`radial-gradient(circle,${C.accent}30,transparent 70%)`,pointerEvents:"none",animation:"ambientGlow 3.2s ease-in-out infinite" }} />
+    <div style={{ position:"absolute",bottom:108,right:16,zIndex:300,width:42,height:42,display:"flex",alignItems:"center",justifyContent:"center" }}>
+      {/* Outer halo ring — quiet champagne/lavender ambient glow, not a loud blob */}
+      <div style={{ position:"absolute",inset:-4,borderRadius:"50%",background:`radial-gradient(circle,${C.accent}22,transparent 72%)`,pointerEvents:"none",animation:"ambientGlow 3.6s ease-in-out infinite" }} />
       <button
         onClick={()=>go("assistant")}
         className="tap"
         title="Ask Backstage AI"
         style={{
-          width:44,height:44,
+          width:40,height:40,
           borderRadius:"50%",
-          background:`linear-gradient(145deg,${C.accent}ff,${C.pink}ee 55%,${C.berry}dd)`,
-          border:`1px solid rgba(255,255,255,0.3)`,
-          color:"#0a0612",
-          fontSize:19,
+          background:`linear-gradient(150deg,rgba(28,18,52,0.92),rgba(14,9,28,0.92))`,
+          border:`1px solid rgba(214,189,255,0.32)`,
+          color:C.gold,
+          fontSize:16,
           cursor:"pointer",
-          boxShadow:`0 6px 22px ${C.accent}55, 0 0 26px ${C.pink}33, 0 2px 8px rgba(0,0,0,0.4), inset 0 1.5px 0 rgba(255,255,255,0.45), inset 0 -8px 14px rgba(0,0,0,0.18)`,
-          animation:"shareGlow 4s ease infinite",
+          boxShadow:`0 6px 18px rgba(0,0,0,0.5), 0 0 14px ${C.accent}22, inset 0 1px 0 rgba(255,255,255,0.16)`,
           display:"flex",alignItems:"center",justifyContent:"center",
-          backdropFilter:"blur(8px)",
+          backdropFilter:"blur(10px)",
           position:"relative",
         }}
       >
@@ -5184,6 +5206,128 @@ function AskBackstageButton({ go }) {
   );
 }
 
+// ─── FANVERSE FLOATING DOCK ────────────────────────────────────────────────────
+// Single glass orb consolidating Messages + Ask Backstage AI — replaces the old
+// stacked Messages-pill-above-AI-orb layout. Resting = one orb; tap expands a
+// two-action tray; tapping Messages opens the mini inbox in place of the tray.
+// Reads the same backstage_dms store DirectMessages uses; opening a thread hands
+// off via the existing backstage_dm_target + go("chats") entry point.
+function FanverseFloatingDock({ go }) {
+  const [expanded, setExpanded] = useState(false);
+  const [showInbox, setShowInbox] = useState(false);
+  const readConvos = () => {
+    const stored = ls.get("backstage_dms", []);
+    return Array.isArray(stored) ? stored.filter(c => !String(c.id || "").startsWith("dm-")) : [];
+  };
+  const [convos, setConvos] = useState(readConvos);
+
+  useEffect(() => {
+    const iv = setInterval(() => setConvos(readConvos()), 2500);
+    return () => clearInterval(iv);
+  }, []);
+
+  const totalUnread = convos.reduce((s, c) => s + (c.unread || 0), 0);
+  const recent = [...convos].sort((a, b) => (b.unread || 0) - (a.unread || 0)).slice(0, 4);
+  const closeAll = () => { setExpanded(false); setShowInbox(false); };
+
+  const openThread = (convo) => {
+    ls.set("backstage_dm_target", convo.fan);
+    closeAll();
+    go("chats");
+  };
+
+  return (
+    <div style={{ position:"absolute", bottom:108, right:16, zIndex:300 }}>
+      {(expanded || showInbox) && (
+        <div onClick={closeAll} style={{ position:"fixed", inset:0, zIndex:0 }} />
+      )}
+
+      {/* Mini inbox flyout */}
+      {showInbox && (
+        <div style={{
+          position:"absolute", bottom:"calc(100% + 10px)", right:0, width:240, maxHeight:300,
+          background:"linear-gradient(160deg,rgba(28,18,52,0.88),rgba(10,7,20,0.92))",
+          border:"1px solid rgba(214,189,255,0.22)", borderRadius:18, padding:8,
+          boxShadow:"0 16px 40px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1)",
+          backdropFilter:"blur(22px) saturate(140%)", animation:"up .18s ease",
+          display:"flex", flexDirection:"column", zIndex:1,
+        }}>
+          <div style={{ position:"absolute", inset:0, borderRadius:18, background:"linear-gradient(135deg,rgba(184,162,255,0.06),transparent 40%,rgba(240,204,136,0.04) 75%,transparent)", pointerEvents:"none" }} />
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"4px 6px 8px", position:"relative" }}>
+            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:12.5, color:C.text }}>Messages</p>
+            <button onClick={closeAll} style={{ background:"none", border:"none", color:C.textMid, fontSize:14, cursor:"pointer", lineHeight:1 }}>✕</button>
+          </div>
+          <div style={{ overflowY:"auto", display:"flex", flexDirection:"column", gap:2, position:"relative" }}>
+            {recent.length===0 ? (
+              <p style={{ fontSize:10.5, color:C.textMid, padding:"14px 8px", textAlign:"center" }}>No conversations yet — your Circle chats will show here.</p>
+            ) : recent.map(convo => {
+              const last = convo.messages?.[convo.messages.length - 1];
+              const isCharm = last?.type==="charm" || last?.type==="sticker";
+              const preview = isCharm ? `${last?.charmEmoji||"✦"} ${last?.charmLabel||"charm"}` : (last?.text || "Start a conversation 💜");
+              return (
+                <div key={convo.id} onClick={()=>openThread(convo)} className="tap" style={{ display:"flex", gap:8, alignItems:"center", padding:"7px 6px", borderRadius:11, cursor:"pointer" }}>
+                  <div style={{ position:"relative", flexShrink:0 }}>
+                    <div style={{ width:32,height:32,borderRadius:"50%",background:`linear-gradient(135deg,${convo.fan.color},${convo.fan.color}66)`,border:"1px solid rgba(255,255,255,0.2)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,color:"#1a1228" }}>{convo.fan.avatar}</div>
+                    {convo.unread>0 && <div style={{ position:"absolute",top:-2,right:-2,width:13,height:13,borderRadius:"50%",background:`linear-gradient(135deg,${C.rose},${C.berry})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:7,color:"#fff",fontFamily:"'Epilogue',sans-serif",fontWeight:800,border:"1.5px solid rgba(10,7,20,0.9)" }}>{convo.unread}</div>}
+                  </div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:convo.unread>0?700:600, fontSize:11, color:convo.unread>0?C.text:C.textMid }}>{convo.fan.name}</p>
+                    <p style={{ fontSize:9.5, color:C.textDim, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{preview}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <button onClick={()=>{ closeAll(); go("chats"); }} className="tap" style={{ marginTop:6, background:"rgba(255,255,255,0.04)", border:"1px solid rgba(214,189,255,0.16)", borderRadius:10, padding:"7px", color:C.lavender, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10.5, cursor:"pointer", position:"relative" }}>Open all messages</button>
+        </div>
+      )}
+
+      {/* Expanded action tray — Messages / Ask AI */}
+      {expanded && !showInbox && (
+        <div style={{
+          position:"absolute", bottom:"calc(100% + 10px)", right:0, minWidth:190,
+          display:"flex", flexDirection:"column", gap:2,
+          background:"linear-gradient(160deg,rgba(28,18,52,0.9),rgba(10,7,20,0.94))",
+          border:"1px solid rgba(214,189,255,0.22)", borderRadius:16, padding:7,
+          boxShadow:"0 16px 40px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1)",
+          backdropFilter:"blur(22px) saturate(140%)", animation:"up .18s ease", zIndex:1,
+        }}>
+          <div style={{ position:"absolute", inset:0, borderRadius:16, background:"linear-gradient(135deg,rgba(184,162,255,0.06),transparent 40%,rgba(240,204,136,0.04) 75%,transparent)", pointerEvents:"none" }} />
+          <button onClick={()=>setShowInbox(true)} className="tap" style={{ display:"flex", alignItems:"center", gap:9, padding:"9px 10px", borderRadius:11, background:"transparent", border:"none", color:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, cursor:"pointer", textAlign:"left", position:"relative" }}>
+            <span style={{ fontSize:14, width:20, textAlign:"center", flexShrink:0 }}>💬</span>
+            <span style={{ flex:1 }}>Messages</span>
+            {totalUnread>0 && <span style={{ minWidth:16,height:16,borderRadius:99,background:`linear-gradient(135deg,${C.rose},${C.berry})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,color:"#fff",fontFamily:"'Epilogue',sans-serif",fontWeight:800,padding:"0 3px" }}>{totalUnread>9?"9+":totalUnread}</span>}
+          </button>
+          <button onClick={()=>{ go("assistant"); closeAll(); }} className="tap" style={{ display:"flex", alignItems:"center", gap:9, padding:"9px 10px", borderRadius:11, background:"transparent", border:"none", color:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, cursor:"pointer", textAlign:"left", position:"relative" }}>
+            <span style={{ fontSize:14, width:20, textAlign:"center", flexShrink:0 }}>✨</span>
+            <span>Ask Backstage AI</span>
+          </button>
+        </div>
+      )}
+
+      {/* Resting orb */}
+      <button onClick={()=>{ showInbox ? setShowInbox(false) : setExpanded(v=>!v); }} className="tap" title="Messages & Ask AI" style={{
+        width:44,height:44,
+        borderRadius:"50%",
+        background:`linear-gradient(150deg,rgba(28,18,52,0.92),rgba(14,9,28,0.92))`,
+        border:`1px solid rgba(214,189,255,0.32)`,
+        color:C.gold,
+        fontSize:16,
+        cursor:"pointer",
+        boxShadow:`0 6px 18px rgba(0,0,0,0.5), 0 0 14px ${C.accent}22, inset 0 1px 0 rgba(255,255,255,0.16)`,
+        display:"flex",alignItems:"center",justifyContent:"center",
+        backdropFilter:"blur(10px)",
+        position:"relative",
+        zIndex:1,
+      }}>
+        {expanded||showInbox ? "✕" : "✨"}
+        {totalUnread>0 && !expanded && !showInbox && (
+          <div style={{ position:"absolute",top:-2,right:-2,width:14,height:14,borderRadius:"50%",background:`linear-gradient(135deg,${C.rose},${C.berry})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:7.5,color:"#fff",fontFamily:"'Epilogue',sans-serif",fontWeight:800,border:"1.5px solid rgba(10,7,20,0.9)" }}>{totalUnread>9?"9+":totalUnread}</div>
+        )}
+      </button>
+    </div>
+  );
+}
 
 // ─── AUTH SCREEN ──────────────────────────────────────────────────────────────
 // Handles: login, sign-up, and 3-step profile setup after first registration.
@@ -5981,6 +6125,15 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
   const [createForm, setCreateForm] = useState({ title:"", type:"meetup", date:"", time:"", place:"", city:"", checkedIn:false });
   const colorByType = { meetup:C.lavender, cupsleeve:C.gold, freebie:C.pink, trade:C.mint, afterparty:C.accent };
 
+  // Consumes the one-shot flag set by go("concerts_create_meetup") (e.g. the
+  // "Create a meetup" CTA in My Circle) — reuses the exact same VIP gate as the
+  // in-page "+ Create Meetup" button rather than bypassing it.
+  useEffect(()=>{
+    if (!ls.get("backstage_open_create_meetup", false)) return;
+    ls.del("backstage_open_create_meetup");
+    if (isVip) setShowCreateMeetup(true); else onUpgrade && onUpgrade();
+  },[isVip]);
+
   // "May 24" + "4:00 PM" → ISO timestamp for the backend's single `time` column.
   // Approximate by design: no year field in the create form, so we infer the current
   // year and roll to next year if that reading would already be >30 days in the past.
@@ -6084,6 +6237,22 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
     const d = await api.get(`/api/meetups/${m.id}/attendees`);
     if(d?.error) { setAttendeesView({ meetup:m, loading:false, error:d.error, attendees:[] }); return; }
     setAttendeesView({ meetup:m, loading:false, error:null, attendees:d?.attendees||[] });
+  };
+
+  // ── Invite from Circle — host picks Circle friends to notify directly ──────
+  const [inviteFor, setInviteFor] = useState(null); // meetup being invited to
+  const [inviteSelected, setInviteSelected] = useState([]);
+  const [inviteSending, setInviteSending] = useState(false);
+  const [inviteSent, setInviteSent] = useState(false);
+  const circleFriendsForInvite = ls.get("backstage_friends", []).filter(f=>f.status==="accepted");
+  const openInvite = (m) => { setInviteFor(m); setInviteSelected([]); setInviteSent(false); };
+  const toggleInviteSelect = (id) => setInviteSelected(sel => sel.includes(id) ? sel.filter(x=>x!==id) : [...sel, id]);
+  const sendMeetupInvites = async () => {
+    if (!inviteFor || !inviteSelected.length) return;
+    setInviteSending(true);
+    const d = await api.post(`/api/meetups/${inviteFor.id}/invite`, { userIds: inviteSelected });
+    setInviteSending(false);
+    if (!d?.error) setInviteSent(true);
   };
 
   const [friendsGoing, setFriendsGoing] = useState(null); // { count, friends } for the open meetupDetail
@@ -6442,8 +6611,11 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
 
             <div style={{ display:"flex",gap:10 }}>
               <button onClick={()=>{ if(!rsvped[meetupDetail.id]) toggleRsvp(meetupDetail); setChatRoom({ id:`meetup-${meetupDetail.id}`, name:meetupDetail.title, type:"meetup", members:(meetupDetail.rsvps||1), color:meetupDetail.color }); }} className="tap" style={{ flex:1,padding:"13px",borderRadius:14,background:`linear-gradient(140deg,${meetupDetail.color}ee,${meetupDetail.color}88)`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,cursor:"pointer" }}>💬 Join Event Chat</button>
-              {meetupDetail.organizer&&(
+              {meetupDetail.organizer&&meetupDetail.hostId!==user?.id&&(
                 <button onClick={()=>setChatRoom({ id:`host-${meetupDetail.id}`, name:`${meetupDetail.organizer} (Host)`, type:"dm", members:2, color:meetupDetail.color })} className="tap" style={{ flex:1,padding:"13px",borderRadius:14,background:"transparent",border:`1.5px solid ${meetupDetail.color}55`,color:meetupDetail.color,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,cursor:"pointer" }}>📩 Message Host</button>
+              )}
+              {meetupDetail.hostId===user?.id&&(
+                <button onClick={()=>openInvite(meetupDetail)} className="tap" style={{ flex:1,padding:"13px",borderRadius:14,background:"transparent",border:`1.5px solid ${meetupDetail.color}55`,color:meetupDetail.color,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,cursor:"pointer" }}>✉️ Invite from Circle</button>
               )}
             </div>
           </div>
@@ -6481,7 +6653,8 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
                 </div>
                 <div style={{ display:"flex",gap:8 }}>
                   <button onClick={()=>loadAttendees(m)} className="tap" style={{ flex:1,padding:"9px",borderRadius:11,background:`${m.color}14`,border:`1.5px solid ${m.color}44`,color:m.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>👥 View Attendees</button>
-                  <button onClick={()=>setChatRoom({ id:`meetup-${m.id}`, name:m.title, type:"meetup", members:(m.rsvps||1), color:m.color })} className="tap" style={{ flex:1,padding:"9px",borderRadius:11,background:"transparent",border:`1.5px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>💬 Group Chat</button>
+                  <button onClick={()=>openInvite(m)} className="tap" style={{ flex:1,padding:"9px",borderRadius:11,background:"transparent",border:`1.5px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>✉️ Invite</button>
+                  <button onClick={()=>setChatRoom({ id:`meetup-${m.id}`, name:m.title, type:"meetup", members:(m.rsvps||1), color:m.color })} className="tap" style={{ flex:1,padding:"9px",borderRadius:11,background:"transparent",border:`1.5px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>💬 Chat</button>
                 </div>
               </div>
             ))}
@@ -6516,6 +6689,49 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
                     </div>
                   ))}
                 </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+      {inviteFor && (
+        <div onClick={()=>setInviteFor(null)} style={{ position:"fixed",inset:0,zIndex:510,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:`linear-gradient(160deg,${C.surfaceHi},${C.cosmic})`,borderRadius:"22px 22px 0 0",padding:"22px 20px 36px",width:"100%",maxHeight:"75vh",overflowY:"auto",animation:"slideUp .25s ease",border:`1px solid ${inviteFor.color}33` }}>
+            <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 18px" }} />
+            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6 }}>
+              <div>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16 }}>✉️ Invite from Circle</p>
+                <p style={{ fontSize:11,color:C.textMid }}>{inviteFor.title}</p>
+              </div>
+              <button onClick={()=>setInviteFor(null)} style={{ background:"none",border:"none",color:C.textMid,fontSize:20,cursor:"pointer" }}>✕</button>
+            </div>
+            {inviteSent ? (
+              <div style={{ textAlign:"center",padding:"24px 0" }}>
+                <p style={{ fontSize:32,marginBottom:10 }}>✅</p>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14,marginBottom:6 }}>Invites sent!</p>
+                <p style={{ fontSize:11.5,color:C.textMid }}>{inviteSelected.length} fan{inviteSelected.length===1?"":"s"} notified.</p>
+              </div>
+            ) : circleFriendsForInvite.length===0 ? (
+              <Empty emoji="👯" title="Your Circle is empty" sub="Add fans to your Circle first, then invite them to meetups." />
+            ) : (
+              <>
+                <p style={{ fontSize:11,color:C.textMid,marginBottom:12 }}>Select fans from your Circle to notify directly.</p>
+                <div style={{ display:"flex",flexDirection:"column",gap:8,marginBottom:16,maxHeight:280,overflowY:"auto" }}>
+                  {circleFriendsForInvite.map(f=>{
+                    const id = f.profileId||f.id;
+                    const selected = inviteSelected.includes(id);
+                    return (
+                      <div key={id} onClick={()=>toggleInviteSelect(id)} className="tap" style={{ display:"flex",gap:10,alignItems:"center",padding:"9px 12px",borderRadius:13,background:selected?`${C.accent}14`:C.surface,border:`1.5px solid ${selected?C.accent:C.border}`,cursor:"pointer" }}>
+                        <div style={{ width:34,height:34,borderRadius:"50%",background:`linear-gradient(135deg,${f.color||C.accent},${f.color||C.accent}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,color:C.bg,flexShrink:0 }}>{f.avatar}</div>
+                        <p style={{ flex:1,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:12.5 }}>{f.name}</p>
+                        <div style={{ width:18,height:18,borderRadius:"50%",border:`1.5px solid ${selected?C.accent:C.border}`,background:selected?C.accent:"transparent",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:C.bg,flexShrink:0 }}>{selected?"✓":""}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <button onClick={sendMeetupInvites} disabled={!inviteSelected.length||inviteSending} className="tap" style={{ width:"100%",padding:"13px",borderRadius:14,background:inviteSelected.length?`linear-gradient(140deg,${inviteFor.color}ee,${inviteFor.color}88)`:C.surface,border:"none",color:inviteSelected.length?C.bg:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:inviteSelected.length?"pointer":"default" }}>
+                  {inviteSending?"Sending…":`Send Invite${inviteSelected.length>1?"s":""}${inviteSelected.length?` (${inviteSelected.length})`:""}`}
+                </button>
               </>
             )}
           </div>
@@ -10823,6 +11039,13 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
   const [showUserMoment, setShowUserMoment] = useState(null); // preview modal for user bubble tap
   const changeView = (v) => { setView(v); setScrolled(false); setRingFilter(null); };
 
+  // Bottom-nav re-tap on Fanverse (while already there) snaps back to Feed + full chrome.
+  useEffect(() => {
+    const onReset = () => { setView("feed"); setScrolled(false); };
+    window.addEventListener("bs:fanverse-reset", onReset);
+    return () => window.removeEventListener("bs:fanverse-reset", onReset);
+  }, []);
+
   const [discoverFans, setDiscoverFans] = useState([]);
   const [discoverLoading, setDiscoverLoading] = useState(false);
   const [discoverFilter, setDiscoverFilter] = useState("all");
@@ -11061,29 +11284,32 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
   // Pass categories (Fit Check, Merch etc.) live in Backstage Passes only — not duplicated here.
 
   return (
-    <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
+    <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden", position:"relative", background:"linear-gradient(165deg,#0B0718,#07050f 55%,#120B24)" }}>
+      {/* Atmospheric depth glow — cosmic velvet, not a busy pattern */}
+      <div style={{ position:"absolute", top:-60, right:-40, width:280, height:280, borderRadius:"50%", background:"radial-gradient(circle,rgba(184,162,255,0.07),transparent 70%)", pointerEvents:"none", zIndex:0 }} />
+      <div style={{ position:"absolute", bottom:-80, right:-60, width:240, height:240, borderRadius:"50%", background:"radial-gradient(circle,rgba(232,201,135,0.05),transparent 72%)", pointerEvents:"none", zIndex:0 }} />
 
       {/* ── STICKY HEADER ZONE — never scrolls away ── */}
-      <div style={{ flexShrink:0, zIndex:20, position:"relative", background:scrolled?`rgba(7,5,15,0.97)`:`rgba(7,5,15,0.82)`, backdropFilter:"blur(18px)", borderBottom:scrolled?`1px solid ${C.borderHi}`:"1px solid transparent", transition:"background .3s ease, border-color .3s ease" }}>
+      <div style={{ flexShrink:0, zIndex:20, position:"relative", background:scrolled?`linear-gradient(165deg,rgba(20,12,38,0.94),rgba(7,5,15,0.97))`:`linear-gradient(165deg,rgba(20,12,38,0.74),rgba(7,5,15,0.82))`, backdropFilter:"blur(18px)", borderBottom:scrolled?`1px solid rgba(214,189,255,0.16)`:"1px solid transparent", boxShadow:scrolled?"0 1px 0 rgba(255,255,255,0.04) inset":"none", transition:"background .3s ease, border-color .3s ease" }}>
 
-        {/* EXPANDED title — hides on scroll */}
-        <div style={{ overflow:"hidden", maxHeight:scrolled?0:36, opacity:scrolled?0:1, paddingTop:scrolled?0:8, paddingInline:20, transition:"max-height .28s ease, opacity .22s ease, padding-top .28s ease" }}>
+        {/* EXPANDED title — hides on scroll. Right padding clears the floating notification bell. */}
+        <div style={{ overflow:"hidden", maxHeight:scrolled?0:36, opacity:scrolled?0:1, paddingTop:scrolled?0:8, paddingLeft:20, paddingRight:56, transition:"max-height .28s ease, opacity .22s ease, padding-top .28s ease" }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", paddingBottom:3 }}>
             <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontStyle:"italic",fontWeight:700,fontSize:17,background:`linear-gradient(135deg,${C.lavender},${C.blush})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",lineHeight:1 }}>the Fanverse ✦</h2>
             <div style={{ display:"flex",gap:6,alignItems:"center" }}>
-              <div style={{ width:5,height:5,borderRadius:"50%",background:C.rose,animation:"pulse 1.2s ease infinite",boxShadow:`0 0 4px ${C.rose}` }} />
-              <p style={{ fontSize:9,color:C.rose,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>LIVE</p>
+              <div style={{ width:5,height:5,borderRadius:"50%",background:C.lavender,animation:"pulse 2.2s ease infinite",boxShadow:`0 0 4px ${C.lavender}` }} />
+              <p style={{ fontSize:9,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>Fan Pulse</p>
             </div>
           </div>
         </div>
 
         {/* COLLAPSED compact title row */}
         {scrolled && (
-          <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 20px 0",animation:"in .15s ease" }}>
+          <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 56px 0 20px",animation:"in .15s ease" }}>
             <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontStyle:"italic",fontWeight:700,fontSize:15,background:`linear-gradient(135deg,${C.lavender},${C.blush})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent" }}>the Fanverse ✦</h2>
             <div style={{ display:"flex",gap:5,alignItems:"center" }}>
-              <div style={{ width:4,height:4,borderRadius:"50%",background:C.rose,animation:"pulse 1.4s ease infinite" }} />
-              <p style={{ fontSize:9,color:C.rose,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>LIVE</p>
+              <div style={{ width:4,height:4,borderRadius:"50%",background:C.lavender,animation:"pulse 2.2s ease infinite" }} />
+              <p style={{ fontSize:9,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>Fan Pulse</p>
             </div>
           </div>
         )}
@@ -11091,13 +11317,13 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
         {/* ── SOCIAL STORY RAIL — personal/social bubbles (NOT pass categories) ── */}
         {/* Pass categories (Fit Check, Merch, etc.) stay in Backstage Passes page only */}
         {/* Collapses fully on scroll — same maxHeight/opacity technique as the title block above */}
-        <div style={{ display:"flex",gap:11,overflowX:"auto",scrollbarWidth:"none",overflowY:"hidden",maxHeight:scrolled?0:74,opacity:scrolled?0:1,padding:scrolled?"0 14px":"5px 14px",transition:"max-height .28s ease, opacity .2s ease, padding .28s ease",alignItems:"flex-start" }}>
+        <div style={{ display:"flex",gap:11,overflowX:"auto",scrollbarWidth:"none",overflowY:"hidden",maxHeight:scrolled?0:74,opacity:scrolled?0:1,padding:scrolled?"0 14px":"5px 54px 5px 14px",transition:"max-height .28s ease, opacity .2s ease, padding .28s ease",alignItems:"flex-start" }}>
           {/* Your Pass — always first */}
           <div onClick={()=>go?.("passes")} className="tap" style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:2,cursor:"pointer" }}>
-            <div style={{ width:scrolled?36:42,height:scrolled?36:42,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.berry})`,padding:2,boxShadow:`0 0 12px ${C.accent}50`,transition:"all .28s ease",flexShrink:0 }}>
-              <div style={{ width:"100%",height:"100%",borderRadius:"50%",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:scrolled?13:16 }}>✦</div>
+            <div style={{ width:scrolled?36:42,height:scrolled?36:42,borderRadius:"50%",background:`linear-gradient(135deg,rgba(184,162,255,0.9),rgba(232,201,135,0.55))`,padding:2,boxShadow:`0 0 12px rgba(184,162,255,0.32), inset 0 1px 0 rgba(255,255,255,0.2)`,transition:"all .28s ease",flexShrink:0 }}>
+              <div style={{ width:"100%",height:"100%",borderRadius:"50%",background:"linear-gradient(160deg,#15102a,#0a0716)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:scrolled?13:16,color:C.gold }}>✦</div>
             </div>
-            <p style={{ fontSize:6.5,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap" }}>Your Pass</p>
+            <p style={{ fontSize:6.5,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap" }}>Your Pass</p>
           </div>
           {/* Social rings — filter bubbles + user bubbles */}
           {SOCIAL_RINGS.map(r=>{
@@ -11108,7 +11334,7 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
                 if(r.isFilter) { setRingFilter(ringFilter===r.filterType?null:r.filterType); }
                 else if(r.isUser) { setShowUserMoment(r); }
               }} className="tap" style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:3,cursor:"pointer" }}>
-                <div style={{ width:sz,height:sz,borderRadius:"50%",background:isActive?r.color:`linear-gradient(135deg,${r.color}44,${r.color}22)`,padding:isActive?0:2,boxShadow:`0 0 ${isActive?14:8}px ${r.color}${isActive?"77":"33"}`,border:`${isActive?"2":"1.5"}px solid ${r.color}${isActive?"cc":"55"}`,transition:"all .25s ease",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:r.isUser?sz*0.36:sz*0.42,color:isActive?C.bg:r.color }}>
+                <div style={{ width:sz,height:sz,borderRadius:"50%",background:isActive?`linear-gradient(150deg,${r.color}cc,${r.color}88)`:`linear-gradient(150deg,rgba(20,12,38,0.85),rgba(10,7,22,0.85))`,padding:isActive?0:1.5,boxShadow:isActive?`0 0 14px ${r.color}55, inset 0 1px 0 rgba(255,255,255,0.25)`:`inset 0 1px 0 rgba(255,255,255,0.06)`,border:`${isActive?"1.5":"1"}px solid ${isActive?r.color+"cc":"rgba(214,189,255,0.22)"}`,transition:"all .25s ease",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:r.isUser?sz*0.36:sz*0.42,color:isActive?C.bg:r.color }}>
                   {r.avatar}
                 </div>
                 <p style={{ fontSize:6.5,color:isActive?r.color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap",maxWidth:46,overflow:"hidden",textOverflow:"ellipsis",textAlign:"center",transition:"color .2s" }}>{r.label}</p>
@@ -11147,9 +11373,9 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
 
         {/* ── STICKY TABS — compress on scroll ── */}
         <div style={{ padding:`${scrolled?2:0}px 14px ${scrolled?4:5}px`,transition:"padding .28s ease" }}>
-          <div style={{ display:"flex",gap:0,background:C.surfaceHi,borderRadius:scrolled?10:11,padding:scrolled?2:2,transition:"all .28s ease" }}>
+          <div style={{ display:"flex",gap:0,background:"rgba(255,255,255,0.035)",border:"1px solid rgba(214,189,255,0.14)",borderRadius:scrolled?10:11,padding:scrolled?2:2,backdropFilter:"blur(10px)",boxShadow:"inset 0 1px 0 rgba(255,255,255,0.05)",transition:"all .28s ease" }}>
             {[["feed","🌐","Feed"],["map","🗺️","Map"],["hubs","🏙️","Hubs"],["fans","👥","Fans"],["leaders","🏆","Leaders"],["circles","✦","Circles"]].map(([id,icon,name])=>(
-              <span key={id} onClick={()=>changeView(id)} style={{ flex:1,textAlign:"center",padding:scrolled?"4px 2px":"5px 2px",borderRadius:scrolled?8:9,fontSize:scrolled?9:9.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:view===id?C.accent:"transparent",color:view===id?C.bg:C.textMid,transition:"all .18s",whiteSpace:"nowrap" }}>{icon} {name}</span>
+              <span key={id} onClick={()=>changeView(id)} style={{ flex:1,textAlign:"center",padding:scrolled?"4px 2px":"5px 2px",borderRadius:scrolled?8:9,fontSize:scrolled?9:9.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:view===id?`linear-gradient(135deg,${C.accent},${C.gold}cc)`:"transparent",color:view===id?"#1a1228":C.textMid,boxShadow:view===id?`0 0 10px ${C.accent}33`:"none",transition:"all .18s",whiteSpace:"nowrap" }}>{icon} {name}</span>
             ))}
           </div>
         </div>
@@ -11610,6 +11836,7 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
         </div>
       )}
 
+      <FanverseFloatingDock go={go} />
     </div>
   );
 }
@@ -14147,6 +14374,27 @@ function FanStories({ user }) {
 function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) {
   const [eraSearch, setEraSearch] = useState("");
   const [eraSearchOpen, setEraSearchOpen] = useState(false);
+  // Collapsible feed chrome: search/hashtags/sort+filter collapse on downward scroll,
+  // a compact control row replaces them past the threshold, full chrome restores near top.
+  const [feedCompact, setFeedCompact] = useState(false);
+  const lastFeedScrollRef = useRef(0);
+  const feedScrollRef = useRef(null);
+  const handleFeedScroll = (e) => {
+    const y = e.target.scrollTop;
+    lastFeedScrollRef.current = y;
+    if (y < 20) setFeedCompact(false);
+    else if (y > 90) setFeedCompact(true);
+    onScrollNotify && onScrollNotify(y);
+  };
+  // Bottom-nav re-tap on Fanverse scrolls this feed to top and restores full chrome.
+  useEffect(() => {
+    const onReset = () => {
+      feedScrollRef.current?.scrollTo({ top:0, behavior:"smooth" });
+      setFeedCompact(false);
+    };
+    window.addEventListener("bs:fanverse-reset", onReset);
+    return () => window.removeEventListener("bs:fanverse-reset", onReset);
+  }, []);
   const [posts, setPosts] = useState(ls.get("backstage_feed_posts", [
     { id:1, user:"@armyvibes_mia", avatar:"M", color:C.pink, type:"concert", text:"BTS Dallas merch line is INSANE right now. Gate B opens at 2pm per staff!! 💜 tag your squad", likes:284, comments:31, time:"3m", tag:"BTS", saved:false, meme:null, image:null },
     { id:2, user:"@stayforever_jen", avatar:"J", color:C.accent, type:"outfit", text:"Finally pulled together my MANIAC era fit for the Chicago show ✨ silver + black everything. Outfit thread below!", likes:512, comments:47, time:"12m", tag:"Stray Kids", saved:false, meme:null, image:null },
@@ -14159,9 +14407,25 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
   const [saved, setSaved] = useState({3:true});
   const [sort, setSort] = useState("trending");
   const [filter, setFilter] = useState("all");
+  const [filterMenuOpen, setFilterMenuOpen] = useState(false);
+  const FILTER_OPTIONS = [
+    { id:"all",       label:"All Moments" },
+    { id:"concert",    label:"Concert" },
+    { id:"outfit",     label:"Fit Check" },
+    { id:"trade",      label:"Trade" },
+    { id:"freebie",    label:"Freebies" },
+    { id:"capsule",    label:"Capsule Moment" },
+    { id:"meetup",     label:"Meetup" },
+    { id:"afterglow",  label:"Afterglow" },
+    { id:"comeback",   label:"Comeback Buzz" },
+  ];
   const [composing, setComposing] = useState(false);
-  const [draft, setDraft] = useState({ text:"", tag:"", type:"general", image:null, locationOn:false, venue:"", city:"", checkedIn:false });
+  const [draft, setDraft] = useState({ text:"", tags:[], type:"general", image:null, locationOn:false, venue:"", city:"", checkedIn:false });
+  const [tagQuery, setTagQuery] = useState("");
   const [memeMode, setMemeMode] = useState(null);
+  const [customEmojiFor, setCustomEmojiFor] = useState(null);
+  const [customEmojiDraft, setCustomEmojiDraft] = useState("");
+  const [reposted, setReposted] = useState({});
   const [commentsOpenFor, setCommentsOpenFor] = useState(null);
   const [replyDraft, setReplyDraft] = useState("");
   const [toast, setToast] = useState(null);
@@ -14170,15 +14434,19 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
 
   // Mock comments — UI only, not persisted. No backend comments table exists yet.
   const MOCK_COMMENT_POOL = [
-    { user:"@stanforlife",   text:"omg same energy, this is everything 😭" },
-    { user:"@kpopdaily_",    text:"wait this is so real, screenshotting this" },
-    { user:"@bunnybiased",   text:"the way I felt this in my soul" },
-    { user:"@seoulboundfan", text:"need updates on this asap pls 🙏" },
+    { user:"@stanforlife",   text:"omg same energy, this is everything 😭", likes:14, replies:[{ user:"@bunnybiased", text:"@stanforlife right?? I felt this" }] },
+    { user:"@kpopdaily_",    text:"wait this is so real, screenshotting this", likes:6,  replies:[] },
+    { user:"@bunnybiased",   text:"the way I felt this in my soul", likes:22, replies:[{ user:"@seoulboundfan", text:"@bunnybiased same honestly" },{ user:"@stanforlife", text:"@bunnybiased no literally" }] },
+    { user:"@seoulboundfan", text:"need updates on this asap pls 🙏", likes:3,  replies:[] },
   ];
   const getMockComments = (postId) => {
     const seed = postId % MOCK_COMMENT_POOL.length;
     return [MOCK_COMMENT_POOL[seed], MOCK_COMMENT_POOL[(seed+1)%MOCK_COMMENT_POOL.length]];
   };
+  // Comment UI-only state — likes/replies/report are local interactions on mock data, not persisted.
+  const [commentLiked, setCommentLiked] = useState({});
+  const [expandedReplies, setExpandedReplies] = useState({});
+  const [reportMenuFor, setReportMenuFor] = useState(null);
 
   const POST_TYPES = [
     { id:"concert", label:"🎤 Concert", color:C.pink },
@@ -14204,10 +14472,10 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
 
   const addPost = () => {
     if(!draft.text.trim()) return;
-    const newPost = { id:Date.now(), user:`@${user?.username||user?.name||user?.stanName||"you"}`, avatar:(user?.username||user?.name||user?.stanName||"Y")[0].toUpperCase(), color:C.accent, type:draft.type||"general", text:draft.text, likes:0, comments:0, time:"now", tag:draft.tag||"General", saved:false, meme:null, image:draft.image||null, venue:draft.locationOn&&draft.venue.trim()?draft.venue.trim():null, city:draft.locationOn&&draft.city.trim()?draft.city.trim():null, checkedIn:draft.locationOn&&draft.checkedIn };
+    const newPost = { id:Date.now(), user:`@${user?.username||user?.name||user?.stanName||"you"}`, avatar:(user?.username||user?.name||user?.stanName||"Y")[0].toUpperCase(), color:C.accent, type:draft.type||"general", text:draft.text, likes:0, comments:0, reposts:0, time:"now", tag:draft.tags[0]||"General", tags:draft.tags.length?draft.tags:["General"], saved:false, meme:null, image:draft.image||null, venue:draft.locationOn&&draft.venue.trim()?draft.venue.trim():null, city:draft.locationOn&&draft.city.trim()?draft.city.trim():null, checkedIn:draft.locationOn&&draft.checkedIn };
     const next = [newPost, ...posts];
     setPosts(next); ls.set("backstage_feed_posts", next.slice(0,50));
-    setDraft({ text:"", tag:"", type:"general", image:null, locationOn:false, venue:"", city:"", checkedIn:false }); setComposing(false);
+    setDraft({ text:"", tags:[], type:"general", image:null, locationOn:false, venue:"", city:"", checkedIn:false }); setTagQuery(""); setComposing(false);
   };
 
   const handleImgUpload = (e) => {
@@ -14235,91 +14503,220 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
               <p style={{ fontSize:9,color:C.textDim,fontFamily:"'Epilogue',sans-serif" }}>live-ish</p>
             </div>
           </div>
-          <button onClick={()=>setComposing(true)} style={{ background:`linear-gradient(135deg,${C.accent},${C.berry})`,border:"none",borderRadius:9,padding:"6px 13px",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer",boxShadow:`0 0 10px ${C.accent}30` }}>+ Moment</button>
+          <button onClick={()=>setComposing(true)} style={{ background:`linear-gradient(135deg,rgba(184,162,255,0.92),rgba(240,168,204,0.85))`,border:"1px solid rgba(255,255,255,0.22)",borderRadius:9,padding:"6px 13px",color:"#1a1228",fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer",boxShadow:`0 4px 14px rgba(184,162,255,0.22), inset 0 1px 0 rgba(255,255,255,0.3)`,flexShrink:0 }}>+ Moment</button>
         </div>
 
-        {/* Era / tag search */}
-        <div style={{ marginBottom:5, position:"relative" }}>
-          <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-            <div style={{ position:"relative", flex:1 }}>
-              <svg style={{ position:"absolute",left:9,top:"50%",transform:"translateY(-50%)" }} width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="8" stroke={C.textDim} strokeWidth="1.8"/><path d="m21 21-4.35-4.35" stroke={C.textDim} strokeWidth="1.8" strokeLinecap="round"/></svg>
-              <input
-                value={eraSearch}
-                onChange={e=>{setEraSearch(e.target.value);setEraSearchOpen(!!e.target.value);}}
-                onFocus={()=>setEraSearchOpen(true)}
-                placeholder="#search eras, groups, concerts..."
-                style={{ width:"100%", padding:"6px 10px 6px 27px", borderRadius:9, background:C.surfaceHi, border:`1.5px solid ${eraSearch?C.pink:C.border}`, color:C.text, fontSize:11, fontFamily:"'Instrument Sans',sans-serif", outline:"none" }}
-              />
-              {eraSearch&&<button onClick={()=>{setEraSearch("");setEraSearchOpen(false);}} style={{ position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:C.textMid,cursor:"pointer",fontSize:13 }}>✕</button>}
+        {/* Collapsible chrome — search + hashtags + sort/filter. Collapses past scrollTop 90, restores near 0. */}
+        <div style={{ overflow:"hidden", maxHeight:feedCompact?0:170, opacity:feedCompact?0:1, transition:"max-height .28s ease, opacity .2s ease" }}>
+          {/* Era / tag search */}
+          <div style={{ marginBottom:5, position:"relative" }}>
+            <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+              <div style={{ position:"relative", flex:1 }}>
+                <svg style={{ position:"absolute",left:9,top:"50%",transform:"translateY(-50%)" }} width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="8" stroke="rgba(237,232,255,0.5)" strokeWidth="1.8"/><path d="m21 21-4.35-4.35" stroke="rgba(237,232,255,0.5)" strokeWidth="1.8" strokeLinecap="round"/></svg>
+                <input
+                  value={eraSearch}
+                  onChange={e=>{setEraSearch(e.target.value);setEraSearchOpen(!!e.target.value);}}
+                  onFocus={()=>setEraSearchOpen(true)}
+                  placeholder="#search eras, groups, concerts..."
+                  style={{ width:"100%", padding:"7px 10px 7px 27px", borderRadius:10, background:"rgba(8,5,18,0.55)", border:`1.5px solid ${eraSearch?"rgba(240,204,136,0.4)":"rgba(214,189,255,0.18)"}`, color:C.text, fontSize:11, fontFamily:"'Instrument Sans',sans-serif", outline:"none", boxShadow:"inset 0 2px 6px rgba(0,0,0,0.35)", backdropFilter:"blur(6px)" }}
+                />
+                {eraSearch&&<button onClick={()=>{setEraSearch("");setEraSearchOpen(false);}} style={{ position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:C.textMid,cursor:"pointer",fontSize:13 }}>✕</button>}
+              </div>
             </div>
-          </div>
-          {/* Quick era tag chips */}
-          <div style={{ display:"flex", gap:4, overflowX:"auto", paddingTop:5, scrollbarWidth:"none" }}>
-            {ERA_TAGS.slice(0,8).map(tag=>(
-              <span key={tag} onClick={()=>{setEraSearch(tag);setEraSearchOpen(false);}} className="tap" style={{ flexShrink:0, padding:"3px 8px", borderRadius:99, fontSize:9, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:eraSearch===tag?C.pink:`${C.pink}14`, color:eraSearch===tag?C.bg:C.textMid, border:`1px solid ${eraSearch===tag?C.pink:C.border}` }}>#{tag}</span>
-            ))}
-          </div>
-        </div>
-
-        {/* Sort + Filter — sort pills + type dropdown */}
-        <div style={{ display:"flex", gap:6, marginBottom:6, alignItems:"center" }}>
-          {/* Sort pills */}
-          <div style={{ display:"flex", gap:5, flex:1, overflowX:"auto", scrollbarWidth:"none" }}>
-            {[["trending","🔥"],["recent","⏱"],["liked","♥"]].map(([id,icon])=>(
-              <span key={id} onClick={()=>setSort(id)} className="tap" style={{ flexShrink:0, padding:"5px 10px", borderRadius:99, fontSize:10, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:sort===id?C.accent:C.surfaceHi, color:sort===id?C.bg:C.textMid, border:`1px solid ${sort===id?C.accent:C.border}` }}>{icon} {id}</span>
-            ))}
-          </div>
-          {/* Type dropdown */}
-          <div style={{ position:"relative", flexShrink:0 }}>
-            <select
-              value={filter}
-              onChange={e=>{setFilter(e.target.value);setEraSearch("");}}
-              style={{ appearance:"none", WebkitAppearance:"none", background:filter!=="all"?`${C.pink}18`:C.surfaceHi, border:`1.5px solid ${filter!=="all"?C.pink:C.border}`, borderRadius:99, color:filter!=="all"?C.pink:C.textMid, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, padding:"6px 28px 6px 12px", cursor:"pointer", outline:"none" }}
-            >
-              <option value="all">All Moments</option>
-              <option value="concert">🎤 Concert</option>
-              <option value="outfit">✨ Fit Check</option>
-              <option value="trade">🃏 Trade</option>
-              <option value="freebie">🎁 Freebies</option>
-              <option value="capsule">📸 Capsule Moment</option>
-              <option value="meetup">🤝 Meetup</option>
-              <option value="afterglow">🌙 Afterglow</option>
-              <option value="comeback">🔔 Comeback Buzz</option>
-            </select>
-            <div style={{ position:"absolute", right:10, top:"50%", transform:"translateY(-50%)", pointerEvents:"none", fontSize:9, color:filter!=="all"?C.pink:C.textMid }}>▼</div>
-          </div>
-        </div>
-      </div>
-
-      <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }} onScroll={onScrollNotify ? e=>onScrollNotify(e.target.scrollTop) : undefined}>
-        {/* Compose */}
-        {composing && (
-          <div style={{ background:C.surface, border:`1.5px solid ${C.borderHi}`, borderRadius:18, padding:16, marginBottom:14, animation:"up .2s ease" }}>
-            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:14, marginBottom:10 }}>Share with the Fanverse 🌍</p>
-            {/* Post type selector */}
-            <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginBottom:10 }}>
-              {POST_TYPES.map(t=>(
-                <Pill key={t.id} color={draft.type===t.id?t.color:C.textMid} active={draft.type===t.id} onClick={()=>setDraft({...draft,type:t.id})} small style={{ cursor:"pointer" }}>{t.label}</Pill>
+            {/* Quick era tag chips */}
+            <div style={{ display:"flex", gap:4, overflowX:"auto", paddingTop:5, scrollbarWidth:"none" }}>
+              {ERA_TAGS.slice(0,8).map(tag=>(
+                <span key={tag} onClick={()=>{setEraSearch(tag);setEraSearchOpen(false);}} className="tap" style={{ flexShrink:0, padding:"3px 8px", borderRadius:99, fontSize:9, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:eraSearch===tag?`linear-gradient(135deg,${C.berry}cc,${C.accent}aa)`:"rgba(255,255,255,0.04)", color:eraSearch===tag?"#1a1228":C.textMid, border:`1px solid ${eraSearch===tag?"rgba(255,255,255,0.3)":"rgba(214,189,255,0.14)"}` }}>#{tag}</span>
               ))}
             </div>
-            <textarea value={draft.text} onChange={e=>setDraft({...draft,text:e.target.value})} placeholder="What's happening in your fandom world? 💜" style={{ width:"100%", height:80, background:C.surfaceHi, border:`1.5px solid ${C.border}`, borderRadius:11, color:C.text, fontSize:13, resize:"none", outline:"none", fontFamily:"'Instrument Sans',sans-serif", padding:"10px 12px", marginBottom:10 }} autoFocus />
+          </div>
+
+          {/* Sort + Filter — sort pills + type dropdown */}
+          <div style={{ display:"flex", gap:6, marginBottom:6, alignItems:"center" }}>
+            {/* Sort pills */}
+            <div style={{ display:"flex", gap:5, flex:1, overflowX:"auto", scrollbarWidth:"none" }}>
+              {[["trending","🔥"],["recent","⏱"],["liked","♥"]].map(([id,icon])=>(
+                <span key={id} onClick={()=>setSort(id)} className="tap" style={{ flexShrink:0, padding:"5px 10px", borderRadius:99, fontSize:10, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:sort===id?`linear-gradient(135deg,${C.accent},${C.lavender})`:"rgba(255,255,255,0.035)", color:sort===id?"#1a1228":C.textMid, border:`1px solid ${sort===id?"rgba(255,255,255,0.28)":"rgba(214,189,255,0.14)"}` }}>{icon} {id}</span>
+              ))}
+            </div>
+            {/* Type dropdown — liquid-glass custom menu, not a system <select> */}
+            <div style={{ position:"relative", flexShrink:0 }}>
+              <button
+                onClick={()=>setFilterMenuOpen(v=>!v)}
+                className="tap"
+                style={{ appearance:"none", background:filter!=="all"?"rgba(240,204,136,0.14)":"rgba(255,255,255,0.035)", border:`1.5px solid ${filter!=="all"?"rgba(240,204,136,0.4)":"rgba(214,189,255,0.16)"}`, borderRadius:99, color:filter!=="all"?C.gold:C.textMid, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, padding:"6px 26px 6px 12px", cursor:"pointer", outline:"none", display:"flex", alignItems:"center", gap:4, whiteSpace:"nowrap" }}
+              >
+                {FILTER_OPTIONS.find(f=>f.id===filter)?.label || "All Moments"}
+                <span style={{ fontSize:8, transform:filterMenuOpen?"rotate(180deg)":"none", transition:"transform .18s", color:filter!=="all"?C.gold:C.textMid }}>▼</span>
+              </button>
+
+              {filterMenuOpen && (
+                <>
+                  <div onClick={()=>setFilterMenuOpen(false)} style={{ position:"fixed", inset:0, zIndex:80 }} />
+                  <div style={{
+                    position:"absolute", top:"calc(100% + 8px)", right:0, zIndex:81, minWidth:172,
+                    background:"linear-gradient(155deg,rgba(28,18,52,0.82),rgba(12,8,24,0.86))",
+                    border:"1px solid rgba(214,189,255,0.22)", borderRadius:16, padding:6,
+                    boxShadow:"0 16px 40px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.03) inset, inset 0 1px 0 rgba(255,255,255,0.1)",
+                    backdropFilter:"blur(22px) saturate(140%)", animation:"up .16s ease",
+                  }}>
+                    {/* Iridescent sheen */}
+                    <div style={{ position:"absolute", inset:0, borderRadius:16, background:"linear-gradient(120deg,rgba(184,162,255,0.07),transparent 35%,rgba(240,204,136,0.05) 65%,transparent)", pointerEvents:"none" }} />
+                    {FILTER_OPTIONS.map(opt=>{
+                      const active = filter===opt.id;
+                      return (
+                        <div key={opt.id} onClick={()=>{ setFilter(opt.id); setEraSearch(""); setFilterMenuOpen(false); }} className="tap" style={{
+                          position:"relative", padding:"8px 11px", borderRadius:10, fontSize:11, fontFamily:"'Epilogue',sans-serif", fontWeight:700,
+                          cursor:"pointer", color:active?C.gold:C.text,
+                          background:active?"linear-gradient(135deg,rgba(240,204,136,0.18),rgba(184,162,255,0.1))":"transparent",
+                          boxShadow:active?"inset 0 0 0 1px rgba(240,204,136,0.3), 0 0 12px rgba(240,204,136,0.12)":"none",
+                          transition:"background .15s",
+                        }}>{opt.label}</div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Compact sticky control row — replaces chrome above once collapsed */}
+        {feedCompact && (
+          <div style={{ display:"flex", gap:6, alignItems:"center", paddingBottom:6, animation:"in .15s ease" }}>
+            <button onClick={()=>setFeedCompact(false)} className="tap" aria-label="Expand search" style={{ width:28,height:28,borderRadius:9,background:"rgba(255,255,255,0.04)",border:"1px solid rgba(214,189,255,0.18)",backdropFilter:"blur(8px)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0 }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="8" stroke="rgba(237,232,255,0.55)" strokeWidth="1.8"/><path d="m21 21-4.35-4.35" stroke="rgba(237,232,255,0.55)" strokeWidth="1.8" strokeLinecap="round"/></svg>
+            </button>
+            {eraSearch && (
+              <span onClick={()=>setEraSearch("")} className="tap" style={{ flexShrink:0,display:"flex",alignItems:"center",gap:4,padding:"5px 9px",borderRadius:99,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:700,background:"rgba(240,204,136,0.12)",color:C.gold,border:"1px solid rgba(240,204,136,0.32)",cursor:"pointer",whiteSpace:"nowrap" }}>Searching: {eraSearch} ✕</span>
+            )}
+            {!eraSearch && filter!=="all" && (
+              <span onClick={()=>setFilter("all")} className="tap" style={{ flexShrink:0,padding:"5px 9px",borderRadius:99,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:700,background:"rgba(240,204,136,0.12)",color:C.gold,border:"1px solid rgba(240,204,136,0.32)",cursor:"pointer",whiteSpace:"nowrap" }}>{filter} ✕</span>
+            )}
+            <span style={{ flexShrink:0,padding:"5px 9px",borderRadius:99,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:700,background:"rgba(255,255,255,0.04)",color:C.textMid,border:"1px solid rgba(214,189,255,0.16)",whiteSpace:"nowrap" }}>
+              {sort==="trending"?"🔥 trending":sort==="recent"?"⏱ recent":"♥ liked"}
+            </span>
+          </div>
+        )}
+      </div>
+
+      <Screen ref={feedScrollRef} id="fanverse-feed-scroll" style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }} onScroll={handleFeedScroll}>
+        {/* Pass rail — hidden when sticky header provides it (Fanverse context) */}
+        {!hideStoryRail && <FanStories user={user} />}
+
+        {/* FOMO microcopy */}
+        <div style={{ background:"rgba(255,255,255,0.035)", border:"1px solid rgba(214,189,255,0.14)", borderRadius:9, padding:"6px 12px", marginBottom:8, display:"flex", gap:7, alignItems:"center", backdropFilter:"blur(8px)" }}>
+          <span style={{ fontSize:12 }}>🌸</span>
+          <p style={{ fontSize:10.5, color:C.textMid }}>Fan Pulse · energy from fans near you</p>
+        </div>
+
+        {/* Posts — translucent glass panels over the cosmic backdrop */}
+        {sortedPosts.map(p=>(
+          <div key={p.id} style={{ position:"relative", overflow:"hidden", background:"linear-gradient(160deg,rgba(20,12,38,0.64),rgba(10,7,20,0.58))", border:"1px solid rgba(214,189,255,0.14)", borderRadius:18, padding:"12px 14px", marginBottom:10, boxShadow:"0 10px 26px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.05)", backdropFilter:"blur(14px)", animation:"up .3s ease" }}>
+            {/* Inner top highlight — the "polished edge" */}
+            <div style={{ position:"absolute", top:0, left:14, right:14, height:1, background:"linear-gradient(90deg,transparent,rgba(214,189,255,0.35),transparent)", pointerEvents:"none" }} />
+            <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:8, position:"relative" }}>
+              <div style={{ width:38,height:38,borderRadius:"50%",background:`linear-gradient(150deg,${p.color}ee,${p.color}66)`,border:"1px solid rgba(255,255,255,0.22)",boxShadow:`0 3px 10px ${p.color}30, inset 0 1px 0 rgba(255,255,255,0.3)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:"#1a1228",fontSize:14,flexShrink:0 }}>{p.avatar}</div>
+              <div style={{ flex:1 }}>
+                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12.5, color:C.text }}>{p.user}</p>
+                <p style={{ fontSize:9.5, color:C.textMid }}>{p.time} ago</p>
+              </div>
+              {/* Topic badges — clean outline pills, no emoji clutter */}
+              <div style={{ display:"flex", gap:4, flexShrink:0 }}>
+                {(p.tags&&p.tags.length?p.tags:[p.tag]).slice(0,2).map(tg=>(
+                  <span key={tg} style={{ display:"inline-flex",alignItems:"center",padding:"2px 9px",borderRadius:99,fontSize:8.5,fontWeight:700,letterSpacing:"0.04em",fontFamily:"'Epilogue',sans-serif",textTransform:"uppercase",background:`${p.color}14`,border:`1px solid ${p.color}55`,color:p.color,whiteSpace:"nowrap" }}>{tg}</span>
+                ))}
+              </div>
+            </div>
+            {p.meme&&<div style={{ fontSize:28, marginBottom:6, textAlign:"center", position:"relative" }}>{p.meme}</div>}
+            <p style={{ fontSize:13, lineHeight:1.7, marginBottom:11, color:C.text, position:"relative" }}>{p.text}</p>
+            {/* Post image (Phase 5) */}
+            {p.image&&<img src={p.image} alt="post" style={{ width:"100%",maxHeight:220,objectFit:"cover",borderRadius:14,marginBottom:11,position:"relative" }} />}
+            {(p.venue||p.city)&&<div style={{ marginBottom:11, position:"relative" }}><LocationTag venue={p.venue} city={p.city} checkedIn={p.checkedIn} glass /></div>}
+            {/* Social proof — quiet metric, not heavy text */}
+            {p.likes>500&&<p style={{ fontSize:9.5, color:C.gold, fontFamily:"'Epilogue',sans-serif", fontWeight:600, marginBottom:8, letterSpacing:"0.01em", position:"relative" }}>🔥 {p.likes.toLocaleString()} fans loved this</p>}
+            <div style={{ display:"flex", gap:13, alignItems:"center", position:"relative" }}>
+              <button onClick={()=>{ setLiked(l=>({...l,[p.id]:!l[p.id]})); setPosts(ps=>ps.map(x=>x.id===p.id?{...x,likes:x.likes+(liked[p.id]?-1:1)}:x)); }} className="tap" style={{ background:"none",border:"none",fontSize:12.5,color:liked[p.id]?C.rose:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>
+                {liked[p.id]?"♥":"♡"} {p.likes+(liked[p.id]?1:0)}
+              </button>
+              <button onClick={()=>{ setReplyDraft(""); setCommentsOpenFor(p.id); }} className="tap" style={{ background:"none",border:"none",fontSize:12.5,color:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>💬 {p.comments}</button>
+              <button onClick={()=>{ setReposted(r=>({...r,[p.id]:!r[p.id]})); setPosts(ps=>ps.map(x=>x.id===p.id?{...x,reposts:(x.reposts||0)+(reposted[p.id]?-1:1)}:x)); }} className="tap" style={{ background:"none",border:"none",fontSize:12.5,color:reposted[p.id]?C.iris:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>⟲ {(p.reposts||0)+(reposted[p.id]?1:0)}</button>
+              <button onClick={()=>{ const shareText=`${p.text} — via Backstage`; if(navigator.share){ navigator.share({ text:shareText }).catch(()=>{}); } else if(navigator.clipboard){ navigator.clipboard.writeText(shareText).then(()=>showToast("Copied to share")); } }} className="tap" style={{ background:"none",border:"none",fontSize:12.5,color:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>↗</button>
+              <button onClick={()=>setMemeMode(memeMode===p.id?null:p.id)} style={{ background:"none",border:"none",fontSize:12.5,color:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>{p.meme||"😂"}</button>
+              <button onClick={()=>{ setSaved(s=>({...s,[p.id]:!s[p.id]})); setPosts(ps=>ps.map(x=>x.id===p.id?{...x,saved:!x.saved}:x)); }} style={{ background:"none",border:"none",fontSize:13,color:saved[p.id]?C.gold:C.textMid,cursor:"pointer",marginLeft:"auto" }}>
+                {saved[p.id]?"🔖":"🏷️"}
+              </button>
+            </div>
+
+            {/* Reaction picker — a few quick presets plus custom emoji via native keyboard */}
+            {memeMode===p.id&&(
+              <div style={{ marginTop:10, animation:"up .15s ease" }}>
+                <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:customEmojiFor===p.id?8:0 }}>
+                  {["😭","✨","🎤","💜","🌸"].map(emoji=>(
+                    <button key={emoji} onClick={()=>{setPosts(ps=>ps.map(x=>x.id===p.id?{...x,meme:emoji,likes:x.likes+1}:x));setMemeMode(null);}} style={{ background:C.surfaceHi,border:`1px solid ${C.border}`,borderRadius:10,width:36,height:36,fontSize:18,cursor:"pointer" }}>{emoji}</button>
+                  ))}
+                  <button onClick={()=>setCustomEmojiFor(customEmojiFor===p.id?null:p.id)} title="Add any emoji" style={{ background:"rgba(255,255,255,0.04)",border:`1.5px dashed rgba(214,189,255,0.32)`,borderRadius:10,width:36,height:36,fontSize:16,color:C.lavender,cursor:"pointer" }}>+</button>
+                </div>
+                {customEmojiFor===p.id && (
+                  <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                    <input
+                      autoFocus
+                      value={customEmojiDraft}
+                      onChange={e=>setCustomEmojiDraft(e.target.value)}
+                      placeholder="Type or paste any emoji…"
+                      maxLength={8}
+                      style={{ flex:1, background:"rgba(8,5,18,0.55)", border:"1.5px solid rgba(214,189,255,0.2)", borderRadius:99, padding:"7px 12px", fontSize:13, color:C.text, outline:"none" }}
+                    />
+                    <button onClick={()=>{ if(customEmojiDraft.trim()){ setPosts(ps=>ps.map(x=>x.id===p.id?{...x,meme:customEmojiDraft.trim(),likes:x.likes+1}:x)); } setCustomEmojiFor(null); setCustomEmojiDraft(""); setMemeMode(null); }} className="tap" style={{ background:`linear-gradient(135deg,${C.accent},${C.lavender})`, border:"none", borderRadius:99, padding:"7px 14px", color:"#1a1228", fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>Add</button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+
+        {sortedPosts.length===0&&<Empty emoji="📱" title="Nothing posted yet" sub="Be the first to share something with the Fanverse." action="+ Post Now" onAction={()=>setComposing(true)} />}
+      </Screen>
+
+      {/* Compose — premium liquid-glass sheet, not an inline block */}
+      {composing && (()=>{
+        const tagResults = ALL_GROUPS.filter(g=>g.toLowerCase().includes(tagQuery.toLowerCase()) && !draft.tags.includes(g)).slice(0,6);
+        return (
+        <div onClick={()=>setComposing(false)} style={{ position:"fixed",inset:0,zIndex:470,background:"rgba(6,6,15,0.7)",backdropFilter:"blur(2px)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ position:"relative", overflow:"hidden", background:"linear-gradient(165deg,rgba(28,18,52,0.88),rgba(10,7,20,0.94))",border:"1px solid rgba(214,189,255,0.22)",borderTop:"1px solid rgba(214,189,255,0.3)",borderRadius:"24px 24px 0 0",padding:"20px 20px calc(20px + env(safe-area-inset-bottom))",width:"100%",maxHeight:"86vh",overflowY:"auto",display:"flex",flexDirection:"column",animation:"slideUp .25s ease",boxShadow:"0 -16px 50px rgba(0,0,0,0.55)",backdropFilter:"blur(28px) saturate(150%)" }}>
+            <div style={{ position:"absolute", inset:0, background:"linear-gradient(150deg,rgba(184,162,255,0.07),transparent 30%,rgba(240,204,136,0.05) 70%,transparent)", pointerEvents:"none" }} />
+            <div style={{ width:34,height:4,borderRadius:99,background:"rgba(214,189,255,0.35)",margin:"0 auto 16px",flexShrink:0,position:"relative" }} />
+            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexShrink:0,position:"relative" }}>
+              <h3 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15.5,color:C.text }}>Share with the Fanverse ✦</h3>
+              <button onClick={()=>setComposing(false)} style={{ background:"none",border:"none",color:C.textMid,fontSize:20,cursor:"pointer" }}>✕</button>
+            </div>
+
+            {/* Post type chips */}
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:12, position:"relative" }}>
+              {POST_TYPES.map(t=>(
+                <span key={t.id} onClick={()=>setDraft(d=>({...d,type:t.id}))} className="tap" style={{ padding:"6px 12px", borderRadius:99, fontSize:11, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:draft.type===t.id?`${t.color}26`:"rgba(255,255,255,0.05)", border:`1.5px solid ${draft.type===t.id?t.color+"66":"rgba(214,189,255,0.16)"}`, color:draft.type===t.id?t.color:C.textMid }}>{t.label}</span>
+              ))}
+            </div>
+
+            <textarea value={draft.text} onChange={e=>setDraft(d=>({...d,text:e.target.value}))} placeholder="What's happening in your fandom world? 💜" style={{ width:"100%", height:78, background:"rgba(8,5,18,0.5)", border:"1.5px solid rgba(214,189,255,0.2)", borderRadius:14, color:C.text, fontSize:13, resize:"none", outline:"none", fontFamily:"'Instrument Sans',sans-serif", padding:"11px 13px", marginBottom:11, boxSizing:"border-box", boxShadow:"inset 0 2px 6px rgba(0,0,0,0.3)" }} autoFocus />
+
             {/* Image upload */}
             {draft.image ? (
-              <div style={{ position:"relative",marginBottom:10 }}>
-                <img src={draft.image} alt="post" style={{ width:"100%",maxHeight:200,objectFit:"cover",borderRadius:13 }} />
-                <button onClick={()=>setDraft({...draft,image:null})} style={{ position:"absolute",top:8,right:8,background:"rgba(6,6,15,0.85)",border:"none",borderRadius:"50%",width:28,height:28,color:C.text,cursor:"pointer",fontSize:13 }}>✕</button>
+              <div style={{ position:"relative",marginBottom:11 }}>
+                <img src={draft.image} alt="post" style={{ width:"100%",maxHeight:190,objectFit:"cover",borderRadius:14 }} />
+                <button onClick={()=>setDraft(d=>({...d,image:null}))} style={{ position:"absolute",top:8,right:8,background:"rgba(6,6,15,0.85)",border:"none",borderRadius:"50%",width:28,height:28,color:C.text,cursor:"pointer",fontSize:13 }}>✕</button>
               </div>
             ) : (
-              <button onClick={()=>imgRef.current?.click()} style={{ width:"100%",padding:"10px",borderRadius:11,background:"transparent",border:`2px dashed ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",marginBottom:10,display:"flex",alignItems:"center",justifyContent:"center",gap:7 }}>📸 Add Photo</button>
+              <button onClick={()=>imgRef.current?.click()} style={{ width:"100%",padding:"11px",borderRadius:14,background:"rgba(255,255,255,0.04)",border:`1.5px dashed rgba(214,189,255,0.28)`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",marginBottom:11,display:"flex",alignItems:"center",justifyContent:"center",gap:7,backdropFilter:"blur(6px)" }}>📸 Add Photo</button>
             )}
             <input ref={imgRef} type="file" accept="image/*" onChange={handleImgUpload} style={{ display:"none" }} />
 
             {/* Location tag — user-entered venue/city only, no GPS */}
-            <button onClick={()=>setDraft(d=>({...d,locationOn:!d.locationOn}))} style={{ width:"100%", padding:"9px 12px", borderRadius:11, marginBottom:draft.locationOn?10:12, background:draft.locationOn?"rgba(255,255,255,0.06)":"transparent", backdropFilter:draft.locationOn?"blur(10px)":"none", border:`1.5px solid ${draft.locationOn?"rgba(255,255,255,0.18)":C.border}`, color:draft.locationOn?C.gold:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:7 }}>
+            <button onClick={()=>setDraft(d=>({...d,locationOn:!d.locationOn}))} style={{ width:"100%", padding:"10px 12px", borderRadius:14, marginBottom:draft.locationOn?10:11, background:draft.locationOn?"rgba(255,255,255,0.07)":"rgba(255,255,255,0.04)", backdropFilter:"blur(10px)", border:`1.5px solid ${draft.locationOn?"rgba(240,204,136,0.4)":"rgba(214,189,255,0.18)"}`, color:draft.locationOn?C.gold:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:7 }}>
               📍 {draft.locationOn?"Tagging a location":"Tag a location"}
             </button>
             {draft.locationOn && (
-              <div style={{ marginBottom:12, padding:12, borderRadius:13, background:"rgba(255,255,255,0.04)", backdropFilter:"blur(12px)", border:"1px solid rgba(255,255,255,0.14)", boxShadow:`0 0 22px ${C.berry}1a, inset 0 1px 0 rgba(255,255,255,0.08)`, animation:"up .15s ease" }}>
+              <div style={{ marginBottom:11, padding:12, borderRadius:14, background:"rgba(255,255,255,0.04)", backdropFilter:"blur(12px)", border:"1px solid rgba(255,255,255,0.14)", boxShadow:`0 0 22px ${C.berry}1a, inset 0 1px 0 rgba(255,255,255,0.08)`, animation:"up .15s ease" }}>
                 <input value={draft.venue} onChange={e=>setDraft(d=>({...d,venue:e.target.value}))} placeholder="Venue (e.g. Allegiant Stadium)"
                   style={{ width:"100%",padding:"10px 12px",borderRadius:11,background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.14)",color:C.text,fontFamily:"'Epilogue',sans-serif",fontSize:12.5,marginBottom:8,boxSizing:"border-box" }} />
                 <input value={draft.city} onChange={e=>setDraft(d=>({...d,city:e.target.value}))} placeholder="City, State"
@@ -14331,110 +14728,123 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
               </div>
             )}
 
-            {/* Tag selector */}
-            <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginBottom:12 }}>
-              {["BTS","Stray Kids","aespa","NewJeans","BLACKPINK","ATEEZ","NCT"].map(t=>(
-                <Pill key={t} color={draft.tag===t?C.accent:C.textMid} active={draft.tag===t} onClick={()=>setDraft({...draft,tag:t})} xs style={{ cursor:"pointer" }}>{t}</Pill>
-              ))}
+            {/* Fandom / group tagging — searchable autocomplete over ALL_GROUPS, not a fixed chip list */}
+            <div style={{ position:"relative", marginBottom:draft.tags.length?8:12 }}>
+              <input
+                value={tagQuery}
+                onChange={e=>setTagQuery(e.target.value)}
+                onKeyDown={e=>{ if(e.key==="Enter" && tagQuery.trim()){ e.preventDefault(); if(!draft.tags.includes(tagQuery.trim())) setDraft(d=>({...d,tags:[...d.tags,tagQuery.trim()]})); setTagQuery(""); } }}
+                placeholder="Tag fandom, group, artist, or event…"
+                style={{ width:"100%",padding:"10px 12px",borderRadius:12,background:"rgba(8,5,18,0.5)",border:"1.5px solid rgba(214,189,255,0.2)",color:C.text,fontFamily:"'Epilogue',sans-serif",fontSize:12,outline:"none",boxSizing:"border-box",boxShadow:"inset 0 2px 6px rgba(0,0,0,0.3)" }}
+              />
+              {tagQuery.trim() && (
+                <div style={{ position:"absolute", top:"calc(100% + 6px)", left:0, right:0, zIndex:5, maxHeight:160, overflowY:"auto", background:"linear-gradient(155deg,rgba(28,18,52,0.96),rgba(12,8,24,0.98))", border:"1px solid rgba(214,189,255,0.24)", borderRadius:13, padding:5, boxShadow:"0 12px 30px rgba(0,0,0,0.5)", backdropFilter:"blur(18px)" }}>
+                  {tagResults.map(g=>(
+                    <div key={g} onClick={()=>{ setDraft(d=>({...d, tags:[...d.tags,g]})); setTagQuery(""); }} className="tap" style={{ padding:"8px 10px", borderRadius:9, fontSize:12, color:C.text, cursor:"pointer", fontFamily:"'Epilogue',sans-serif", fontWeight:600 }}>{g}</div>
+                  ))}
+                  {tagResults.length===0 && (
+                    <div onClick={()=>{ if(!draft.tags.includes(tagQuery.trim())) setDraft(d=>({...d, tags:[...d.tags, tagQuery.trim()]})); setTagQuery(""); }} className="tap" style={{ padding:"8px 10px", borderRadius:9, fontSize:11.5, color:C.lavender, cursor:"pointer", fontFamily:"'Epilogue',sans-serif", fontWeight:600 }}>+ Add "{tagQuery.trim()}" as custom tag</div>
+                  )}
+                </div>
+              )}
             </div>
-            <div style={{ display:"flex", gap:8 }}>
+            {draft.tags.length>0 && (
+              <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:12 }}>
+                {draft.tags.map(t=>(
+                  <span key={t} onClick={()=>setDraft(d=>({...d, tags:d.tags.filter(x=>x!==t)}))} className="tap" style={{ display:"inline-flex",alignItems:"center",gap:5,padding:"5px 10px 5px 12px",borderRadius:99,fontSize:10.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,background:"rgba(184,162,255,0.16)",border:"1px solid rgba(184,162,255,0.4)",color:C.lavender,cursor:"pointer" }}>{t}<span style={{ fontSize:9,opacity:0.75 }}>✕</span></span>
+                ))}
+              </div>
+            )}
+
+            <div style={{ display:"flex", gap:8, position:"relative" }}>
               <Btn onClick={addPost} disabled={!draft.text.trim()} style={{ flex:1 }} small>Post to Feed ✦</Btn>
               <Btn ghost color={C.textMid} onClick={()=>setComposing(false)} style={{ width:80,flex:"none" }} small>Cancel</Btn>
             </div>
           </div>
-        )}
-
-        {/* Pass rail — hidden when sticky header provides it (Fanverse context) */}
-        {!hideStoryRail && <FanStories user={user} />}
-
-        {/* FOMO microcopy */}
-        <div style={{ background:`${C.accent}08`, border:`1px solid ${C.accent}18`, borderRadius:9, padding:"6px 12px", marginBottom:8, display:"flex", gap:7, alignItems:"center" }}>
-          <span style={{ fontSize:12 }}>🌸</span>
-          <p style={{ fontSize:10.5, color:C.textMid }}>Fan Pulse · energy from fans near you</p>
         </div>
-
-        {/* Posts */}
-        {sortedPosts.map(p=>(
-          <div key={p.id} style={{ background:C.surface, border:`1.5px solid ${C.border}`, borderRadius:16, padding:"11px 13px", marginBottom:9, animation:"up .3s ease" }}>
-            <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:8 }}>
-              <div style={{ width:38,height:38,borderRadius:"50%",background:`linear-gradient(135deg,${p.color},${p.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.bg,fontSize:14,flexShrink:0 }}>{p.avatar}</div>
-              <div style={{ flex:1 }}>
-                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12.5 }}>{p.user}</p>
-                <p style={{ fontSize:9.5, color:C.textMid }}>{p.time} ago</p>
-              </div>
-              <span style={{ fontSize:14 }}>{ICONS[p.type]||"💬"}</span>
-              <Pill color={p.color} xs>{p.tag}</Pill>
-            </div>
-            {p.meme&&<div style={{ fontSize:28, marginBottom:6, textAlign:"center" }}>{p.meme}</div>}
-            <p style={{ fontSize:13, lineHeight:1.68, marginBottom:11 }}>{p.text}</p>
-            {/* Post image (Phase 5) */}
-            {p.image&&<img src={p.image} alt="post" style={{ width:"100%",maxHeight:220,objectFit:"cover",borderRadius:14,marginBottom:11 }} />}
-            {(p.venue||p.city)&&<div style={{ marginBottom:11 }}><LocationTag venue={p.venue} city={p.city} checkedIn={p.checkedIn} glass /></div>}
-            {/* Social proof */}
-            {p.likes>500&&<p style={{ fontSize:10, color:C.accent, fontFamily:"'Epilogue',sans-serif", fontWeight:600, marginBottom:8 }}>🔥 {p.likes.toLocaleString()} fans loved this</p>}
-            <div style={{ display:"flex", gap:16, alignItems:"center" }}>
-              <button onClick={()=>{ setLiked(l=>({...l,[p.id]:!l[p.id]})); setPosts(ps=>ps.map(x=>x.id===p.id?{...x,likes:x.likes+(liked[p.id]?-1:1)}:x)); }} className="tap" style={{ background:"none",border:"none",fontSize:12.5,color:liked[p.id]?C.rose:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>
-                {liked[p.id]?"♥":"♡"} {p.likes+(liked[p.id]?1:0)}
-              </button>
-              <button onClick={()=>{ setReplyDraft(""); setCommentsOpenFor(p.id); }} className="tap" style={{ background:"none",border:"none",fontSize:12.5,color:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>💬 {p.comments}</button>
-              <button onClick={()=>setMemeMode(memeMode===p.id?null:p.id)} style={{ background:"none",border:"none",fontSize:12.5,color:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>😂</button>
-              <button onClick={()=>{ setSaved(s=>({...s,[p.id]:!s[p.id]})); setPosts(ps=>ps.map(x=>x.id===p.id?{...x,saved:!x.saved}:x)); }} style={{ background:"none",border:"none",fontSize:13,color:saved[p.id]?C.gold:C.textMid,cursor:"pointer",marginLeft:"auto" }}>
-                {saved[p.id]?"🔖":"🏷️"}
-              </button>
-            </div>
-
-            {/* Meme reaction picker */}
-            {memeMode===p.id&&(
-              <div style={{ marginTop:10, display:"flex", gap:8, flexWrap:"wrap", animation:"up .15s ease" }}>
-                {["😭","🤡","✨","🎤","💜","😤","🌸","💃"].map(emoji=>(
-                  <button key={emoji} onClick={()=>{setPosts(ps=>ps.map(x=>x.id===p.id?{...x,meme:emoji,likes:x.likes+1}:x));setMemeMode(null);}} style={{ background:C.surfaceHi,border:`1px solid ${C.border}`,borderRadius:10,width:36,height:36,fontSize:18,cursor:"pointer" }}>{emoji}</button>
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
-
-        {sortedPosts.length===0&&<Empty emoji="📱" title="Nothing posted yet" sub="Be the first to share something with the Fanverse." action="+ Post Now" onAction={()=>setComposing(true)} />}
-      </Screen>
+        );
+      })()}
 
       {/* Comments — mock only, not persisted. No backend comments table exists yet. */}
       {commentsOpenFor!=null && (()=>{
         const activePost = posts.find(x=>x.id===commentsOpenFor);
         if (!activePost) return null;
         const mockComments = getMockComments(activePost.id);
+        // Renders @mentions inside comment/reply text with a quiet lavender highlight.
+        const renderMentions = (text) => text.split(/(@[a-zA-Z0-9_]+)/g).map((part,i) =>
+          part.startsWith("@") ? <span key={i} style={{ color:C.lavender, fontWeight:700 }}>{part}</span> : part
+        );
         return (
-          <div onClick={()=>setCommentsOpenFor(null)} style={{ position:"fixed",inset:0,zIndex:470,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
-            <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:"22px 20px",width:"100%",maxHeight:"80vh",display:"flex",flexDirection:"column",animation:"slideUp .25s ease" }}>
-              <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 16px",flexShrink:0 }} />
-              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexShrink:0 }}>
+          <div onClick={()=>setCommentsOpenFor(null)} style={{ position:"fixed",inset:0,zIndex:470,background:"rgba(6,6,15,0.7)",backdropFilter:"blur(2px)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+            <div onClick={e=>e.stopPropagation()} style={{ position:"relative", overflow:"hidden", background:"linear-gradient(165deg,rgba(28,18,52,0.86),rgba(10,7,20,0.92))",border:"1px solid rgba(214,189,255,0.2)",borderTop:"1px solid rgba(214,189,255,0.28)",borderRadius:"24px 24px 0 0",padding:"20px 20px",width:"100%",maxHeight:"80vh",display:"flex",flexDirection:"column",animation:"slideUp .25s ease",boxShadow:"0 -16px 50px rgba(0,0,0,0.5)",backdropFilter:"blur(26px) saturate(150%)" }}>
+              {/* Iridescent sheen across the whole sheet */}
+              <div style={{ position:"absolute", inset:0, background:"linear-gradient(150deg,rgba(184,162,255,0.06),transparent 30%,rgba(240,204,136,0.04) 70%,transparent)", pointerEvents:"none" }} />
+              <div style={{ width:34,height:4,borderRadius:99,background:"rgba(214,189,255,0.35)",margin:"0 auto 16px",flexShrink:0,position:"relative" }} />
+              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexShrink:0,position:"relative" }}>
                 <h3 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,color:C.text }}>Comments</h3>
                 <button onClick={()=>setCommentsOpenFor(null)} style={{ background:"none",border:"none",color:C.textMid,fontSize:20,cursor:"pointer" }}>✕</button>
               </div>
               {/* Post context */}
-              <div style={{ display:"flex",gap:8,alignItems:"flex-start",paddingBottom:14,marginBottom:14,borderBottom:`1px solid ${C.border}`,flexShrink:0 }}>
-                <div style={{ width:30,height:30,borderRadius:"50%",background:`linear-gradient(135deg,${activePost.color},${activePost.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.bg,fontSize:12,flexShrink:0 }}>{activePost.avatar}</div>
+              <div style={{ display:"flex",gap:8,alignItems:"flex-start",paddingBottom:14,marginBottom:14,borderBottom:"1px solid rgba(214,189,255,0.14)",flexShrink:0,position:"relative" }}>
+                <div style={{ width:30,height:30,borderRadius:"50%",background:`linear-gradient(135deg,${activePost.color},${activePost.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:"#1a1228",fontSize:12,flexShrink:0 }}>{activePost.avatar}</div>
                 <div style={{ flex:1,minWidth:0 }}>
-                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5 }}>{activePost.user}</p>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,color:C.text }}>{activePost.user}</p>
                   <p style={{ fontSize:11.5,color:C.textMid,lineHeight:1.5,marginTop:2 }}>{activePost.text}</p>
                 </div>
               </div>
               {/* Mock comments */}
-              <div style={{ flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:12,marginBottom:14 }}>
-                {mockComments.map((c,i)=>(
+              <div style={{ flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:14,marginBottom:14,position:"relative" }}>
+                {mockComments.map((c,i)=>{
+                  const cLiked = !!commentLiked[i];
+                  const repliesShown = !!expandedReplies[i];
+                  return (
                   <div key={i} style={{ display:"flex",gap:8,alignItems:"flex-start" }}>
-                    <div style={{ width:26,height:26,borderRadius:"50%",background:C.surface,border:`1px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.textMid,fontSize:10,flexShrink:0 }}>{c.user[1].toUpperCase()}</div>
+                    <div style={{ width:26,height:26,borderRadius:"50%",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(214,189,255,0.2)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.lavender,fontSize:10,flexShrink:0 }}>{c.user[1].toUpperCase()}</div>
                     <div style={{ flex:1,minWidth:0 }}>
-                      <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11 }}>{c.user}</p>
-                      <p style={{ fontSize:11.5,color:C.text,lineHeight:1.5,marginTop:1 }}>{c.text}</p>
+                      <div style={{ display:"flex", alignItems:"baseline", gap:6 }}>
+                        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,color:C.text }}>{c.user}</p>
+                        <p style={{ fontSize:9,color:C.textDim }}>2h</p>
+                      </div>
+                      <p style={{ fontSize:11.5,color:C.text,lineHeight:1.5,marginTop:1 }}>{renderMentions(c.text)}</p>
+                      <div style={{ display:"flex", gap:14, alignItems:"center", marginTop:5 }}>
+                        <button onClick={()=>setCommentLiked(s=>({...s,[i]:!s[i]}))} className="tap" style={{ background:"none",border:"none",cursor:"pointer",display:"flex",alignItems:"center",gap:4,fontSize:10.5,color:cLiked?C.rose:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,padding:0 }}>
+                          {cLiked?"♥":"♡"} {(c.likes||0)+(cLiked?1:0)}
+                        </button>
+                        <button onClick={()=>setReplyDraft(`@${c.user.replace("@","")} `)} className="tap" style={{ background:"none",border:"none",cursor:"pointer",fontSize:10.5,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,padding:0 }}>Reply</button>
+                        {c.replies?.length>0 && (
+                          <button onClick={()=>setExpandedReplies(s=>({...s,[i]:!s[i]}))} className="tap" style={{ background:"none",border:"none",cursor:"pointer",fontSize:10.5,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:600,padding:0 }}>
+                            {repliesShown?"Hide replies":`View replies (${c.replies.length})`}
+                          </button>
+                        )}
+                        <button onClick={()=>setReportMenuFor(reportMenuFor===i?null:i)} style={{ background:"none",border:"none",cursor:"pointer",fontSize:12,color:C.textDim,marginLeft:"auto",padding:0,position:"relative" }}>
+                          ⋯
+                          {reportMenuFor===i && (
+                            <div onClick={e=>e.stopPropagation()} style={{ position:"absolute", top:18, right:0, zIndex:5, background:"linear-gradient(155deg,rgba(28,18,52,0.95),rgba(12,8,24,0.97))", border:"1px solid rgba(214,189,255,0.22)", borderRadius:11, padding:5, minWidth:110, boxShadow:"0 10px 24px rgba(0,0,0,0.5)", backdropFilter:"blur(16px)" }}>
+                              <div onClick={()=>{ setReportMenuFor(null); showToast("Comment reported"); }} className="tap" style={{ padding:"7px 10px", borderRadius:8, fontSize:10.5, color:C.rose, fontFamily:"'Epilogue',sans-serif", fontWeight:600, cursor:"pointer", whiteSpace:"nowrap" }}>Report</div>
+                            </div>
+                          )}
+                        </button>
+                      </div>
+                      {/* Nested replies */}
+                      {repliesShown && c.replies?.map((r,ri)=>(
+                        <div key={ri} style={{ display:"flex", gap:7, alignItems:"flex-start", marginTop:10, paddingLeft:6, borderLeft:"1.5px solid rgba(214,189,255,0.16)" }}>
+                          <div style={{ width:20,height:20,borderRadius:"50%",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(214,189,255,0.16)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.textMid,fontSize:8.5,flexShrink:0,marginLeft:8 }}>{r.user[1].toUpperCase()}</div>
+                          <div style={{ flex:1,minWidth:0 }}>
+                            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10,color:C.text }}>{r.user}</p>
+                            <p style={{ fontSize:10.5,color:C.text,lineHeight:1.45,marginTop:1 }}>{renderMentions(r.text)}</p>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
                 <p style={{ fontSize:9.5,color:C.textDim,textAlign:"center",marginTop:4 }}>Sample comments · live comments are coming soon</p>
               </div>
               {/* Reply input — disabled submit, honest toast */}
-              <div style={{ display:"flex",gap:8,flexShrink:0,paddingTop:4 }}>
-                <input value={replyDraft} onChange={e=>setReplyDraft(e.target.value)} placeholder="Add a comment…" style={{ flex:1,background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:99,padding:"10px 14px",fontSize:12.5,color:C.text,fontFamily:"'Epilogue',sans-serif",outline:"none" }} />
-                <button onClick={()=>{ setReplyDraft(""); showToast("Live comments are coming soon — your reply wasn't saved."); }} disabled={!replyDraft.trim()} className="tap" style={{ background:replyDraft.trim()?C.accent:C.surface,border:`1.5px solid ${replyDraft.trim()?C.accent:C.border}`,borderRadius:99,padding:"0 16px",color:replyDraft.trim()?C.bg:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:replyDraft.trim()?"pointer":"default",flexShrink:0 }}>Post</button>
+              <div style={{ display:"flex",gap:8,flexShrink:0,paddingTop:4,position:"relative" }}>
+                <input value={replyDraft} onChange={e=>setReplyDraft(e.target.value)} placeholder="Add a comment…" style={{ flex:1,background:"rgba(8,5,18,0.55)",border:"1.5px solid rgba(214,189,255,0.2)",borderRadius:99,padding:"10px 14px",fontSize:12.5,color:C.text,fontFamily:"'Epilogue',sans-serif",outline:"none",boxShadow:"inset 0 2px 6px rgba(0,0,0,0.3)" }} />
+                <button onClick={()=>{ setReplyDraft(""); showToast("Live comments are coming soon — your reply wasn't saved."); }} disabled={!replyDraft.trim()} className="tap" style={{ background:replyDraft.trim()?`linear-gradient(135deg,${C.accent},${C.lavender})`:"rgba(255,255,255,0.04)",border:`1.5px solid ${replyDraft.trim()?"rgba(255,255,255,0.28)":"rgba(214,189,255,0.16)"}`,borderRadius:99,padding:"0 16px",color:replyDraft.trim()?"#1a1228":C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:replyDraft.trim()?"pointer":"default",flexShrink:0 }}>Post</button>
               </div>
             </div>
           </div>
@@ -14828,8 +15238,7 @@ function FanverseMap({ onBack }) {
 
 // ─── MY CIRCLE (FRIENDS) ─────────────────────────────────────────────────────
 // GET /api/friends | POST /api/friends/add | DELETE /api/friends/:id
-function FriendsPage({ onBack, onNotif, onViewProfile }) {
-  const { tokenReady } = useAuth();
+function FriendsPage({ onBack, onNotif, go, onViewProfile }) {
   const [friends, setFriends] = useState(ls.get("backstage_friends", MOCK_FRIENDS));
   const [removingId, setRemovingId] = useState(null); // friend id pending a remove confirm
   const [view, setView] = useState("requests");
@@ -14852,28 +15261,21 @@ function FriendsPage({ onBack, onNotif, onViewProfile }) {
       setIncoming(store.incoming || []);
       setOutgoing(store.outgoing || []);
     }).catch(()=>{});
+    syncBackendCircle().then(list=>{ if (list) setFriends(list); }).catch(()=>{});
   },[]);
-
-  // Load accepted friends (My Circle) from the backend so the Friends tab reflects
-  // real accepted friendships across devices — not just this device's localStorage.
+  // AppInner already keeps backstage_friend_requests/backstage_friends fresh via
+  // realtime + polling + focus refetch (see the useRealtimeSocial-style effect there).
+  // This just picks up those writes while the screen is open — same lightweight
+  // poll-the-local-store pattern MyCircleSection already uses.
   useEffect(()=>{
-    if(!tokenReady) return;
-    let alive = true;
-    api.get('/api/friends').then(d=>{
-      if(!alive || !Array.isArray(d?.friends)) return;
-      const backendFriends = d.friends.map(f=>({ ...normalizeFriendProfile(f), status:"accepted" }));
-      setFriends(prev=>{
-        const byId = new Map();
-        backendFriends.forEach(f=>byId.set(f.id, f));
-        // Keep any local-only accepted entries the backend hasn't caught up on yet.
-        prev.forEach(f=>{ if(f.status==="accepted" && !byId.has(f.id)) byId.set(f.id, f); });
-        const merged = [...byId.values()];
-        ls.set("backstage_friends", merged);
-        return merged;
-      });
-    }).catch(()=>{});
-    return ()=>{ alive=false; };
-  },[tokenReady]);
+    const iv = setInterval(()=>{
+      const store = readFriendRequestStore();
+      setIncoming(store.incoming || []);
+      setOutgoing(store.outgoing || []);
+      setFriends(ls.get("backstage_friends", MOCK_FRIENDS));
+    }, 3000);
+    return ()=>clearInterval(iv);
+  },[]);
 
   // Remove a friend from My Circle (bidirectional) — backend + local state cleanup.
   const removeFriend = (fan) => {
@@ -14895,7 +15297,7 @@ function FriendsPage({ onBack, onNotif, onViewProfile }) {
   // Finalizes the accept (backend call + local state) — called directly, or after the
   // optional "send a reaction" sheet resolves (Skip or GIF pick), so the API is hit once.
   const finalizeAccept = (req, member, gif = null) => {
-    const nextFriends = upsertById(friends, member);
+    const nextFriends = upsertById(friends, { ...member, acceptedAt: new Date().toISOString() });
     setFriends(nextFriends);
     ls.set("backstage_friends", nextFriends);
     persistRequests(incoming.filter(r=>r.id!==req.id), outgoing);
@@ -14962,7 +15364,7 @@ function FriendsPage({ onBack, onNotif, onViewProfile }) {
                   <div style={{ width:44,height:44,borderRadius:"50%",background:`linear-gradient(135deg,${fan.color},${fan.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,color:C.bg,flexShrink:0 }}>{fan.avatar}</div>
                   <div style={{ flex:1,minWidth:0 }}>
                     <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13 }}>{fan.name}</p>
-                    <p style={{ fontSize:10.5,color:C.textMid }}>wants to add you to their Circle</p>
+                    <p style={{ fontSize:10.5,color:C.textMid }}>wants to add you to their Circle · {formatRelativeOrDate(req.created_at)}</p>
                   </div>
                   <div style={{ display:"flex",gap:6,flexShrink:0 }}>
                     <button onClick={()=>acceptReq(req)} className="tap" style={{ padding:"7px 10px",borderRadius:11,background:C.accent,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,cursor:"pointer" }}>Accept</button>
@@ -14983,7 +15385,7 @@ function FriendsPage({ onBack, onNotif, onViewProfile }) {
                   <div style={{ width:44,height:44,borderRadius:"50%",background:`linear-gradient(135deg,${fan.color},${fan.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,color:C.bg,flexShrink:0 }}>{fan.avatar}</div>
                   <div style={{ flex:1,minWidth:0 }}>
                     <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13 }}>{fan.name}</p>
-                    <p style={{ fontSize:10.5,color:C.textMid }}>Waiting for them to accept</p>
+                    <p style={{ fontSize:10.5,color:C.textMid }}>Waiting for them to accept · Sent {formatRelativeOrDate(req.created_at)}</p>
                   </div>
                   <button onClick={()=>cancelReq(req)} className="tap" style={{ padding:"7px 10px",borderRadius:11,background:"transparent",border:`1px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,cursor:"pointer",flexShrink:0 }}>Cancel</button>
                 </div>
@@ -15000,17 +15402,14 @@ function FriendsPage({ onBack, onNotif, onViewProfile }) {
 
         {displayList.map((fan,i)=>{
           const isCircleFriend = view==="all"; // real accepted friends → tappable + removable
+          const canViewProfile = !!(fan.realProfile || fan.profileId) && !!onViewProfile;
           return (
           <div key={fan.id||i} style={{ background:C.surface, border:`1.5px solid ${C.border}`, borderRadius:18, padding:14, marginBottom:10, display:"flex", gap:12, alignItems:"center" }}>
-            <div
-              onClick={isCircleFriend && fan.id ? ()=>onViewProfile?.(fan) : undefined}
-              className={isCircleFriend && fan.id ? "tap" : undefined}
-              style={{ display:"flex", gap:12, alignItems:"center", flex:1, minWidth:0, cursor:isCircleFriend && fan.id ? "pointer" : "default" }}
-            >
+            <div onClick={canViewProfile?()=>onViewProfile(fan):undefined} className={canViewProfile?"tap":undefined} style={{ display:"flex", gap:12, alignItems:"center", flex:1, minWidth:0, cursor:canViewProfile?"pointer":"default" }}>
               <div style={{ width:46,height:46,borderRadius:"50%",background:`linear-gradient(135deg,${fan.color},${fan.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17,color:C.bg,flexShrink:0 }}>{fan.avatar}</div>
               <div style={{ flex:1, minWidth:0 }}>
                 <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13.5 }}>{fan.name}</p>
-                <p style={{ fontSize:10.5, color:C.textMid }}>{fan.dist || (isCircleFriend ? "Tap to view their Stage" : "")}</p>
+                <p style={{ fontSize:10.5, color:C.textMid }}>{fan.dist || (fan.acceptedAt ? `In your Circle · ${formatRelativeOrDate(fan.acceptedAt)}` : (canViewProfile ? "Tap to view their Stage" : ""))}</p>
                 <div style={{ display:"flex", gap:5, marginTop:5, flexWrap:"wrap" }}>
                   {(fan.groups||[]).slice(0,3).map(g=><Pill key={g} color={C.accentDim} xs>{g}</Pill>)}
                 </div>
@@ -15034,9 +15433,10 @@ function FriendsPage({ onBack, onNotif, onViewProfile }) {
 
         {view!=="requests" && displayList.length === 0 && <Empty emoji="👯" title="No fans found" sub="Try Nearby to find fans going to the same show." />}
 
-        {/* Create meetup CTA */}
+        {/* Create meetup CTA — opens the real, already-live VIP-gated meetup creation
+            flow on the Concerts tab (see go("concerts_create_meetup") in AppInner). */}
         <div style={{ marginTop:8 }}>
-          <button style={{ width:"100%", padding:"14px", borderRadius:18, background:`${C.accent}12`, border:`1.5px dashed ${C.accent}44`, color:C.accent, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
+          <button onClick={()=>go&&go("concerts_create_meetup")} className="tap" style={{ width:"100%", padding:"14px", borderRadius:18, background:`${C.accent}12`, border:`1.5px dashed ${C.accent}44`, color:C.accent, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
             <div style={{ width:28,height:28,borderRadius:"50%",background:C.accent,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,color:C.bg }}>+</div>
             Create a meetup · Invite fans and plan together!
           </button>
@@ -18489,6 +18889,14 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
       })),
       unread:0,
       lastTime:thread.last_message?.created_at ? new Date(thread.last_message.created_at).toLocaleTimeString([], { hour:"numeric", minute:"2-digit" }) : "now",
+      // isCircle/accepted/initiatedByMe come from GET /api/messages/threads (the
+      // authoritative source). Default true when absent — e.g. right after this
+      // client just created the thread via POST /api/messages/thread, which
+      // doesn't echo these back, but the creator's own membership is always
+      // pre-accepted server-side.
+      isCircle: thread.isCircle !== undefined ? thread.isCircle : true,
+      accepted: thread.accepted !== undefined ? thread.accepted : true,
+      initiatedByMe: !!thread.initiatedByMe,
     };
   };
 
@@ -18527,20 +18935,31 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
     return () => { alive = false; clearTimeout(t); };
   }, [dmSearch, dmSearchRetry]);
 
-  // Open DM with a specific fan — Circle-only guard
+  // Open DM with a specific fan — Circle friends land in the Inbox immediately;
+  // anyone else lands in Message Requests on the recipient's side (server-decided,
+  // see areCircleFriends() in api_server_v16.js). The only remaining hard stop is
+  // an existing block between the two users.
   useEffect(()=>{
     if(!dmTarget) return;
-    // Validate that this fan is in the user's Circle
-    const circle = ls.get("backstage_circle",[]);
-    const friends = ls.get("backstage_friends",[]);
-    const inCircle = circle.find(c=>c.name===dmTarget.name||c.id===dmTarget.id) ||
-                     friends.find(f=>(f.name===dmTarget.name||f.id===dmTarget.id) && f.status==="accepted");
-    if(!inCircle) { setCircleGuard(dmTarget); return; }
-    const existing = convos.find(c=>c.fan.name===dmTarget.name);
+    const existing = convos.find(c=>c.fan.name===dmTarget.name||c.fan.id===dmTarget.id);
     if(existing) { setActiveConvo(existing); return; }
-    const newConvo = { id:`dm-${Date.now()}`, fan:dmTarget, messages:[], unread:0, lastTime:"now" };
-    const next = [newConvo,...convos];
-    setConvos(next); setActiveConvo(newConvo);
+    (async () => {
+      try {
+        const d = await api.post('/api/messages/thread', { targetUserId: dmTarget.id });
+        // api.post only surfaces the HTTP status on a non-2xx response (not the JSON
+        // body), so a blocked pair shows up as error:"403" here, not error:"blocked".
+        if (d?.error === '403') { setCircleGuard({ ...dmTarget, blocked:true }); return; }
+        if (d?.error) throw new Error(d.error);
+        const convo = normalizeDmThread(d.thread || { id:d.threadId, member:dmTarget }, []);
+        setConvos(prev => [convo, ...prev.filter(c => c.id !== convo.id)]);
+        setActiveConvo(convo);
+      } catch {
+        // Backend unreachable — local-only thread so messaging still works offline.
+        const newConvo = { id:`dm-${Date.now()}`, fan:dmTarget, messages:[], unread:0, lastTime:"now" };
+        setConvos(prev => [newConvo, ...prev]);
+        setActiveConvo(newConvo);
+      }
+    })();
   },[]);
 
   const handleAttach = (e) => {
@@ -18567,9 +18986,11 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
       const sentGifs = ls.get(GIF_LS_MESSAGE_GIFS, []);
       ls.set(GIF_LS_MESSAGE_GIFS, [{ ...selectedGif, sentAt:Date.now(), threadId:activeConvo.id }, ...sentGifs].slice(0,40));
     }
-    const updated = convos.map(c=>c.id===activeConvo.id ? {...c, messages:[...c.messages,msg], lastTime:"now"} : c);
+    // Replying always accepts a pending Message Request (mirrors the backend's
+    // implicit-accept-on-reply in POST /api/messages/thread/:id/send).
+    const updated = convos.map(c=>c.id===activeConvo.id ? {...c, messages:[...c.messages,msg], lastTime:"now", accepted:true} : c);
     setConvos(updated);
-    setActiveConvo(prev=>({...prev, messages:[...prev.messages,msg]}));
+    setActiveConvo(prev=>({...prev, messages:[...prev.messages,msg], accepted:true}));
     setMsgDraft(""); setAttachPreview(null); setSelectedGif(null);
   };
 
@@ -18706,6 +19127,34 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
   };
 
   const totalUnread = convos.reduce((s,c)=>s+c.unread,0);
+
+  // ── Message Requests ──────────────────────────────────────────────────────
+  // A thread is a pending request only when the backend explicitly says so —
+  // isCircle:false AND accepted:false for the current user's own membership.
+  // Legacy/optimistic local convos (isCircle/accepted left at their true default)
+  // never get bucketed here.
+  const isPendingRequest = (c) => c.backend && c.isCircle === false && c.accepted === false;
+  const inboxConvos    = convos.filter(c => !isPendingRequest(c));
+  const requestConvos  = convos.filter(isPendingRequest);
+
+  const acceptMessageRequest = async (convo) => {
+    setConvos(prev => prev.map(c => c.id===convo.id ? { ...c, accepted:true } : c));
+    try { await api.patch(`/api/messages/thread/${encodeURIComponent(convo.id)}/accept`, {}); } catch {}
+  };
+  const deleteMessageRequest = async (convo) => {
+    setConvos(prev => prev.filter(c => c.id !== convo.id));
+    try { await api.del(`/api/messages/thread/${encodeURIComponent(convo.id)}`); } catch {}
+  };
+  const replyToMessageRequest = (convo) => {
+    // Sending a message from a pending thread implicitly accepts it server-side
+    // (see POST /api/messages/thread/:id/send) — mirror that locally too.
+    setConvos(prev => prev.map(c => c.id===convo.id ? { ...c, accepted:true } : c));
+    openConvo(convo);
+  };
+  const blockMessageRequestSender = (convo) => {
+    setActiveConvo(convo);
+    setShowDmReportSheet(true);
+  };
 
   // Conversation view
   if(activeConvo) return (
@@ -19030,8 +19479,8 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
       <div style={{ flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"32px 28px",textAlign:"center" }}>
         <div style={{ width:64,height:64,borderRadius:"50%",background:`linear-gradient(135deg,${circleGuard.color||C.accent},${circleGuard.color||C.accent}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:24,color:C.bg,margin:"0 auto 16px" }}>{circleGuard.avatar||"?"}</div>
         <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:15,marginBottom:8 }}>{circleGuard.name||circleGuard.username}</p>
-        <p style={{ fontSize:13.5,color:C.textMid,lineHeight:1.7,marginBottom:6 }}>Add them to your Circle before messaging.</p>
-        <p style={{ fontSize:11,color:C.textDim,lineHeight:1.6 }}>Messages are only available with fans you've accepted into your Circle. Find them in Build Your Crew.</p>
+        <p style={{ fontSize:13.5,color:C.textMid,lineHeight:1.7,marginBottom:6 }}>You can't message this fan.</p>
+        <p style={{ fontSize:11,color:C.textDim,lineHeight:1.6 }}>A block between you and this account is in the way — unblock them in Notification Settings or Reports to reopen messaging.</p>
       </div>
     </div>
   );
@@ -19113,10 +19562,10 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
         <div style={{ height:1,background:`linear-gradient(90deg,transparent,${C.borderHi},transparent)`,marginBottom:0 }} />
       </div>
 
-      {/* ── DM / GROUPS SEGMENTED TABS ── */}
+      {/* ── DM / REQUESTS / GROUPS SEGMENTED TABS ── */}
       <div style={{ display:"flex",gap:0,padding:"10px 18px 0",flexShrink:0 }}>
-        {[["dms","DMs"],["groups","Groups"]].map(([id,label])=>(
-          <button key={id} onClick={()=>setDmTab(id)} style={{ flex:1,padding:"8px",borderRadius:0,background:"none",border:"none",borderBottom:`2px solid ${dmTab===id?C.accent:"transparent"}`,color:dmTab===id?C.accent:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:dmTab===id?800:500,fontSize:12.5,cursor:"pointer",transition:"all .18s" }}>{label}{id==="groups"&&groups.length>0&&<span style={{ marginLeft:5,background:`${C.mint}22`,border:`1px solid ${C.mint}44`,borderRadius:99,padding:"1px 6px",fontSize:9,color:C.mint }}>{groups.length}</span>}</button>
+        {[["dms","DMs"],["requests","Requests"],["groups","Groups"]].map(([id,label])=>(
+          <button key={id} onClick={()=>setDmTab(id)} style={{ flex:1,padding:"8px",borderRadius:0,background:"none",border:"none",borderBottom:`2px solid ${dmTab===id?C.accent:"transparent"}`,color:dmTab===id?C.accent:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:dmTab===id?800:500,fontSize:12.5,cursor:"pointer",transition:"all .18s" }}>{label}{id==="groups"&&groups.length>0&&<span style={{ marginLeft:5,background:`${C.mint}22`,border:`1px solid ${C.mint}44`,borderRadius:99,padding:"1px 6px",fontSize:9,color:C.mint }}>{groups.length}</span>}{id==="requests"&&requestConvos.length>0&&<span style={{ marginLeft:5,background:`${C.rose}22`,border:`1px solid ${C.rose}44`,borderRadius:99,padding:"1px 6px",fontSize:9,color:C.rose }}>{requestConvos.length}</span>}</button>
         ))}
       </div>
       <div style={{ height:1,background:`linear-gradient(90deg,transparent,${C.borderHi},transparent)`,flexShrink:0 }} />
@@ -19159,7 +19608,7 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
                 </div>
               )}
             </div>
-            {convos.map(convo=>(
+            {inboxConvos.map(convo=>(
               <div key={convo.id} onClick={()=>openConvo(convo)} style={{ display:"flex",gap:12,alignItems:"center",padding:"13px 0",borderBottom:`1px solid ${C.border}`,cursor:"pointer" }}>
                 {/* Avatar — tapping opens the conversation (profile is reachable from the chat header) */}
                 <div className="tap" style={{ position:"relative",flexShrink:0,cursor:"pointer" }}>
@@ -19182,12 +19631,50 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
                 {convo.unread>0&&<div style={{ width:8,height:8,borderRadius:"50%",background:C.lavender,flexShrink:0 }} />}
               </div>
             ))}
-            {convos.length===0&&(
+            {inboxConvos.length===0&&(
               <div style={{ textAlign:"center",padding:"52px 20px" }}>
                 <div style={{ fontSize:38,marginBottom:14,animation:"float 3s ease-in-out infinite",display:"inline-block" }}>💬</div>
                 <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:15,marginBottom:8 }}>No messages yet</p>
                 <p style={{ fontSize:12.5,color:C.textMid,lineHeight:1.7,marginBottom:16 }}>Your backstage chats will show here once you message your Circle.</p>
-                <p style={{ fontSize:11,color:C.textDim,lineHeight:1.6 }}>Add fans to your Circle first, then tap Message to start a chat.</p>
+                <p style={{ fontSize:11,color:C.textDim,lineHeight:1.6 }}>Search a username above to start a chat — fans outside your Circle land in Message Requests until you reply.</p>
+              </div>
+            )}
+          </>)}
+
+          {/* ── MESSAGE REQUESTS TAB ── */}
+          {dmTab==="requests"&&(<>
+            <div style={{ margin:"14px 0",padding:"11px 13px",borderRadius:13,background:`${C.lavender}0e`,border:`1px solid ${C.lavender}30` }}>
+              <p style={{ fontSize:11,color:C.textMid,lineHeight:1.5 }}>People outside your Circle land in Message Requests first.</p>
+            </div>
+            {requestConvos.map(convo=>{
+              const last = convo.messages[convo.messages.length-1];
+              const isLastCharm = last?.type==="charm"||last?.type==="sticker";
+              const preview = isLastCharm ? `${last?.charmEmoji||"✦"} ${last?.charmLabel||"charm"}` : last?.text||"Wants to send you a message";
+              return (
+                <div key={convo.id} style={{ padding:"13px 0",borderBottom:`1px solid ${C.border}` }}>
+                  <div style={{ display:"flex",gap:12,alignItems:"center",marginBottom:10 }}>
+                    <div onClick={()=>onViewProfile?.(convo.fan)} className="tap" style={{ cursor:"pointer",flexShrink:0 }}>
+                      <div style={{ width:46,height:46,borderRadius:"50%",background:`linear-gradient(135deg,${convo.fan.color},${convo.fan.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17,color:C.bg }}>{convo.fan.avatar}</div>
+                    </div>
+                    <div style={{ flex:1,minWidth:0 }}>
+                      <p onClick={()=>onViewProfile?.(convo.fan)} className="tap" style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5,cursor:"pointer" }}>{convo.fan.name}</p>
+                      <p style={{ fontSize:11,color:C.textMid,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{preview}</p>
+                    </div>
+                  </div>
+                  <div style={{ display:"flex",gap:6 }}>
+                    <button onClick={()=>acceptMessageRequest(convo)} className="tap" style={{ flex:1,padding:"8px",borderRadius:11,background:C.accent,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>Accept</button>
+                    <button onClick={()=>replyToMessageRequest(convo)} className="tap" style={{ flex:1,padding:"8px",borderRadius:11,background:`${C.lavender}18`,border:`1px solid ${C.lavender}44`,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>Reply</button>
+                    <button onClick={()=>blockMessageRequestSender(convo)} className="tap" style={{ padding:"8px 11px",borderRadius:11,background:"transparent",border:`1px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>Block</button>
+                    <button onClick={()=>deleteMessageRequest(convo)} className="tap" style={{ padding:"8px 11px",borderRadius:11,background:"transparent",border:`1px solid ${C.border}`,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>Delete</button>
+                  </div>
+                </div>
+              );
+            })}
+            {requestConvos.length===0&&(
+              <div style={{ textAlign:"center",padding:"52px 20px" }}>
+                <div style={{ fontSize:38,marginBottom:14,display:"inline-block" }}>📥</div>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:15,marginBottom:8 }}>No message requests</p>
+                <p style={{ fontSize:12.5,color:C.textMid,lineHeight:1.7 }}>Messages from fans outside your Circle will show up here.</p>
               </div>
             )}
           </>)}
@@ -20288,7 +20775,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
   if(section==="privacy") return <PrivacySettings settings={privacySettings} setSettings={setPrivacySettings} onBack={()=>setSection("main")} />;
 
   // ── SECTION: NOTIFICATIONS ──
-  if(section==="notifications") return <NotificationCenter settings={notifSettings} setSettings={setNotifSettings} onBack={()=>setSection("main")} notifOn={notifOn} requestNotif={requestNotif} />;
+  if(section==="notifications") return <NotificationCenter settings={notifSettings} setSettings={setNotifSettings} onBack={()=>setSection("main")} notifOn={notifOn} requestNotif={requestNotif} pushUserKey={pushUserKey} user={user} />;
 
   // ── SECTION: K-DRAMAS (from profile) ──
   if(section==="kdramas") return (
@@ -22737,7 +23224,7 @@ function StandaloneNotifCenter({ onBack, onNavigate, user }) {
       ls.set(`backstage_push_enabled_${pushUserKey}`, false);
     }
   };
-  return <NotificationCenter settings={settings} setSettings={saveSettings} onBack={onBack} notifOn={notifOn} requestNotif={requestNotif} onNavigate={onNavigate} />;
+  return <NotificationCenter settings={settings} setSettings={saveSettings} onBack={onBack} notifOn={notifOn} requestNotif={requestNotif} onNavigate={onNavigate} pushUserKey={pushUserKey} user={user} />;
 }
 
 // ─── NOTIFICATION DIAGNOSTICS ─────────────────────────────────────────────────
@@ -22867,7 +23354,30 @@ function NotificationDiagnostics({ requestNotif }) {
 //
 // FCM push payload should mirror the same shape in the `data` field so
 // that notification taps from the system tray open the correct modal/tab.
-function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNotif, onNavigate }) {
+function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNotif, onNavigate, pushUserKey, user }) {
+  const [pushTest, setPushTest] = useState(()=>ls.get(`backstage_push_test_${pushUserKey}`, null));
+  const [pushTesting, setPushTesting] = useState(false);
+  const savedToken = pushUserKey ? ls.get(`backstage_push_token_${pushUserKey}`, null) : null;
+  const tokenState = !savedToken ? "No" : savedToken.startsWith("mock-fcm-") ? "Yes (mock — Firebase env vars missing)" : "Yes (real)";
+  const sendTestPush = async () => {
+    setPushTesting(true);
+    try {
+      const d = await api.post('/api/send-notification', {
+        userId: user?.id,
+        title: "Backstage test push",
+        body: "If you see this, push notifications are working.",
+        data: { targetModal: "notifications" },
+      });
+      const result = { ts: new Date().toISOString(), delivered: d?.delivered ?? 0, failed: d?.failed ?? 0, note: d?.note || null };
+      setPushTest(result);
+      ls.set(`backstage_push_test_${pushUserKey}`, result);
+    } catch (err) {
+      const result = { ts: new Date().toISOString(), error: err?.message || "Request failed" };
+      setPushTest(result);
+      ls.set(`backstage_push_test_${pushUserKey}`, result);
+    }
+    setPushTesting(false);
+  };
   const [inbox, setInbox] = useState(()=>filterActiveNotifs(ls.get("backstage_notif_inbox", MOCK_NOTIF_EXAMPLES)));
   const [tab, setTab]     = useState("updates"); // updates | settings
   const unread = inbox.filter(n=>!n.read).length;
@@ -23012,7 +23522,7 @@ function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNot
                       <GifPreviewBubble gif={n.gif} size={44} rounded={10} />
                     )}
                   </div>
-                  <p style={{ fontSize:9.5,color:C.textDim,marginTop:4 }}>{n.time}</p>
+                  <p style={{ fontSize:9.5,color:C.textDim,marginTop:4 }}>{n.createdAt ? formatRelativeOrDate(n.createdAt) : (n.time || "")}</p>
                   {/* Action buttons by notification type */}
                   {n.type==="friend_req"&&!n.read&&(
                     <div style={{ display:"flex",gap:8,marginTop:10 }} onClick={e=>e.stopPropagation()}>
@@ -23050,6 +23560,28 @@ function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNot
           </div>
           {notifOn ? <Pill color={C.mint} active small>ON</Pill> : window.Notification?.permission==="denied" ? <Pill color={C.rose} small>Blocked</Pill> : <Btn small onClick={requestNotif} style={{ width:110 }}>Enable</Btn>}
         </div>
+
+        {/* Diagnostics — permission state, token saved, last push test */}
+        <SectionHeader title="Diagnostics" />
+        <Card style={{ marginBottom:18 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", fontSize:11.5, marginBottom:8 }}>
+            <span style={{ color:C.textMid }}>Browser permission</span>
+            <span style={{ fontWeight:700 }}>{window.Notification?.permission || "unsupported"}</span>
+          </div>
+          <div style={{ display:"flex", justifyContent:"space-between", fontSize:11.5, marginBottom:8 }}>
+            <span style={{ color:C.textMid }}>Push token saved</span>
+            <span style={{ fontWeight:700 }}>{tokenState}</span>
+          </div>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontSize:11.5, marginBottom:pushTest?8:0 }}>
+            <span style={{ color:C.textMid }}>Last push test</span>
+            <Btn small onClick={sendTestPush} disabled={pushTesting || !user?.id} style={{ width:130 }}>{pushTesting?"Sending…":"Send test push"}</Btn>
+          </div>
+          {pushTest && (
+            <p style={{ fontSize:10.5, color:pushTest.error?C.rose:C.textMid, lineHeight:1.5 }}>
+              {new Date(pushTest.ts).toLocaleString()} — {pushTest.error ? pushTest.error : `delivered: ${pushTest.delivered}, failed: ${pushTest.failed}${pushTest.note ? ` (${pushTest.note})` : ""}`}
+            </p>
+          )}
+        </Card>
 
         {/* Channels */}
         <SectionHeader title="Channels" />
@@ -24506,13 +25038,41 @@ function AppInner() {
     }
   },[appState]);
 
+  // Keeps friend requests / Circle / notifications fresh without a logout-login —
+  // Supabase Realtime pushes an instant refresh on any relevant DB change; a 15s
+  // poll plus a tab-focus refetch cover the case where Realtime never connects.
+  // Every trigger (realtime event, poll tick, focus) calls the exact same
+  // refreshSocial() so there's one code path to reason about.
   useEffect(()=>{
     if(appState!=="main" || !auth.tokenReady) return;
-    syncBackendNotifications().catch(()=>{});
-    syncBackendFriendRequests().catch(()=>{});
-    const iv = setInterval(()=>syncBackendNotifications().catch(()=>{}), 30000);
-    return ()=>clearInterval(iv);
-  },[appState, auth.tokenReady]);
+    const refreshSocial = () => {
+      syncBackendNotifications().catch(()=>{});
+      syncBackendFriendRequests().catch(()=>{});
+      syncBackendCircle().catch(()=>{});
+    };
+    refreshSocial();
+    const iv = setInterval(refreshSocial, 15000);
+    const onFocus = () => { if(document.visibilityState==="visible") refreshSocial(); };
+    document.addEventListener("visibilitychange", onFocus);
+    window.addEventListener("focus", onFocus);
+
+    let channel = null;
+    if (_supabase && auth.user?.id) {
+      channel = _supabase.channel(`social-${auth.user.id}`)
+        .on("postgres_changes", { event:"*", schema:"public", table:"friend_requests", filter:`receiver_id=eq.${auth.user.id}` }, refreshSocial)
+        .on("postgres_changes", { event:"*", schema:"public", table:"friend_requests", filter:`sender_id=eq.${auth.user.id}` }, refreshSocial)
+        .on("postgres_changes", { event:"*", schema:"public", table:"friends", filter:`user_id=eq.${auth.user.id}` }, refreshSocial)
+        .on("postgres_changes", { event:"*", schema:"public", table:"notifications", filter:`user_id=eq.${auth.user.id}` }, refreshSocial)
+        .subscribe();
+    }
+
+    return ()=>{
+      clearInterval(iv);
+      document.removeEventListener("visibilitychange", onFocus);
+      window.removeEventListener("focus", onFocus);
+      if (channel) _supabase.removeChannel(channel);
+    };
+  },[appState, auth.tokenReady, auth.user?.id]);
 
   // ── BROWSER BACK BUTTON (PWA / web) ──────────────────────────────────────────
   // The app uses React state for navigation — the browser has no history of
@@ -24729,6 +25289,7 @@ function AppInner() {
     if(dest==="concerts_meetups"){ ls.set("backstage_concerts_view","meetups"); setTab("concerts"); setModal(null); return; }
     if(dest==="concerts_parties"){ ls.set("backstage_concerts_view","parties"); setTab("concerts"); setModal(null); return; }
     if(dest==="concerts_fans"){    ls.set("backstage_concerts_view","fans");    setTab("concerts"); setModal(null); return; }
+    if(dest==="concerts_create_meetup"){ ls.set("backstage_concerts_view","meetups"); ls.set("backstage_open_create_meetup",true); setTab("concerts"); setModal(null); return; }
     if(dest==="signout"){ handleSignOut(); return; }
     const tabs = ["home","concerts","community","collect","fanverse","explore","profile","feed"];
     if(tabs.includes(dest)){
@@ -24959,7 +25520,7 @@ function AppInner() {
         {modal==="outfits"&&<ToolModalWrapper title="Outfit Generator ✨"><OutfitGenerator user={user} weather={weatherData} isVip={isVip} onUpgrade={openUpgrade} /></ToolModalWrapper>}
         {modal==="trip"&&<ToolModalWrapper title="Trip Planner ✈️"><TripPlanner isVip={isVip} onUpgrade={openUpgrade} /></ToolModalWrapper>}
         {modal==="scrapbook"&&<ModalWrapper><ScrapbookTab isVip={isVip} onUpgrade={openUpgrade} onBack={()=>setModal(null)} /></ModalWrapper>}
-        {modal==="friends"&&<ModalWrapper><FriendsPage onBack={()=>setModal(null)} onNotif={showNotif} onViewProfile={setFullProfileFan} /></ModalWrapper>}
+        {modal==="friends"&&<ModalWrapper><FriendsPage onBack={()=>setModal(null)} onNotif={showNotif} go={go} onViewProfile={(fan)=>setPublicProfileFan({...fan,fromDM:false})} /></ModalWrapper>}
         {modal==="fanmap"&&<ModalWrapper><FanverseMap onBack={()=>setModal(null)} /></ModalWrapper>}
         {modal==="chats"&&<ModalWrapper><DirectMessages onBack={()=>setModal(null)} user={user} onViewProfile={(fan)=>setPublicProfileFan({...fan,fromDM:true})} /></ModalWrapper>}
         {modal==="qr"&&<ModalWrapper><QRPage onBack={()=>setModal(null)} user={user} onNotif={showNotif} /></ModalWrapper>}
@@ -25035,8 +25596,9 @@ function AppInner() {
                   </>
                 );
               })()}
-              {/* Ask Backstage AI — hidden on profile (has its own Studio/Preview actions) */}
-              {tab!=="profile"&&tab!=="collect"&&<AskBackstageButton go={go} />}
+              {/* Ask Backstage AI — hidden on profile (has its own Studio/Preview actions) and
+                  community (Fanverse renders its own combined Messages+AI dock instead) */}
+              {tab!=="profile"&&tab!=="collect"&&tab!=="community"&&<AskBackstageButton go={go} />}
               {/* Notification Bell — floating, hidden on home (own bell), profile (section nav), collect (own + Add button) */}
               {tab!=="home"&&tab!=="profile"&&tab!=="collect"&&<NotificationBell onOpen={()=>setModal("notifications")} />}
             </>
@@ -25057,7 +25619,7 @@ function AppInner() {
                 profile: <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M5.25 12.15C5.25 8.42 8.27 5.4 12 5.4C15.73 5.4 18.75 8.42 18.75 12.15C18.75 15.88 15.73 18.9 12 18.9C8.27 18.9 5.25 15.88 5.25 12.15Z" stroke={active?"url(#navG5)":C.textDim} strokeWidth="1.45"/><path d="M8.25 11.2C7.72 10.3 7.9 9.25 8.65 8.72C9.38 8.2 10.35 8.42 11.05 9.15L12 10.15L12.95 9.15C13.65 8.42 14.62 8.2 15.35 8.72C16.1 9.25 16.28 10.3 15.75 11.2C15.42 11.78 14.88 12.32 14.25 12.9L12 14.95L9.75 12.9C9.12 12.32 8.58 11.78 8.25 11.2Z" fill={active?"url(#navG5)":C.textDim}/><path d="M12 2.9V4.1M12 20.2V21.1M2.9 12.15H4.1M19.9 12.15H21.1" stroke={active?"url(#navG5)":C.textDim} strokeWidth="1.25" strokeLinecap="round" opacity="0.48"/><path d="M17.95 4.25L18.48 5.25L19.48 5.78L18.48 6.31L17.95 7.31L17.42 6.31L16.42 5.78L17.42 5.25L17.95 4.25Z" fill={active?"url(#navG5)":C.textDim} opacity={active?0.78:0.45}/><defs><linearGradient id="navG5" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent}/><stop offset="1" stopColor={C.pink}/></linearGradient></defs></svg>,
               };
               return(
-                <button key={n.id} onClick={()=>setTab(n.id)} style={{ flex:1, background:"none", border:"none", padding:"10px 2px 8px", display:"flex", flexDirection:"column", alignItems:"center", gap:3, position:"relative", transition:"opacity .15s" }}>
+                <button key={n.id} onClick={()=>{ if(n.id==="fanverse" && tab==="fanverse"){ window.dispatchEvent(new Event("bs:fanverse-reset")); } setTab(n.id); }} style={{ flex:1, background:"none", border:"none", padding:"10px 2px 8px", display:"flex", flexDirection:"column", alignItems:"center", gap:3, position:"relative", transition:"opacity .15s" }}>
                   {/* Active top accent line */}
                   {active&&<div style={{ position:"absolute", top:0, left:"50%", transform:"translateX(-50%)", width:32, height:2, background:`linear-gradient(90deg,${C.accent},${C.pink})`, borderRadius:99, boxShadow:`0 0 8px ${C.accent}80` }} />}
                   {/* Active ambient glow */}
