@@ -4740,8 +4740,8 @@ app.get('/api/trader-stats/:userId', async (req, res) => {
     const uid = req.params.userId;
     const { data: user } = await supabase.from('users').select('trade_count, proof_score').eq('id', uid).single();
     const { data: reviews } = await supabase.from('trade_reviews').select('rating').eq('trader_id', uid);
-    const pos = (reviews||[]).filter(r=>r.rating>=4).length;
-    const neg = (reviews||[]).filter(r=>r.rating<=2).length;
+    const pos = (reviews||[]).filter(r=>r.rating>0).length;
+    const neg = (reviews||[]).filter(r=>r.rating<0).length;
     const completed = user?.trade_count || 0;
     res.json({ completed_trades: completed, positive: pos, negative: neg, is_trusted: completed >= 3 && neg === 0 });
   } catch (err) {
@@ -5089,7 +5089,7 @@ app.post('/api/trade-reviews', requireAuth, async (req, res) => {
   try {
     const { error } = await supabase
       .from('trade_reviews')
-      .insert({ listing_id, reviewer_id: req.userId, ratee_id, rating, notes });
+      .insert({ reviewer_id: req.userId, trader_id: ratee_id, rating, comment: notes });
     if (error) throw error;
     res.json({ ok: true });
   } catch (err) {
