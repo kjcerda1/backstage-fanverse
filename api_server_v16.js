@@ -3616,6 +3616,9 @@ app.post('/api/profile/update', requireAuth, async (req, res) => {
     ult_group, bias_wrecker, fan_dna, concert_count, discovery_prefs,
     // era boards blob (EraRoom syncToEraBoard — whole backstage_era_boards_v2 object)
     eraBoards,
+    // my world collection blob (photocard sets, tracked/custom sets, era saves,
+    // wishlist, world theme, featured shelf, saved capsules, saved shop outfits)
+    myWorld,
     // normalized location fields (sent by saveCity when user picks from autocomplete)
     city_display, city_key, region, region_code,
     country, country_code, continent, city_lat, city_lng, timezone,
@@ -3647,6 +3650,8 @@ app.post('/api/profile/update', requireAuth, async (req, res) => {
   if (Array.isArray(discovery_prefs)) updates.discovery_prefs = discovery_prefs.filter(f => typeof f === 'string' && f.trim());
   // era boards — whole-object jsonb, plain object only (never arrays/strings)
   if (eraBoards !== undefined && eraBoards !== null && typeof eraBoards === 'object' && !Array.isArray(eraBoards)) updates.era_boards = eraBoards;
+  // my world — whole-object jsonb, plain object only
+  if (myWorld !== undefined && myWorld !== null && typeof myWorld === 'object' && !Array.isArray(myWorld)) updates.my_world = myWorld;
   // location — sparse, all optional
   if (city         !== undefined) updates.city         = city;
   if (city_display !== undefined) updates.city_display = city_display;

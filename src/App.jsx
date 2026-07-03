@@ -683,6 +683,35 @@ const ls = {
   del: (k)   => { try { localStorage.removeItem(k); } catch {} },
 };
 
+// ─── MY WORLD SERVER SYNC ─────────────────────────────────────────────────────
+// Debounced push of the My World collection stores → users.my_world (jsonb).
+// These were localStorage-only; bundling them lets a fan's collection survive a
+// device change. Photo data-URLs (backstage_card_photos) are intentionally
+// excluded — too large for jsonb, they need Supabase Storage (separate task).
+const MY_WORLD_KEYS = [
+  "backstage_photocard_sets",
+  "backstage_tracked_photocard_sets",
+  "backstage_custom_photocard_sets",
+  "backstage_era_saves",
+  "backstage_card_wishlist",
+  "backstage_my_world_theme",
+  "backstage_featured_shelf",
+  "backstage_saved_capsules",
+  "backstage_saved_shop_outfits",
+];
+let _myWorldSyncTimer = null;
+function syncMyWorldToServer() {
+  if (!API_URL) return;
+  clearTimeout(_myWorldSyncTimer);
+  _myWorldSyncTimer = setTimeout(() => {
+    try {
+      const blob = {};
+      MY_WORLD_KEYS.forEach(k => { const v = localStorage.getItem(k); if (v != null) blob[k] = JSON.parse(v); });
+      api.post('/api/profile/update', { myWorld: blob }).catch(()=>{});
+    } catch {}
+  }, 1200);
+}
+
 // Wipes every auth-related key from localStorage:
 //   - backstage_session, backstage_is_vip, backstage_pending_uid (our keys)
 //   - sb-<project>-auth-token (Supabase v2 key, known project ref)
@@ -4662,6 +4691,7 @@ function HomeOutfitShop({ go }) {
     const next = savedOutfits.includes(id) ? savedOutfits.filter(x=>x!==id) : [...savedOutfits,id];
     setSavedOutfits(next);
     ls.set("backstage_saved_shop_outfits",next);
+    syncMyWorldToServer();
   };
 
   return (
@@ -6991,6 +7021,7 @@ function PhotocardSetsView({ pcSetData, setPcSetData, groupFilter, setGroupFilte
     const next = trackedSets.includes(setId) ? trackedSets : [...trackedSets, setId];
     setTrackedSets(next);
     ls.set("backstage_tracked_photocard_sets", next);
+    syncMyWorldToServer();
   };
 
   // Create a set for any group — uses ERA_MEMBERS roster when available,
@@ -7010,6 +7041,7 @@ function PhotocardSetsView({ pcSetData, setPcSetData, groupFilter, setGroupFilte
     const next = [...customSets, newSet];
     setCustomSets(next);
     ls.set("backstage_custom_photocard_sets", next);
+    syncMyWorldToServer();
     trackSet(id);
     setShowExplore(false); setExploreSearch(""); setCustomEraDraft("");
   };
@@ -7035,6 +7067,7 @@ function PhotocardSetsView({ pcSetData, setPcSetData, groupFilter, setGroupFilte
     const next = { ...pcSetData, [setId]:{ ...(pcSetData[setId]||{}), [member]:status } };
     setPcSetData(next);
     ls.set("backstage_photocard_sets", next);
+    syncMyWorldToServer();
   };
 
   const STATUS_CYCLE = [null,"owned","wishlist","dupe","trade"];
@@ -7376,8 +7409,8 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
   const [showDecorate, setShowDecorate] = useState(false);
   const [editingShelfKey, setEditingShelfKey] = useState(null);
   const [shelfDraft, setShelfDraft] = useState("");
-  const saveTheme = (t)=>{ setMyWorldTheme(t); ls.set("backstage_my_world_theme",t); };
-  const saveFeatured = (key,val)=>{ const next={...featuredShelf,[key]:val}; setFeaturedShelf(next); ls.set("backstage_featured_shelf",next); };
+  const saveTheme = (t)=>{ setMyWorldTheme(t); ls.set("backstage_my_world_theme",t); syncMyWorldToServer(); };
+  const saveFeatured = (key,val)=>{ const next={...featuredShelf,[key]:val}; setFeaturedShelf(next); ls.set("backstage_featured_shelf",next); syncMyWorldToServer(); };
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [showActionTray, setShowActionTray] = useState(false);
   const [showAchievements, setShowAchievements] = useState(false);
@@ -12416,6 +12449,7 @@ function EraRoom({ group, era, color, onBack, onBinderCreated, onGoToTradeHub })
     const u = { ...saves, [id]:entry };
     setSaves(u);
     localStorage.setItem("backstage_era_saves", JSON.stringify(u));
+    syncMyWorldToServer();
     const field = (itemType||"template")==="outfit" ? "savedOutfits" : "savedTemplates";
     syncToEraBoard({ [field]: [...(JSON.parse(localStorage.getItem("backstage_era_boards_v2")||"{}")[eraKey]?.[field]||[]), id] });
     showToast(`Saved to My World ✦`);
@@ -12462,6 +12496,7 @@ function EraRoom({ group, era, color, onBack, onBinderCreated, onGoToTradeHub })
     const u = [...wishlist, entry];
     setWishlist(u);
     localStorage.setItem("backstage_card_wishlist", JSON.stringify(u));
+    syncMyWorldToServer();
     const prev = JSON.parse(localStorage.getItem("backstage_era_boards_v2")||"{}")[eraKey]?.wishlist || [];
     syncToEraBoard({ wishlist:[...prev, id] });
     showToast(`Added to wishlist`);
@@ -20937,6 +20972,7 @@ function ConcertCapsule({ concert, onBack, user, isVip=false, onUpgrade, isSigne
     if(!isVip && saved.length >= FREE_LIMITS.savedCapsules){ onUpgrade?.(); return; }
     ls.set("backstage_saved_capsules",[...saved,{ id:CONCERT_ID, name:concert?.name||"BTS — Las Vegas Night 1", city:concert?.city||"Las Vegas, NV", savedAt:Date.now() }]);
     ls.set(`backstage_saved_capsule_${CONCERT_ID}`,true);
+    syncMyWorldToServer();
     setSavedToWorld(true);
     showCapToast("Saved to My World ✨ This concert is part of your fan history now.");
   };
@@ -23994,6 +24030,20 @@ function AppInner() {
       if (!Object.keys(localBoards).length && remoteBoards && typeof remoteBoards === 'object' && Object.keys(remoteBoards).length) {
         localStorage.setItem("backstage_era_boards_v2", JSON.stringify(remoteBoards));
         window.dispatchEvent(new CustomEvent("backstage:eraBoardsUpdated"));
+      }
+    } catch {}
+    // My World — hydrate collection stores from server on fresh devices only
+    // (none of the My World keys present locally). Never overwrites local data.
+    try {
+      const remoteWorld = nextUser.my_world;
+      if (remoteWorld && typeof remoteWorld === 'object' && Object.keys(remoteWorld).length) {
+        const anyLocal = MY_WORLD_KEYS.some(k => localStorage.getItem(k) != null);
+        if (!anyLocal) {
+          MY_WORLD_KEYS.forEach(k => { if (remoteWorld[k] !== undefined) localStorage.setItem(k, JSON.stringify(remoteWorld[k])); });
+          // Re-derive per-concert "saved to world" flags from the saved capsules list
+          const savedCaps = Array.isArray(remoteWorld["backstage_saved_capsules"]) ? remoteWorld["backstage_saved_capsules"] : [];
+          savedCaps.forEach(c => { if (c && c.id != null) localStorage.setItem(`backstage_saved_capsule_${c.id}`, "true"); });
+        }
       }
     } catch {}
     // Sync VIP from the merged profile (/api/users/me SELECT * includes is_vip).
