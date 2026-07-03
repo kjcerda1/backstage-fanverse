@@ -5379,6 +5379,29 @@ app.post('/api/listing-offers', requireAuth, async (req, res) => {
 
     // Move listing to pending
     await supabase.from('trade_listings').update({ status: 'pending', updated_at: new Date().toISOString() }).eq('id', listing_id);
+
+    // Notify the lister that they received an offer (fire-and-forget). The UI has
+    // always promised "the other fan gets notified" but no notification was emitted.
+    // Routes to the collect tab (Trade Hub) where incoming offers are reviewed.
+    (async () => {
+      try {
+        const { data: me } = await supabase.from('users').select('username, display_name').eq('id', req.userId).single();
+        const who = `@${me?.username || me?.display_name || 'a fan'}`;
+        await deliverNotification({
+          userId: listing.user_id,
+          type: 'trade',
+          title: 'New trade offer 🃏',
+          body: `${who} made an offer on your listing.`,
+          actorId: req.userId,
+          entityId: data.id,
+          entityType: 'listing_offer',
+          targetModal: null,
+          targetTab: 'collect',
+          channels: ['in_app', 'push'],
+        });
+      } catch (e) { console.warn('[ListingOffers notify]', e.message); }
+    })();
+
     res.json({ offer: data });
   } catch (err) {
     console.error('[ListingOffers POST]', err.message);
@@ -5455,9 +5478,9 @@ app.patch('/api/listing-offers/:id', requireAuth, async (req, res) => {
           if (offer.sender_card_id) await supabase.from('user_cards').update({ status:'owned', updated_at:new Date().toISOString() }).eq('id', offer.sender_card_id);
           const { data: listing } = await supabase.from('trade_listings').select('card_id').eq('id', offer.listing_id).single();
           if (listing?.card_id) await supabase.from('user_cards').update({ status:'owned', updated_at:new Date().toISOString() }).eq('id', listing.card_id);
-          // Increment trade counts
-          await supabase.from('users').update({ trade_count: supabase.raw('trade_count + 1') }).eq('id', req.userId);
-          await supabase.from('users').update({ trade_count: supabase.raw('trade_count + 1') }).eq('id', isSender ? offer.listerId : offer.sender_id);
+          // Increment trade counts (atomic RPC — supabase-js v2 has no .raw())
+          await supabase.rpc('increment_trade_count', { target_user_id: req.userId });
+          await supabase.rpc('increment_trade_count', { target_user_id: isSender ? offer.listerId : offer.sender_id });
         }
         break;
       }
