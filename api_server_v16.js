@@ -4556,8 +4556,9 @@ app.post('/api/projects/create', requireAuth, async (req, res) => {
 });
 
 // ── Concert Capsule ─────────────────────────────────────────────────────────
-// GET /api/capsule/:concertId/entries — public, returns recent 50
-app.get('/api/capsule/:concertId/entries', async (req, res) => {
+// GET /api/capsule/:concertId/entries — public, returns recent 50.
+// optionalAuth so a signed-in fan also gets liked_by_me; works signed-out too.
+app.get('/api/capsule/:concertId/entries', optionalAuth, async (req, res) => {
   if (!supabase) return res.json({ entries: [], mock: true });
   try {
     const { data, error } = await supabase
@@ -4567,10 +4568,59 @@ app.get('/api/capsule/:concertId/entries', async (req, res) => {
       .order('created_at', { ascending: false })
       .limit(50);
     if (error) throw error;
-    res.json({ entries: data || [] });
+    const entries = data || [];
+    // Attach persisted like_count + liked_by_me (Phase 2 — likes were local-only before)
+    const ids = entries.map(e => e.id);
+    const countById = new Map();
+    const mineSet = new Set();
+    if (ids.length) {
+      const { data: likeRows } = await supabase
+        .from('capsule_entry_likes')
+        .select('entry_id, user_id')
+        .in('entry_id', ids);
+      for (const r of (likeRows || [])) {
+        countById.set(r.entry_id, (countById.get(r.entry_id) || 0) + 1);
+        if (req.userId && r.user_id === req.userId) mineSet.add(r.entry_id);
+      }
+    }
+    res.json({ entries: entries.map(e => ({ ...e, like_count: countById.get(e.id) || 0, liked_by_me: mineSet.has(e.id) })) });
   } catch (err) {
     console.error('[Capsule GET]', err.message);
     res.json({ entries: [], error: err.message });
+  }
+});
+
+// POST /api/capsule/entries/:entryId/like — auth; idempotent like
+app.post('/api/capsule/entries/:entryId/like', requireAuth, async (req, res) => {
+  if (!supabase) return res.json({ ok: true, mock: true });
+  const entryId = req.params.entryId;
+  try {
+    await supabase.from('capsule_entry_likes').upsert(
+      { entry_id: entryId, user_id: req.userId },
+      { onConflict: 'entry_id,user_id' }
+    );
+    const { count } = await supabase.from('capsule_entry_likes')
+      .select('entry_id', { count: 'exact', head: true }).eq('entry_id', entryId);
+    res.json({ ok: true, like_count: count || 0, liked_by_me: true });
+  } catch (err) {
+    console.error('[Capsule like]', err.message);
+    res.status(500).json({ error: 'Failed to like' });
+  }
+});
+
+// DELETE /api/capsule/entries/:entryId/like — auth; remove like
+app.delete('/api/capsule/entries/:entryId/like', requireAuth, async (req, res) => {
+  if (!supabase) return res.json({ ok: true, mock: true });
+  const entryId = req.params.entryId;
+  try {
+    await supabase.from('capsule_entry_likes').delete()
+      .eq('entry_id', entryId).eq('user_id', req.userId);
+    const { count } = await supabase.from('capsule_entry_likes')
+      .select('entry_id', { count: 'exact', head: true }).eq('entry_id', entryId);
+    res.json({ ok: true, like_count: count || 0, liked_by_me: false });
+  } catch (err) {
+    console.error('[Capsule unlike]', err.message);
+    res.status(500).json({ error: 'Failed to unlike' });
   }
 });
 
@@ -4581,13 +4631,16 @@ app.post('/api/capsule/:concertId/entries', requireAuth, async (req, res) => {
   if (!caption?.trim()) return res.status(400).json({ error: 'caption required' });
   const concertId = req.params.concertId;
   try {
+    // NB: select real columns only — a stale 'name' column here returned null for
+    // the whole row, which (a) fell back to @stan and (b) treated VIPs as non-VIP,
+    // wrongly capping paid users at the free 3-entry limit. Use display_name.
     const { data: usr } = await supabase
       .from('users')
-      .select('is_vip, username, name')
+      .select('is_vip, vip_source, vip_expires_at, username, display_name')
       .eq('id', req.userId)
       .single();
 
-    if (!usr?.is_vip) {
+    if (!computeVipStatus(usr || {}).active) {
       const { count } = await supabase
         .from('capsule_entries')
         .select('id', { count: 'exact', head: true })
@@ -4598,13 +4651,39 @@ app.post('/api/capsule/:concertId/entries', requireAuth, async (req, res) => {
       }
     }
 
-    const username = `@${usr?.username || usr?.name || 'stan'}`;
+    const username = `@${usr?.username || usr?.display_name || 'stan'}`;
     const { data, error } = await supabase
       .from('capsule_entries')
       .insert({ concert_id: concertId, user_id: req.userId, category: category || 'fit', caption: caption.trim(), username })
       .select()
       .single();
     if (error) throw error;
+
+    // Phase 2: notify prior contributors to this concert's capsule (fire-and-forget,
+    // in-app only, capped) — "New moment shared in your concert capsule".
+    (async () => {
+      try {
+        const { data: contributors } = await supabase
+          .from('capsule_entries')
+          .select('user_id')
+          .eq('concert_id', concertId)
+          .neq('user_id', req.userId)
+          .limit(200);
+        const uniq = [...new Set((contributors || []).map(c => c.user_id).filter(Boolean))].slice(0, 50);
+        await Promise.allSettled(uniq.map(uid => deliverNotification({
+          userId: uid,
+          type: 'capsule',
+          title: 'New moment in the capsule ✨',
+          body: `${username} just shared a ${category || 'moment'}.`,
+          actorId: req.userId,
+          entityId: data.id,
+          entityType: 'capsule_entry',
+          targetModal: 'capsule',
+          channels: ['in_app'],
+        })));
+      } catch (e) { console.warn('[Capsule notify]', e.message); }
+    })();
+
     res.json({ entry: data });
   } catch (err) {
     console.error('[Capsule POST]', err.message);

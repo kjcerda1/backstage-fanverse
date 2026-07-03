@@ -19182,7 +19182,7 @@ function TopBiasesSection({ isVip, onUpgrade }) {
 
 // ─── MY CIRCLE ────────────────────────────────────────────────────────────────
 // GET /api/friends | POST /api/friends/add | DELETE /api/friends/:id
-function MyCircleSection({ go, user }) {
+function MyCircleSection({ go, user, onViewProfile }) {
   const { tokenReady } = useAuth();
   const [friends, setFriends] = useState(ls.get("backstage_friends", MOCK_FRIENDS));
   const [adding, setAdding] = useState(false);
@@ -19272,15 +19272,18 @@ function MyCircleSection({ go, user }) {
           <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.pink}33,transparent)` }} />
           {/* Avatar row */}
           <div style={{ display:"flex", gap:10, marginBottom:14, overflowX:"auto", paddingBottom:4 }}>
-            {accepted.slice(0,6).map((f,i)=>(
-              <div key={f.id} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:4, flexShrink:0, position:"relative" }}>
+            {accepted.slice(0,6).map((f,i)=>{
+              const canView = !!(f.realProfile || f.profileId) && !!onViewProfile;
+              return (
+              <div key={f.id} onClick={canView?()=>onViewProfile(f):undefined} className={canView?"tap":undefined} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:4, flexShrink:0, position:"relative", cursor:canView?"pointer":"default" }}>
                 <div style={{ position:"absolute",top:-4,left:-4,right:-4,bottom:-4,borderRadius:"50%",background:`radial-gradient(circle,${f.color}18,transparent 70%)`,animation:`pulse ${2.2+i*0.35}s ease infinite`,pointerEvents:"none" }} />
                 <div style={{ width:52, height:52, borderRadius:"50%", background:`linear-gradient(135deg,${f.color},${f.color}66)`, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:20, color:C.bg, border:`2.5px solid ${f.color}`, boxShadow:`0 0 14px ${f.color}44`, position:"relative" }}>{f.avatar}</div>
                 <div style={{ position:"absolute",top:3,right:3,fontSize:8,color:f.color,opacity:0.85,animation:`sparkleFloat ${2.8+i*0.5}s ease-in-out infinite`,animationDelay:`${i*0.4}s` }}>✦</div>
                 <p style={{ fontSize:9, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:f.color, maxWidth:54, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", textAlign:"center" }}>{f.name.replace("@","")}</p>
                 {f.groups?.[0]&&<Pill color={f.color} xs style={{ fontSize:7 }}>{f.groups[0]}</Pill>}
               </div>
-            ))}
+              );
+            })}
             {accepted.length>6&&(
               <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:4, flexShrink:0 }}>
                 <div style={{ width:52, height:52, borderRadius:"50%", background:C.surfaceHi, border:`2px dashed ${C.border}`, display:"flex", alignItems:"center", justifyContent:"center" }}>
@@ -19803,7 +19806,7 @@ function Top5Section({ top5: top5Prop, setTop5, onBack }) {
   );
 }
 
-function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccountRefresh }) {
+function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccountRefresh, onViewProfile }) {
   const { session } = useAuth();
   const [pfp, setPfp] = useState(null);
   const npKey = `backstage_now_playing_${user?.id || 'anon'}`;
@@ -20272,7 +20275,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
         <TopBiasesSection isVip={isVip} onUpgrade={onUpgrade} />
 
         {/* MY CIRCLE 💜 */}
-        <MyCircleSection go={go} user={user} />
+        <MyCircleSection go={go} user={user} onViewProfile={onViewProfile} />
 
         {/* BADGES */}
         <div style={{ marginBottom:18 }}>
@@ -20919,8 +20922,10 @@ function fmtCapsuleTs(ts) {
   return `${Math.floor(d/86400)}d ago`;
 }
 function apiEntryToLocal(e) {
-  return { id:e.id, concertId:e.concert_id, category:e.category, caption:e.caption, username:e.username||'@stan', timestamp:fmtCapsuleTs(e.created_at), gradient:CAPSULE_CAT_GRADIENTS[e.category]||CAPSULE_CAT_GRADIENTS.fit, likes:0, savedToScrapbook:false, _userId:e.user_id };
+  return { id:e.id, concertId:e.concert_id, category:e.category, caption:e.caption, username:e.username||'@stan', timestamp:fmtCapsuleTs(e.created_at), gradient:CAPSULE_CAT_GRADIENTS[e.category]||CAPSULE_CAT_GRADIENTS.fit, likes:e.like_count||0, likedByMe:!!e.liked_by_me, savedToScrapbook:false, _userId:e.user_id };
 }
+// Concert-capsule DB rows carry a UUID id; local/mock entries use `e<timestamp>` / `e1`.
+const isCapsuleDbId = (id) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id||""));
 
 // Shared memory binder for fans at the same concert
 // GET /api/capsule/:concertId/entries | POST /api/capsule/:concertId/entries
@@ -20955,6 +20960,7 @@ function ConcertCapsule({ concert, onBack, user, isVip=false, onUpgrade, isSigne
   ];
   const [entries, setEntries] = useState(()=>{ const s=ls.get(KEY,[]).filter(e=>e.concertId===CONCERT_ID); return s.length?s:MOCK; });
   const [activeCat, setActiveCat] = useState("all");
+  const [capsuleSearch, setCapsuleSearch] = useState("");
   const [view, setView] = useState("scrapbook");
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState({category:"fit",caption:""});
@@ -20993,9 +20999,30 @@ function ConcertCapsule({ concert, onBack, user, isVip=false, onUpgrade, isSigne
     }).catch(()=>{});
   },[]);// eslint-disable-line react-hooks/exhaustive-deps
 
-  const filtered = activeCat==="all"?entries:entries.filter(e=>e.category===activeCat);
+  const q = capsuleSearch.trim().toLowerCase();
+  const filtered = entries
+    .filter(e => activeCat==="all" || e.category===activeCat)
+    .filter(e => !q || (e.caption||"").toLowerCase().includes(q) || (e.username||"").toLowerCase().includes(q));
   const trendingCat = CATS.filter(c=>c.id!=="all").map(c=>({ ...c, count:entries.filter(e=>e.category===c.id).length })).sort((a,b)=>b.count-a.count)[0];
-  const like = id => setEntries(es=>es.map(e=>e.id===id?{...e,likes:e.likes+1}:e));
+  // Like toggle — persists to DB for real (API-backed) entries; mock/local entries toggle locally only.
+  const like = (id) => {
+    const entry = entries.find(e=>e.id===id);
+    if(!entry) return;
+    const wasLiked = !!entry.likedByMe;
+    setEntries(es=>es.map(e=>e.id===id?{...e,likedByMe:!wasLiked,likes:Math.max(0,e.likes+(wasLiked?-1:1))}:e));
+    if(user?.id && isCapsuleDbId(id)){
+      const reqP = wasLiked ? api.del(`/api/capsule/entries/${id}/like`) : api.post(`/api/capsule/entries/${id}/like`,{});
+      reqP.then(res=>{
+        if(res && !res.error && typeof res.like_count==="number"){
+          setEntries(es=>es.map(e=>e.id===id?{...e,likes:res.like_count,likedByMe:res.liked_by_me}:e));
+        } else {
+          setEntries(es=>es.map(e=>e.id===id?{...e,likedByMe:wasLiked,likes:Math.max(0,e.likes+(wasLiked?1:-1))}:e));
+        }
+      }).catch(()=>{
+        setEntries(es=>es.map(e=>e.id===id?{...e,likedByMe:wasLiked,likes:Math.max(0,e.likes+(wasLiked?1:-1))}:e));
+      });
+    }
+  };
   const save = id => {
     setEntries(es=>es.map(e=>e.id===id?{...e,savedToScrapbook:!e.savedToScrapbook}:e));
     const entry=entries.find(e=>e.id===id);
@@ -21031,7 +21058,7 @@ function ConcertCapsule({ concert, onBack, user, isVip=false, onUpgrade, isSigne
           <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
             <p style={{ fontSize:10,color:C.textMid }}>{entry.username} · {entry.timestamp}</p>
             <div style={{ display:"flex",gap:10 }}>
-              <button onClick={()=>like(entry.id)} style={{ background:"none",border:"none",color:C.textMid,fontSize:11,cursor:"pointer" }}>💜 {entry.likes}</button>
+              <button onClick={()=>like(entry.id)} style={{ background:"none",border:"none",color:entry.likedByMe?C.accent:C.textMid,fontSize:11,cursor:"pointer",fontWeight:entry.likedByMe?700:400 }}>{entry.likedByMe?"💜":"🤍"} {entry.likes}</button>
               <button onClick={()=>save(entry.id)} style={{ background:"none",border:"none",color:isSaved?C.gold:C.textDim,fontSize:11,cursor:"pointer" }}>🔖</button>
             </div>
           </div>
@@ -21050,7 +21077,7 @@ function ConcertCapsule({ concert, onBack, user, isVip=false, onUpgrade, isSigne
           <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
             <p style={{ fontSize:8.5,color:C.textDim }}>{entry.username}</p>
             <div style={{ display:"flex",gap:6 }}>
-              <button onClick={()=>like(entry.id)} style={{ background:"none",border:"none",color:C.textMid,fontSize:9.5,cursor:"pointer",padding:0 }}>💜 {entry.likes}</button>
+              <button onClick={()=>like(entry.id)} style={{ background:"none",border:"none",color:entry.likedByMe?C.accent:C.textMid,fontSize:9.5,cursor:"pointer",padding:0,fontWeight:entry.likedByMe?700:400 }}>{entry.likedByMe?"💜":"🤍"} {entry.likes}</button>
               <button onClick={()=>save(entry.id)} style={{ background:"none",border:"none",color:isSaved?C.gold:C.textDim,fontSize:10,cursor:"pointer",padding:0 }}>🔖</button>
             </div>
           </div>
@@ -21095,6 +21122,16 @@ function ConcertCapsule({ concert, onBack, user, isVip=false, onUpgrade, isSigne
             <span key={id} onClick={()=>setView(id)} style={{ flex:1,textAlign:"center",padding:"7px 4px",borderRadius:8,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:view===id?C.accent:"transparent",color:view===id?C.bg:C.textMid,transition:"all .18s",whiteSpace:"nowrap" }}>{label}</span>
           ))}
         </div>
+        <div style={{ position:"relative",marginBottom:10 }}>
+          <input
+            value={capsuleSearch}
+            onChange={e=>setCapsuleSearch(e.target.value)}
+            placeholder="Search moments — caption or @fan…"
+            style={{ width:"100%",boxSizing:"border-box",padding:"9px 32px 9px 32px",borderRadius:11,background:C.surfaceHi,border:`1.5px solid ${capsuleSearch?C.accent:C.border}`,color:C.text,fontSize:12,outline:"none" }}
+          />
+          <span style={{ position:"absolute",top:"50%",left:11,transform:"translateY(-50%)",fontSize:12,pointerEvents:"none",color:C.textDim }}>🔍</span>
+          {capsuleSearch&&<button onClick={()=>setCapsuleSearch("")} style={{ position:"absolute",top:"50%",right:10,transform:"translateY(-50%)",background:"none",border:"none",color:C.textMid,cursor:"pointer",fontSize:13,lineHeight:1 }}>✕</button>}
+        </div>
         <div style={{ display:"flex",gap:6,overflowX:"auto",paddingBottom:10 }}>
           {CATS.map(cat=>(
             <span key={cat.id} onClick={()=>setActiveCat(cat.id)} className="tap" style={{ flexShrink:0,padding:"5px 11px",borderRadius:99,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:600,cursor:"pointer",background:activeCat===cat.id?C.accent:C.surfaceHi,color:activeCat===cat.id?C.bg:C.textMid,border:`1px solid ${activeCat===cat.id?C.accent:C.border}`,whiteSpace:"nowrap" }}>{cat.emoji} {cat.label}</span>
@@ -21120,9 +21157,9 @@ function ConcertCapsule({ concert, onBack, user, isVip=false, onUpgrade, isSigne
         </div>
         {filtered.length===0?(
           <div style={{ textAlign:"center",padding:"40px 20px" }}>
-            <p style={{ fontSize:28,marginBottom:10 }}>📷</p>
-            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14,marginBottom:6 }}>No memories here yet</p>
-            <p style={{ fontSize:11.5,color:C.textMid }}>Be the first to add yours to the capsule.</p>
+            <p style={{ fontSize:28,marginBottom:10 }}>{q?"🔍":"📷"}</p>
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14,marginBottom:6 }}>{q?`No moments match "${capsuleSearch.trim()}"`:"No memories here yet"}</p>
+            <p style={{ fontSize:11.5,color:C.textMid }}>{q?"Try a different word or clear the search.":"Be the first to add yours to the capsule."}</p>
           </div>
         ):view==="feed"?(
           <div>{filtered.map(e=><Card key={e.id} entry={e} />)}</div>
@@ -24643,7 +24680,7 @@ function AppInner() {
               {tab==="community"&&<FanverseTab go={go} user={user} isVip={effectiveIsVip} onUpgrade={openUpgrade} onViewProfile={setFullProfileFan} />}
               {tab==="collect"&&<LibraryTab cards={cards} setCards={setCards} isVip={effectiveIsVip} onUpgrade={openUpgrade} go={go} user={user} weather={weatherData} />}
               {tab==="fanverse"&&<ExploreTab user={user} weather={weatherData} isVip={effectiveIsVip} onUpgrade={openUpgrade} go={go} />}
-              {tab==="profile"&&<ProfileTab user={user} cards={cards} go={go} isVip={effectiveIsVip} onUpgrade={openUpgrade} onReplayTour={()=>setShowVipTour(true)} onAccountRefresh={handleAccountRefresh} />}
+              {tab==="profile"&&<ProfileTab user={user} cards={cards} go={go} isVip={effectiveIsVip} onUpgrade={openUpgrade} onReplayTour={()=>setShowVipTour(true)} onAccountRefresh={handleAccountRefresh} onViewProfile={setFullProfileFan} />}
                   </>
                 );
               })()}
