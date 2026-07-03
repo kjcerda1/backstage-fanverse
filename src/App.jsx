@@ -698,6 +698,7 @@ const MY_WORLD_KEYS = [
   "backstage_featured_shelf",
   "backstage_saved_capsules",
   "backstage_saved_shop_outfits",
+  "backstage_card_photos", // { cardId: url } — only Storage URLs sync (see sanitize below)
 ];
 let _myWorldSyncTimer = null;
 function syncMyWorldToServer() {
@@ -707,6 +708,15 @@ function syncMyWorldToServer() {
     try {
       const blob = {};
       MY_WORLD_KEYS.forEach(k => { const v = localStorage.getItem(k); if (v != null) blob[k] = JSON.parse(v); });
+      // Card photos: only sync uploaded Storage URLs. Local data: URL previews (upload
+      // pending/failed) are huge and must never bloat the jsonb blob.
+      if (blob.backstage_card_photos && typeof blob.backstage_card_photos === 'object') {
+        const clean = {};
+        for (const [id, url] of Object.entries(blob.backstage_card_photos)) {
+          if (typeof url === 'string' && /^https?:\/\//.test(url)) clean[id] = url;
+        }
+        if (Object.keys(clean).length) blob.backstage_card_photos = clean; else delete blob.backstage_card_photos;
+      }
       api.post('/api/profile/update', { myWorld: blob }).catch(()=>{});
     } catch {}
   }, 1200);
@@ -7278,6 +7288,8 @@ function PhotocardGrid({ cards, groups, groupFilter, setGroupFilter, go, onAddCa
     const next = {...cardPhotos, [cardId]: url};
     setCardPhotos(next);
     ls.set("backstage_card_photos", next);
+    // Debounced + sanitized: only Storage URLs actually sync (see syncMyWorldToServer).
+    syncMyWorldToServer();
   };
 
   const handleFileChange = async (e, card) => {

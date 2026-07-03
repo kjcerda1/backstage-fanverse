@@ -4751,23 +4751,6 @@ app.get('/api/trader-stats/:userId', async (req, res) => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
-// ERROR HANDLING
-// ═════════════════════════════════════════════════════════════════════════════
-
-app.use((req, res) => {
-  res.status(404).json({ error: `Route not found: ${req.method} ${req.path}` });
-});
-
-app.use((err, req, res, next) => {
-  console.error('[Unhandled Error]', err);
-  res.status(500).json({
-    error: 'Internal server error',
-    details: process.env.NODE_ENV === 'development' ? err.message : undefined,
-  });
-});
-
-
-// ═════════════════════════════════════════════════════════════════════════════
 // AI: ITINERARY — /api/ai/itinerary
 // Called from TripPlanner AI View with rich preference fields.
 // ═════════════════════════════════════════════════════════════════════════════
@@ -5567,6 +5550,25 @@ app.post('/api/listing-reports', requireAuth, async (req, res) => {
   }
 });
 
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ERROR HANDLING — must be registered AFTER every route. When this 404 catch-all
+// sat mid-file it silently shadowed every route defined below it (cards, binders,
+// collection, card-image upload, trade-listings, card-templates, listing-offers,
+// AI itinerary), forcing those features to fall back to localStorage.
+// ═════════════════════════════════════════════════════════════════════════════
+
+app.use((req, res) => {
+  res.status(404).json({ error: `Route not found: ${req.method} ${req.path}` });
+});
+
+app.use((err, req, res, next) => {
+  console.error('[Unhandled Error]', err);
+  res.status(500).json({
+    error: 'Internal server error',
+    details: process.env.NODE_ENV === 'development' ? err.message : undefined,
+  });
+});
 
 // ═════════════════════════════════════════════════════════════════════════════
 // START
