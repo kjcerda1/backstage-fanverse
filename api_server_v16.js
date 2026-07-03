@@ -4691,6 +4691,48 @@ app.post('/api/capsule/:concertId/entries', requireAuth, async (req, res) => {
   }
 });
 
+// ── Group room chat (meetup group chats) — persisted ──────────────────────────
+// Keyed by ChatRoom room.id (e.g. "meetup-<id>"). Any signed-in fan who can open
+// the meetup can read/post — same openness as the previous mock chat. RSVP-gating
+// is a future hardening if these rooms need to be private to attendees.
+app.get('/api/rooms/:roomId/messages', requireAuth, async (req, res) => {
+  if (!supabase) return res.json({ messages: [], mock: true });
+  try {
+    const { data, error } = await supabase
+      .from('room_messages')
+      .select('id, room_id, user_id, username, body, created_at')
+      .eq('room_id', req.params.roomId)
+      .order('created_at', { ascending: true })
+      .limit(100);
+    if (error) throw error;
+    res.json({ messages: (data || []).map(m => ({ ...m, mine: m.user_id === req.userId })) });
+  } catch (err) {
+    console.error('[Rooms GET]', err.message);
+    res.json({ messages: [], error: err.message });
+  }
+});
+
+app.post('/api/rooms/:roomId/messages', requireAuth, async (req, res) => {
+  if (!supabase) return res.json({ message: null, mock: true });
+  const body = (req.body?.body || '').trim();
+  if (!body) return res.status(400).json({ error: 'body required' });
+  if (body.length > 1000) return res.status(400).json({ error: 'too_long' });
+  try {
+    const { data: usr } = await supabase.from('users').select('username, display_name').eq('id', req.userId).single();
+    const username = `@${usr?.username || usr?.display_name || 'fan'}`;
+    const { data, error } = await supabase
+      .from('room_messages')
+      .insert({ room_id: req.params.roomId, user_id: req.userId, username, body })
+      .select('id, room_id, user_id, username, body, created_at')
+      .single();
+    if (error) throw error;
+    res.json({ message: { ...data, mine: true } });
+  } catch (err) {
+    console.error('[Rooms POST]', err.message);
+    res.status(500).json({ error: 'Failed to send' });
+  }
+});
+
 // ── Trade Reviews ─────────────────────────────────────────────────────────────
 app.get('/api/trader-stats/:userId', async (req, res) => {
   if (!supabase) return res.json({ completed_trades: 0, positive: 0, negative: 0, is_trusted: false, mock: true });

@@ -14849,6 +14849,14 @@ function FriendsPage({ onBack, onNotif, go, onViewProfile }) {
     persistRequests(incoming, outgoing.filter(r=>r.id!==req.id));
     api.post('/api/friends/cancel', { requestId:req.id }).catch(()=>{});
   };
+  const [removeConfirm, setRemoveConfirm] = useState(null); // fan pending removal confirmation
+  const removeFriend = (fan) => {
+    const next = friends.filter(f=>f.id!==fan.id);
+    setFriends(next);
+    ls.set("backstage_friends", next);
+    api.del(`/api/friends/${fan.id}`).catch(()=>{});
+    setRemoveConfirm(null);
+  };
 
   const CONCERT_FANS = [
     { id:"cf1", name:"starryy ✦", avatar:"S", color:C.accent, dist:"2km away", status:"Going solo", statusColor:C.accent, groups:["ATINY","Same bias","Hongjoong"], concerts:14 },
@@ -14945,12 +14953,29 @@ function FriendsPage({ onBack, onNotif, go, onViewProfile }) {
                 {(fan.groups||[]).slice(0,3).map(g=><Pill key={g} color={C.accentDim} xs>{g}</Pill>)}
               </div>
             </div>
-            {canViewProfile
-              ? <span style={{ flexShrink:0, fontSize:10.5, color:C.accent, fontFamily:"'Epilogue',sans-serif", fontWeight:700, whiteSpace:"nowrap" }}>View Stage →</span>
-              : <Pill color={fan.statusColor||C.accent} active xs style={{ flexShrink:0, fontSize:8.5, textAlign:"center" }}>{fan.status||"Friend"}</Pill>}
+            {view==="all"
+              ? <button onClick={e=>{ e.stopPropagation(); setRemoveConfirm(fan); }} className="tap" style={{ flexShrink:0, padding:"6px 10px", borderRadius:10, background:"transparent", border:`1px solid ${C.border}`, color:C.textDim, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10.5, cursor:"pointer" }}>Remove</button>
+              : canViewProfile
+                ? <span style={{ flexShrink:0, fontSize:10.5, color:C.accent, fontFamily:"'Epilogue',sans-serif", fontWeight:700, whiteSpace:"nowrap" }}>View Stage →</span>
+                : <Pill color={fan.statusColor||C.accent} active xs style={{ flexShrink:0, fontSize:8.5, textAlign:"center" }}>{fan.status||"Friend"}</Pill>}
           </div>
           );
         })}
+
+        {/* Remove confirmation sheet */}
+        {removeConfirm && (
+          <div onClick={()=>setRemoveConfirm(null)} style={{ position:"fixed",inset:0,zIndex:880,background:"rgba(6,6,15,0.88)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+            <div onClick={e=>e.stopPropagation()} style={{ width:"100%",background:`linear-gradient(160deg,${C.surfaceMid},${C.cosmic})`,borderRadius:"24px 24px 0 0",padding:"16px 20px calc(28px + env(safe-area-inset-bottom))",border:`1.5px solid ${C.borderHi}`,borderBottom:"none",animation:"slideUp .26s ease" }}>
+              <div style={{ width:36,height:4,borderRadius:99,background:C.border,margin:"0 auto 16px" }} />
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:16,marginBottom:4 }}>Remove {removeConfirm.name} from your Circle?</p>
+              <p style={{ fontSize:11.5,color:C.textMid,marginBottom:16 }}>They'll no longer see your posts as Circle-only, and you'll need to re-add each other to reconnect.</p>
+              <div style={{ display:"flex",gap:10 }}>
+                <button onClick={()=>removeFriend(removeConfirm)} className="tap" style={{ flex:1,padding:"13px",borderRadius:13,background:C.rose,border:"none",color:"#fff",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer" }}>Remove</button>
+                <button onClick={()=>setRemoveConfirm(null)} className="tap" style={{ flex:1,padding:"13px",borderRadius:13,background:"transparent",border:`1.5px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer" }}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {view!=="requests" && displayList.length === 0 && <Empty emoji="👯" title="No fans found" sub="Try Nearby to find fans going to the same show." />}
 
@@ -15032,11 +15057,36 @@ function ChatRoom({ room, onBack }) {
     "meetup-mu1":["I'll be there at 3:30! 🎤","Bringing extra freebies 🎁"],
     "trade-skz":["Have Hyunjin 5-STAR for trade","DM me if you want to meet at venue!"],
   };
-  const [messages, setMessages] = useState(SEED[room.id]||["Welcome! 💜"]);
+  // Only real meetup group chats persist to the backend (room_messages). Host "DM"
+  // rooms and mock city/show/trade rooms stay ephemeral to avoid a shared-room leak.
+  const persistable = room?.type === "meetup" || String(room?.id||"").startsWith("meetup-");
+  const seedMsgs = (SEED[room.id]||["Welcome! 💜"]).map((t,i)=>({ id:`seed-${i}`, body:t, username:"", mine:false }));
+  const [messages, setMessages] = useState(seedMsgs);
   const [input, setInput] = useState("");
   const bottomRef = useRef(null);
   useEffect(()=>{ bottomRef.current?.scrollIntoView({behavior:"smooth"}); },[messages]);
-  const send = () => { if(!input.trim())return; setMessages([...messages,input]); setInput(""); };
+
+  // Hydrate persisted meetup messages on open
+  useEffect(()=>{
+    if(!persistable) return;
+    api.get(`/api/rooms/${encodeURIComponent(room.id)}/messages`).then(res=>{
+      if(Array.isArray(res?.messages) && res.messages.length){
+        setMessages(res.messages.map(m=>({ id:m.id, body:m.body, username:m.username, mine:!!m.mine })));
+      }
+    }).catch(()=>{});
+  },[room.id]);// eslint-disable-line react-hooks/exhaustive-deps
+
+  const send = () => {
+    const text=input.trim(); if(!text)return;
+    const localId=`local-${Date.now()}`;
+    setMessages(m=>[...m,{ id:localId, body:text, username:"", mine:true }]);
+    setInput("");
+    if(persistable){
+      api.post(`/api/rooms/${encodeURIComponent(room.id)}/messages`,{ body:text }).then(res=>{
+        if(res?.message?.id){ setMessages(m=>m.map(x=>x.id===localId?{ id:res.message.id, body:res.message.body, username:res.message.username, mine:true }:x)); }
+      }).catch(()=>{});
+    }
+  };
   return (
     <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
       <div style={{ padding:"14px 20px", display:"flex", gap:10, alignItems:"center", flexShrink:0, borderBottom:`1px solid ${C.border}` }}>
@@ -15046,8 +15096,9 @@ function ChatRoom({ room, onBack }) {
       </div>
       <div style={{ flex:1,overflowY:"auto",padding:"14px 16px",display:"flex",flexDirection:"column",gap:10 }}>
         {messages.map((msg,i)=>(
-          <div key={i} style={{ background:C.surfaceHi,borderRadius:13,padding:"9px 13px",maxWidth:"85%",alignSelf:i===messages.length-1?"flex-end":"flex-start",border:`1px solid ${C.border}` }}>
-            <p style={{ fontSize:12.5,lineHeight:1.55 }}>{msg}</p>
+          <div key={msg.id||i} style={{ background:msg.mine?`${room.color}1e`:C.surfaceHi,borderRadius:13,padding:"9px 13px",maxWidth:"85%",alignSelf:msg.mine?"flex-end":"flex-start",border:`1px solid ${msg.mine?room.color+"55":C.border}` }}>
+            {!msg.mine && msg.username && <p style={{ fontSize:9,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,marginBottom:2 }}>{msg.username}</p>}
+            <p style={{ fontSize:12.5,lineHeight:1.55 }}>{msg.body}</p>
           </div>
         ))}
         <div ref={bottomRef} />
@@ -19295,8 +19346,7 @@ function MyCircleSection({ go, user, onViewProfile }) {
           {/* Actions */}
           <div style={{ display:"flex", gap:8 }}>
             <button onClick={()=>setAdding(true)} style={{ flex:1, padding:"9px", borderRadius:11, background:`${C.accent}18`, border:`1.5px solid ${C.accent}44`, color:C.accent, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>+ Add</button>
-            <button onClick={()=>go("chats")} style={{ flex:1, padding:"9px", borderRadius:11, background:`${C.lavender}14`, border:`1.5px solid ${C.lavender}33`, color:C.lavender, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>💬 Message</button>
-            <button onClick={()=>go("friends")} style={{ padding:"9px 11px", borderRadius:11, background:"transparent", border:`1.5px solid ${C.border}`, color:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:600, fontSize:11, cursor:"pointer" }}>All →</button>
+            <button onClick={()=>go("friends")} style={{ flex:1, padding:"9px 11px", borderRadius:11, background:"transparent", border:`1.5px solid ${C.border}`, color:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:600, fontSize:11, cursor:"pointer" }}>All →</button>
           </div>
         </div>
       )}
