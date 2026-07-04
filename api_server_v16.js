@@ -235,6 +235,7 @@ app.get('/api/health', (req, res) => {
     has_stripe:          HAS_STRIPE,
     has_stripe_webhook:  !!process.env.STRIPE_WEBHOOK_SECRET,
     has_firebase:        HAS_FIREBASE,
+    firebase_initialized: HAS_FIREBASE && admin.apps.length > 0,
     has_email:           HAS_EMAIL,
     has_spotify:         HAS_SPOTIFY,
     has_mapbox:          HAS_MAPBOX,
@@ -4392,7 +4393,12 @@ app.post('/api/save-token', requireAuth, async (req, res) => {
 });
 
 app.post('/api/send-notification', requireAuth, async (req, res) => {
-  const { userId, title, body, data } = req.body;
+  // The frontend only ever calls this to push a notification to the currently
+  // signed-in device (see deliverNotification() in App.jsx) — it never sends a
+  // userId. Use the authenticated caller's id, not an absent req.body.userId,
+  // otherwise the fcm_tokens lookup below always matches zero rows.
+  const userId = req.userId;
+  const { title, body, data } = req.body;
   if (MOCK_MODE) return res.json({ success: true, mock: true });
 
   if (!HAS_FIREBASE || !admin.apps.length) {
