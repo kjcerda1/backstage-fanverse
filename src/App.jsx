@@ -536,8 +536,8 @@ const C = {
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Epilogue:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,300;1,400;1,700;1,800&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap');
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%;overflow:hidden;background:${C.bg}}
-body{color:${C.text};font-family:'Instrument Sans',sans-serif;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
+html,body{width:100%;height:100%;overflow:hidden;background:${C.bg}}
+body{color:${C.text};font-family:'Instrument Sans',sans-serif;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;overscroll-behavior:none}
 /* ── Editorial italic accent class ──────────────────────────────────────── */
 .bs-title{font-family:'Epilogue',sans-serif;font-style:italic;font-weight:700;letter-spacing:-0.02em}
 /* ── Cosmic sparkle dots ─────────────────────────────────────────────────── */
@@ -603,8 +603,11 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 /* ── Mobile-safe app shell height ───────────────────────────────────────── */
 /* 100dvh = dynamic viewport height (excludes browser chrome on mobile)    */
 /* -webkit-fill-available fills the visible viewport on older iOS Safari    */
-#root{height:100%;height:-webkit-fill-available;overflow:hidden}
-.app-shell{min-height:-webkit-fill-available;height:100vh;height:100dvh;box-sizing:border-box;padding-top:calc(env(safe-area-inset-top,0px) + 12px)}
+#root{width:100%;height:100%;height:-webkit-fill-available;overflow:hidden}
+/* Full-bleed on real devices/PWA; only frame to a phone width when the browser
+   viewport is wide enough to be a desktop preview (not an actual phone). */
+.app-shell{width:100%;max-width:100%;margin:0 auto;min-height:-webkit-fill-available;height:100vh;height:100dvh;box-sizing:border-box;padding-top:calc(env(safe-area-inset-top,0px) + 12px)}
+@media (min-width:501px){.app-shell{max-width:430px}}
 .tap{transition:transform .12s,opacity .12s}
 .tap:active{transform:scale(.94);opacity:.8}
 /* ── Collectible card hover lift ─────────────────────────────────────────── */
@@ -4945,9 +4948,58 @@ function HomeFeatureDiscovery({ go }) {
   );
 }
 
-function HomeFeed({ user, go, weather, isVip, onUpgrade, onSmartNotifs }) {
+function HomeFeed({ user, go, weather, isVip, onUpgrade, onSmartNotifs, onViewProfile }) {
   const [searchVal, setSearchVal] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
+  const [fanResults, setFanResults] = useState([]);
+  const [fanSearching, setFanSearching] = useState(false);
+  const [fanSearchUnavailable, setFanSearchUnavailable] = useState(false);
+  const [circleStatuses, setCircleStatuses] = useState(()=>ls.get("backstage_circle_statuses",{}));
+
+  // Debounced universal-search fan lookup — reuses the shared /api/users/search helper
+  useEffect(() => {
+    const raw = searchVal.trim();
+    const q = raw.replace(/^@/, '').toLowerCase();
+    if (q.length < 2) { setFanResults([]); setFanSearchUnavailable(false); setFanSearching(false); return; }
+    setFanSearching(true);
+    const t = setTimeout(async () => {
+      const users = await searchBackstageUsers(raw);
+      if (users === null) { setFanSearchUnavailable(true); setFanResults([]); }
+      else { setFanSearchUnavailable(false); setFanResults(users); }
+      setFanSearching(false);
+    }, 350);
+    return () => clearTimeout(t);
+  }, [searchVal]);
+
+  const searchQNorm = searchVal.trim().toLowerCase();
+  const concertMatches = searchQNorm.length >= 2 ? MOCK_CONCERTS.filter(c =>
+    c.name.toLowerCase().includes(searchQNorm) || c.group.toLowerCase().includes(searchQNorm) || c.city.toLowerCase().includes(searchQNorm)
+  ).slice(0,4) : [];
+  const cityMatches = searchQNorm.length >= 2 ? CITY_LIST.filter(c =>
+    c.city.toLowerCase().includes(searchQNorm)
+  ).slice(0,4) : [];
+
+  const fanCards = fanResults.map(u => ({
+    id: u.id,
+    username: u.handle || u.username || '',
+    displayName: u.display_name || u.backstage_name || u.handle || 'Backstage fan',
+    avatar: (u.display_name || u.handle || u.username || 'B').slice(0,1).toUpperCase(),
+    color: C.accent,
+    fandoms: u.fandoms || u.favorite_groups || [],
+    city: u.city || '',
+    bio: u.bio || '',
+    is_vip: u.is_vip || false,
+  }));
+
+  const sendCircleRequest = (fc) => {
+    setCircleStatuses(prev => { const next = {...prev, [fc.id]:"sent"}; ls.set("backstage_circle_statuses", next); return next; });
+    api.post('/api/friends/request', { targetUserId: fc.id }).catch(()=>{});
+  };
+
+  const messageFan = (fc) => {
+    ls.set("backstage_dm_target", fc);
+    go("chats");
+  };
 
   // Live announcements from backend — tour announcements, event alerts etc.
   // Falls back to [] silently; does not block render.
@@ -5011,11 +5063,94 @@ function HomeFeed({ user, go, weather, isVip, onUpgrade, onSmartNotifs }) {
           </div>
         </div>
 
-        {/* Collapsible search */}
+        {/* Collapsible universal search — fans, concerts, cities */}
         {searchOpen && (
           <div style={{ marginTop:10,animation:"dn .2s ease",position:"relative" }}>
-            <svg style={{ position:"absolute",left:13,top:"50%",transform:"translateY(-50%)" }} width="15" height="15" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="8" stroke={C.textDim} strokeWidth="1.8"/><path d="m21 21-4.35-4.35" stroke={C.textDim} strokeWidth="1.8" strokeLinecap="round"/></svg>
-            <input value={searchVal} onChange={e=>setSearchVal(e.target.value)} placeholder="Search concerts, artists, cities..." autoFocus style={{ width:"100%",padding:"11px 14px 11px 36px",borderRadius:14,background:C.surfaceHi,border:`1.5px solid ${C.borderHi}`,color:C.text,fontSize:13,fontFamily:"'Instrument Sans',sans-serif" }} />
+            <div style={{ position:"relative" }}>
+              <svg style={{ position:"absolute",left:13,top:"50%",transform:"translateY(-50%)" }} width="15" height="15" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="8" stroke={C.textDim} strokeWidth="1.8"/><path d="m21 21-4.35-4.35" stroke={C.textDim} strokeWidth="1.8" strokeLinecap="round"/></svg>
+              <input value={searchVal} onChange={e=>setSearchVal(e.target.value)} placeholder="Search fans, concerts, artists, cities..." autoFocus style={{ width:"100%",padding:"11px 14px 11px 36px",borderRadius:14,background:C.surfaceHi,border:`1.5px solid ${C.borderHi}`,color:C.text,fontSize:13,fontFamily:"'Instrument Sans',sans-serif" }} />
+            </div>
+
+            {searchQNorm.length >= 2 && (
+              <div style={{ marginTop:10,maxHeight:"52vh",overflowY:"auto",background:`linear-gradient(160deg,${C.surfaceHi}f5,${C.cosmic}f5)`,border:`1px solid ${C.borderHi}`,borderRadius:16,padding:"10px 4px",backdropFilter:"blur(18px)",boxShadow:"0 16px 44px rgba(0,0,0,0.4)" }}>
+
+                {/* ── FANS ── */}
+                <div style={{ padding:"2px 12px 6px" }}>
+                  <p style={{ fontSize:9.5,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.textDim,letterSpacing:"0.06em",textTransform:"uppercase" }}>Fans {fanSearching?"· searching…":fanCards.length>0?`(${fanCards.length})`:""}</p>
+                </div>
+                {fanCards.length === 0 && !fanSearching && (
+                  <p style={{ padding:"4px 12px 12px",fontSize:11.5,color:C.textMid,lineHeight:1.5 }}>
+                    {fanSearchUnavailable ? "Fan search is unavailable right now — try again shortly." : "No fans found yet — try a handle, group, or city."}
+                  </p>
+                )}
+                {fanCards.map(fc => {
+                  const status = circleStatuses[fc.id] || "none";
+                  return (
+                    <div key={fc.id} style={{ display:"flex",gap:10,alignItems:"center",padding:"9px 12px",borderRadius:12 }}>
+                      <div onClick={()=>{ onViewProfile && onViewProfile(fc); }} className="tap" style={{ width:38,height:38,borderRadius:"50%",flexShrink:0,background:`linear-gradient(135deg,${fc.color},${fc.color}77)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.bg,cursor:"pointer" }}>{fc.avatar}</div>
+                      <div onClick={()=>{ onViewProfile && onViewProfile(fc); }} style={{ flex:1,minWidth:0,cursor:"pointer" }}>
+                        <p style={{ fontSize:12.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>@{fc.username} {fc.is_vip&&<span style={{ color:C.gold }}>✦</span>}</p>
+                        <p style={{ fontSize:10.5,color:C.textMid,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{fc.displayName}{fc.city?` · ${fc.city}`:""}</p>
+                        {fc.fandoms?.length>0 && (
+                          <div style={{ display:"flex",gap:4,marginTop:3,flexWrap:"wrap" }}>
+                            {fc.fandoms.slice(0,3).map(f=>(
+                              <span key={f} style={{ fontSize:8.5,padding:"2px 7px",borderRadius:99,background:`${C.accent}18`,border:`1px solid ${C.accent}30`,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{f}</span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ display:"flex",flexDirection:"column",gap:5,flexShrink:0 }}>
+                        <div style={{ display:"flex",gap:5 }}>
+                          <button onClick={()=>{ onViewProfile && onViewProfile(fc); }} className="tap" style={{ padding:"5px 10px",borderRadius:99,background:"none",border:`1.5px solid ${C.border}`,fontSize:9.5,color:C.text,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",whiteSpace:"nowrap" }}>View Stage</button>
+                          <button onClick={()=>messageFan(fc)} className="tap" style={{ padding:"5px 10px",borderRadius:99,background:"none",border:`1.5px solid ${C.border}`,fontSize:9.5,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",whiteSpace:"nowrap" }}>Message</button>
+                        </div>
+                        {status==="sent" ? (
+                          <div style={{ padding:"5px 10px",borderRadius:99,background:`${C.accent}12`,border:`1px solid ${C.accent}33`,fontSize:9.5,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textAlign:"center" }}>Requested</div>
+                        ) : (
+                          <button onClick={()=>sendCircleRequest(fc)} className="tap" style={{ padding:"5px 10px",borderRadius:99,background:`linear-gradient(135deg,${C.accent},${C.berry})`,border:"none",fontSize:9.5,color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",whiteSpace:"nowrap" }}>Add to Circle</button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* ── CONCERTS ── */}
+                {concertMatches.length > 0 && (
+                  <>
+                    <div style={{ padding:"10px 12px 6px",borderTop:`1px solid ${C.border}`,marginTop:6 }}>
+                      <p style={{ fontSize:9.5,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.textDim,letterSpacing:"0.06em",textTransform:"uppercase" }}>Concerts</p>
+                    </div>
+                    {concertMatches.map(c=>(
+                      <div key={c.id} onClick={()=>go("concerts")} className="tap" style={{ display:"flex",gap:10,alignItems:"center",padding:"8px 12px",cursor:"pointer" }}>
+                        <div style={{ width:32,height:32,borderRadius:10,background:`${c.color}18`,border:`1px solid ${c.color}40`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0 }}>🎤</div>
+                        <div style={{ flex:1,minWidth:0 }}>
+                          <p style={{ fontSize:12,fontFamily:"'Epilogue',sans-serif",fontWeight:700,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{c.name}</p>
+                          <p style={{ fontSize:10,color:C.textMid }}>{c.city}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
+
+                {/* ── CITIES / FANVERSE ── */}
+                {cityMatches.length > 0 && (
+                  <>
+                    <div style={{ padding:"10px 12px 6px",borderTop:`1px solid ${C.border}`,marginTop:6 }}>
+                      <p style={{ fontSize:9.5,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.textDim,letterSpacing:"0.06em",textTransform:"uppercase" }}>Fanverse / Cities</p>
+                    </div>
+                    {cityMatches.map(c=>(
+                      <div key={c.city} onClick={()=>go("fanverse")} className="tap" style={{ display:"flex",gap:10,alignItems:"center",padding:"8px 12px",cursor:"pointer" }}>
+                        <div style={{ width:32,height:32,borderRadius:10,background:`${C.mint}18`,border:`1px solid ${C.mint}40`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0 }}>📍</div>
+                        <div style={{ flex:1,minWidth:0 }}>
+                          <p style={{ fontSize:12,fontFamily:"'Epilogue',sans-serif",fontWeight:700,color:C.text }}>{c.city}</p>
+                          <p style={{ fontSize:10,color:C.textMid }}>{c.region}, {c.country_code}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -7415,6 +7550,8 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
   const softBlueGlow = 'rgba(120,168,255,0.28)';
   const [section, setSection] = useState('albums');
   const [albumSubView, setAlbumSubView] = useState('binders');
+  const [showAlbumViewMenu, setShowAlbumViewMenu] = useState(false);
+  const [bindersNoticeDismissed, setBindersNoticeDismissed] = useState(()=>ls.get("backstage_my_binders_notice_dismissed", false));
   const [groupFilter, setGroupFilter] = useState("all");
   const [myWorldTheme, setMyWorldTheme] = useState(()=>ls.get("backstage_my_world_theme","Purple Galaxy"));
   const [featuredShelf, setFeaturedShelf] = useState(()=>ls.get("backstage_featured_shelf",{photocard:null,concert:null,capsule:null,outfit:null,biasMoment:null}));
@@ -7576,20 +7713,24 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
         <div onClick={()=>setShowActionTray(false)} style={{ position:"absolute", inset:0, zIndex:4 }} />
       )}
       {showActionTray && (
-        <div style={{ position:"absolute", bottom:"calc(156px + env(safe-area-inset-bottom))", right:20, zIndex:6, display:"flex", flexDirection:"column", gap:6, background:`linear-gradient(160deg,${C.surfaceHi}f5,${C.cosmic}f5)`, border:`1px solid ${C.pink}30`, borderRadius:16, padding:7, boxShadow:`0 14px 36px rgba(0,0,0,0.55), 0 0 24px ${C.pink}1c, inset 0 1px 0 rgba(255,255,255,0.08)`, backdropFilter:"blur(14px)", minWidth:198 }}>
+        <div style={{ position:"absolute", bottom:"calc(156px + env(safe-area-inset-bottom))", right:20, zIndex:6, display:"flex", flexDirection:"column", gap:6, minWidth:198, borderRadius:16, padding:7,
+          background:`radial-gradient(circle at 20% 0%, rgba(255,255,255,0.62), transparent 34%), radial-gradient(circle at 85% 20%, rgba(167,199,255,0.24), transparent 38%), linear-gradient(135deg, rgba(244,226,255,0.78), rgba(218,196,255,0.58), rgba(246,216,240,0.52))`,
+          border:"1px solid rgba(255,255,255,0.42)", backdropFilter:"blur(22px) saturate(1.35)", boxShadow:"0 14px 36px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.5)" }}>
           {[
             { icon:"✦", label:"Add to My World", onClick:()=>{ setShowQuickAdd(true); setShowActionTray(false); } },
             { icon:"✨", label:"Ask Backstage AI", onClick:()=>{ go("assistant"); setShowActionTray(false); } },
             { icon:"🎨", label:"Decorate My Universe", onClick:()=>{ setSection("albums"); setShowDecorate(true); setShowActionTray(false); } },
           ].map(item=>(
-            <button key={item.label} onClick={item.onClick} className="tap" style={{ display:"flex", alignItems:"center", gap:9, padding:"9px 10px", borderRadius:11, background:"transparent", border:"none", color:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, cursor:"pointer", textAlign:"left" }}>
+            <button key={item.label} onClick={item.onClick} className="tap" style={{ display:"flex", alignItems:"center", gap:9, padding:"9px 10px", borderRadius:11, background:"transparent", border:"none", color:"#130B24", fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, cursor:"pointer", textAlign:"left" }}>
               <span style={{ fontSize:14, width:20, textAlign:"center", flexShrink:0 }}>{item.icon}</span>
               <span>{item.label}</span>
             </button>
           ))}
         </div>
       )}
-      <button onClick={()=>setShowActionTray(v=>!v)} className="tap" style={{ position:"absolute", bottom:"calc(96px + env(safe-area-inset-bottom))", right:20, width:54, height:54, borderRadius:18, background:`linear-gradient(150deg,${C.pink},${C.accentDim})`, border:"1px solid rgba(255,255,255,0.28)", display:"flex", alignItems:"center", justifyContent:"center", color:"#0a0612", fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:24, cursor:"pointer", boxShadow:`0 10px 28px ${C.pink}40, 0 4px 14px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.4)`, zIndex:7, transform:showActionTray?"rotate(45deg)":"none", transition:"transform .2s" }}>+</button>
+      <button onClick={()=>setShowActionTray(v=>!v)} className="tap" style={{ position:"absolute", bottom:"calc(96px + env(safe-area-inset-bottom))", right:20, width:54, height:54, borderRadius:18, display:"flex", alignItems:"center", justifyContent:"center", color:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:24, cursor:"pointer", zIndex:7, transform:showActionTray?"rotate(45deg)":"none", transition:"transform .2s",
+        background:`radial-gradient(circle at 30% 20%, rgba(255,255,255,0.38), transparent 45%), linear-gradient(150deg, rgba(196,181,253,0.42), rgba(240,168,204,0.32))`,
+        border:"1px solid rgba(255,255,255,0.38)", backdropFilter:"blur(18px) saturate(1.3)", boxShadow:"0 10px 28px rgba(120,90,200,0.28), inset 0 1px 0 rgba(255,255,255,0.35)" }}>+</button>
 
       {/* CONTENT — all cards/stats scroll here */}
       <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))", position:"relative", zIndex:1 }}>
@@ -7877,24 +8018,27 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
 
         {section==="albums" && (
           <div style={{ paddingTop:4 }}>
-            {/* Albums hero banner */}
-            <div style={{ background:`linear-gradient(140deg,${C.plum},${C.cosmic})`,border:`1.5px solid ${C.accent}28`,borderRadius:20,padding:"16px 18px",marginBottom:12,position:"relative",overflow:"hidden" }}>
-              <div style={{ position:"absolute",inset:0,background:`radial-gradient(ellipse at 80% 20%,${C.lavender}12,transparent 55%)`,pointerEvents:"none" }} />
-              <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.accent}44,transparent)` }} />
-              <div style={{ position:"relative" }}>
-                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:C.text,marginBottom:3 }}>📁 My Binders</p>
-                <p style={{ fontSize:11,color:C.textMid,lineHeight:1.55,marginBottom:isVip?0:12 }}>Track your complete photocard sets, era by era. Every version, every member, every pull.</p>
-                {!isVip&&(
-                  <div onClick={onUpgrade} className="tap" style={{ marginTop:10,background:`${C.gold}14`,border:`1px solid ${C.gold}33`,borderRadius:10,padding:"8px 12px",cursor:"pointer",display:"inline-flex",gap:8,alignItems:"center" }}>
-                    <span style={{ fontSize:14 }}>✦</span>
-                    <div>
-                      <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,color:C.gold }}>Unlock your fan era</p>
-                      <p style={{ fontSize:9.5,color:C.textMid }}>Unlimited binders · Trade analytics from $4.99/mo</p>
+            {/* Albums hero banner — dismissible, no folder emoji */}
+            {!bindersNoticeDismissed && (
+              <div style={{ background:`linear-gradient(140deg,${C.plum},${C.cosmic})`,border:`1.5px solid ${C.accent}28`,borderRadius:20,padding:"16px 18px",marginBottom:12,position:"relative",overflow:"hidden" }}>
+                <div style={{ position:"absolute",inset:0,background:`radial-gradient(ellipse at 80% 20%,${C.lavender}12,transparent 55%)`,pointerEvents:"none" }} />
+                <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.accent}44,transparent)` }} />
+                <button onClick={()=>{ setBindersNoticeDismissed(true); ls.set("backstage_my_binders_notice_dismissed", true); }} aria-label="Dismiss" style={{ position:"absolute", top:10, right:10, width:22, height:22, borderRadius:"50%", background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,255,255,0.14)", color:C.textMid, fontSize:12, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>✕</button>
+                <div style={{ position:"relative", paddingRight:20 }}>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:C.text,marginBottom:3 }}>My Binders</p>
+                  <p style={{ fontSize:11,color:C.textMid,lineHeight:1.55,marginBottom:isVip?0:12 }}>Track your complete photocard sets, era by era. Every version, every member, every pull.</p>
+                  {!isVip&&(
+                    <div onClick={onUpgrade} className="tap" style={{ marginTop:10,background:`${C.gold}14`,border:`1px solid ${C.gold}33`,borderRadius:10,padding:"8px 12px",cursor:"pointer",display:"inline-flex",gap:8,alignItems:"center" }}>
+                      <span style={{ fontSize:14 }}>✦</span>
+                      <div>
+                        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,color:C.gold }}>Unlock your fan era</p>
+                        <p style={{ fontSize:9.5,color:C.textMid }}>Unlimited binders · Trade analytics from $4.99/mo</p>
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
-            </div>
+            )}
             {/* Era Boards cross-link */}
             {eraBoards.length > 0 && (
               <div onClick={()=>setSection("eraboards")} className="tap" style={{ display:"flex",alignItems:"center",gap:10,background:`${softBlue}0a`,border:`1px solid ${softBlue}28`,borderRadius:13,padding:"10px 14px",marginBottom:14,cursor:"pointer" }}>
@@ -7906,12 +8050,30 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                 <span style={{ color:softBlue,fontSize:16 }}>→</span>
               </div>
             )}
-                        <div style={{ display:"flex", gap:0, background:C.surfaceHi, borderRadius:13, padding:3, marginBottom:14 }}>
-              {[["binders","Albums"],["photocards","Photocards"],["wishlist","ISO"],["tradeable","Tradeable"]].map(([id,label])=>(
-                <button key={id} onClick={()=>setAlbumSubView(id)} className="tap" style={{ flex:1, textAlign:"center", padding:"8px 4px", borderRadius:10, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:800, cursor:"pointer", background:albumSubView===id?softBlue:"transparent", color:albumSubView===id?C.bg:C.textMid, border:"none", transition:"all .18s" }}>{label}</button>
-              ))}
-            </div>
-            {albumSubView==="binders" && <CollectTab cards={cards} setCards={setCards} isVip={isVip} onUpgrade={onUpgrade} user={user} onAddMemory={()=>setSection("scrapbook")} />}
+            {/* Single consolidated "Collection View" dropdown chip — replaces stacked pill rows */}
+            {(() => {
+              const ALBUM_VIEWS = [["binders","Albums"],["photocards","Photocards"],["wishlist","ISO / Wishlist"],["tradeable","Tradeable"],["trades","Trades"]];
+              const activeLabel = ALBUM_VIEWS.find(([id])=>id===albumSubView)?.[1] || "Albums";
+              return (
+                <div style={{ position:"relative", marginBottom:14 }}>
+                  <button onClick={()=>setShowAlbumViewMenu(v=>!v)} className="tap" style={{ display:"flex", alignItems:"center", gap:7, padding:"9px 14px", borderRadius:12, background:C.surfaceHi, border:`1px solid ${C.borderHi}`, color:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, cursor:"pointer" }}>
+                    <span style={{ color:C.textMid, fontWeight:600 }}>Viewing:</span> {activeLabel} <span style={{ color:softBlue, marginLeft:2 }}>{showAlbumViewMenu?"▴":"▾"}</span>
+                  </button>
+                  {showAlbumViewMenu && (
+                    <>
+                      <div onClick={()=>setShowAlbumViewMenu(false)} style={{ position:"fixed", inset:0, zIndex:8 }} />
+                      <div style={{ position:"absolute", top:"calc(100% + 6px)", left:0, zIndex:9, minWidth:190, background:`linear-gradient(160deg,${C.surfaceHi}f7,${C.cosmic}f7)`, border:`1px solid ${C.borderHi}`, borderRadius:14, padding:6, boxShadow:"0 14px 36px rgba(0,0,0,0.45)", backdropFilter:"blur(18px)" }}>
+                        {ALBUM_VIEWS.map(([id,label])=>(
+                          <div key={id} onClick={()=>{ setAlbumSubView(id); setShowAlbumViewMenu(false); }} className="tap" style={{ padding:"8px 10px", borderRadius:9, fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:albumSubView===id?800:600, color:albumSubView===id?softBlue2:C.text, background:albumSubView===id?`${softBlue}14`:"transparent", cursor:"pointer" }}>{label}</div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              );
+            })()}
+            {albumSubView==="binders" && <CollectTab cards={cards} setCards={setCards} isVip={isVip} onUpgrade={onUpgrade} user={user} onAddMemory={()=>setSection("scrapbook")} hideNav defaultView="binders" />}
+            {albumSubView==="trades" && <CollectTab cards={cards} setCards={setCards} isVip={isVip} onUpgrade={onUpgrade} user={user} onAddMemory={()=>setSection("scrapbook")} hideNav defaultView="trades" />}
             {albumSubView==="photocards" && (
               <div>
                 <div style={{ display:"flex",gap:0,background:C.surfaceHi,borderRadius:13,padding:3,marginBottom:14 }}>
@@ -7949,7 +8111,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
 
         {section==="scrapbook" && <ScrapbookTab isVip={isVip} onUpgrade={onUpgrade} />}
 
-        {section==="memories" && <CollectTab cards={cards} setCards={setCards} isVip={isVip} onUpgrade={onUpgrade} user={user} onAddMemory={()=>setSection("scrapbook")} />}
+        {section==="memories" && <CollectTab cards={cards} setCards={setCards} isVip={isVip} onUpgrade={onUpgrade} user={user} onAddMemory={()=>setSection("scrapbook")} hideNav defaultView="shelf" />}
 
         {section==="achievements" && (
           <div style={{ paddingTop:4 }}>
@@ -10028,8 +10190,8 @@ function TradeHub({ onBack, onNotif, user }) {
   );
 }
 
-function CollectTab({ cards, setCards, isVip, onUpgrade, user, onAddMemory }) {
-  const [view, setView] = useState("shelf");
+function CollectTab({ cards, setCards, isVip, onUpgrade, user, onAddMemory, hideNav=false, defaultView=null }) {
+  const [view, setView] = useState(defaultView || "shelf");
   const [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState(null);
   const [wishlist, setWishlist] = useState([]);
@@ -10058,26 +10220,30 @@ function CollectTab({ cards, setCards, isVip, onUpgrade, user, onAddMemory }) {
 
   return (
     <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
-      <div style={{ padding:"0 20px 0", flexShrink:0 }}>
-        <div style={{ display:"flex", gap:0, background:C.surfaceHi, borderRadius:13, padding:3, marginBottom:14 }}>
-          {[["shelf","Memories"],["wishlist","Wishlist"],["binders","Albums"],["trades","Trades"]].map(([id,label])=>(
-            <span key={id} onClick={()=>setView(id)} style={{ flex:1, textAlign:"center", padding:"8px 4px", borderRadius:10, fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:view===id?C.accent:"transparent", color:view===id?C.bg:C.textMid, transition:"all .18s" }}>{label}</span>
-          ))}
+      {!hideNav && (
+        <div style={{ padding:"0 20px 0", flexShrink:0 }}>
+          <div style={{ display:"flex", gap:0, background:C.surfaceHi, borderRadius:13, padding:3, marginBottom:14 }}>
+            {[["shelf","Memories"],["wishlist","Wishlist"],["binders","Albums"],["trades","Trades"]].map(([id,label])=>(
+              <span key={id} onClick={()=>setView(id)} style={{ flex:1, textAlign:"center", padding:"8px 4px", borderRadius:10, fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:view===id?C.accent:"transparent", color:view===id?C.bg:C.textMid, transition:"all .18s" }}>{label}</span>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
       <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
         {view==="shelf" && (
           <div>
-            {/* Memory photo grid - matching mockup */}
+            {/* Memory photo grid — glassmorphic iridescent covers, no emoji centerpieces */}
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:12 }}>
               {[
-                { title:"ATEEZ Dallas D1", sub:"May 22, 2025", color:`linear-gradient(160deg,${C.accent}40,${C.accentDim})`, emoji:"🎤" },
-                { title:"Freebies Collection", sub:"May 22, 2025", color:`linear-gradient(160deg,${C.pink}40,${C.pinkDim})`, emoji:"🎁" },
-                { title:"ATEEZ Soundcheck", sub:"May 22, 2025", color:`linear-gradient(160deg,${C.mint}30,${C.mintDim})`, emoji:"🎵" },
-                { title:"New Friends Always", sub:"May 22, 2025", color:`linear-gradient(160deg,${C.gold}30,${C.goldDim})`, emoji:"💜" },
+                { title:"ATEEZ Dallas D1", sub:"May 22, 2025" },
+                { title:"Freebies Collection", sub:"May 22, 2025" },
+                { title:"ATEEZ Soundcheck", sub:"May 22, 2025" },
+                { title:"New Friends Always", sub:"May 22, 2025" },
               ].map((mem,i)=>(
-                <div key={i} className="tap" style={{ borderRadius:16, overflow:"hidden", cursor:"pointer", background:mem.color, aspectRatio:"1", position:"relative", display:"flex", flexDirection:"column", justifyContent:"flex-end", padding:10 }}>
-                  <div style={{ position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:40,opacity:0.2 }}>{mem.emoji}</div>
+                <div key={i} className="tap" style={{ borderRadius:16, overflow:"hidden", cursor:"pointer", position:"relative", aspectRatio:"1", display:"flex", flexDirection:"column", justifyContent:"flex-end", padding:10,
+                  background:`radial-gradient(circle at 20% 0%, rgba(255,255,255,0.10), transparent 34%), radial-gradient(circle at 85% 20%, rgba(167,199,255,0.10), transparent 38%), linear-gradient(150deg, ${C.lavender}22, ${C.blush}14, ${C.sky}12)`,
+                  border:"1px solid rgba(255,255,255,0.14)", backdropFilter:"blur(14px) saturate(1.3)", boxShadow:"inset 0 1px 0 rgba(255,255,255,0.12), 0 8px 20px rgba(0,0,0,0.25)" }}>
+                  <button onClick={e=>{ e.stopPropagation(); onAddMemory && onAddMemory(); }} title="Add cover" style={{ position:"absolute", top:8, right:8, width:22, height:22, borderRadius:"50%", background:"rgba(255,255,255,0.14)", border:"1px solid rgba(255,255,255,0.28)", color:C.text, fontSize:13, lineHeight:1, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", backdropFilter:"blur(6px)" }}>+</button>
                   <div style={{ position:"relative",zIndex:1 }}>
                     <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10.5, color:"white", lineHeight:1.2 }}>{mem.title}</p>
                     <p style={{ fontSize:9, color:"rgba(255,255,255,0.7)", marginTop:2 }}>{mem.sub}</p>
@@ -24595,7 +24761,7 @@ function AppInner() {
     return (
       <>
         <style>{CSS}</style>
-        <div className="cosmic-bg app-shell" style={{ maxWidth:390,margin:"0 auto",background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 40%,#0c0820 100%)`,display:"flex",flexDirection:"column",position:"relative",overflow:"hidden" }}>
+        <div className="cosmic-bg app-shell" style={{ background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 40%,#0c0820 100%)`,display:"flex",flexDirection:"column",position:"relative",overflow:"hidden" }}>
           <ConcertCapsule
             concert={MOCK_CONCERTS[0]}
             onBack={()=>setShowCapsulePreview(false)}
@@ -24614,7 +24780,7 @@ function AppInner() {
   return(
     <>
       <style>{CSS}</style>
-      <div className="cosmic-bg app-shell" style={{ maxWidth:390, margin:"0 auto", background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 40%,#0c0820 100%)`, display:"flex", flexDirection:"column", position:"relative", overflow:"hidden" }}>
+      <div className="cosmic-bg app-shell" style={{ background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 40%,#0c0820 100%)`, display:"flex", flexDirection:"column", position:"relative", overflow:"hidden" }}>
 
         {/* OFFLINE BANNER */}
         <OfflineReadyBanner />
@@ -24737,7 +24903,7 @@ function AppInner() {
                 const effectiveIsVip = isVip || hasVipEntitlement(user) || getCachedVip(user);
                 return (
                   <>
-              {tab==="home"&&<HomeFeed user={user} go={go} weather={weatherData} isVip={effectiveIsVip} onUpgrade={openUpgrade} onSmartNotifs={()=>setShowSmartNotifs(true)} />}
+              {tab==="home"&&<HomeFeed user={user} go={go} weather={weatherData} isVip={effectiveIsVip} onUpgrade={openUpgrade} onSmartNotifs={()=>setShowSmartNotifs(true)} onViewProfile={setFullProfileFan} />}
               {tab==="concerts"&&<ConcertsPage go={go} isVip={effectiveIsVip} onUpgrade={openUpgrade} user={user} />}
               {tab==="community"&&<FanverseTab go={go} user={user} isVip={effectiveIsVip} onUpgrade={openUpgrade} onViewProfile={setFullProfileFan} />}
               {tab==="collect"&&<LibraryTab cards={cards} setCards={setCards} isVip={effectiveIsVip} onUpgrade={openUpgrade} go={go} user={user} weather={weatherData} />}

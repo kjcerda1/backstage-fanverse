@@ -3176,9 +3176,10 @@ app.get('/api/users/search', requireAuth, async (req, res) => {
 
     const { data, error } = await makeUserClient(req)
       .from('users')
-      .select('id, username, display_name, fandoms, avatar_url, city, bio, proof_score, is_vip')
+      .select('id, username, display_name, fandoms, avatar_url, city, show_city, bio, proof_score, is_vip, discoverable')
       .or(orClause)
-      .limit(10);
+      .neq('discoverable', false)
+      .limit(15);
 
     if (error) {
       console.error('[GET /api/users/search] DB error:', error.message);
