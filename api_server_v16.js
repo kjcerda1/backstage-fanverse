@@ -187,9 +187,9 @@ async function requireAuth(req, res, next) {
     return next();
   }
   const token = req.headers.authorization?.replace('Bearer ', '');
-  if (!token) return res.status(401).json({ error: 'Missing auth token' });
+  if (!token) { console.warn(`[requireAuth] ${req.method} ${req.path} — missing auth token`); return res.status(401).json({ error: 'Missing auth token' }); }
   const { data: { user }, error } = await supabase.auth.getUser(token);
-  if (error || !user) return res.status(401).json({ error: 'Invalid or expired session' });
+  if (error || !user) { console.warn(`[requireAuth] ${req.method} ${req.path} — invalid/expired session:`, error?.message); return res.status(401).json({ error: 'Invalid or expired session' }); }
   req.userId    = user.id;
   req.userEmail = user.email;
   req.userToken = token;
@@ -3147,6 +3147,7 @@ app.get('/api/users/search', requireAuth, async (req, res) => {
   const raw = String(req.query.q || '').trim();
   // Normalize: strip leading @, lowercase, collapse whitespace
   const q = raw.replace(/^@/, '').toLowerCase().replace(/\s+/g, ' ');
+  console.log(`[GET /api/users/search] hit — q.length=${q.length} userId=${req.userId}`);
   if (q.length < 2) return res.json({ users: [] });
 
   // Detect phone input: strip all non-digits and check length
@@ -3174,19 +3175,33 @@ app.get('/api/users/search', requireAuth, async (req, res) => {
     let orClause = `username.ilike.${contains},display_name.ilike.${contains},email.ilike.${prefix}`;
     if (looksLikePhone) orClause += `,phone_normalized.eq.${phoneDigits}`;
 
-    const { data, error } = await makeUserClient(req)
+    let { data, error } = await makeUserClient(req)
       .from('users')
       .select('id, username, display_name, fandoms, avatar_url, city, show_city, bio, proof_score, is_vip, discoverable')
       .or(orClause)
-      .neq('discoverable', false)
       .limit(15);
 
+    // Defensive fallback — if show_city/discoverable don't exist on this environment's
+    // schema (undefined_column, e.g. a not-yet-migrated deploy), retry with the
+    // original minimal column set rather than hard-failing the whole search.
+    if (error && (error.code === '42703' || /column .* does not exist/i.test(error.message || ''))) {
+      console.warn('[GET /api/users/search] column missing, retrying with minimal select:', error.message);
+      ({ data, error } = await makeUserClient(req)
+        .from('users')
+        .select('id, username, display_name, fandoms, avatar_url, city, bio, proof_score, is_vip')
+        .or(orClause)
+        .limit(15));
+    }
+
     if (error) {
-      console.error('[GET /api/users/search] DB error:', error.message);
+      console.error('[GET /api/users/search] DB error:', error.code, error.message);
       return res.status(500).json({ error: 'Search unavailable' });
     }
 
-    res.json({ users: (data || []).filter(u => u.id !== req.userId).map(toPublicCard) });
+    // Filter out non-discoverable users in JS (null-safe — treats missing/null
+    // discoverable as discoverable, matching the column's default of true).
+    const visible = (data || []).filter(u => u.discoverable !== false);
+    res.json({ users: visible.filter(u => u.id !== req.userId).map(toPublicCard) });
   } catch (err) {
     console.error('[GET /api/users/search] Exception:', err.message);
     res.status(500).json({ error: 'Search unavailable' });

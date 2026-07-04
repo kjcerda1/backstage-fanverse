@@ -131,9 +131,12 @@ async function searchBackstageUsers(q) {
     const { data } = await _supabase.auth.getSession();
     if (data?.session?.access_token) api._setToken(data.session.access_token);
   }
-  if (!api._token) return null;
+  if (!api._token) { console.warn('[fan search] no auth token available — session may be expired'); return null; }
   const d = await api.get(`/api/users/search?q=${encodeURIComponent(safe)}`);
-  if (d?.error || !Array.isArray(d?.users)) return null;
+  if (d?.error || !Array.isArray(d?.users)) {
+    console.warn('[fan search] request failed:', d?.error || 'malformed response', d);
+    return null;
+  }
   return d.users;
 }
 
@@ -604,10 +607,14 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 /* 100dvh = dynamic viewport height (excludes browser chrome on mobile)    */
 /* -webkit-fill-available fills the visible viewport on older iOS Safari    */
 #root{width:100%;height:100%;height:-webkit-fill-available;overflow:hidden}
-/* Full-bleed on real devices/PWA; only frame to a phone width when the browser
-   viewport is wide enough to be a desktop preview (not an actual phone). */
-.app-shell{width:100%;max-width:100%;margin:0 auto;min-height:-webkit-fill-available;height:100vh;height:100dvh;box-sizing:border-box;padding-top:calc(env(safe-area-inset-top,0px) + 12px)}
-@media (min-width:501px){.app-shell{max-width:430px}}
+/* Full-bleed on real devices/PWA — pinned to the visual viewport edges via
+   position:fixed+inset:0 so it is immune to iOS standalone-PWA quirks where
+   100vh/100dvh under-report the true visible height and leave a black gap
+   above the home-indicator area. Only frame to a phone width + relative
+   positioning when the browser viewport is wide enough to be a desktop
+   preview (not an actual phone). */
+.app-shell{position:fixed;inset:0;width:100%;box-sizing:border-box;padding-top:calc(env(safe-area-inset-top,0px) + 12px)}
+@media (min-width:501px){.app-shell{position:relative;inset:auto;width:430px;max-width:430px;height:100dvh;margin:0 auto}}
 .tap{transition:transform .12s,opacity .12s}
 .tap:active{transform:scale(.94);opacity:.8}
 /* ── Collectible card hover lift ─────────────────────────────────────────── */
@@ -615,6 +622,10 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 .card-lift:active{transform:scale(0.97) translateY(1px)}
 /* ── Bottom nav hidden while any bottom sheet is open ───────────────────── */
 body.bs-sheet-open .bs-bottom-nav{display:none!important}
+/* ── City Activity ticker fade (slow, calm — never a fast marquee) ──────── */
+@keyframes tickerFade{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}
+.ticker-fade{animation:tickerFade .5s ease}
+@media (prefers-reduced-motion: reduce){.ticker-fade{animation:none!important}}
 `;
 
 // ─── RESERVED USERNAMES ────────────────────────────────────────────────────────
@@ -795,7 +806,7 @@ async function syncBackendNotifications() {
 
 async function syncBackendFriendRequests() {
   const d = await api.get('/api/friends/requests');
-  if (!d || d.error) return null;
+  if (!d || d.error) { console.warn('[syncBackendFriendRequests] failed:', d?.error || 'no response'); return null; }
   const incoming = Array.isArray(d.incoming) ? d.incoming : Array.isArray(d.requests) ? d.requests.map(r=>({ ...r, direction:"incoming" })) : [];
   const outgoing = Array.isArray(d.outgoing) ? d.outgoing : [];
   const shaped = { incoming, outgoing };
@@ -809,7 +820,7 @@ async function syncBackendFriendRequests() {
 // return them) are preserved rather than clobbered.
 async function syncBackendCircle() {
   const d = await api.get('/api/circle');
-  if (!d || d.error) return null;
+  if (!d || d.error) { console.warn('[syncBackendCircle] failed:', d?.error || 'no response'); return null; }
   const list = Array.isArray(d.members) ? d.members : Array.isArray(d.circle) ? d.circle : Array.isArray(d.friends) ? d.friends : [];
   const shaped = list.map(m => ({
     id: m.id,
@@ -1907,7 +1918,8 @@ function UpgradeModal({ onClose, onUpgrade }) {
   return (
     <div onClick={onClose} style={{ position:"fixed",inset:0,zIndex:800,background:"rgba(6,6,15,0.96)",display:"flex",alignItems:"flex-end",animation:"in .25s ease" }}>
       <button type="button" aria-label="Close VIP modal" onClick={e=>{ e.stopPropagation(); onClose(); }} style={{ position:"fixed",top:"max(16px, env(safe-area-inset-top))",right:"max(16px, env(safe-area-inset-right))",zIndex:802,width:42,height:42,borderRadius:"50%",background:"rgba(10,10,22,0.92)",border:`1.5px solid ${C.borderHi}`,color:C.text,fontSize:24,lineHeight:1,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 18px rgba(0,0,0,0.32)" }}>×</button>
-      <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceMid, borderRadius:"26px 26px 0 0", width:"100%", animation:"slideUp .3s ease", maxHeight:"92dvh", overflowY:"auto", paddingBottom:"max(18px, env(safe-area-inset-bottom))", border:`1.5px solid ${C.borderHi}`, boxShadow:"0 -12px 60px rgba(184,162,255,0.12)" }}>
+      <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceMid, borderRadius:"26px 26px 0 0", width:"100%", animation:"slideUp .3s ease", maxHeight:"92dvh", display:"flex", flexDirection:"column", overflow:"hidden", border:`1.5px solid ${C.borderHi}`, boxShadow:"0 -12px 60px rgba(184,162,255,0.12)" }}>
+      <div style={{ overflowY:"auto", flex:1, minHeight:0 }}>
 
         {/* Drag handle */}
         <div style={{ width:36,height:4,borderRadius:99,background:C.border,margin:"18px auto 0" }} />
@@ -2016,9 +2028,11 @@ function UpgradeModal({ onClose, onUpgrade }) {
         </div>
 
         {/* Reassurance line */}
-        {API_URL && <p style={{ textAlign:"center", fontSize:11, color:C.textDim, padding:"10px 26px 0", fontStyle:"italic" }}>Cancel anytime. No pressure.</p>}
-        {/* Sticky footer — always visible even on small screens without scrolling */}
-        <div style={{ position:"sticky", bottom:0, background:C.surfaceMid, borderTop:`1px solid rgba(255,255,255,0.06)`, display:"flex", justifyContent:"center", padding:"12px 26px calc(12px + env(safe-area-inset-bottom))" }}>
+        {API_URL && <p style={{ textAlign:"center", fontSize:11, color:C.textDim, padding:"10px 26px 20px", fontStyle:"italic" }}>Cancel anytime. No pressure.</p>}
+      </div>
+        {/* Footer — a real flex child (not sticky-in-scroll), so it's always
+            fully visible and cohesive with the modal panel, never a floating sliver. */}
+        <div style={{ flexShrink:0, background:C.surfaceMid, borderTop:`1px solid rgba(255,255,255,0.06)`, display:"flex", justifyContent:"center", padding:"12px 26px calc(12px + env(safe-area-inset-bottom))" }}>
           <button onClick={onClose} style={{ background:"none",border:"none",color:C.textDim,fontSize:13,cursor:"pointer",fontFamily:"'Instrument Sans',sans-serif",padding:"4px 12px" }}>Maybe later</button>
         </div>
       </div>
@@ -8231,6 +8245,31 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
         )}
       </Screen>
 
+      {/* Decorate My Universe — wires the FAB action to the real theme system
+          (myWorldTheme / THEME_BG already drives the atmospheric background above). */}
+      {showDecorate&&(
+        <div onClick={()=>setShowDecorate(false)} style={{ position:"fixed",inset:0,zIndex:410,background:"rgba(6,6,15,0.72)",display:"flex",alignItems:"flex-end",animation:"in .2s ease",backdropFilter:"blur(7px)" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ width:"100%",maxHeight:"82vh",overflowY:"auto",background:`linear-gradient(165deg,${C.surfaceHi}f7,${C.plum}f5)`,borderRadius:"24px 24px 0 0",border:`1px solid ${C.lavender}30`,padding:"18px 16px calc(30px + env(safe-area-inset-bottom))",boxShadow:`0 -18px 50px rgba(0,0,0,0.55), 0 0 28px ${C.lavender}22`,animation:"slideUp .25s ease" }}>
+            <div style={{ width:36,height:4,borderRadius:99,background:C.lavender,opacity:.65,margin:"0 auto 16px" }} />
+            <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:16 }}>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:17,color:C.text }}>Decorate My Universe</p>
+              <button onClick={()=>setShowDecorate(false)} aria-label="Close" style={{ width:34,height:34,borderRadius:12,background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.12)",color:C.text,fontSize:16,cursor:"pointer" }}>✕</button>
+            </div>
+            <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10 }}>World Theme</p>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:6 }}>
+              {WORLD_THEMES.map(t=>(
+                <div key={t.id} onClick={()=>saveTheme(t.id)} className="tap" style={{ borderRadius:12, padding:"10px 8px", textAlign:"center", cursor:"pointer", background:myWorldTheme===t.id?`${t.color}28`:`${t.color}0a`, border:`1.5px solid ${myWorldTheme===t.id?t.color:t.color+"33"}`, transition:"all .2s" }}>
+                  <div style={{ fontSize:18, marginBottom:3 }}>{t.emoji}</div>
+                  <p style={{ fontSize:8.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:myWorldTheme===t.id?t.color:C.textMid, lineHeight:1.3 }}>{t.id}</p>
+                  {myWorldTheme===t.id && <div style={{ width:5,height:5,borderRadius:"50%",background:t.color,margin:"4px auto 0" }} />}
+                </div>
+              ))}
+            </div>
+            <p style={{ fontSize:10.5, color:C.textDim, lineHeight:1.55 }}>Sets the ambient background across My Universe. More decoration options — album covers, shelf layout — are coming soon.</p>
+          </div>
+        </div>
+      )}
+
       {showCollectionTracker&&(
         <div onClick={()=>setShowCollectionTracker(false)} style={{ position:"fixed",inset:0,zIndex:410,background:"rgba(6,6,15,0.72)",display:"flex",alignItems:"flex-end",animation:"in .2s ease",backdropFilter:"blur(7px)" }}>
           <div onClick={e=>e.stopPropagation()} style={{ width:"100%",maxHeight:"82vh",overflowY:"auto",background:`linear-gradient(165deg,${C.surfaceHi}f7,${C.plum}f5)`,borderRadius:"24px 24px 0 0",border:`1px solid ${softBlueGlow}`,padding:"18px 16px calc(30px + env(safe-area-inset-bottom))",boxShadow:`0 -18px 50px rgba(0,0,0,0.55), 0 0 28px ${softBlueGlow}`,animation:"slideUp .25s ease" }}>
@@ -10286,8 +10325,10 @@ function CollectTab({ cards, setCards, isVip, onUpgrade, user, onAddMemory, hide
             {bindersLoading && <div style={{ textAlign:"center",padding:32,color:C.textMid,fontSize:12 }}>Loading binders...</div>}
 
             {!bindersLoading && binders.length===0 && (
-              <div style={{ textAlign:"center",padding:"32px 16px",background:`${C.accent}08`,border:`1.5px dashed ${C.border}`,borderRadius:20 }}>
-                <p style={{ fontSize:30,marginBottom:10 }}>🃏</p>
+              <div style={{ textAlign:"center",padding:"32px 16px",borderRadius:20,
+                background:`radial-gradient(circle at 20% 0%, rgba(255,255,255,0.10), transparent 34%), linear-gradient(150deg, ${C.lavender}18, ${C.blush}0e, ${C.sky}0c)`,
+                border:"1px solid rgba(255,255,255,0.14)", backdropFilter:"blur(14px) saturate(1.3)" }}>
+                <div style={{ width:34,height:34,borderRadius:"50%",margin:"0 auto 12px",display:"flex",alignItems:"center",justifyContent:"center",background:`${C.accent}14`,border:`1px solid ${C.accent}30`,color:C.accent,fontSize:15 }}>✦</div>
                 <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14,marginBottom:5 }}>No binders yet</p>
                 <p style={{ fontSize:12,color:C.textMid }}>Create your first binder to start tracking your collection.</p>
               </div>
@@ -11320,10 +11361,39 @@ function CityHubDetail({ city, user, onBack, onViewProfile }) {
   );
 }
 
+// City Activity — a single slow-rotating banner (news-ticker lower-third style)
+// instead of a heavy horizontal card grid. Advances every 4.5s; respects
+// prefers-reduced-motion via the .ticker-fade class defined in the global CSS.
+function CityActivityTicker({ items, onTap }) {
+  const [idx, setIdx] = useState(0);
+  useEffect(() => {
+    if (!items?.length) return;
+    const iv = setInterval(() => setIdx(i => (i + 1) % items.length), 4500);
+    return () => clearInterval(iv);
+  }, [items?.length]);
+  if (!items?.length) return null;
+  const item = items[idx];
+  return (
+    <div onClick={onTap} className="tap" style={{ borderRadius:14, padding:"11px 14px", display:"flex", alignItems:"center", gap:10, overflow:"hidden", position:"relative", cursor:"pointer",
+      background:`linear-gradient(135deg, ${item.color}14, rgba(255,255,255,0.03))`, border:`1px solid ${item.color}30`, backdropFilter:"blur(10px)",
+      transition:"background .6s ease, border-color .6s ease" }}>
+      <span style={{ fontSize:16, flexShrink:0 }}>{item.emoji}</span>
+      <p key={idx} className="ticker-fade" style={{ flex:1, minWidth:0, fontSize:11.5, color:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+        <span style={{ fontWeight:800, color:item.color }}>{item.city}</span> · {item.fandom} {item.status.toLowerCase()} · {item.fans.toLocaleString()} fans · {item.meetups} meetups
+      </p>
+      <div style={{ display:"flex", gap:3, flexShrink:0 }}>
+        {items.map((_,i)=>(<div key={i} style={{ width:4,height:4,borderRadius:"50%",background:i===idx?item.color:"rgba(255,255,255,0.15)",transition:"background .5s" }} />))}
+      </div>
+    </div>
+  );
+}
 
 function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
   const { tokenReady } = useAuth();
-  const [view, setView]   = useState("feed"); // feed | map | hubs | fans | leaders
+  const [view, setView]   = useState("feed"); // feed | map | hubs | circles
+  // Map now hosts City Hubs + Leaders as sub-views (consolidated IA); Circles hosts Fan discovery.
+  const [mapSubView, setMapSubView] = useState("activity"); // activity | hubs | leaders
+  const [circlesSubView, setCirclesSubView] = useState("circles"); // circles | fans
   const [joined, setJoined] = useState(["dallas"]);
   const [scrolled, setScrolled] = useState(false);
   const [ringFilter, setRingFilter] = useState(null); // "circle" | "local" | null
@@ -11530,31 +11600,14 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
         </div>
       </div>
 
-      {/* City Activity */}
+      {/* City Activity — slow rotating ticker, not another card grid */}
       <div style={{ padding:"18px 0 0" }}>
-        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"0 18px",marginBottom:12 }}>
+        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"0 18px",marginBottom:10 }}>
           <p style={VS.softSectionHeader}>City Activity</p>
           <StatusChip label="PREVIEW" />
         </div>
-        <div style={{ display:"flex",gap:11,overflowX:"auto",paddingLeft:18,paddingRight:18,paddingBottom:6,scrollbarWidth:"none" }}>
-          {CITY_CARDS.map((c,i)=>(
-            <div key={i} onClick={()=>go("fanmap")} className="tap" style={{ flexShrink:0,width:175,...VS.glowCard(c.color),cursor:"pointer" }}>
-              <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${c.color}55,transparent)` }} />
-              <div style={{ padding:"16px 14px 14px",position:"relative" }}>
-                <div style={{ position:"absolute",top:-14,right:-14,width:80,height:80,borderRadius:"50%",background:`radial-gradient(circle,${c.color}22,transparent 65%)`,pointerEvents:"none" }} />
-                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10 }}>
-                  <div style={{ ...VS.activePill(c.color),fontSize:8,position:"relative" }}>{c.status}</div>
-                  <span style={{ fontSize:20 }}>{c.emoji}</span>
-                </div>
-                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:16,color:C.text,marginBottom:2,position:"relative" }}>{c.city}</p>
-                <p style={{ fontSize:11,color:c.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,marginBottom:10,position:"relative" }}>{c.fandom}</p>
-                <div style={{ display:"flex",gap:12,position:"relative" }}>
-                  <div><p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:C.text }}>{c.fans.toLocaleString()}</p><p style={{ fontSize:9,color:C.textMid }}>fans</p></div>
-                  <div><p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:C.text }}>{c.meetups}</p><p style={{ fontSize:9,color:C.textMid }}>meetups</p></div>
-                </div>
-              </div>
-            </div>
-          ))}
+        <div style={{ padding:"0 18px" }}>
+          <CityActivityTicker items={CITY_CARDS} onTap={()=>go("fanmap")} />
         </div>
       </div>
 
@@ -11666,7 +11719,7 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
         {/* ── STICKY TABS — compress on scroll ── */}
         <div style={{ padding:`${scrolled?2:0}px 14px ${scrolled?4:5}px`,transition:"padding .28s ease" }}>
           <div style={{ display:"flex",gap:0,background:"rgba(255,255,255,0.035)",border:"1px solid rgba(214,189,255,0.14)",borderRadius:scrolled?10:11,padding:scrolled?2:2,backdropFilter:"blur(10px)",boxShadow:"inset 0 1px 0 rgba(255,255,255,0.05)",transition:"all .28s ease" }}>
-            {[["feed","🌐","Feed"],["map","🗺️","Map"],["hubs","🏙️","Hubs"],["fans","👥","Fans"],["leaders","🏆","Leaders"],["circles","✦","Circles"]].map(([id,icon,name])=>(
+            {[["feed","🌐","Feed"],["map","🗺️","Map"],["hubs","🎉","Hubs"],["circles","✦","Circles"]].map(([id,icon,name])=>(
               <span key={id} onClick={()=>changeView(id)} style={{ flex:1,textAlign:"center",padding:scrolled?"4px 2px":"5px 2px",borderRadius:scrolled?8:9,fontSize:scrolled?9:9.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:view===id?`linear-gradient(135deg,${C.accent},${C.gold}cc)`:"transparent",color:view===id?"#1a1228":C.textMid,boxShadow:view===id?`0 0 10px ${C.accent}33`:"none",transition:"all .18s",whiteSpace:"nowrap" }}>{icon} {name}</span>
             ))}
           </div>
@@ -11689,41 +11742,20 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
         </div>
       )}
 
-      {/* MAP */}
-      {view==="map" && <FanverseMapView />}
-
-      {/* HUBS */}
-      {view==="hubs" && hubDetail && (
-        <CityHubDetail city={hubDetail} user={user} onBack={()=>setHubDetail(null)} onViewProfile={onViewProfile} />
-      )}
-      {view==="hubs" && !hubDetail && (
-        <div onScroll={e=>setScrolled(e.target.scrollTop>48)} style={{ flex:1,overflowY:"auto",overflowX:"hidden",padding:"14px 18px 100px" }}>
-          <div onClick={()=>go("concerts")} className="tap" style={{ ...VS.glowCard(C.pink),padding:"13px 16px",marginBottom:16,cursor:"pointer" }}>
-            <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.pink}55,transparent)` }} />
-            <div style={{ position:"relative",display:"flex",gap:12,alignItems:"center" }}>
-              <div style={{ width:44,height:44,borderRadius:13,background:`${C.pink}1c`,border:`1.5px solid ${C.pink}30`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0 }}>🎤</div>
-              <div style={{ flex:1 }}>
-                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:C.text,marginBottom:2 }}>Concerts, Meetups & After Parties</p>
-                <p style={{ fontSize:10.5,color:C.textMid }}>Shows · Pre-show meetups · After parties · Find fans</p>
-              </div>
-              <span style={{ color:C.pink,fontSize:18 }}>›</span>
-            </div>
+      {/* MAP — hosts Fanverse orbit map, City Hubs, and Leaders as sub-views */}
+      {view==="map" && (
+        <div style={{ flex:1, overflow:"hidden", display:"flex", flexDirection:"column" }}>
+          <div style={{ display:"flex", gap:6, padding:"8px 14px 8px", flexShrink:0 }}>
+            {[["activity","Activity"],["hubs","City Hubs"],["leaders","Leaders"]].map(([id,label])=>(
+              <span key={id} onClick={()=>setMapSubView(id)} className="tap" style={{ flex:1, textAlign:"center", padding:"7px 4px", borderRadius:9, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:mapSubView===id?`linear-gradient(135deg,${C.accent},${C.gold}cc)`:"rgba(255,255,255,0.05)", color:mapSubView===id?"#1a1228":C.textMid, transition:"all .18s" }}>{label}</span>
+            ))}
           </div>
-          <p style={{ ...VS.softSectionHeader,marginBottom:10 }}>Upcoming Fan Events</p>
-          {MOCK_MEETUPS.slice(0,4).map(m=>(
-            <div key={m.id} style={{ ...VS.glowCard(m.color),padding:"12px 14px",marginBottom:9,display:"flex",gap:11,alignItems:"center" }}>
-              <div style={{ position:"absolute",top:-8,right:-8,width:50,height:50,borderRadius:"50%",background:`radial-gradient(circle,${m.color}18,transparent 65%)`,pointerEvents:"none" }} />
-              <div style={{ width:42,height:42,borderRadius:13,background:`${m.color}1c`,border:`1.5px solid ${m.color}30`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0 }}>{m.type==="afterparty"?"🎉":m.type==="cupsleeve"?"🧋":m.type==="trade"?"🃏":"📍"}</div>
-              <div style={{ flex:1,position:"relative" }}>
-                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12.5,color:C.text,marginBottom:2 }}>{m.title}</p>
-                <p style={{ fontSize:10,color:C.textMid }}>{m.date} · {m.time}</p>
-                <p style={{ fontSize:10,color:C.textMid }}>📍 {m.place}</p>
-              </div>
-              <div style={{ ...VS.activePill(m.color),fontSize:8.5,flexShrink:0 }}>{m.type==="afterparty"?"After Party":"Meetup"}</div>
-            </div>
-          ))}
-          <div style={{ height:1,background:C.border,margin:"14px 0" }} />
-
+          {mapSubView==="activity" && <FanverseMapView />}
+          {mapSubView==="hubs" && hubDetail && (
+            <CityHubDetail city={hubDetail} user={user} onBack={()=>setHubDetail(null)} onViewProfile={onViewProfile} />
+          )}
+          {mapSubView==="hubs" && !hubDetail && (
+        <div onScroll={e=>setScrolled(e.target.scrollTop>48)} style={{ flex:1,overflowY:"auto",overflowX:"hidden",padding:"14px 18px 100px" }}>
           {/* ── City Hubs — live from GET /api/hubs/cities ── */}
           <p style={{ ...VS.softSectionHeader,marginBottom:10 }}>City Hubs</p>
 
@@ -11820,10 +11852,43 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
             </>
           )}
         </div>
+          )}
+          {mapSubView==="leaders" && <FanverseLeaders />}
+        </div>
       )}
 
-      {/* FAN DISCOVERY */}
-      {view==="fans" && (
+      {/* HUBS — concerts, meetups, after parties (community/event focused) */}
+      {view==="hubs" && (
+        <div onScroll={e=>setScrolled(e.target.scrollTop>48)} style={{ flex:1,overflowY:"auto",overflowX:"hidden",padding:"14px 18px 100px" }}>
+          <div onClick={()=>go("concerts")} className="tap" style={{ ...VS.glowCard(C.pink),padding:"13px 16px",marginBottom:16,cursor:"pointer" }}>
+            <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.pink}55,transparent)` }} />
+            <div style={{ position:"relative",display:"flex",gap:12,alignItems:"center" }}>
+              <div style={{ width:44,height:44,borderRadius:13,background:`${C.pink}1c`,border:`1.5px solid ${C.pink}30`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0 }}>🎤</div>
+              <div style={{ flex:1 }}>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:C.text,marginBottom:2 }}>Concerts, Meetups & After Parties</p>
+                <p style={{ fontSize:10.5,color:C.textMid }}>Shows · Pre-show meetups · After parties · Find fans</p>
+              </div>
+              <span style={{ color:C.pink,fontSize:18 }}>›</span>
+            </div>
+          </div>
+          <p style={{ ...VS.softSectionHeader,marginBottom:10 }}>Upcoming Fan Events</p>
+          {MOCK_MEETUPS.slice(0,4).map(m=>(
+            <div key={m.id} style={{ ...VS.glowCard(m.color),padding:"12px 14px",marginBottom:9,display:"flex",gap:11,alignItems:"center" }}>
+              <div style={{ position:"absolute",top:-8,right:-8,width:50,height:50,borderRadius:"50%",background:`radial-gradient(circle,${m.color}18,transparent 65%)`,pointerEvents:"none" }} />
+              <div style={{ width:42,height:42,borderRadius:13,background:`${m.color}1c`,border:`1.5px solid ${m.color}30`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0 }}>{m.type==="afterparty"?"🎉":m.type==="cupsleeve"?"🧋":m.type==="trade"?"🃏":"📍"}</div>
+              <div style={{ flex:1,position:"relative" }}>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12.5,color:C.text,marginBottom:2 }}>{m.title}</p>
+                <p style={{ fontSize:10,color:C.textMid }}>{m.date} · {m.time}</p>
+                <p style={{ fontSize:10,color:C.textMid }}>📍 {m.place}</p>
+              </div>
+              <div style={{ ...VS.activePill(m.color),fontSize:8.5,flexShrink:0 }}>{m.type==="afterparty"?"After Party":"Meetup"}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* FAN DISCOVERY — moved under Circles */}
+      {view==="circles" && circlesSubView==="fans" && (
         <div onScroll={e=>setScrolled(e.target.scrollTop>48)} style={{ flex:1, overflowY:"auto", overflowX:"hidden", padding:"14px 18px 100px" }}>
           <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:17, marginBottom:4 }}>Discover Fans</p>
           <p style={{ fontSize:11, color:C.textMid, marginBottom:14, lineHeight:1.55 }}>K-pop fans you'd vibe with — same fandoms, bias, or city.</p>
@@ -11907,19 +11972,23 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
         </div>
       )}
 
-      {/* FANS */}
-      {view==="fans" && (
+      {/* FANS — moved under Circles */}
+      {view==="circles" && circlesSubView==="fans" && (
         <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden" }}>
           <FansVibeStrip fans={discoverFans} onViewProfile={onViewProfile} />
           <FanDiscoverySection user={user} fans={discoverFans} loading={discoverLoading} onViewProfile={onViewProfile} />
         </div>
       )}
 
-      {/* LEADERS */}
-      {view==="leaders" && <FanverseLeaders />}
-
       {/* ── CIRCLES ──────────────────────────────────────────────────────────── */}
       {view==="circles" && (
+        <div style={{ display:"flex", gap:6, padding:"8px 14px 0", flexShrink:0 }}>
+          {[["circles","My Circles"],["fans","Discover Fans"]].map(([id,label])=>(
+            <span key={id} onClick={()=>setCirclesSubView(id)} className="tap" style={{ flex:1, textAlign:"center", padding:"7px 4px", borderRadius:9, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:circlesSubView===id?`linear-gradient(135deg,${C.accent},${C.gold}cc)`:"rgba(255,255,255,0.05)", color:circlesSubView===id?"#1a1228":C.textMid, transition:"all .18s" }}>{label}</span>
+          ))}
+        </div>
+      )}
+      {view==="circles" && circlesSubView==="circles" && (
         <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden",position:"relative" }}>
 
           {/* Circle detail view */}
@@ -24222,11 +24291,14 @@ if(_IS_CAPSULE_PATH && typeof window!=="undefined") {
 // creates a new function reference, causing React to unmount/remount all children
 // (including DirectMessages), wiping local state like activeConvo.
 function ModalWrapper({ children }) {
+  // position:absolute;inset:0 positions against the app-shell's border edge, not its
+  // padding edge — so it bypasses .app-shell's own safe-area-inset-top padding.
+  // Every full-screen modal needs that clearance re-applied here, once, centrally.
   return (
     <div style={{ position:"absolute",inset:0,zIndex:300,background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 50%,#0c0820 100%)`,display:"flex",flexDirection:"column",animation:"in .18s ease" }}>
       <div style={{ position:"absolute",top:0,right:0,width:200,height:200,borderRadius:"50%",background:`radial-gradient(circle,${C.berry}06,transparent 70%)`,pointerEvents:"none",zIndex:0 }} />
       <div style={{ position:"absolute",bottom:100,left:0,width:150,height:150,borderRadius:"50%",background:`radial-gradient(circle,${C.accent}05,transparent 70%)`,pointerEvents:"none",zIndex:0 }} />
-      <div style={{ position:"relative",zIndex:1,flex:1,display:"flex",flexDirection:"column",overflow:"hidden" }}>{children}</div>
+      <div style={{ position:"relative",zIndex:1,flex:1,display:"flex",flexDirection:"column",overflow:"hidden",paddingTop:"calc(env(safe-area-inset-top,0px) + 10px)" }}>{children}</div>
     </div>
   );
 }
@@ -24453,7 +24525,9 @@ function AppInner() {
         if(d?.error || d?.is_vip===undefined){
           // Auth refresh, Render cold starts, and transient DB errors are not
           // proof that a paid account was revoked. Keep cached VIP and retry.
+          console.warn(`[VIP sync] status check failed (attempt ${attempt+1}/${retryDelays.length+1}):`, d?.error || 'malformed response');
           if(attempt < retryDelays.length) setTimeout(()=>runStatusCheck(attempt + 1), retryDelays[attempt]);
+          else console.error('[VIP sync] gave up after all retries — isVip may be stale until next app reload');
           return;
         }
         const active = hasVipEntitlement({is_vip:d.is_vip, vip_source:d.vip_source, vip_expires_at:d.vip_expires_at});
@@ -24486,7 +24560,8 @@ function AppInner() {
             }).catch(()=>{});
           }
         }
-      }).catch(()=>{
+      }).catch(err=>{
+        console.warn(`[VIP sync] status check network error (attempt ${attempt+1}/${retryDelays.length+1}):`, err?.message);
         if(attempt < retryDelays.length) setTimeout(()=>runStatusCheck(attempt + 1), retryDelays[attempt]);
       });
     };
@@ -24761,7 +24836,7 @@ function AppInner() {
     return (
       <>
         <style>{CSS}</style>
-        <div className="cosmic-bg app-shell" style={{ background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 40%,#0c0820 100%)`,display:"flex",flexDirection:"column",position:"relative",overflow:"hidden" }}>
+        <div className="cosmic-bg app-shell" style={{ background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 40%,#0c0820 100%)`,display:"flex",flexDirection:"column",overflow:"hidden" }}>
           <ConcertCapsule
             concert={MOCK_CONCERTS[0]}
             onBack={()=>setShowCapsulePreview(false)}
@@ -24780,7 +24855,7 @@ function AppInner() {
   return(
     <>
       <style>{CSS}</style>
-      <div className="cosmic-bg app-shell" style={{ background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 40%,#0c0820 100%)`, display:"flex", flexDirection:"column", position:"relative", overflow:"hidden" }}>
+      <div className="cosmic-bg app-shell" style={{ background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 40%,#0c0820 100%)`, display:"flex", flexDirection:"column", overflow:"hidden" }}>
 
         {/* OFFLINE BANNER */}
         <OfflineReadyBanner />
@@ -24954,7 +25029,7 @@ function AppInner() {
 
       {/* ── COMPACT PROFILE CARD — step 1, z:600 */}
       {publicProfileFan&&!fullProfileFan&&(
-        <div style={{ position:"absolute",inset:0,zIndex:600,display:"flex",flexDirection:"column" }}>
+        <div style={{ position:"absolute",inset:0,zIndex:600,display:"flex",flexDirection:"column",paddingTop:"calc(env(safe-area-inset-top,0px) + 10px)" }}>
           <PublicProfilePreview
             fan={publicProfileFan}
             onBack={()=>setPublicProfileFan(null)}
@@ -24966,7 +25041,7 @@ function AppInner() {
       )}
       {/* ── FULL RICH PROFILE — z:650; direct from any fan tap or step 2 from DM compact card */}
       {fullProfileFan&&(
-        <div style={{ position:"absolute",inset:0,zIndex:650,display:"flex",flexDirection:"column",background:C.bg,overflow:"hidden" }}>
+        <div style={{ position:"absolute",inset:0,zIndex:650,display:"flex",flexDirection:"column",background:C.bg,overflow:"hidden",paddingTop:"calc(env(safe-area-inset-top,0px) + 10px)" }}>
           <PublicProfileFull
             fan={fullProfileFan}
             onBack={()=>setFullProfileFan(null)}
