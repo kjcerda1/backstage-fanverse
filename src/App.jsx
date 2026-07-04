@@ -13,33 +13,65 @@ const API_URL = import.meta.env.VITE_API_URL || "";
 
 const api = {
   _token: null,
+  _refreshing: null,
   _setToken(t) { this._token = t; },
   _headers() {
     const h = { 'Content-Type': 'application/json' };
     if (this._token) h['Authorization'] = `Bearer ${this._token}`;
     return h;
   },
+  // A held access_token can go stale (JWT expired) while still being non-null —
+  // e.g. a backgrounded PWA left open past the token TTL. Supabase's own
+  // autoRefreshToken timer doesn't reliably fire while the tab is suspended, so
+  // a 401 here doesn't mean "not authenticated", it can mean "needs a refresh".
+  // Force one via the stored refresh token and retry the request exactly once.
+  async _refreshToken() {
+    if (!_supabase) return false;
+    if (this._refreshing) return this._refreshing;
+    this._refreshing = (async () => {
+      try {
+        const { data, error } = await _supabase.auth.refreshSession();
+        if (error || !data?.session?.access_token) return false;
+        this._setToken(data.session.access_token);
+        return true;
+      } catch { return false; }
+      finally { this._refreshing = null; }
+    })();
+    return this._refreshing;
+  },
   async post(path, body) {
     try {
-      const r = await fetch(`${API_URL}${path}`, { method:'POST', headers:this._headers(), body:JSON.stringify(body) });
+      let r = await fetch(`${API_URL}${path}`, { method:'POST', headers:this._headers(), body:JSON.stringify(body) });
+      if (r.status === 401 && await this._refreshToken()) {
+        r = await fetch(`${API_URL}${path}`, { method:'POST', headers:this._headers(), body:JSON.stringify(body) });
+      }
       return r.ok ? r.json() : { error: `${r.status}`, mock: true };
     } catch { return { error:'Network error', mock: true }; }
   },
   async get(path) {
     try {
-      const r = await fetch(`${API_URL}${path}`, { headers:this._headers() });
+      let r = await fetch(`${API_URL}${path}`, { headers:this._headers() });
+      if (r.status === 401 && await this._refreshToken()) {
+        r = await fetch(`${API_URL}${path}`, { headers:this._headers() });
+      }
       return r.ok ? r.json() : { error: `${r.status}` };
     } catch { return { error:'Network error' }; }
   },
   async patch(path, body) {
     try {
-      const r = await fetch(`${API_URL}${path}`, { method:'PATCH', headers:this._headers(), body:JSON.stringify(body) });
+      let r = await fetch(`${API_URL}${path}`, { method:'PATCH', headers:this._headers(), body:JSON.stringify(body) });
+      if (r.status === 401 && await this._refreshToken()) {
+        r = await fetch(`${API_URL}${path}`, { method:'PATCH', headers:this._headers(), body:JSON.stringify(body) });
+      }
       return r.ok ? r.json() : { error: `${r.status}` };
     } catch { return { error:'Network error' }; }
   },
   async del(path) {
     try {
-      const r = await fetch(`${API_URL}${path}`, { method:'DELETE', headers:this._headers() });
+      let r = await fetch(`${API_URL}${path}`, { method:'DELETE', headers:this._headers() });
+      if (r.status === 401 && await this._refreshToken()) {
+        r = await fetch(`${API_URL}${path}`, { method:'DELETE', headers:this._headers() });
+      }
       return r.ok ? r.json() : { error: `${r.status}` };
     } catch { return { error:'Network error' }; }
   },
@@ -11409,7 +11441,6 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
 
   const [discoverFans, setDiscoverFans] = useState([]);
   const [discoverLoading, setDiscoverLoading] = useState(false);
-  const [discoverFilter, setDiscoverFilter] = useState("all");
   const [discoverStatuses, setDiscoverStatuses] = useState({});
   const [discoverLoaded, setDiscoverLoaded] = useState(false);
 
@@ -11521,70 +11552,13 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
     { emoji:"🌸", city:"London", fandom:"NewJeans",     fans:3100, meetups:8,  status:"ACTIVE",  color:C.pink },
   ];
 
-  // Orbit-style Fanverse map — user at center with fandom orbits
-  const ORBIT_FANDOMS = [
-    { label:"ATEEZ",      color:C.gold,    orbit:1, angle:25,  size:38, fans:"4.2K", active:true  },
-    { label:"Stray Kids", color:C.rose,    orbit:1, angle:145, size:42, fans:"8.3K", active:true  },
-    { label:"aespa",      color:C.mint,    orbit:2, angle:275, size:40, fans:"12K",  active:true  },
-    { label:"BTS",        color:C.accent,  orbit:2, angle:55,  size:46, fans:"18K",  active:true  },
-    { label:"NewJeans",   color:C.blush,   orbit:2, angle:190, size:34, fans:"6.1K", active:false },
-    { label:"NMIXX",      color:C.lavender,orbit:3, angle:310, size:30, fans:"2.2K", active:false },
-    { label:"IVE",        color:C.teal,    orbit:3, angle:80,  size:32, fans:"3.8K", active:false },
-  ];
-  const ORBIT_RADII = [0, 68, 108, 148]; // px radii per orbit level
-
   const FanverseMapView = () => (
     <div style={{ overflowY:"auto", flex:1, paddingBottom:"calc(120px + env(safe-area-inset-bottom))" }}>
-      {/* Orbit map */}
+      {/* Real Backstage Mapbox map — the primary map experience, no "Full Map" tap required.
+          MapboxMap self-manages the no-token fallback (cinematic city view) internally. */}
       <div style={{ margin:"14px 18px 0", borderRadius:28, overflow:"hidden", position:"relative", background:`linear-gradient(160deg,#0c0520,#16083a,#0a0418)`, border:`1.5px solid ${C.accent}30`, boxShadow:`0 12px 48px ${C.plum}60, 0 4px 16px rgba(0,0,0,0.7)` }}>
-        <div style={{ position:"absolute",inset:0,background:`radial-gradient(ellipse at 50% 50%,${C.accent}12,transparent 70%),radial-gradient(ellipse at 80% 20%,${C.berry}14,transparent 50%),radial-gradient(ellipse at 20% 80%,${C.teal}08,transparent 45%)`,pointerEvents:"none" }} />
-        <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.lavender}66,transparent)` }} />
-
-        {/* Orbit SVG canvas */}
-        <div style={{ position:"relative", height:290, overflow:"hidden" }}>
-          <svg style={{ position:"absolute",inset:0,width:"100%",height:"100%" }} viewBox="0 0 354 290">
-            {/* Orbit ring lines — dotted */}
-            {[68,108,148].map((r,i)=>(
-              <circle key={i} cx="177" cy="145" r={r} fill="none" stroke={`rgba(196,181,253,${0.12-i*0.03})`} strokeWidth="0.8" strokeDasharray="4 6"/>
-            ))}
-            {/* Sparkle dots scattered */}
-            {[[40,40],[310,60],[60,240],[290,220],[170,20],[60,100],[300,160]].map(([x,y],i)=>(
-              <circle key={`star-${i}`} cx={x} cy={y} r="1" fill="white" opacity={0.3+Math.random()*0.3} style={{ animation:`pulse ${2+i*0.4}s ease infinite`, animationDelay:`${i*0.3}s` }}/>
-            ))}
-            {/* Fandom nodes */}
-            {ORBIT_FANDOMS.map((f,i)=>{
-              const r = ORBIT_RADII[f.orbit];
-              const rad = (f.angle * Math.PI) / 180;
-              const cx = 177 + r * Math.cos(rad);
-              const cy = 145 + r * Math.sin(rad);
-              return (
-                <g key={i} style={{ animation:`orbitPulse ${2.5+i*0.4}s ease-in-out infinite`, animationDelay:`${i*0.35}s` }}>
-                  {/* Glow halo */}
-                  <circle cx={cx} cy={cy} r={f.size/2+4} fill={f.color} opacity="0.08"/>
-                  {/* Main circle */}
-                  <circle cx={cx} cy={cy} r={f.size/2} fill={`${f.color}30`} stroke={f.color} strokeWidth={f.active?"1.5":"0.8"} strokeOpacity={f.active?0.8:0.4}/>
-                  {/* Label */}
-                  <text x={cx} y={cy-2} textAnchor="middle" fill="white" fontSize="6.5" fontFamily="'Epilogue',sans-serif" fontWeight="700" opacity={f.active?0.95:0.6}>{f.label}</text>
-                  <text x={cx} y={cy+8} textAnchor="middle" fill={f.color} fontSize="5.5" fontFamily="'Instrument Sans',sans-serif" opacity={f.active?0.8:0.5}>{f.fans}</text>
-                </g>
-              );
-            })}
-            {/* YOU — center node */}
-            <circle cx="177" cy="145" r="22" fill={`${C.accent}25`} stroke={C.lavender} strokeWidth="2"/>
-            <circle cx="177" cy="145" r="16" fill={`${C.accent}40`}/>
-            <text x="177" y="142" textAnchor="middle" fill="white" fontSize="8" fontFamily="'Epilogue',sans-serif" fontWeight="900">YOU</text>
-            <text x="177" y="153" textAnchor="middle" fill={C.lavender} fontSize="5.5" fontFamily="'Instrument Sans',sans-serif">@stan</text>
-            {/* Pulse rings around YOU */}
-            <circle cx="177" cy="145" r="28" fill="none" stroke={C.accent} strokeWidth="0.6" opacity="0.3" style={{ animation:`mapPulse 3s ease-out infinite` }}/>
-            <circle cx="177" cy="145" r="36" fill="none" stroke={C.accent} strokeWidth="0.4" opacity="0.15" style={{ animation:`mapPulse 3s ease-out infinite`, animationDelay:"0.8s" }}/>
-          </svg>
-
-          {/* Primary bias label */}
-          <div style={{ position:"absolute",bottom:12,left:14,background:"rgba(10,6,24,0.88)",borderRadius:11,padding:"6px 12px",border:`1px solid ${C.accent}33`,backdropFilter:"blur(8px)" }}>
-            <p style={{ fontSize:8,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:1 }}>★ Primary Bias</p>
-            <p style={{ fontSize:11,color:C.text,fontFamily:"'Epilogue',sans-serif",fontWeight:800 }}>Karina · aespa</p>
-            <p style={{ fontSize:8.5,color:C.textMid }}>12,318 in your orbit · 6 mutuals nearby</p>
-          </div>
+        <div style={{ position:"relative", height:340, overflow:"hidden" }}>
+          <MapboxMap densityData={CITY_DENSITY_GEOJSON} showHeatmap={false} />
         </div>
         {/* Bottom action row */}
         <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",borderTop:`1px solid ${C.accent}18` }}>
@@ -11662,27 +11636,27 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
         {/* ── SOCIAL STORY RAIL — personal/social bubbles (NOT pass categories) ── */}
         {/* Pass categories (Fit Check, Merch, etc.) stay in Backstage Passes page only */}
         {/* Collapses fully on scroll — same maxHeight/opacity technique as the title block above */}
-        <div style={{ display:"flex",gap:11,overflowX:"auto",scrollbarWidth:"none",overflowY:"hidden",maxHeight:scrolled?0:74,opacity:scrolled?0:1,padding:scrolled?"0 14px":"5px 54px 5px 14px",transition:"max-height .28s ease, opacity .2s ease, padding .28s ease",alignItems:"flex-start" }}>
-          {/* Your Pass — always first */}
-          <div onClick={()=>go?.("passes")} className="tap" style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:2,cursor:"pointer" }}>
-            <div style={{ width:scrolled?36:42,height:scrolled?36:42,borderRadius:"50%",background:`linear-gradient(135deg,rgba(184,162,255,0.9),rgba(232,201,135,0.55))`,padding:2,boxShadow:`0 0 12px rgba(184,162,255,0.32), inset 0 1px 0 rgba(255,255,255,0.2)`,transition:"all .28s ease",flexShrink:0 }}>
-              <div style={{ width:"100%",height:"100%",borderRadius:"50%",background:"linear-gradient(160deg,#15102a,#0a0716)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:scrolled?13:16,color:C.gold }}>✦</div>
+        <div style={{ display:"flex",gap:12,overflowX:"auto",scrollbarWidth:"none",overflowY:"hidden",maxHeight:scrolled?0:96,opacity:scrolled?0:1,padding:scrolled?"0 14px":"6px 54px 6px 14px",transition:"max-height .28s ease, opacity .2s ease, padding .28s ease",alignItems:"flex-start" }}>
+          {/* Your Pass — always first. Bubbles sized so ~5 are visible at once; rest via horizontal swipe. */}
+          <div onClick={()=>go?.("passes")} className="tap" style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:3,cursor:"pointer" }}>
+            <div style={{ width:scrolled?46:60,height:scrolled?46:60,borderRadius:"50%",background:`linear-gradient(135deg,rgba(184,162,255,0.9),rgba(232,201,135,0.55))`,padding:2.5,boxShadow:`0 0 14px rgba(184,162,255,0.32), inset 0 1px 0 rgba(255,255,255,0.2)`,transition:"all .28s ease",flexShrink:0 }}>
+              <div style={{ width:"100%",height:"100%",borderRadius:"50%",background:"linear-gradient(160deg,#15102a,#0a0716)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:scrolled?18:22,color:C.gold }}>✦</div>
             </div>
-            <p style={{ fontSize:6.5,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap" }}>Your Pass</p>
+            <p style={{ fontSize:8.5,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap" }}>Your Pass</p>
           </div>
           {/* Social rings — filter bubbles + user bubbles */}
           {SOCIAL_RINGS.map(r=>{
             const isActive = r.isFilter && ringFilter===r.filterType;
-            const sz = scrolled?36:42;
+            const sz = scrolled?46:60;
             return (
               <div key={r.key} onClick={()=>{
                 if(r.isFilter) { setRingFilter(ringFilter===r.filterType?null:r.filterType); }
                 else if(r.isUser) { setShowUserMoment(r); }
-              }} className="tap" style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:3,cursor:"pointer" }}>
+              }} className="tap" style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:4,cursor:"pointer" }}>
                 <div style={{ width:sz,height:sz,borderRadius:"50%",background:isActive?`linear-gradient(150deg,${r.color}cc,${r.color}88)`:`linear-gradient(150deg,rgba(20,12,38,0.85),rgba(10,7,22,0.85))`,padding:isActive?0:1.5,boxShadow:isActive?`0 0 14px ${r.color}55, inset 0 1px 0 rgba(255,255,255,0.25)`:`inset 0 1px 0 rgba(255,255,255,0.06)`,border:`${isActive?"1.5":"1"}px solid ${isActive?r.color+"cc":"rgba(214,189,255,0.22)"}`,transition:"all .25s ease",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:r.isUser?sz*0.36:sz*0.42,color:isActive?C.bg:r.color }}>
                   {r.avatar}
                 </div>
-                <p style={{ fontSize:6.5,color:isActive?r.color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap",maxWidth:46,overflow:"hidden",textOverflow:"ellipsis",textAlign:"center",transition:"color .2s" }}>{r.label}</p>
+                <p style={{ fontSize:8.5,color:isActive?r.color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap",maxWidth:64,overflow:"hidden",textOverflow:"ellipsis",textAlign:"center",transition:"color .2s" }}>{r.label}</p>
               </div>
             );
           })}
@@ -11887,92 +11861,16 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
         </div>
       )}
 
-      {/* FAN DISCOVERY — moved under Circles */}
-      {view==="circles" && circlesSubView==="fans" && (
-        <div onScroll={e=>setScrolled(e.target.scrollTop>48)} style={{ flex:1, overflowY:"auto", overflowX:"hidden", padding:"14px 18px 100px" }}>
-          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:17, marginBottom:4 }}>Discover Fans</p>
-          <p style={{ fontSize:11, color:C.textMid, marginBottom:14, lineHeight:1.55 }}>K-pop fans you'd vibe with — same fandoms, bias, or city.</p>
-
-          {/* Filter chips */}
-          <div style={{ display:"flex", gap:8, overflowX:"auto", scrollbarWidth:"none", marginBottom:16, paddingBottom:2 }}>
-            {["all", ...(Array.isArray(user?.fandoms) ? user.fandoms.slice(0,4) : []), "nearby"].map(f => {
-              const label = f==="all" ? "All" : f==="nearby" ? "📍 Nearby" : f;
-              const active = discoverFilter===f;
-              return (
-                <span key={f} onClick={()=>setDiscoverFilter(f)} className="tap" style={{ flexShrink:0, padding:"6px 14px", borderRadius:99, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:active?C.accent:`${C.accent}14`, color:active?C.bg:C.accent, border:`1px solid ${active?C.accent:C.accent+'44'}`, transition:"all .18s" }}>{label}</span>
-              );
-            })}
-          </div>
-
-          {discoverLoading && (
-            <div style={{ textAlign:"center", padding:"40px 0" }}>
-              <div style={{ width:28,height:28,borderRadius:"50%",border:`3px solid ${C.accent}`,borderTopColor:"transparent",animation:"spin 0.8s linear infinite",margin:"0 auto 12px" }} />
-              <p style={{ fontSize:11,color:C.textMid }}>Finding fans for you…</p>
-            </div>
-          )}
-
-          {!discoverLoading && (() => {
-            const filtered = discoverFans.filter(fan => {
-              if (discoverFilter==="all") return true;
-              if (discoverFilter==="nearby") return user?.city && (fan.city||"").toLowerCase().includes((user.city||"").toLowerCase().split(",")[0].trim());
-              return (fan.fandoms||[]).includes(discoverFilter);
-            });
-            if (!filtered.length) return (
-              <div style={{ textAlign:"center", padding:"48px 0" }}>
-                <p style={{ fontSize:28, marginBottom:10 }}>👀</p>
-                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:14, marginBottom:6 }}>No fans found</p>
-                <p style={{ fontSize:11, color:C.textMid, lineHeight:1.6 }}>No discoverable fans match this filter yet.{"\n"}Check back after more fans join!</p>
-              </div>
-            );
-            return filtered.map(fan => {
-              const status = discoverStatuses[fan.id] || "none";
-              const npArtist = fan.now_playing?.artist;
-              const biases = Array.isArray(fan.bias) ? fan.bias : fan.bias ? [fan.bias] : [];
-              return (
-                <div key={fan.id} style={{ ...VS.elevatedCard(C.accent), padding:"14px 16px", marginBottom:12, display:"flex", gap:12, alignItems:"flex-start" }}>
-                  <div style={VS.innerGlow(C.accent)} />
-                  {/* Avatar */}
-                  <div style={{ width:44,height:44,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.berry})`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17,color:C.bg,flexShrink:0,position:"relative",boxShadow:`0 0 14px ${C.accent}30` }}>{fan.avatar||String(fan.display_name||"B").charAt(0).toUpperCase()}</div>
-                  <div style={{ flex:1, minWidth:0, position:"relative" }}>
-                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
-                      <div style={{ minWidth:0 }}>
-                        <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:13.5, color:C.text, marginBottom:1 }}>{fan.display_name||fan.displayName||fan.handle}</p>
-                        <p style={{ fontSize:10, color:C.textMid }}>@{fan.username||fan.handle}</p>
-                      </div>
-                      <button
-                        disabled={status==="sent"||status==="friends"}
-                        onClick={()=>status==="none"&&handleDiscoverAdd(fan)}
-                        className={status==="none"?"tap":""}
-                        style={{ flexShrink:0, padding:"6px 13px", borderRadius:99, fontSize:10, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:status==="none"?"pointer":"default", border:"none", background:status==="friends"?`${C.mint}22`:status==="sent"?`${C.accent}22`:`linear-gradient(140deg,${C.accent},${C.berry})`, color:status==="friends"?C.mint:status==="sent"?C.accent:C.bg, boxShadow:status==="none"?`0 3px 10px ${C.accent}30`:"none", transition:"all .2s" }}>
-                        {status==="friends"?"✓ Friends":status==="sent"?"Requested":"+ Add"}
-                      </button>
-                    </div>
-                    {/* Fandoms */}
-                    {(fan.fandoms||[]).length>0 && (
-                      <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginTop:8 }}>
-                        {(fan.fandoms||[]).slice(0,3).map(f=>(
-                          <span key={f} style={{ padding:"3px 9px", borderRadius:99, fontSize:9.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, background:`${C.accent}18`, color:C.accent, border:`1px solid ${C.accent}33` }}>{f}</span>
-                        ))}
-                        {biases.length>0 && biases.slice(0,1).map(b=>(
-                          <span key={b} style={{ padding:"3px 9px", borderRadius:99, fontSize:9.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, background:`${C.rose}18`, color:C.rose, border:`1px solid ${C.rose}33` }}>★ {b}</span>
-                        ))}
-                      </div>
-                    )}
-                    {/* City + now playing */}
-                    <div style={{ display:"flex", gap:10, marginTop:6, flexWrap:"wrap" }}>
-                      {fan.city && <p style={{ fontSize:10, color:C.textMid }}>📍 {fan.city}</p>}
-                      {npArtist && <p style={{ fontSize:10, color:C.mint }}>🎵 {npArtist}</p>}
-                    </div>
-                    {fan.bio && <p style={{ fontSize:10.5, color:C.textMid, marginTop:5, lineHeight:1.55, overflow:"hidden", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical" }}>{fan.bio}</p>}
-                  </div>
-                </div>
-              );
-            });
-          })()}
+      {/* ── CIRCLES ──────────────────────────────────────────────────────────── */}
+      {view==="circles" && (
+        <div style={{ display:"flex", gap:6, padding:"8px 14px 8px", flexShrink:0 }}>
+          {[["circles","My Circles"],["fans","Discover Fans"]].map(([id,label])=>(
+            <span key={id} onClick={()=>setCirclesSubView(id)} className="tap" style={{ flex:1, textAlign:"center", padding:"7px 4px", borderRadius:9, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:circlesSubView===id?`linear-gradient(135deg,${C.accent},${C.gold}cc)`:"rgba(255,255,255,0.05)", color:circlesSubView===id?"#1a1228":C.textMid, transition:"all .18s" }}>{label}</span>
+          ))}
         </div>
       )}
 
-      {/* FANS — moved under Circles */}
+      {/* FAN DISCOVERY — rendered in the same content region as My Circles, directly under the sub-toggle */}
       {view==="circles" && circlesSubView==="fans" && (
         <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden" }}>
           <FansVibeStrip fans={discoverFans} onViewProfile={onViewProfile} />
@@ -11980,14 +11878,6 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
         </div>
       )}
 
-      {/* ── CIRCLES ──────────────────────────────────────────────────────────── */}
-      {view==="circles" && (
-        <div style={{ display:"flex", gap:6, padding:"8px 14px 0", flexShrink:0 }}>
-          {[["circles","My Circles"],["fans","Discover Fans"]].map(([id,label])=>(
-            <span key={id} onClick={()=>setCirclesSubView(id)} className="tap" style={{ flex:1, textAlign:"center", padding:"7px 4px", borderRadius:9, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:circlesSubView===id?`linear-gradient(135deg,${C.accent},${C.gold}cc)`:"rgba(255,255,255,0.05)", color:circlesSubView===id?"#1a1228":C.textMid, transition:"all .18s" }}>{label}</span>
-          ))}
-        </div>
-      )}
       {view==="circles" && circlesSubView==="circles" && (
         <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden",position:"relative" }}>
 
