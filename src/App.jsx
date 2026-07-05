@@ -813,10 +813,16 @@ const upsertById = (items, item) => {
   return [item, ...items.filter(x => (x.id || x.profileId) !== id)];
 };
 
+// Mock notification IDs (the old "n1".."n9" seed examples) — filtered out here so that
+// if they were ever persisted to backstage_notif_inbox (e.g. by markRead firing before
+// the first real sync completed), they self-heal out instead of getting merged back in
+// forever. Real backend notifications always have UUID ids, never this shape.
+const isMockNotifId = (id) => typeof id === "string" && /^n\d+$/.test(id);
+
 const mergeInboxItems = (localItems = [], remoteItems = []) => {
   const byId = new Map();
   [...remoteItems, ...localItems].forEach(item => {
-    if (!item?.id) return;
+    if (!item?.id || isMockNotifId(item.id)) return;
     byId.set(item.id, { ...item, type: item.type === "friend_request_received" ? "friend_req" : item.type === "friend_request_accepted" ? "accepted" : item.type });
   });
   return [...byId.values()].sort((a,b)=>new Date(b.createdAt || 0)-new Date(a.createdAt || 0)).slice(0,50);
@@ -828,9 +834,13 @@ const readFriendRequestStore = () => {
   return { incoming:Array.isArray(raw?.incoming)?raw.incoming:[], outgoing:Array.isArray(raw?.outgoing)?raw.outgoing:[] };
 };
 
+// Returns null on a failed/unreachable fetch (caller should keep whatever's cached),
+// or the merged array on success — including an empty array, which callers must treat
+// as "confirmed zero notifications," not "fetch didn't happen." Conflating those two
+// is what let stale mock examples linger forever (see isMockNotifId above).
 async function syncBackendNotifications() {
   const d = await api.get('/api/notifications');
-  if (!Array.isArray(d?.notifications)) return [];
+  if (!Array.isArray(d?.notifications)) return null;
   const merged = mergeInboxItems(ls.get("backstage_notif_inbox", []), d.notifications);
   ls.set("backstage_notif_inbox", merged);
   return merged;
@@ -873,6 +883,31 @@ async function syncBackendCircle() {
   const merged = [...shaped, ...prevPending];
   ls.set("backstage_friends", merged);
   return merged;
+}
+
+// Rebuilds backstage_circle_statuses (the map every Add-to-Circle button reads for its
+// "Requested"/"In Circle" label) from authoritative backend truth. Without this, the map
+// only ever gets PATCHED by local button clicks and never corrected — so a request that
+// gets accepted (or cancelled/declined) on the backend leaves a stale "sent" entry behind
+// forever, and since this key isn't scoped per logged-in user, switching between accounts
+// in the same browser bleeds one account's statuses into another's. Called from the
+// app-wide social refresh loop (mount + 15s poll + tab focus) so it self-heals.
+// Maps the backend's authoritative /api/profile/:id `relationship` field to the local
+// button-status vocabulary ("sent"/"accepted"/"incoming"/"self") the profile screens use.
+function relationshipToStatus(relationship) {
+  if (relationship === 'friends') return 'accepted';
+  if (relationship === 'outgoing_request') return 'sent';
+  if (relationship === 'incoming_request') return 'incoming';
+  if (relationship === 'self') return 'self';
+  return null;
+}
+
+function reconcileCircleStatuses(acceptedIds = [], pendingOutgoingIds = []) {
+  const next = {};
+  acceptedIds.forEach(id => { if (id) next[id] = "accepted"; });
+  pendingOutgoingIds.forEach(id => { if (id && !next[id]) next[id] = "sent"; });
+  ls.set("backstage_circle_statuses", next);
+  return next;
 }
 
 // Renders a timestamp relative to now — computed at render time, never baked into
@@ -2699,18 +2734,6 @@ function filterActiveNotifs(inbox) {
   return inbox.filter(n => !n.expiresAt || n.expiresAt > now);
 }
 
-// ─── MOCK NOTIFICATION EXAMPLES ────────────────────────────────────────────────
-const MOCK_NOTIF_EXAMPLES = [
-  { id:"n1", type:"friend_req",   icon:"💫", title:"@nightcityarmy sent a Circle request", body:"They're attending the same show season. Tap to review their profile.", color:C.lavender, time:"1h ago", read:false, fromUserId:"fu1", fromUsername:"nightcityarmy", fromDisplayName:"Jess", fromAvatar:"J", fromColor:C.lavender },
-  { id:"n2", type:"trade",        icon:"🃏", title:"Trade Match Found!",                    body:"@cardqueen_mia has your Karina MY WORLD UR. 1 match waiting.", color:C.accent,  time:"2h ago",        read:false },
-  { id:"n3", type:"friend_req",   icon:"💫", title:"@vegasarmy wants to join your Circle",  body:"Yuna • BTS · Vegas weekend. Tap Accept to add them to your Circle.", color:C.lavender, time:"3h ago",   read:false, fromUserId:"fu5", fromUsername:"vegasarmy", fromDisplayName:"Yuna", fromAvatar:"Y", fromColor:C.rose },
-  { id:"n4", type:"capsule",      icon:"✨", title:"Add memories to your Capsule",          body:"Don't let your concert memories fade — your Capsule is waiting.", color:C.berry,  time:"4h ago",        read:false },
-  { id:"n5", type:"meetup",       icon:"📍", title:"Meetups near your shows",               body:"Fans are organizing meetups in your city. Discover them before they fill up.", color:C.mint, time:"5h ago",     read:true },
-  { id:"n6", type:"comeback",     icon:"🔔", title:"aespa Comeback Announced!",             body:"New mini-album drops July 12. Pre-save now for early photocard access.", color:C.rose, time:"6h ago", read:true },
-  { id:"n7", type:"pass_reaction",icon:"💜", title:"Your Pass got a reaction",              body:"@staymia reacted 💜 to your Fit Check pass from tonight.",       color:C.gold,    time:"8h ago",        read:true, passId:"p1" },
-  { id:"n8", type:"accepted",     icon:"🌟", title:"Circle accepted",                       body:"@armyjoon accepted your invite. They're in your Circle now ✦",   color:C.mint,    time:"Yesterday",     read:true },
-  { id:"n9", type:"afterglow",    icon:"🌙", title:"Afterglow is real ✨",                  body:"Save your concert memory before it fades. Add it to your Capsule.", color:C.gold,  time:"Yesterday",     read:true },
-];
 
 const MOCK_MEETUPS = [
   // ── BTS ARIRANG Las Vegas — confirmed show meetups ─────────────────────────
@@ -3177,6 +3200,7 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go, onViewProfile
   const [apiError, setApiError] = useState(false);
   const [searchRetry, setSearchRetry] = useState(0);
   const [suggestedFans, setSuggestedFans] = useState([]);
+  const [sentConfirmFan, setSentConfirmFan] = useState(null); // shows the "Friend request sent" sheet
 
   const fallbackCode = `BACKSTAGE-${(user?.username||user?.name||"FAN").toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,8)||"FAN"}-LOCAL`;
   const myCode = referralCode || fallbackCode;
@@ -3325,7 +3349,7 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go, onViewProfile
       onNotif({title:"Request saved locally",body:"Backstage will sync it after the social tables are installed.",icon:"link",color:C.lavender});
       return;
     }
-    onNotif({title:`Circle invite sent to @${fu.username} ✦`,body:"They'll see your invite in their notifications.",icon:"💜",color:C.lavender});
+    setSentConfirmFan(fu);
   };
 
   const cancelRequest = (fu) => {
@@ -3416,7 +3440,7 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go, onViewProfile
   const StatusBtn = ({fu}) => {
     const st = getStatus(fu);
     if(st==="accepted") return <div style={{ display:"flex",alignItems:"center",gap:4,padding:"5px 12px",borderRadius:99,background:`${C.mint}18`,border:`1px solid ${C.mint}44`,fontSize:10,color:C.mint,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap" }}>In Your Circle ✦</div>;
-    if(st==="sent")     return <div style={{ padding:"5px 12px",borderRadius:99,background:`${C.accent}12`,border:`1px solid ${C.accent}33`,fontSize:10,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap" }}>Requested</div>;
+    if(st==="sent")     return <button onClick={()=>cancelRequest(fu)} className="tap" style={{ padding:"5px 12px",borderRadius:99,background:`${C.accent}12`,border:`1px solid ${C.accent}33`,fontSize:10,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap",cursor:"pointer" }}>Requested ✕</button>;
     if(st==="declined") return <div style={{ padding:"5px 12px",borderRadius:99,background:`${C.textDim}22`,border:`1px solid ${C.border}`,fontSize:10,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:600,whiteSpace:"nowrap" }}>Declined</div>;
     return (
       <button onClick={()=>sendRequest(fu)} className="tap" style={{ padding:"6px 14px",borderRadius:99,background:`linear-gradient(135deg,${C.accent},${C.berry})`,border:"none",fontSize:10.5,color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",boxShadow:`0 0 12px ${C.accent}30` }}>Add to Circle</button>
@@ -3752,6 +3776,21 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go, onViewProfile
         <div style={{ position:"absolute",top:80,left:16,right:16,zIndex:900,animation:"viralPop .3s ease" }}>
           <div style={{ background:`${C.accent}f0`,borderRadius:18,padding:"14px 18px",backdropFilter:"blur(20px)",textAlign:"center" }}>
             <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:15,color:C.bg }}>Invite link copied. Rewards unlock after confirmed signup.</p>
+          </div>
+        </div>
+      )}
+
+      {/* Friend request sent confirmation — premium bottom sheet, not a browser alert */}
+      {sentConfirmFan && (
+        <div onClick={()=>setSentConfirmFan(null)} style={{ position:"fixed",inset:0,zIndex:920,background:"rgba(6,6,15,0.88)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ width:"100%",background:`linear-gradient(160deg,${C.surfaceMid},${C.cosmic})`,borderRadius:"24px 24px 0 0",padding:"16px 20px calc(28px + env(safe-area-inset-bottom))",border:`1.5px solid ${C.borderHi}`,borderBottom:"none",animation:"slideUp .26s ease" }}>
+            <div style={{ width:36,height:4,borderRadius:99,background:C.border,margin:"0 auto 16px" }} />
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:16,marginBottom:4 }}>Friend request sent ✦</p>
+            <p style={{ fontSize:11.5,color:C.textMid,marginBottom:16 }}>You'll see @{sentConfirmFan.username} in Pending until they accept.</p>
+            <div style={{ display:"flex",gap:10 }}>
+              <button onClick={()=>{ setSentConfirmFan(null); go&&go("friends"); }} className="tap" style={{ flex:1,padding:"13px",borderRadius:13,background:`linear-gradient(135deg,${C.accent},${C.berry})`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer" }}>View Pending Requests</button>
+              <button onClick={()=>setSentConfirmFan(null)} className="tap" style={{ flex:1,padding:"13px",borderRadius:13,background:"transparent",border:`1.5px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer" }}>Done</button>
+            </div>
           </div>
         </div>
       )}
@@ -5305,14 +5344,14 @@ function HomeFeed({ user, go, weather, isVip, onUpgrade, onSmartNotifs, onViewPr
 // ─── NOTIFICATION BELL ────────────────────────────────────────────────────────
 function NotificationBell({ onOpen }) {
   const [unread, setUnread] = useState(()=>{
-    const inbox = filterActiveNotifs(ls.get("backstage_notif_inbox", MOCK_NOTIF_EXAMPLES));
+    const inbox = filterActiveNotifs(ls.get("backstage_notif_inbox", []).filter(n=>!isMockNotifId(n?.id)));
     return inbox.filter(n=>!n.read).length;
   });
 
   // Re-count unread every 2 seconds (simple polling for localStorage updates)
   useEffect(()=>{
     const iv = setInterval(()=>{
-      const inbox = filterActiveNotifs(ls.get("backstage_notif_inbox", MOCK_NOTIF_EXAMPLES));
+      const inbox = filterActiveNotifs(ls.get("backstage_notif_inbox", []).filter(n=>!isMockNotifId(n?.id)));
       setUnread(inbox.filter(n=>!n.read).length);
     }, 2000);
     return ()=>clearInterval(iv);
@@ -11064,6 +11103,7 @@ function FanDiscoverySection({ user, fans, loading, onViewProfile }) {
   const fanCol = (fan) => { const s=(fan.id||'').split('').reduce((a,c)=>a+c.charCodeAt(0),0); return AVATAR_COLORS[s%AVATAR_COLORS.length]; };
 
   const [statuses,     setStatuses]     = useState(()=>ls.get("backstage_circle_statuses",{}));
+  const [requestIds,   setRequestIds]   = useState({}); // fan.id -> requestId, so a pending request can be cancelled
   const [discoverable, setDiscoverable] = useState(()=>ls.get(DISC_KEY, true));
   const [togglingDisc, setTogglingDisc] = useState(false);
 
@@ -11071,7 +11111,16 @@ function FanDiscoverySection({ user, fans, loading, onViewProfile }) {
     const next = {...statuses, [fan.id]:"sent"};
     setStatuses(next);
     ls.set("backstage_circle_statuses", next);
-    api.post('/api/friends/request', { targetUserId: fan.id }).catch(()=>{});
+    api.post('/api/friends/request', { targetUserId: fan.id }).then(r => {
+      if (r?.request?.id) setRequestIds(prev => ({ ...prev, [fan.id]: r.request.id }));
+    }).catch(()=>{});
+  };
+
+  const cancelCircleRequest = (fan) => {
+    const next = {...statuses}; delete next[fan.id];
+    setStatuses(next);
+    ls.set("backstage_circle_statuses", next);
+    if (requestIds[fan.id]) api.post('/api/friends/cancel', { requestId: requestIds[fan.id] }).catch(()=>{});
   };
 
   const toggleDiscoverable = async () => {
@@ -11156,11 +11205,11 @@ function FanDiscoverySection({ user, fans, loading, onViewProfile }) {
             </div>
             <div style={{ position:"relative",display:"flex",gap:8 }}>
               <button
-                onClick={()=>{ if(!status) addToCircle(fan); }}
-                disabled={!!status}
-                style={{ flex:1,padding:"9px 12px",borderRadius:12,background:status?`${C.mint}18`:`linear-gradient(140deg,${col}cc,${col}88)`,border:status?`1.5px solid ${C.mint}`:"none",color:status?C.mint:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:status?"default":"pointer" }}
+                onClick={()=>{ if(status==="sent") cancelCircleRequest(fan); else if(!status) addToCircle(fan); }}
+                disabled={status==="accepted"}
+                style={{ flex:1,padding:"9px 12px",borderRadius:12,background:status==="sent"?`${C.accent}12`:status==="accepted"?`${C.mint}18`:`linear-gradient(140deg,${col}cc,${col}88)`,border:status==="sent"?`1.5px solid ${C.accent}44`:status==="accepted"?`1.5px solid ${C.mint}`:"none",color:status==="sent"?C.accent:status==="accepted"?C.mint:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:status==="accepted"?"default":"pointer" }}
               >
-                {status==="sent"?"✓ Requested":status==="accepted"?"In Circle ✦":"Add to Circle"}
+                {status==="sent"?"Requested ✕":status==="accepted"?"In Circle ✦":"Add to Circle"}
               </button>
               <button
                 onClick={()=>onViewProfile&&onViewProfile(fan)}
@@ -17404,18 +17453,24 @@ function GroupDetailEditor({ group, initial={}, statusOptions=[], statusColors={
 // ─── PUBLIC PROFILE PREVIEW ──────────────────────────────────────────────────
 // Compact profile card opened from DM avatar/name taps.
 // Fetches real data from GET /api/profile/:id. Clean identity card — not a passport form.
-function PublicProfilePreview({ fan, onBack, onBackToMessage, onViewFullProfile, onMessage }) {
+function PublicProfilePreview({ fan, onBack, onBackToMessage, onViewFullProfile, onMessage, go }) {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading]  = useState(true);
-  const [circleStatus, setCircleStatus] = useState(()=>{
-    const s = ls.get("backstage_circle_statuses",{});
-    return s[fan?.id] || null;
-  });
+  // Relationship status — seeded from the server's fresh `relationship` field (never
+  // trust the localStorage cache here, it can drift after acceptance/decline/cancel on
+  // another device — see reconcileCircleStatuses).
+  const [circleStatus, setCircleStatus] = useState(null);
+  const [requestId, setRequestId] = useState(null);
+  const [sentConfirm, setSentConfirm] = useState(false);
 
   useEffect(() => {
     if (!fan?.id) { setLoading(false); return; }
     api.get(`/api/profile/${fan.id}`).then(data => {
-      if (data && !data.error) setProfile(data);
+      if (data && !data.error) {
+        setProfile(data);
+        setCircleStatus(relationshipToStatus(data.relationship));
+        setRequestId(data.requestId || null);
+      }
       setLoading(false);
     });
   }, [fan?.id]);
@@ -17424,7 +17479,25 @@ function PublicProfilePreview({ fan, onBack, onBackToMessage, onViewFullProfile,
     const next = {...ls.get("backstage_circle_statuses",{}), [fan.id]:"sent"};
     ls.set("backstage_circle_statuses", next);
     setCircleStatus("sent");
-    api.post('/api/friends/request', { targetUserId: fan.id }).catch(()=>{});
+    api.post('/api/friends/request', { targetUserId: fan.id }).then(r => {
+      if (r?.request?.id) setRequestId(r.request.id);
+      setSentConfirm(true);
+    }).catch(()=>{});
+  };
+
+  const acceptCircleRequest = () => {
+    setCircleStatus("accepted");
+    const next = {...ls.get("backstage_circle_statuses",{}), [fan.id]:"accepted"};
+    ls.set("backstage_circle_statuses", next);
+    if (profile?.requestId) api.post('/api/friends/accept', { requestId: profile.requestId }).catch(()=>{});
+  };
+
+  const cancelCircleRequest = () => {
+    setCircleStatus(null);
+    const next = {...ls.get("backstage_circle_statuses",{})};
+    delete next[fan.id];
+    ls.set("backstage_circle_statuses", next);
+    if (requestId) api.post('/api/friends/cancel', { requestId }).catch(()=>{});
   };
 
   const username = profile?.username ? `@${profile.username}` : fan.name;
@@ -17509,11 +17582,11 @@ function PublicProfilePreview({ fan, onBack, onBackToMessage, onViewFullProfile,
           <>
             <div style={{ display:"flex",gap:8 }}>
               <button
-                onClick={()=>{ if(!circleStatus) addToCircle(); }}
-                disabled={!!circleStatus}
-                style={{ flex:1,padding:"12px",borderRadius:14,background:circleStatus?`${C.mint}18`:`linear-gradient(140deg,${C.accent},${C.pink})`,border:circleStatus?`1.5px solid ${C.mint}`:"none",color:circleStatus?C.mint:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,cursor:circleStatus?"default":"pointer" }}
+                onClick={()=>{ if(circleStatus==="incoming") acceptCircleRequest(); else if(circleStatus==="sent") cancelCircleRequest(); else if(!circleStatus) addToCircle(); }}
+                disabled={circleStatus==="accepted"||circleStatus==="self"}
+                style={{ flex:1,padding:"12px",borderRadius:14,background:circleStatus==="sent"?`${C.accent}12`:circleStatus==="accepted"?`${C.mint}18`:circleStatus==="self"?C.surfaceHi:`linear-gradient(140deg,${C.accent},${C.pink})`,border:circleStatus==="sent"?`1.5px solid ${C.accent}44`:circleStatus==="accepted"?`1.5px solid ${C.mint}`:circleStatus==="self"?`1px solid ${C.border}`:"none",color:circleStatus==="sent"?C.accent:circleStatus==="accepted"?C.mint:circleStatus==="self"?C.textMid:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,cursor:(circleStatus==="accepted"||circleStatus==="self")?"default":"pointer" }}
               >
-                {circleStatus==="sent"?"✓ Requested":circleStatus==="accepted"?"In Circle ✦":"Add to Circle"}
+                {circleStatus==="sent"?"Requested ✕":circleStatus==="accepted"?"Friends ✦":circleStatus==="incoming"?"Accept Request":circleStatus==="self"?"This is you":"Add to Circle"}
               </button>
               <button
                 onClick={()=>onMessage?.(fan)}
@@ -17528,6 +17601,21 @@ function PublicProfilePreview({ fan, onBack, onBackToMessage, onViewFullProfile,
           </>
         )}
       </div>
+
+      {/* Friend request sent confirmation — premium bottom sheet, not a browser alert */}
+      {sentConfirm && (
+        <div onClick={()=>setSentConfirm(false)} style={{ position:"fixed",inset:0,zIndex:920,background:"rgba(6,6,15,0.88)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ width:"100%",background:`linear-gradient(160deg,${C.surfaceMid},${C.cosmic})`,borderRadius:"24px 24px 0 0",padding:"16px 20px calc(28px + env(safe-area-inset-bottom))",border:`1.5px solid ${C.borderHi}`,borderBottom:"none",animation:"slideUp .26s ease" }}>
+            <div style={{ width:36,height:4,borderRadius:99,background:C.border,margin:"0 auto 16px" }} />
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:16,marginBottom:4 }}>Friend request sent ✦</p>
+            <p style={{ fontSize:11.5,color:C.textMid,marginBottom:16 }}>You'll see {username} in Pending until they accept.</p>
+            <div style={{ display:"flex",gap:10 }}>
+              <button onClick={()=>{ setSentConfirm(false); go&&go("friends"); }} className="tap" style={{ flex:1,padding:"13px",borderRadius:13,background:`linear-gradient(135deg,${C.accent},${C.berry})`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer" }}>View Pending Requests</button>
+              <button onClick={()=>setSentConfirm(false)} className="tap" style={{ flex:1,padding:"13px",borderRadius:13,background:"transparent",border:`1.5px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer" }}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -17537,26 +17625,50 @@ function PublicProfilePreview({ fan, onBack, onBackToMessage, onViewFullProfile,
 // Used as the second step from the DM compact card "View Full Profile" action.
 // PublicProfileFull: fetches real profile data then renders the SAME ProfilePreview UI
 // with overrideFan so the experience is identical to viewing your own profile preview.
-function PublicProfileFull({ fan, onBack, onBackToMessage, onMessage }) {
+function PublicProfileFull({ fan, onBack, onBackToMessage, onMessage, go }) {
   const isSelf = fan?.isSelf || false;
   const [apiData, setApiData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [circleStatus, setCircleStatus] = useState(()=>{
-    const s = ls.get("backstage_circle_statuses",{});
-    return s[fan?.id] || null;
-  });
+  // Seeded from the server's fresh `relationship` field once the profile loads — see
+  // relationshipToStatus/reconcileCircleStatuses for why the old localStorage-only read
+  // could show "Requested" for someone who'd already been accepted.
+  const [circleStatus, setCircleStatus] = useState(null);
+  const [requestId, setRequestId] = useState(null);
+  const [sentConfirm, setSentConfirm] = useState(false);
 
   const addToCircle = () => {
     const next = {...ls.get("backstage_circle_statuses",{}), [fan.id]:"sent"};
     ls.set("backstage_circle_statuses", next);
     setCircleStatus("sent");
-    api.post('/api/friends/request', { targetUserId: fan.id }).catch(()=>{});
+    api.post('/api/friends/request', { targetUserId: fan.id }).then(r => {
+      if (r?.request?.id) setRequestId(r.request.id);
+      setSentConfirm(true);
+    }).catch(()=>{});
+  };
+
+  const acceptCircleRequest = () => {
+    setCircleStatus("accepted");
+    const next = {...ls.get("backstage_circle_statuses",{}), [fan.id]:"accepted"};
+    ls.set("backstage_circle_statuses", next);
+    if (apiData?.requestId) api.post('/api/friends/accept', { requestId: apiData.requestId }).catch(()=>{});
+  };
+
+  const cancelCircleRequest = () => {
+    setCircleStatus(null);
+    const next = {...ls.get("backstage_circle_statuses",{})};
+    delete next[fan.id];
+    ls.set("backstage_circle_statuses", next);
+    const rid = requestId || apiData?.requestId;
+    if (rid) api.post('/api/friends/cancel', { requestId: rid }).catch(()=>{});
   };
 
   useEffect(() => {
     if (!fan?.id) { setLoading(false); return; }
     api.get(`/api/profile/${fan.id}`).then(data => {
-      if (data && !data.error) setApiData(data);
+      if (data && !data.error) {
+        setApiData(data);
+        setCircleStatus(relationshipToStatus(data.relationship));
+      }
       setLoading(false);
     });
   }, [fan?.id]);
@@ -17579,6 +17691,8 @@ function PublicProfileFull({ fan, onBack, onBackToMessage, onMessage }) {
     now_playing: apiData?.now_playing || null,
     bio: apiData?.bio || null,
     profile_style: apiData?.profile_style || {},
+    isCollector: !!apiData?.is_collector,
+    cardCount: apiData?.card_count || 0,
   };
 
   return (
@@ -17598,11 +17712,11 @@ function PublicProfileFull({ fan, onBack, onBackToMessage, onMessage }) {
       {!fan.fromDM && !isSelf && (
         <div style={{ position:"absolute",bottom:0,left:0,right:0,padding:"12px 20px",paddingBottom:"max(16px, calc(env(safe-area-inset-bottom) + 12px))",background:"rgba(6,6,15,0.92)",backdropFilter:"blur(20px)",borderTop:"1px solid rgba(255,255,255,0.08)",display:"flex",gap:8,zIndex:10 }}>
           <button
-            onClick={()=>{ if(!circleStatus) addToCircle(); }}
-            disabled={!!circleStatus}
-            style={{ flex:1,padding:"12px",borderRadius:14,background:circleStatus?`${C.mint}18`:`linear-gradient(140deg,${C.accent},${C.pink})`,border:circleStatus?`1.5px solid ${C.mint}`:"none",color:circleStatus?C.mint:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,cursor:circleStatus?"default":"pointer" }}
+            onClick={()=>{ if(circleStatus==="incoming") acceptCircleRequest(); else if(circleStatus==="sent") cancelCircleRequest(); else if(!circleStatus) addToCircle(); }}
+            disabled={circleStatus==="accepted"||circleStatus==="self"}
+            style={{ flex:1,padding:"12px",borderRadius:14,background:circleStatus==="sent"?`${C.accent}12`:circleStatus==="accepted"?`${C.mint}18`:circleStatus==="self"?C.surfaceHi:`linear-gradient(140deg,${C.accent},${C.pink})`,border:circleStatus==="sent"?`1.5px solid ${C.accent}44`:circleStatus==="accepted"?`1.5px solid ${C.mint}`:circleStatus==="self"?`1px solid ${C.border}`:"none",color:circleStatus==="sent"?C.accent:circleStatus==="accepted"?C.mint:circleStatus==="self"?C.textMid:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,cursor:(circleStatus==="accepted"||circleStatus==="self")?"default":"pointer" }}
           >
-            {circleStatus==="sent"?"✓ Requested":circleStatus==="accepted"?"In Circle ✦":"Add to Circle"}
+            {circleStatus==="sent"?"Requested ✕":circleStatus==="accepted"?"Friends ✦":circleStatus==="incoming"?"Accept Request":circleStatus==="self"?"This is you":"Add to Circle"}
           </button>
           <button
             onClick={()=>onMessage?.(fan)}
@@ -17616,6 +17730,21 @@ function PublicProfileFull({ fan, onBack, onBackToMessage, onMessage }) {
       {isSelf && (
         <div style={{ position:"absolute",bottom:0,left:0,right:0,padding:"10px 20px",paddingBottom:"max(12px, calc(env(safe-area-inset-bottom) + 10px))",background:"rgba(6,6,15,0.88)",backdropFilter:"blur(20px)",borderTop:`1px solid ${C.accent}22`,textAlign:"center",zIndex:10 }}>
           <p style={{ fontSize:10.5,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,letterSpacing:"0.04em" }}>👁 Public Preview — how fans see your Stage</p>
+        </div>
+      )}
+
+      {/* Friend request sent confirmation — premium bottom sheet, not a browser alert */}
+      {sentConfirm && (
+        <div onClick={()=>setSentConfirm(false)} style={{ position:"fixed",inset:0,zIndex:920,background:"rgba(6,6,15,0.88)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ width:"100%",background:`linear-gradient(160deg,${C.surfaceMid},${C.cosmic})`,borderRadius:"24px 24px 0 0",padding:"16px 20px calc(28px + env(safe-area-inset-bottom))",border:`1.5px solid ${C.borderHi}`,borderBottom:"none",animation:"slideUp .26s ease" }}>
+            <div style={{ width:36,height:4,borderRadius:99,background:C.border,margin:"0 auto 16px" }} />
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:16,marginBottom:4 }}>Friend request sent ✦</p>
+            <p style={{ fontSize:11.5,color:C.textMid,marginBottom:16 }}>You'll see @{overrideFan.username} in Pending until they accept.</p>
+            <div style={{ display:"flex",gap:10 }}>
+              <button onClick={()=>{ setSentConfirm(false); go&&go("friends"); }} className="tap" style={{ flex:1,padding:"13px",borderRadius:13,background:`linear-gradient(135deg,${C.accent},${C.berry})`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer" }}>View Pending Requests</button>
+              <button onClick={()=>setSentConfirm(false)} className="tap" style={{ flex:1,padding:"13px",borderRadius:13,background:"transparent",border:`1.5px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer" }}>Done</button>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -17878,7 +18007,13 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack, o
         {/* Stats */}
         <div style={{ display:"flex",gap:8,marginBottom:16 }}>
           {isPublic
-            ? [["—","Cards",C.accent,"🃏"],["—","Shows",C.gold,"🎤"],["—","Circle",C.pink,"💜"]].map(([val,label,color,icon])=>(
+            ? [
+                // Only show the Cards tile on profiles that actually have photocard/collector
+                // data — a fan who's never touched the photocard system shouldn't get an
+                // empty "Cards" placeholder forced onto their public profile.
+                ...(overrideFan.isCollector ? [[overrideFan.cardCount || "—","Cards",C.accent,"🃏"]] : []),
+                ["—","Shows",C.gold,"🎤"],["—","Circle",C.pink,"💜"],
+              ].map(([val,label,color,icon])=>(
                 <div key={label} style={{ flex:1,padding:"12px 6px",textAlign:"center",...VS.glowCard(color) }}>
                   <div style={{ position:"absolute",inset:0,background:`radial-gradient(circle at 50% 0%,${color}10,transparent 60%)`,pointerEvents:"none" }} />
                   <p style={{ fontSize:15,marginBottom:3 }}>{icon}</p>
@@ -22683,13 +22818,20 @@ function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNot
     }
     setPushTesting(false);
   };
-  const [inbox, setInbox] = useState(()=>filterActiveNotifs(ls.get("backstage_notif_inbox", MOCK_NOTIF_EXAMPLES)));
+  // No mock fallback here — a logged-in user with zero real notifications should see an
+  // honest empty state, not fake sample cards. isMockNotifId strips any previously-baked-in
+  // mock entries from storage so existing sessions self-heal too.
+  const [inbox, setInbox] = useState(()=>filterActiveNotifs(ls.get("backstage_notif_inbox", []).filter(n=>!isMockNotifId(n?.id))));
   const [tab, setTab]     = useState("updates"); // updates | settings
   const unread = inbox.filter(n=>!n.read).length;
 
   useEffect(()=>{
+    // next===null means the fetch failed — keep whatever's cached rather than clobber it.
+    // An empty array is a real, confirmed "zero notifications" result and must replace
+    // any stale local state (this used to only update on next.length>0, which is why
+    // mock examples could linger forever once persisted).
     syncBackendNotifications().then(next=>{
-      if (next?.length) setInbox(filterActiveNotifs(next));
+      if (next !== null) setInbox(filterActiveNotifs(next));
     }).catch(()=>{});
   },[]);
 
@@ -22724,6 +22866,8 @@ function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNot
     comeback:     { tab:"community"     }, // Fanverse/Community tab
     announcement: { tab:"community"     }, // Fanverse/Community tab
     accepted:     { modal:"invite"      }, // Bring Your Crew to see Circle
+    dm_received:  { modal:"chats"       }, // Direct Messages
+    feed_like:    { tab:"community"     }, // Fanverse/Community feed
     // friend_req intentionally omitted — stays open for inline Accept/Decline
   };
 
@@ -22740,7 +22884,7 @@ function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNot
     if (onNavigate) onNavigate(dest);
   };
 
-  const NOTIF_TYPE_COLOR = { concert:C.pink, trade:C.accent, meetup:C.mint, comeback:C.rose, afterglow:C.gold, friend_req:C.lavender, capsule:C.berry, pass_reaction:C.gold, accepted:C.mint };
+  const NOTIF_TYPE_COLOR = { concert:C.pink, trade:C.accent, meetup:C.mint, comeback:C.rose, afterglow:C.gold, friend_req:C.lavender, capsule:C.berry, pass_reaction:C.gold, accepted:C.mint, dm_received:C.accent, feed_like:C.pink };
 
   const CATS = [
     {key:"concertCountdown",label:"🎤 Concert Countdown",sub:"Reminders as show day approaches"},
@@ -24332,8 +24476,11 @@ function AppInner() {
     if(appState!=="main" || !auth.tokenReady) return;
     const refreshSocial = () => {
       syncBackendNotifications().catch(()=>{});
-      syncBackendFriendRequests().catch(()=>{});
-      syncBackendCircle().catch(()=>{});
+      Promise.all([syncBackendFriendRequests(), syncBackendCircle()]).then(([reqStore, circleList]) => {
+        const acceptedIds = (circleList || []).filter(f => f.status === "accepted").map(f => f.id);
+        const pendingOutIds = (reqStore?.outgoing || []).map(r => r.receiver_id || r.user?.id).filter(Boolean);
+        reconcileCircleStatuses(acceptedIds, pendingOutIds);
+      }).catch(()=>{});
     };
     refreshSocial();
     const iv = setInterval(refreshSocial, 15000);
@@ -24926,6 +25073,7 @@ function AppInner() {
             onBackToMessage={()=>setPublicProfileFan(null)}
             onViewFullProfile={(f)=>setFullProfileFan(f)}
             onMessage={(f)=>{ ls.set("backstage_dm_target",f); setPublicProfileFan(null); setModal("chats"); }}
+            go={(dest)=>{ setPublicProfileFan(null); go(dest); }}
           />
         </div>
       )}
@@ -24937,6 +25085,7 @@ function AppInner() {
             onBack={()=>setFullProfileFan(null)}
             onBackToMessage={()=>{ setFullProfileFan(null); setPublicProfileFan(null); }}
             onMessage={(f)=>{ ls.set("backstage_dm_target",f); setFullProfileFan(null); setPublicProfileFan(null); setModal("chats"); }}
+            go={(dest)=>{ setFullProfileFan(null); setPublicProfileFan(null); go(dest); }}
           />
         </div>
       )}

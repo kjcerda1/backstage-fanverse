@@ -2137,6 +2137,29 @@ app.post('/api/feed/like', requireAuth, async (req, res) => {
   await supabase.from('post_likes').insert({ post_id: postId, user_id: req.userId });
   await supabase.rpc('increment_post_likes', { post_id: postId });
   res.json({ success: true, liked: true });
+
+  // Notify the post owner (fire-and-forget, never self-notify). Liking/unliking/reliking
+  // just re-fires this on the next like — acceptable, matches how most feeds behave.
+  (async () => {
+    try {
+      const { data: post } = await supabase.from('posts').select('user_id').eq('id', postId).single();
+      if (!post?.user_id || post.user_id === req.userId) return;
+      const actor = await getPublicUser(req.userId);
+      await deliverNotification({
+        userId: post.user_id,
+        type: 'feed_like',
+        title: `@${actor?.username || 'a fan'} liked your post`,
+        body: 'Tap to see your Fanverse post.',
+        actorId: req.userId,
+        entityId: postId,
+        entityType: 'post',
+        targetTab: 'community',
+        channels: ['in_app', 'push'],
+      });
+    } catch (err) {
+      console.warn('[feed/like] notify failed:', err.message);
+    }
+  })();
 });
 
 
@@ -3723,6 +3746,44 @@ app.get('/api/profile/:id', optionalAuth, async (req, res) => {
   const result = { ...data };
   if (req.userId !== req.params.id && result.show_city === false) delete result.city;
   delete result.show_city;
+
+  // Relationship — computed fresh from friends/friend_requests, never trust client-cached
+  // state. This is the single source of truth the frontend's Add-to-Circle button should
+  // read from, instead of the localStorage cache that can drift after acceptance/decline.
+  if (!req.userId) {
+    result.relationship = 'unknown';
+  } else if (req.userId === req.params.id) {
+    result.relationship = 'self';
+  } else {
+    const { data: friendRow } = await supabase
+      .from('friends').select('friend_id').eq('user_id', req.userId).eq('friend_id', req.params.id).eq('status', 'accepted').maybeSingle();
+    if (friendRow) {
+      result.relationship = 'friends';
+    } else {
+      const { data: reqRow } = await supabase
+        .from('friend_requests').select('id, sender_id, receiver_id')
+        .or(`and(sender_id.eq.${req.userId},receiver_id.eq.${req.params.id}),and(sender_id.eq.${req.params.id},receiver_id.eq.${req.userId})`)
+        .eq('status', 'pending').maybeSingle();
+      if (reqRow) {
+        result.relationship = reqRow.sender_id === req.userId ? 'outgoing_request' : 'incoming_request';
+        result.requestId = reqRow.id;
+      } else {
+        result.relationship = 'none';
+      }
+    }
+  }
+
+  // Collector signal — only show the Cards module on profiles that actually have
+  // photocard data. A fan who's never touched the photocard system shouldn't get an
+  // empty "Cards" placeholder forced onto their public profile.
+  const [{ count: cardCount }, { count: binderCount }, { count: listingCount }] = await Promise.all([
+    supabase.from('user_cards').select('id', { count: 'exact', head: true }).eq('user_id', req.params.id),
+    supabase.from('binders').select('id', { count: 'exact', head: true }).eq('user_id', req.params.id),
+    supabase.from('trade_listings').select('id', { count: 'exact', head: true }).eq('user_id', req.params.id),
+  ]);
+  result.card_count = cardCount || 0;
+  result.is_collector = (cardCount || 0) > 0 || (binderCount || 0) > 0 || (listingCount || 0) > 0;
+
   res.json(result);
 });
 
@@ -4405,6 +4466,12 @@ app.post('/api/save-token', requireAuth, async (req, res) => {
   if (MOCK_MODE) return res.json({ success: true, mock: true });
   const { error } = await supabase.from('fcm_tokens').upsert({ user_id: req.userId, token, platform: platform || 'web', updated_at: new Date().toISOString() });
   if (error) return res.status(500).json({ error: error.message });
+  // A real Firebase token means push notifications are actually configured for this
+  // device — drop any leftover mock-fcm-* rows for this user so send attempts don't
+  // keep silently failing against tokens that were never real in the first place.
+  if (!token.startsWith('mock-fcm-')) {
+    await supabase.from('fcm_tokens').delete().eq('user_id', req.userId).like('token', 'mock-fcm-%');
+  }
   res.json({ success: true });
 });
 
