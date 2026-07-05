@@ -3345,17 +3345,31 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go, onViewProfile
     setPendingReqs(reqs);
     const store = readFriendRequestStore();
     ls.set("backstage_friend_requests", { ...store, outgoing:reqs });
-    // Best-effort backend sync — localStorage fallback remains visible
+    // Best-effort backend sync — localStorage fallback remains visible.
+    // api.post never rejects on a non-2xx response (it resolves with {error}), so this
+    // must be checked explicitly — otherwise a real backend failure (e.g. the request
+    // erroring server-side) shows a false "sent" confirmation while nothing was actually
+    // created, and the optimistic "Requested" badge silently reverts a few seconds later
+    // once the next reconcile finds no real pending request.
+    let r;
     try {
-      const r = await api.post('/api/friends/request', { targetUserId: fu.id });
-      if (r?.request?.id) {
-        const saved = reqs.map(x=>x.userId===fu.id?{...x, id:r.request.id, requestId:r.request.id}:x);
-        setPendingReqs(saved);
-        ls.set("backstage_friend_requests", { ...readFriendRequestStore(), outgoing:saved });
-      }
+      r = await api.post('/api/friends/request', { targetUserId: fu.id });
     } catch {
-      onNotif({title:"Request saved locally",body:"Backstage will sync it after the social tables are installed.",icon:"link",color:C.lavender});
+      r = null;
+    }
+    if (!r || r.error) {
+      const reverted = {...ls.get("backstage_circle_statuses",{})};
+      delete reverted[fu.id];
+      setUserStatuses(reverted); ls.set("backstage_circle_statuses", reverted);
+      setPendingReqs(pendingReqs.filter(x=>x.userId!==fu.id));
+      ls.set("backstage_friend_requests", { ...readFriendRequestStore(), outgoing:pendingReqs.filter(x=>x.userId!==fu.id) });
+      onNotif({title:"Couldn't send request",body:"Something went wrong — try again in a moment.",icon:"⚠️",color:C.rose});
       return;
+    }
+    if (r?.request?.id) {
+      const saved = reqs.map(x=>x.userId===fu.id?{...x, id:r.request.id, requestId:r.request.id}:x);
+      setPendingReqs(saved);
+      ls.set("backstage_friend_requests", { ...readFriendRequestStore(), outgoing:saved });
     }
     setSentConfirmFan(fu);
   };
@@ -17509,14 +17523,23 @@ function PublicProfilePreview({ fan, onBack, onBackToMessage, onViewFullProfile,
     });
   }, [fan?.id]);
 
-  const addToCircle = () => {
+  const addToCircle = async () => {
     const next = {...ls.get("backstage_circle_statuses",{}), [fan.id]:"sent"};
     ls.set("backstage_circle_statuses", next);
     setCircleStatus("sent");
-    api.post('/api/friends/request', { targetUserId: fan.id }).then(r => {
-      if (r?.request?.id) setRequestId(r.request.id);
-      setSentConfirm(true);
-    }).catch(()=>{});
+    // api.post never rejects on a non-2xx response — must check r.error explicitly or a
+    // real backend failure shows a false "sent" confirmation (see InvitePage.sendRequest).
+    let r;
+    try { r = await api.post('/api/friends/request', { targetUserId: fan.id }); } catch { r = null; }
+    if (!r || r.error) {
+      const reverted = {...ls.get("backstage_circle_statuses",{})};
+      delete reverted[fan.id];
+      ls.set("backstage_circle_statuses", reverted);
+      setCircleStatus(null);
+      return;
+    }
+    if (r?.request?.id) setRequestId(r.request.id);
+    setSentConfirm(true);
   };
 
   const acceptCircleRequest = () => {
@@ -17675,14 +17698,23 @@ function PublicProfileFull({ fan, onBack, onBackToMessage, onMessage, go }) {
   const [sentConfirm, setSentConfirm] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false); // armed by a first tap on "Requested"
 
-  const addToCircle = () => {
+  const addToCircle = async () => {
     const next = {...ls.get("backstage_circle_statuses",{}), [fan.id]:"sent"};
     ls.set("backstage_circle_statuses", next);
     setCircleStatus("sent");
-    api.post('/api/friends/request', { targetUserId: fan.id }).then(r => {
-      if (r?.request?.id) setRequestId(r.request.id);
-      setSentConfirm(true);
-    }).catch(()=>{});
+    // api.post never rejects on a non-2xx response — must check r.error explicitly or a
+    // real backend failure shows a false "sent" confirmation (see InvitePage.sendRequest).
+    let r;
+    try { r = await api.post('/api/friends/request', { targetUserId: fan.id }); } catch { r = null; }
+    if (!r || r.error) {
+      const reverted = {...ls.get("backstage_circle_statuses",{})};
+      delete reverted[fan.id];
+      ls.set("backstage_circle_statuses", reverted);
+      setCircleStatus(null);
+      return;
+    }
+    if (r?.request?.id) setRequestId(r.request.id);
+    setSentConfirm(true);
   };
 
   const acceptCircleRequest = () => {

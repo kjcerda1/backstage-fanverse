@@ -4195,9 +4195,18 @@ app.post('/api/friends/request', requireAuth, async (req, res) => {
       return res.json({ success: true, duplicate: true, relationship: outgoing ? 'requested' : 'incoming_request', request: existingReq });
     }
 
+    // friend_requests has a UNIQUE(sender_id, receiver_id) constraint — a plain insert()
+    // fails with a 23505 unique-violation the moment ANY row has ever existed for this
+    // exact sender→receiver direction (cancelled, declined, even a long-since-removed
+    // accepted one), silently blocking every future re-request forever. Upsert onto that
+    // same constraint instead, explicitly resetting status/responded_at so a resend
+    // after cancel/decline behaves like a fresh request.
     const { data: requestRow, error } = await supabase
       .from('friend_requests')
-      .insert({ sender_id: req.userId, receiver_id: targetUserId, status: 'pending' })
+      .upsert(
+        { sender_id: req.userId, receiver_id: targetUserId, status: 'pending', responded_at: null },
+        { onConflict: 'sender_id,receiver_id' }
+      )
       .select('*')
       .single();
     if (error) throw error;
