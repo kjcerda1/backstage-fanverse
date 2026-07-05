@@ -3202,6 +3202,14 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go, onViewProfile
   const [suggestedFans, setSuggestedFans] = useState([]);
   const [sentConfirmFan, setSentConfirmFan] = useState(null); // shows the "Friend request sent" sheet
 
+  // Same staleness fix as HomeFeed/FanDiscoverySection — the mount-time merge below only
+  // covers outgoing requests known at open time; this keeps it correct if the underlying
+  // truth changes (accept/cancel/reconcile) while this screen stays open.
+  useEffect(() => {
+    const iv = setInterval(() => setUserStatuses(ls.get("backstage_circle_statuses", {})), 3000);
+    return () => clearInterval(iv);
+  }, []);
+
   const fallbackCode = `BACKSTAGE-${(user?.username||user?.name||"FAN").toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,8)||"FAN"}-LOCAL`;
   const myCode = referralCode || fallbackCode;
   const myLink = referralUrl || `https://backstagefanverse.com/?ref=${encodeURIComponent(myCode)}`;
@@ -3439,8 +3447,11 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go, onViewProfile
   // ── Status button ─────────────────────────────────────────────────────────
   const StatusBtn = ({fu}) => {
     const st = getStatus(fu);
+    // Requires a confirming second tap so a curious/accidental tap on "Requested" never
+    // silently cancels a real pending request — reverts on its own after 2.5s.
+    const [confirming, setConfirming] = useState(false);
     if(st==="accepted") return <div style={{ display:"flex",alignItems:"center",gap:4,padding:"5px 12px",borderRadius:99,background:`${C.mint}18`,border:`1px solid ${C.mint}44`,fontSize:10,color:C.mint,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap" }}>In Your Circle ✦</div>;
-    if(st==="sent")     return <button onClick={()=>cancelRequest(fu)} className="tap" style={{ padding:"5px 12px",borderRadius:99,background:`${C.accent}12`,border:`1px solid ${C.accent}33`,fontSize:10,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap",cursor:"pointer" }}>Requested ✕</button>;
+    if(st==="sent")     return <button onClick={()=>{ if(confirming){ cancelRequest(fu); setConfirming(false); } else { setConfirming(true); setTimeout(()=>setConfirming(false),2500); } }} className="tap" style={{ padding:"5px 12px",borderRadius:99,background:confirming?`${C.rose}18`:`${C.accent}12`,border:confirming?`1px solid ${C.rose}44`:`1px solid ${C.accent}33`,fontSize:10,color:confirming?C.rose:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap",cursor:"pointer" }}>{confirming?"Tap to cancel":"Requested ✕"}</button>;
     if(st==="declined") return <div style={{ padding:"5px 12px",borderRadius:99,background:`${C.textDim}22`,border:`1px solid ${C.border}`,fontSize:10,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:600,whiteSpace:"nowrap" }}>Declined</div>;
     return (
       <button onClick={()=>sendRequest(fu)} className="tap" style={{ padding:"6px 14px",borderRadius:99,background:`linear-gradient(135deg,${C.accent},${C.berry})`,border:"none",fontSize:10.5,color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",boxShadow:`0 0 12px ${C.accent}30` }}>Add to Circle</button>
@@ -5040,6 +5051,15 @@ function HomeFeed({ user, go, weather, isVip, onUpgrade, onSmartNotifs, onViewPr
   const [fanSearching, setFanSearching] = useState(false);
   const [fanSearchUnavailable, setFanSearchUnavailable] = useState(false);
   const [circleStatuses, setCircleStatuses] = useState(()=>ls.get("backstage_circle_statuses",{}));
+  // circleStatuses was previously only read once at mount, so it went stale the moment
+  // the app-wide reconcile (mount/15s poll/focus, see reconcileCircleStatuses) corrected
+  // localStorage in the background — a search result could keep showing "Requested"
+  // long after the request was actually accepted or cancelled elsewhere. Poll it the
+  // same way NotificationBell/FriendsPage already do for the same class of drift.
+  useEffect(() => {
+    const iv = setInterval(() => setCircleStatuses(ls.get("backstage_circle_statuses", {})), 3000);
+    return () => clearInterval(iv);
+  }, []);
 
   // Debounced universal-search fan lookup — reuses the shared /api/users/search helper
   useEffect(() => {
@@ -11106,6 +11126,14 @@ function FanDiscoverySection({ user, fans, loading, onViewProfile }) {
   const [requestIds,   setRequestIds]   = useState({}); // fan.id -> requestId, so a pending request can be cancelled
   const [discoverable, setDiscoverable] = useState(()=>ls.get(DISC_KEY, true));
   const [togglingDisc, setTogglingDisc] = useState(false);
+  const [confirmCancelId, setConfirmCancelId] = useState(null); // fan.id currently armed for cancel
+
+  // Same staleness fix as HomeFeed — without this, a card here could keep showing
+  // "Requested" long after the request was accepted/cancelled elsewhere.
+  useEffect(() => {
+    const iv = setInterval(() => setStatuses(ls.get("backstage_circle_statuses", {})), 3000);
+    return () => clearInterval(iv);
+  }, []);
 
   const addToCircle = async (fan) => {
     const next = {...statuses, [fan.id]:"sent"};
@@ -11205,11 +11233,16 @@ function FanDiscoverySection({ user, fans, loading, onViewProfile }) {
             </div>
             <div style={{ position:"relative",display:"flex",gap:8 }}>
               <button
-                onClick={()=>{ if(status==="sent") cancelCircleRequest(fan); else if(!status) addToCircle(fan); }}
+                onClick={()=>{
+                  if (status==="sent") {
+                    if (confirmCancelId===fan.id) { cancelCircleRequest(fan); setConfirmCancelId(null); }
+                    else { setConfirmCancelId(fan.id); setTimeout(()=>setConfirmCancelId(id=>id===fan.id?null:id), 2500); }
+                  } else if (!status) addToCircle(fan);
+                }}
                 disabled={status==="accepted"}
-                style={{ flex:1,padding:"9px 12px",borderRadius:12,background:status==="sent"?`${C.accent}12`:status==="accepted"?`${C.mint}18`:`linear-gradient(140deg,${col}cc,${col}88)`,border:status==="sent"?`1.5px solid ${C.accent}44`:status==="accepted"?`1.5px solid ${C.mint}`:"none",color:status==="sent"?C.accent:status==="accepted"?C.mint:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:status==="accepted"?"default":"pointer" }}
+                style={{ flex:1,padding:"9px 12px",borderRadius:12,background:confirmCancelId===fan.id?`${C.rose}18`:status==="sent"?`${C.accent}12`:status==="accepted"?`${C.mint}18`:`linear-gradient(140deg,${col}cc,${col}88)`,border:confirmCancelId===fan.id?`1.5px solid ${C.rose}44`:status==="sent"?`1.5px solid ${C.accent}44`:status==="accepted"?`1.5px solid ${C.mint}`:"none",color:confirmCancelId===fan.id?C.rose:status==="sent"?C.accent:status==="accepted"?C.mint:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:status==="accepted"?"default":"pointer" }}
               >
-                {status==="sent"?"Requested ✕":status==="accepted"?"In Circle ✦":"Add to Circle"}
+                {confirmCancelId===fan.id?"Tap to cancel":status==="sent"?"Requested ✕":status==="accepted"?"In Circle ✦":"Add to Circle"}
               </button>
               <button
                 onClick={()=>onViewProfile&&onViewProfile(fan)}
@@ -17462,6 +17495,7 @@ function PublicProfilePreview({ fan, onBack, onBackToMessage, onViewFullProfile,
   const [circleStatus, setCircleStatus] = useState(null);
   const [requestId, setRequestId] = useState(null);
   const [sentConfirm, setSentConfirm] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false); // armed by a first tap on "Requested"
 
   useEffect(() => {
     if (!fan?.id) { setLoading(false); return; }
@@ -17582,11 +17616,15 @@ function PublicProfilePreview({ fan, onBack, onBackToMessage, onViewFullProfile,
           <>
             <div style={{ display:"flex",gap:8 }}>
               <button
-                onClick={()=>{ if(circleStatus==="incoming") acceptCircleRequest(); else if(circleStatus==="sent") cancelCircleRequest(); else if(!circleStatus) addToCircle(); }}
+                onClick={()=>{
+                  if (circleStatus==="incoming") acceptCircleRequest();
+                  else if (circleStatus==="sent") { if (confirmCancel) { cancelCircleRequest(); setConfirmCancel(false); } else { setConfirmCancel(true); setTimeout(()=>setConfirmCancel(false),2500); } }
+                  else if (!circleStatus) addToCircle();
+                }}
                 disabled={circleStatus==="accepted"||circleStatus==="self"}
-                style={{ flex:1,padding:"12px",borderRadius:14,background:circleStatus==="sent"?`${C.accent}12`:circleStatus==="accepted"?`${C.mint}18`:circleStatus==="self"?C.surfaceHi:`linear-gradient(140deg,${C.accent},${C.pink})`,border:circleStatus==="sent"?`1.5px solid ${C.accent}44`:circleStatus==="accepted"?`1.5px solid ${C.mint}`:circleStatus==="self"?`1px solid ${C.border}`:"none",color:circleStatus==="sent"?C.accent:circleStatus==="accepted"?C.mint:circleStatus==="self"?C.textMid:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,cursor:(circleStatus==="accepted"||circleStatus==="self")?"default":"pointer" }}
+                style={{ flex:1,padding:"12px",borderRadius:14,background:confirmCancel?`${C.rose}18`:circleStatus==="sent"?`${C.accent}12`:circleStatus==="accepted"?`${C.mint}18`:circleStatus==="self"?C.surfaceHi:`linear-gradient(140deg,${C.accent},${C.pink})`,border:confirmCancel?`1.5px solid ${C.rose}44`:circleStatus==="sent"?`1.5px solid ${C.accent}44`:circleStatus==="accepted"?`1.5px solid ${C.mint}`:circleStatus==="self"?`1px solid ${C.border}`:"none",color:confirmCancel?C.rose:circleStatus==="sent"?C.accent:circleStatus==="accepted"?C.mint:circleStatus==="self"?C.textMid:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,cursor:(circleStatus==="accepted"||circleStatus==="self")?"default":"pointer" }}
               >
-                {circleStatus==="sent"?"Requested ✕":circleStatus==="accepted"?"Friends ✦":circleStatus==="incoming"?"Accept Request":circleStatus==="self"?"This is you":"Add to Circle"}
+                {confirmCancel?"Tap to cancel":circleStatus==="sent"?"Requested ✕":circleStatus==="accepted"?"Friends ✦":circleStatus==="incoming"?"Accept Request":circleStatus==="self"?"This is you":"Add to Circle"}
               </button>
               <button
                 onClick={()=>onMessage?.(fan)}
@@ -17635,6 +17673,7 @@ function PublicProfileFull({ fan, onBack, onBackToMessage, onMessage, go }) {
   const [circleStatus, setCircleStatus] = useState(null);
   const [requestId, setRequestId] = useState(null);
   const [sentConfirm, setSentConfirm] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false); // armed by a first tap on "Requested"
 
   const addToCircle = () => {
     const next = {...ls.get("backstage_circle_statuses",{}), [fan.id]:"sent"};
@@ -17712,11 +17751,15 @@ function PublicProfileFull({ fan, onBack, onBackToMessage, onMessage, go }) {
       {!fan.fromDM && !isSelf && (
         <div style={{ position:"absolute",bottom:0,left:0,right:0,padding:"12px 20px",paddingBottom:"max(16px, calc(env(safe-area-inset-bottom) + 12px))",background:"rgba(6,6,15,0.92)",backdropFilter:"blur(20px)",borderTop:"1px solid rgba(255,255,255,0.08)",display:"flex",gap:8,zIndex:10 }}>
           <button
-            onClick={()=>{ if(circleStatus==="incoming") acceptCircleRequest(); else if(circleStatus==="sent") cancelCircleRequest(); else if(!circleStatus) addToCircle(); }}
+            onClick={()=>{
+              if (circleStatus==="incoming") acceptCircleRequest();
+              else if (circleStatus==="sent") { if (confirmCancel) { cancelCircleRequest(); setConfirmCancel(false); } else { setConfirmCancel(true); setTimeout(()=>setConfirmCancel(false),2500); } }
+              else if (!circleStatus) addToCircle();
+            }}
             disabled={circleStatus==="accepted"||circleStatus==="self"}
-            style={{ flex:1,padding:"12px",borderRadius:14,background:circleStatus==="sent"?`${C.accent}12`:circleStatus==="accepted"?`${C.mint}18`:circleStatus==="self"?C.surfaceHi:`linear-gradient(140deg,${C.accent},${C.pink})`,border:circleStatus==="sent"?`1.5px solid ${C.accent}44`:circleStatus==="accepted"?`1.5px solid ${C.mint}`:circleStatus==="self"?`1px solid ${C.border}`:"none",color:circleStatus==="sent"?C.accent:circleStatus==="accepted"?C.mint:circleStatus==="self"?C.textMid:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,cursor:(circleStatus==="accepted"||circleStatus==="self")?"default":"pointer" }}
+            style={{ flex:1,padding:"12px",borderRadius:14,background:confirmCancel?`${C.rose}18`:circleStatus==="sent"?`${C.accent}12`:circleStatus==="accepted"?`${C.mint}18`:circleStatus==="self"?C.surfaceHi:`linear-gradient(140deg,${C.accent},${C.pink})`,border:confirmCancel?`1.5px solid ${C.rose}44`:circleStatus==="sent"?`1.5px solid ${C.accent}44`:circleStatus==="accepted"?`1.5px solid ${C.mint}`:circleStatus==="self"?`1px solid ${C.border}`:"none",color:confirmCancel?C.rose:circleStatus==="sent"?C.accent:circleStatus==="accepted"?C.mint:circleStatus==="self"?C.textMid:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,cursor:(circleStatus==="accepted"||circleStatus==="self")?"default":"pointer" }}
           >
-            {circleStatus==="sent"?"Requested ✕":circleStatus==="accepted"?"Friends ✦":circleStatus==="incoming"?"Accept Request":circleStatus==="self"?"This is you":"Add to Circle"}
+            {confirmCancel?"Tap to cancel":circleStatus==="sent"?"Requested ✕":circleStatus==="accepted"?"Friends ✦":circleStatus==="incoming"?"Accept Request":circleStatus==="self"?"This is you":"Add to Circle"}
           </button>
           <button
             onClick={()=>onMessage?.(fan)}
