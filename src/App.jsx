@@ -589,6 +589,17 @@ const DARK_THEME = {
   modalShadow:  "0 -18px 70px rgba(224,185,255,0.38)",
   modalSurface: "rgba(255,255,255,0.5)",
   modalAccent:  "#8E68E8",
+  // ── General-purpose "glass on page bg" tokens — replaces the many spots that
+  // hardcoded rgba(255,255,255,0.0x) "white glass on dark" assuming dark mode ──
+  glassBg:      "rgba(255,255,255,0.045)",
+  glassBgHi:    "rgba(255,255,255,0.08)",
+  glassBorder:  "rgba(255,255,255,0.12)",
+  inputBg:      "rgba(8,5,18,0.55)",
+  overlayBg:    "rgba(6,6,15,0.75)",
+  chipInactiveBg:"rgba(255,255,255,0.05)",
+  feedCard:       "linear-gradient(160deg,rgba(20,12,38,0.64),rgba(10,7,20,0.58))",
+  feedCardBorder: "rgba(214,189,255,0.14)",
+  feedCardShadow: "0 10px 26px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.05)",
 };
 
 const LIGHT_THEME = {
@@ -645,6 +656,16 @@ const LIGHT_THEME = {
   modalShadow:  "0 -18px 70px rgba(42,20,80,0.5)",
   modalSurface: "rgba(255,255,255,0.08)",
   modalAccent:  "#c9b6ff",
+  // ── General-purpose "glass on page bg" tokens — ink-tinted glass on pale bg ─
+  glassBg:      "rgba(33,17,52,0.035)",
+  glassBgHi:    "rgba(33,17,52,0.07)",
+  glassBorder:  "rgba(33,17,52,0.14)",
+  inputBg:      "rgba(255,255,255,0.75)",
+  overlayBg:    "rgba(60,40,95,0.32)",
+  chipInactiveBg:"rgba(33,17,52,0.045)",
+  feedCard:       "linear-gradient(160deg,rgba(255,255,255,0.9),rgba(255,250,255,0.72))",
+  feedCardBorder: "rgba(33,17,52,0.12)",
+  feedCardShadow: "0 10px 26px rgba(120,90,180,0.14), inset 0 1px 0 rgba(255,255,255,0.6)",
 };
 
 const C = Object.assign({}, DARK_THEME);
@@ -1055,12 +1076,15 @@ const VS = {
     boxShadow: `0 12px 40px ${color}28, 0 4px 16px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.08)`,
     position: "relative", overflow: "hidden",
   }),
-  softSectionHeader: {
+  // NOTE: these two must stay functions (not plain objects) — a plain object's
+  // `color: C.textMid` is resolved once at module load and frozen forever, so it
+  // goes stale the moment the theme toggles. A function re-reads C on every call.
+  softSectionHeader: () => ({
     fontSize: 9.5, color: C.textMid,
     fontFamily: "'Epilogue',sans-serif", fontWeight: 700,
     textTransform: "uppercase", letterSpacing: "0.14em",
     marginBottom: 12,
-  },
+  }),
   activePill: (color) => ({
     display: "inline-flex", alignItems: "center",
     padding: "5px 12px", borderRadius: 99,
@@ -1069,13 +1093,13 @@ const VS = {
     fontFamily: "'Epilogue',sans-serif", fontWeight: 700,
     letterSpacing: "0.04em",
   }),
-  mutedPill: {
+  mutedPill: () => ({
     display: "inline-flex", alignItems: "center",
     padding: "5px 12px", borderRadius: 99,
     background: "transparent", border: `1px solid ${C.border}`,
     color: C.textMid, fontSize: 10,
     fontFamily: "'Epilogue',sans-serif", fontWeight: 600,
-  },
+  }),
   pageGlowBackground: (color) => ({
     background: C.bg,
     position: "relative",
@@ -1168,6 +1192,66 @@ const VS = {
     background: `linear-gradient(180deg,${color}10,transparent 70%)`,
   }),
 };
+
+// ─── UNIFIED PILL / BADGE / GLASS-CARD SYSTEM ─────────────────────────────────
+// One shared design language for every tab control, chip, and status badge in
+// the app — Fanverse, Explore, My World, Tools, Passes, Collection Tracker —
+// so switching pages doesn't feel like switching color systems. All tones map
+// onto the existing theme tokens (already muted/premium-tuned per mode) rather
+// than a second parallel palette, so they stay correct through every toggle.
+const BS_TONE = {
+  primary: () => C.accent,   // lavender/violet — default
+  premium: () => C.gold,     // champagne — reserve for "special/featured" only
+  soft:    () => C.lavender, // soft lavender — quiet secondary accent
+  danger:  () => C.rose,     // muted rose — real warnings/destructive only
+  info:    () => C.sky,      // muted lavender-blue — informational only
+};
+function bsToneColor(tone) { return (BS_TONE[tone] || BS_TONE.primary)(); }
+
+// Tab / segmented-control / filter pill. One active look, one inactive look,
+// used identically everywhere instead of every page inventing its own.
+function getPillStyle({ active=false, tone="primary" } = {}) {
+  if (active) {
+    return {
+      background:`linear-gradient(135deg,${C.accent},${C.pink})`,
+      color: C.mode==="light" ? "#ffffff" : "#1a1228",
+      border:"1px solid rgba(255,255,255,0.28)",
+      boxShadow:`0 0 12px ${C.accent}33`,
+      borderRadius:99, fontFamily:"'Epilogue',sans-serif", fontWeight:700,
+      cursor:"pointer", transition:"all .18s ease", whiteSpace:"nowrap",
+    };
+  }
+  const c = bsToneColor(tone);
+  return {
+    background: C.chipInactiveBg,
+    color: tone==="primary" ? C.textMid : c,
+    border:`1px solid ${C.glassBorder}`,
+    borderRadius:99, fontFamily:"'Epilogue',sans-serif", fontWeight:700,
+    cursor:"pointer", transition:"all .18s ease", whiteSpace:"nowrap",
+  };
+}
+
+// Small status/category badge (LIVE POV, Preview, Upcoming Show, Fan Creator…).
+// tone picks the hue; everything else — glass density, border weight — stays
+// identical across tones so a page never looks like five different widgets.
+function getBadgeStyle({ tone="primary" } = {}) {
+  const c = bsToneColor(tone);
+  return {
+    display:"inline-flex", alignItems:"center", gap:4,
+    padding:"3px 9px", borderRadius:99,
+    background: tone==="premium" ? `linear-gradient(135deg,${c}28,${C.accent}14)` : `${c}18`,
+    border:`1px solid ${c}40`,
+    color:c, fontSize:9, fontFamily:"'Epilogue',sans-serif", fontWeight:700,
+    letterSpacing:"0.03em", whiteSpace:"nowrap",
+  };
+}
+
+// Shared glass-card surface — replaces the many one-off translucent panels.
+function getGlassCardStyle({ emphasis="normal" } = {}) {
+  return emphasis==="hi"
+    ? { background:C.glassBgHi, border:`1px solid ${C.glassBorder}`, borderRadius:18, backdropFilter:"blur(14px)" }
+    : { background:C.glassBg,   border:`1px solid ${C.glassBorder}`, borderRadius:16, backdropFilter:"blur(10px)" };
+}
 
 // ─── SKIN SYSTEM — shared between ProfileStudio and the main Profile page ─────
 const SKIN_GRADIENTS = {
@@ -1379,13 +1463,16 @@ const SECTION_EFFECTS = [
 // ─── PRIMITIVES ────────────────────────────────────────────────────────────────
 
 // StatusChip — reusable trust label: COMING SOON | PREVIEW | LIVE | OFFICIAL
-const STATUS_CHIP_STYLES = {
+// A function, not a frozen object — its C.xxx values must re-read on every
+// render or the chip keeps whatever theme was active at module load forever.
+const getStatusChipStyles = () => ({
   "COMING SOON": { bg:`${C.berry}1a`, border:`1px solid ${C.berry}44`,  color:C.lavender },
   "PREVIEW":     { bg:`${C.accent}10`, border:`1px solid ${C.accent}30`, color:C.accent  },
   "LIVE":        { bg:`${C.mint}14`,   border:`1px solid ${C.mint}38`,   color:C.mint    },
   "OFFICIAL":    { bg:`${C.gold}14`,   border:`1px solid ${C.gold}38`,   color:C.gold    },
-};
+});
 const StatusChip = ({ label, style:s }) => {
+  const STATUS_CHIP_STYLES = getStatusChipStyles();
   const st = STATUS_CHIP_STYLES[label] || STATUS_CHIP_STYLES["PREVIEW"];
   return (
     <div style={{ display:"inline-flex",alignItems:"center",padding:"2px 7px",borderRadius:99,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:7.5,letterSpacing:"0.09em",whiteSpace:"nowrap",...st,...s }}>
@@ -4487,7 +4574,7 @@ function HomeIdentity({ user, go }) {
                   {fandoms.slice(0,3).map(f=>(
                     <div key={f} style={{ ...VS.activePill(C.accent), fontSize:9 }}>{f}</div>
                   ))}
-                  {fandoms.length>3&&<div style={{ ...VS.mutedPill, fontSize:9 }}>+{fandoms.length-3}</div>}
+                  {fandoms.length>3&&<div style={{ ...VS.mutedPill(), fontSize:9 }}>+{fandoms.length-3}</div>}
                 </div>
               ) : (
                 <div onClick={()=>go("profile")} style={{ display:"inline-flex",alignItems:"center",gap:4,background:C.surfaceHi,border:`1px dashed ${C.border}`,borderRadius:99,padding:"3px 10px",cursor:"pointer" }}>
@@ -4550,7 +4637,7 @@ function HomeQuickActions({ user, go }) {
   return (
     <div style={{ padding:"0 18px 24px" }}>
       <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12 }}>
-        <p style={VS.softSectionHeader}>Explore</p>
+        <p style={VS.softSectionHeader()}>Explore</p>
       </div>
 
       {/* Top row: large Fanverse Map + stacked right cards */}
@@ -4649,7 +4736,7 @@ function HomeSocialFeed({ user, go }) {
       {/* Section header */}
       <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:13 }}>
         <div>
-          <p style={VS.softSectionHeader}>Fanverse Highlights</p>
+          <p style={VS.softSectionHeader()}>Fanverse Highlights</p>
         </div>
         <div style={{ display:"flex",gap:6 }}>
           {[["popular","🔥"],["recent","⏱"],["near you","📍"]].map(([id,icon])=>(
@@ -4726,7 +4813,7 @@ function HomeShelfPreview({ go, cards }) {
   return (
     <div style={{ padding:"0 18px 22px" }}>
       <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:13 }}>
-        <p style={VS.softSectionHeader}>My World</p>
+        <p style={VS.softSectionHeader()}>My World</p>
         <button onClick={()=>go("collect")} style={{ background:"none",border:"none",color:C.accentDim,fontSize:11,cursor:"pointer",fontWeight:600 }}>View All →</button>
       </div>
 
@@ -4792,7 +4879,7 @@ function HomeFanversePreview({ go }) {
       {/* Section header */}
       <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14 }}>
         <div>
-          <p style={VS.softSectionHeader}>Fanverse Preview</p>
+          <p style={VS.softSectionHeader()}>Fanverse Preview</p>
         </div>
         <StatusChip label="PREVIEW" />
       </div>
@@ -4849,7 +4936,7 @@ function HomeNextSteps({ user, go }) {
 
   return (
     <div style={{ padding:"0 18px 22px" }}>
-      <p style={{...VS.softSectionHeader}}>Your Next Move ✦</p>
+      <p style={{...VS.softSectionHeader()}}>Your Next Move ✦</p>
       <div style={{ display:"flex",flexDirection:"column",gap:9 }}>
         {shown.map((step,i)=>(
           <div key={i} onClick={()=>go(step.dest)} className="tap" style={{ ...VS.elevatedCard(step.color),padding:"13px 14px",cursor:"pointer",display:"flex",gap:12,alignItems:"center" }}>
@@ -4929,7 +5016,7 @@ function HomeOutfitShop({ go }) {
   return (
     <div style={{ padding:"0 0 22px" }}>
       <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:13,padding:"0 18px" }}>
-        <p style={VS.softSectionHeader}>Outfit Inspo 🛍️</p>
+        <p style={VS.softSectionHeader()}>Outfit Inspo 🛍️</p>
       </div>
 
       {/* Horizontal scroll */}
@@ -5148,7 +5235,7 @@ function HomeFeatureDiscovery({ go }) {
   return (
     <div style={{ padding:"0 0 20px" }}>
       <div style={{ padding:"0 18px",marginBottom:12 }}>
-        <p style={VS.softSectionHeader}>Your Fan Era ✦</p>
+        <p style={VS.softSectionHeader()}>Your Fan Era ✦</p>
       </div>
       <div style={{ display:"flex",gap:10,overflowX:"auto",paddingLeft:18,paddingRight:18,paddingBottom:8,scrollbarWidth:"none" }}>
         {FEATURES.map(f=>(
@@ -5522,8 +5609,8 @@ function NotificationBell({ onOpen }) {
         style={{
           width:34,height:34,
           borderRadius:11,
-          background:"rgba(20,12,38,0.55)",
-          border:`1px solid ${unread>0?"rgba(184,162,255,0.45)":"rgba(214,189,255,0.18)"}`,
+          background:C.glassBgHi,
+          border:`1px solid ${unread>0?"rgba(184,162,255,0.45)":C.glassBorder}`,
           color:unread>0?C.lavender:C.textMid,
           fontSize:14,
           cursor:"pointer",
@@ -5554,29 +5641,29 @@ function NotificationBell({ onOpen }) {
       {/* Translucent quick-view — a glance, not a page transition. Backstage Buzz stays the full center. */}
       {showQuickView && (<>
         <div onClick={()=>setShowQuickView(false)} style={{ position:"fixed", inset:0, zIndex:349 }} />
-        <div style={{ position:"absolute", top:44, right:0, zIndex:350, width:272, maxHeight:380, overflowY:"auto", background:"rgba(26,16,50,0.86)", backdropFilter:"blur(22px)", WebkitBackdropFilter:"blur(22px)", border:`1px solid ${C.lavender}44`, borderRadius:24, boxShadow:"0 20px 50px rgba(0,0,0,0.55)", padding:14, animation:"in .15s ease" }}>
+        <div style={{ position:"absolute", top:44, right:0, zIndex:350, width:272, maxHeight:380, overflowY:"auto", background:C.modalBg, backdropFilter:"blur(22px) saturate(1.4)", WebkitBackdropFilter:"blur(22px)", border:`1px solid ${C.modalBorder}`, borderRadius:24, boxShadow:C.modalShadow, padding:14, animation:"in .15s ease" }}>
           <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10 }}>
-            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,color:C.text }}>Notifications{unread>0?` · ${unread} new`:""}</p>
-            <button onClick={()=>setShowQuickView(false)} style={{ background:"none",border:"none",color:C.textMid,fontSize:14,cursor:"pointer",lineHeight:1 }}>✕</button>
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,color:C.modalText }}>Notifications{unread>0?` · ${unread} new`:""}</p>
+            <button onClick={()=>setShowQuickView(false)} style={{ background:"none",border:"none",color:C.modalTextMid,fontSize:14,cursor:"pointer",lineHeight:1 }}>✕</button>
           </div>
           {recentNotifs.length>0 ? (
             <div style={{ display:"flex",flexDirection:"column",gap:6,marginBottom:12 }}>
               {recentNotifs.map(n=>(
-                <div key={n.id} onClick={openFullCenter} className="tap" style={{ display:"flex",gap:8,alignItems:"flex-start",padding:"8px 9px",borderRadius:14,background:n.read?"rgba(255,255,255,0.03)":"rgba(184,162,255,0.10)",cursor:"pointer" }}>
+                <div key={n.id} onClick={openFullCenter} className="tap" style={{ display:"flex",gap:8,alignItems:"flex-start",padding:"8px 9px",borderRadius:14,background:n.read?`${C.modalText}08`:"rgba(184,162,255,0.14)",cursor:"pointer" }}>
                   {n.fromAvatar
                     ? <div style={{ width:26,height:26,borderRadius:"50%",background:`linear-gradient(135deg,${n.fromColor||C.accent},${(n.fromColor||C.accent)}77)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:11,color:C.bg,flexShrink:0 }}>{n.fromAvatar}</div>
                     : <span style={{ fontSize:15,flexShrink:0 }}>{n.icon||"🔔"}</span>}
                   <div style={{ minWidth:0 }}>
-                    <p style={{ fontSize:11,fontWeight:700,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{n.title}</p>
-                    {n.body && <p style={{ fontSize:9.5,color:C.textMid,marginTop:1,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical" }}>{n.body}</p>}
+                    <p style={{ fontSize:11,fontWeight:700,color:C.modalText,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{n.title}</p>
+                    {n.body && <p style={{ fontSize:9.5,color:C.modalTextMid,marginTop:1,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical" }}>{n.body}</p>}
                   </div>
                 </div>
               ))}
             </div>
-          ) : <p style={{ fontSize:11,color:C.textDim,textAlign:"center",padding:"20px 0" }}>You're all caught up.</p>}
+          ) : <p style={{ fontSize:11,color:C.modalTextDim,textAlign:"center",padding:"20px 0" }}>You're all caught up.</p>}
           <div style={{ display:"flex",flexDirection:"column",gap:6 }}>
             <button onClick={openFullCenter} className="tap" style={{ ...VS.glowButton(C.accent,C.pink), padding:"9px 12px", fontSize:11.5, border:"none" }}>View all updates</button>
-            <button onClick={openSettings} className="tap" style={{ background:"none",border:`1px solid ${C.border}`,borderRadius:12,padding:"9px 12px",color:C.textMid,fontSize:10.5,cursor:"pointer",fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>Notification settings</button>
+            <button onClick={openSettings} className="tap" style={{ background:"none",border:`1px solid ${C.modalBorder}`,borderRadius:12,padding:"9px 12px",color:C.modalTextMid,fontSize:10.5,cursor:"pointer",fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>Notification settings</button>
           </div>
         </div>
       </>)}
@@ -6179,7 +6266,7 @@ function Onboarding({ onDone }) {
     ];
 
     return (
-      <div style={{ height:"100%",display:"flex",flexDirection:"column",justifyContent:"center",padding:"32px 24px",background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 50%,#0c0820 100%)`,overflowY:"auto",textAlign:"center",position:"relative",overflow:"hidden" }}>
+      <div style={{ height:"100%",display:"flex",flexDirection:"column",justifyContent:"center",padding:"32px 24px",background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 50%,${C.surfaceMid} 100%)`,overflowY:"auto",textAlign:"center",position:"relative",overflow:"hidden" }}>
 
         {/* Ambient radial glow */}
         <div style={{ position:"absolute",top:"18%",left:"50%",transform:"translateX(-50%)",width:340,height:340,borderRadius:"50%",background:`radial-gradient(ellipse,${slide.accent}1c,transparent 68%)`,pointerEvents:"none",transition:"background .6s" }} />
@@ -7981,8 +8068,12 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
       {/* Theme overlay — changes with Decorate selection */}
       <div style={{ position:"absolute",inset:0,background:THEME_BG[myWorldTheme]||THEME_BG["Purple Galaxy"],pointerEvents:"none",zIndex:0,transition:"background .5s ease" }} />
 
-      {/* Full-bleed My Universe hero band — replaces the slim flat header */}
-      <div style={{ padding:"22px 20px 16px", flexShrink:0, position:"relative", zIndex:1, overflow:"hidden", background:`linear-gradient(165deg,${C.plum}c8 0%,${C.cosmic}f0 55%,transparent 100%)`, borderBottom:`1px solid rgba(255,255,255,0.05)` }}>
+      {/* Full-bleed My Universe hero band — replaces the slim flat header.
+          Dark mode keeps a deep plum "hero" backdrop; light mode uses a pale
+          one instead, since the title's gradient-fill text darkens in light
+          mode to stay readable on pale pages — a dark hero band would put
+          that darkened text on an equally-dark backdrop and wash it out. */}
+      <div style={{ padding:"22px 20px 16px", flexShrink:0, position:"relative", zIndex:1, overflow:"hidden", background:C.mode==="light" ? `linear-gradient(165deg,${C.cosmic} 0%,${C.surfaceMid} 55%,transparent 100%)` : `linear-gradient(165deg,${C.plum}c8 0%,${C.cosmic}f0 55%,transparent 100%)`, borderBottom:`1px solid ${C.glassBorder}` }}>
         {/* Backstage B watermark — subtle orb identity, not a literal logo render */}
         <div aria-hidden style={{ position:"absolute", top:-44, right:-34, width:170, height:170, borderRadius:"50%", border:`1px solid ${C.accent}16`, background:`radial-gradient(circle at 38% 38%,${C.accent}12,transparent 70%)`, pointerEvents:"none" }} />
         <p aria-hidden style={{ position:"absolute", top:2, right:20, fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:58, lineHeight:1, color:"transparent", WebkitTextStroke:`1px ${C.accent}1a`, pointerEvents:"none", userSelect:"none" }}>B</p>
@@ -7990,7 +8081,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", position:"relative" }}>
           <div>
             <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.16em",marginBottom:4 }}>My World</p>
-            <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontStyle:"italic",fontWeight:800,fontSize:25,background:`linear-gradient(135deg,${C.lavender},${C.blush})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",lineHeight:1.1 }}>My Universe ✦</h2>
+            <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontStyle:"italic",fontWeight:800,fontSize:25,background:`linear-gradient(135deg,${C.lavender},${C.blush})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",lineHeight:1.1,filter:C.mode==="light"?"drop-shadow(0 1px 1px rgba(33,17,52,0.18))":"none" }}>My Universe ✦</h2>
             <p style={{ fontSize:9.5,color:C.textDim,marginTop:4, maxWidth:210 }}>Collections, capsules, memories, and scrapbooks.</p>
           </div>
           {isVip&&<VipBadge />}
@@ -7998,7 +8089,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
         {/* Sub-nav */}
         <div style={{ display:"flex", gap:6, overflowX:"auto", marginTop:16, paddingBottom:2, scrollbarWidth:"none", position:"relative" }}>
           {SECTIONS.map(s=>(
-            <button key={s.id} onClick={()=>setSection(s.id)} className="tap" style={{ flexShrink:0, padding:"7px 14px", borderRadius:99, fontSize:11, fontFamily:"'Epilogue',sans-serif", fontWeight:700, background:section===s.id?`linear-gradient(140deg,${C.accent}cc,${C.accentDim})`:"rgba(255,255,255,0.05)", color:section===s.id?C.bg:C.textMid, border:section===s.id?"none":`1px solid rgba(255,255,255,0.07)`, cursor:"pointer", boxShadow:section===s.id?`0 4px 12px ${C.accent}28`:"none", display:"flex", gap:5, alignItems:"center" }}>
+            <button key={s.id} onClick={()=>setSection(s.id)} className="tap" style={{ ...getPillStyle({active:section===s.id}), flexShrink:0, padding:"7px 14px", fontSize:11, display:"flex", gap:5, alignItems:"center" }}>
               {s.icon&&s.icon!==s.label&&<span>{s.icon}</span>}<span>{s.label}</span>
             </button>
           ))}
@@ -8568,12 +8659,12 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
             {/* Segmented control — makes Collection Tracker a real mini control center, not a static readout */}
             <div style={{ display:"flex", gap:6, overflowX:"auto", marginBottom:14, paddingBottom:2, scrollbarWidth:"none" }}>
               {[["overview","Overview"],["groups","Groups"],["albumVersions","Versions"],["isoWanted","ISO"],["tradeable","Trade"]].map(([id,label])=>(
-                <button key={id} onClick={()=>{ setTrackerView(id); if(id!=="groups") setTrackerGroupFocus(null); }} className="tap" style={{ flexShrink:0, fontSize:11, padding:"7px 13px", borderRadius:99, background: trackerView===id ? `linear-gradient(135deg,${softBlue},${C.accent})` : "rgba(255,255,255,0.06)", border:`1px solid ${trackerView===id?softBlue:"rgba(255,255,255,0.14)"}`, color: trackerView===id ? C.bg : C.modalTextMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer" }}>{label}</button>
+                <button key={id} onClick={()=>{ setTrackerView(id); if(id!=="groups") setTrackerGroupFocus(null); }} className="tap" style={{ flexShrink:0, fontSize:11, padding:"7px 13px", borderRadius:99, background: trackerView===id ? `linear-gradient(135deg,${C.accent},${C.pink})` : `${C.modalText}10`, border:`1px solid ${trackerView===id?"rgba(255,255,255,0.28)":C.modalBorder}`, color: trackerView===id ? (C.mode==="light"?"#ffffff":"#1a1228") : C.modalTextMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer" }}>{label}</button>
               ))}
             </div>
 
             {trackerView==="overview" && (<>
-              <div style={{ border:`1px solid ${softBlueGlow}`,borderRadius:17,padding:12,marginBottom:12,background:"rgba(255,255,255,0.045)" }}>
+              <div style={{ border:`1px solid ${softBlueGlow}`,borderRadius:17,padding:12,marginBottom:12,background:`${C.modalText}0a` }}>
                 <p style={trackerSectionHeaderStyle}>Overview</p>
                 <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8 }}>
                   {[{label:"Actively collecting",val:totalOwned,color:softBlue,view:"groups"},{label:"Wanted / ISO",val:wishlistTotal,color:C.gold,view:"isoWanted"},{label:"Tradeable",val:tradeableTotal,color:C.rose,view:"tradeable"}].map(item=>(
@@ -8584,7 +8675,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                   ))}
                 </div>
               </div>
-              <div onClick={()=>setTrackerView("groups")} className="tap" style={{ border:`1px solid rgba(255,255,255,0.09)`,borderRadius:17,padding:12,marginBottom:12,background:"rgba(255,255,255,0.035)",cursor:"pointer" }}>
+              <div onClick={()=>setTrackerView("groups")} className="tap" style={{ border:`1px solid ${C.modalBorder}`,borderRadius:17,padding:12,marginBottom:12,background:`${C.modalText}08`,cursor:"pointer" }}>
                 <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between" }}>
                   <p style={trackerSectionHeaderStyle}>Groups</p>
                   <span style={{ fontSize:9.5,color:softBlue,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>See all →</span>
@@ -8592,12 +8683,12 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                 {trackerGroups.length ? (
                   <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
                     {trackerGroups.map(g=>(
-                      <div key={g.group} style={{ borderRadius:13,padding:"10px 11px",background:C.surface,border:`1px solid ${softBlueGlow}` }}><p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,color:C.modalText }}>{g.group}</p><p style={{ fontSize:10,color:C.modalTextMid,marginTop:3 }}>{g.owned} / {g.total} <span style={{ color:softBlue,marginLeft:5 }}>{g.pct}%</span></p></div>
+                      <div key={g.group} style={{ borderRadius:13,padding:"10px 11px",background:C.modalSurface,border:`1px solid ${C.modalBorder}` }}><p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,color:C.modalText }}>{g.group}</p><p style={{ fontSize:10,color:C.modalTextMid,marginTop:3 }}>{g.owned} / {g.total} <span style={{ color:softBlue,marginLeft:5 }}>{g.pct}%</span></p></div>
                     ))}
                   </div>
                 ) : <p style={{ fontSize:10.5,color:C.modalTextDim,padding:"4px 2px 0" }}>No groups tracked yet.</p>}
               </div>
-              <div onClick={()=>setTrackerView("albumVersions")} className="tap" style={{ border:`1px solid rgba(255,255,255,0.09)`,borderRadius:17,padding:12,marginBottom:12,background:"rgba(255,255,255,0.035)",cursor:"pointer" }}>
+              <div onClick={()=>setTrackerView("albumVersions")} className="tap" style={{ border:`1px solid ${C.modalBorder}`,borderRadius:17,padding:12,marginBottom:12,background:`${C.modalText}08`,cursor:"pointer" }}>
                 <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between" }}>
                   <p style={trackerSectionHeaderStyle}>Album Versions</p>
                   <span style={{ fontSize:9.5,color:softBlue,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>See all →</span>
@@ -8610,7 +8701,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                   </div>
                 ) : <p style={{ fontSize:10.5,color:C.modalTextDim,padding:"4px 2px 0" }}>No album versions tracked yet.</p>}
               </div>
-              <div onClick={()=>setTrackerView("isoWanted")} className="tap" style={{ border:`1px solid rgba(255,255,255,0.09)`,borderRadius:17,padding:12,background:"rgba(255,255,255,0.035)",cursor:"pointer" }}>
+              <div onClick={()=>setTrackerView("isoWanted")} className="tap" style={{ border:`1px solid ${C.modalBorder}`,borderRadius:17,padding:12,background:`${C.modalText}08`,cursor:"pointer" }}>
                 <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between" }}>
                   <p style={trackerSectionHeaderStyle}>ISO / Wanted</p>
                   <span style={{ fontSize:9.5,color:softBlue,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>See all →</span>
@@ -8635,7 +8726,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                       {groupFocusCards.map(c=>{
                         const meta = TRACKER_STATUS_META[c.status] || { label:c.status, color:C.modalTextMid };
                         return (
-                          <div key={c.id} style={{ display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:13,background:"rgba(255,255,255,0.035)",border:"1px solid rgba(255,255,255,0.09)" }}>
+                          <div key={c.id} style={{ display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:13,background:`${C.modalText}08`,border:`1px solid ${C.modalBorder}` }}>
                             <div style={{ flex:1,minWidth:0 }}>
                               <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,color:C.modalText }}>{c.label}</p>
                               {c.sub && <p style={{ fontSize:9.5,color:C.modalTextMid,marginTop:2 }}>{c.sub}</p>}
@@ -8653,7 +8744,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                   {trackerGroupsFull.length ? (
                     <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
                       {trackerGroupsFull.map(g=>(
-                        <div key={g.group} onClick={()=>setTrackerGroupFocus(g.group)} className="tap" style={{ borderRadius:13,padding:"10px 11px",background:C.surface,border:`1px solid ${softBlueGlow}`,cursor:"pointer" }}>
+                        <div key={g.group} onClick={()=>setTrackerGroupFocus(g.group)} className="tap" style={{ borderRadius:13,padding:"10px 11px",background:C.modalSurface,border:`1px solid ${C.modalBorder}`,cursor:"pointer" }}>
                           <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,color:C.modalText }}>{g.group}</p>
                           <p style={{ fontSize:10,color:C.modalTextMid,marginTop:3 }}>{g.owned} / {g.total} <span style={{ color:softBlue,marginLeft:5 }}>{g.pct}%</span></p>
                         </div>
@@ -8677,7 +8768,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                             <span style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,color:C.modalText }}>{v.version}</span>
                             <span style={{ color:softBlue,fontSize:11,fontFamily:"'Epilogue',sans-serif",fontWeight:800 }}>{v.owned} / {v.total}</span>
                           </div>
-                          <div style={{ height:6,borderRadius:99,background:"rgba(255,255,255,0.08)",overflow:"hidden" }}>
+                          <div style={{ height:6,borderRadius:99,background:`${C.modalText}14`,overflow:"hidden" }}>
                             <div style={{ height:"100%",width:`${pct}%`,borderRadius:99,background:`linear-gradient(90deg,${softBlue},${C.accent})` }} />
                           </div>
                         </div>
@@ -9685,7 +9776,7 @@ function BinderDetail({ binder, onBack }) {
 // POST /api/trades/start | PATCH /api/trades/:id/status | POST /api/trades/:id/review | GET /api/trades/:userId
 // localStorage: backstage_active_trades | backstage_trade_history | backstage_trade_reviews
 // ─── TRADE STAGE BADGE ────────────────────────────────────────────────────────
-const TRADE_STAGE_META = {
+const getTradeStageMeta = () => ({
   match:    { label:"Match Found",   color:C.accent, icon:"✨" },
   offer:    { label:"Offer Sent",    color:C.sky,    icon:"📤" },
   waiting:  { label:"Waiting",       color:C.gold,   icon:"⏳" },
@@ -9694,7 +9785,7 @@ const TRADE_STAGE_META = {
   confirm:  { label:"Confirming",    color:C.rose,   icon:"🔍" },
   done:     { label:"Complete",      color:C.gold,   icon:"🏅" },
   rate:     { label:"Rate Trader",   color:C.gold,   icon:"⭐" },
-};
+});
 
 // ─── TRADE LISTING DETAIL ─────────────────────────────────────────────────────
 // View a single public listing. Lister sees manage controls. Others see "Make Offer".
@@ -10224,7 +10315,7 @@ function OfferThread({ offer: initialOffer, user, onBack, onComplete }) {
         {/* Message thread */}
         {!["declined","cancelled"].includes(offer.status) && (
           <div>
-            <p style={{ ...VS.softSectionHeader,marginBottom:10 }}>Messages</p>
+            <p style={{ ...VS.softSectionHeader(),marginBottom:10 }}>Messages</p>
             <div style={{ background:C.surfaceHi,borderRadius:18,padding:12,marginBottom:10,maxHeight:220,overflowY:"auto" }}>
               {messages.length===0&&<p style={{ fontSize:11,color:C.textDim,textAlign:"center",padding:"10px 0" }}>No messages yet. Say hi!</p>}
               {messages.map((msg,i)=>{
@@ -10378,7 +10469,7 @@ function TradeHub({ onBack, onNotif, user }) {
 
   // Individual trade detail view
   if(activeTrade) {
-    const meta = TRADE_STAGE_META[activeTrade.stage]||TRADE_STAGE_META.match;
+    const meta = getTradeStageMeta()[activeTrade.stage]||getTradeStageMeta().match;
     const flow = STAGE_LABELS[activeTrade.stage];
     const stageIdx = STAGE_FLOW.indexOf(activeTrade.stage);
 
@@ -10481,7 +10572,7 @@ function TradeHub({ onBack, onNotif, user }) {
 
           {/* Messaging thread */}
           <div style={{ marginTop:8 }}>
-            <p style={{ ...VS.softSectionHeader,marginBottom:12 }}>Messages</p>
+            <p style={{ ...VS.softSectionHeader(),marginBottom:12 }}>Messages</p>
             <div style={{ background:C.surfaceHi,borderRadius:18,padding:14,marginBottom:10,maxHeight:200,overflowY:"auto" }}>
               {activeTrade.messages.length===0&&<p style={{ fontSize:11.5,color:C.textDim,textAlign:"center",padding:"10px 0" }}>No messages yet. Start the conversation!</p>}
               {activeTrade.messages.map((msg,i)=>(
@@ -10619,7 +10710,7 @@ function TradeHub({ onBack, onNotif, user }) {
         {/* Completed trades section */}
         {hubTab==="mine"&&myOffers.filter(o=>o.status==="completed").length>0&&(
           <div style={{ marginTop:8 }}>
-            <p style={{ ...VS.softSectionHeader,marginBottom:10 }}>Completed</p>
+            <p style={{ ...VS.softSectionHeader(),marginBottom:10 }}>Completed</p>
             {myOffers.filter(o=>o.status==="completed").map(offer=>{
               const uc = (offer.trade_listings||{}).user_cards || {};
               return (
@@ -10834,7 +10925,7 @@ function CollectTab({ cards, setCards, isVip, onUpgrade, user, onAddMemory, hide
 
             {/* Package tracking */}
             <div style={{ marginBottom:16 }}>
-              <p style={VS.softSectionHeader}>Track Shipment</p>
+              <p style={VS.softSectionHeader()}>Track Shipment</p>
               <div style={{ display:"flex", gap:10 }}>
                 <input value={trackNum} onChange={e=>setTrackNum(e.target.value)} placeholder="Enter tracking number..." style={{ flex:1, padding:"10px 12px", borderRadius:11, background:C.surfaceHi, border:`1.5px solid ${C.border}`, color:C.text, fontSize:12, fontFamily:"'Instrument Sans',sans-serif" }} />
                 <button onClick={mockTrack} style={{ background:C.accent, border:"none", borderRadius:10, padding:"0 14px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>Track</button>
@@ -10852,7 +10943,7 @@ function CollectTab({ cards, setCards, isVip, onUpgrade, user, onAddMemory, hide
             </div>
 
             {/* Tradeable cards */}
-            <p style={VS.softSectionHeader}>Your Tradeable Cards</p>
+            <p style={VS.softSectionHeader()}>Your Tradeable Cards</p>
             {tradeable.length===0?(
               <Empty emoji="🃏" title="No tradeable cards" sub="Mark cards as tradeable from your shelf." />
             ):(
@@ -11173,7 +11264,7 @@ function FanBuddyMatcher({ go }) {
 
       {/* Filters */}
       <div style={{ marginBottom:12 }}>
-        <p style={{ ...VS.softSectionHeader,marginBottom:8 }}>Filter Fans</p>
+        <p style={{ ...VS.softSectionHeader(),marginBottom:8 }}>Filter Fans</p>
         <div style={{ display:"flex",gap:6,marginBottom:7,overflowX:"auto",scrollbarWidth:"none" }}>
           {[["all","All Fans"],["local","📍 Local"],["nearby","🚗 Nearby"],["traveling","✈️ Traveling"]].map(([id,label])=>(
             <button key={id} onClick={()=>setTravelFilter(id)} style={{ flexShrink:0,padding:"5px 11px",borderRadius:99,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:travelFilter===id?C.accent:`${C.accent}10`,color:travelFilter===id?C.bg:C.textMid,border:`1px solid ${travelFilter===id?C.accent:C.border}` }}>{label}</button>
@@ -11187,7 +11278,7 @@ function FanBuddyMatcher({ go }) {
       </div>
 
       {/* Fan cards with compatibility score */}
-      <p style={{ ...VS.softSectionHeader,marginBottom:10 }}>{filtered.length} fans matched</p>
+      <p style={{ ...VS.softSectionHeader(),marginBottom:10 }}>{filtered.length} fans matched</p>
       {filtered.map(fan=>{
         const score = scoreCompatibility(fan);
         const scoreColor = score>=85?C.mint:score>=70?C.gold:C.accent;
@@ -11206,8 +11297,8 @@ function FanBuddyMatcher({ go }) {
                 <p style={{ fontSize:10,color:C.textMid }}>📍 {fan.city} · ★ {fan.trust} · 🎤 {fan.concerts} shows</p>
                 <div style={{ display:"flex",gap:5,marginTop:4,alignItems:"center",flexWrap:"wrap" }}>
                   <div style={{ ...VS.activePill(EXPERIENCE_COLORS[fan.experience]||C.accent),fontSize:8 }}>{fan.experience==="first-time"?"First Show 🌟":fan.experience==="veteran"?"Veteran 👑":"Regular"}</div>
-                  {fan.section&&<div style={{ ...VS.mutedPill,fontSize:8 }}>Sec {fan.section}</div>}
-                  {fan.bias&&<div style={{ ...VS.mutedPill,fontSize:8 }}>Bias: {fan.bias}</div>}
+                  {fan.section&&<div style={{ ...VS.mutedPill(),fontSize:8 }}>Sec {fan.section}</div>}
+                  {fan.bias&&<div style={{ ...VS.mutedPill(),fontSize:8 }}>Bias: {fan.bias}</div>}
                 </div>
               </div>
               {/* Compatibility score */}
@@ -11338,7 +11429,7 @@ function BudgetTracker({ onBack }) {
         {/* Category breakdown */}
         {byCat.length>0&&(
           <div style={{ marginBottom:16 }}>
-            <p style={VS.softSectionHeader}>Breakdown</p>
+            <p style={VS.softSectionHeader()}>Breakdown</p>
             <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:9,marginTop:10 }}>
               {byCat.map(c=>(
                 <div key={c.id} style={{ ...VS.glowCard(c.color),padding:"11px 12px" }}>
@@ -11353,7 +11444,7 @@ function BudgetTracker({ onBack }) {
         )}
 
         {/* All entries */}
-        <p style={VS.softSectionHeader}>All Items</p>
+        <p style={VS.softSectionHeader()}>All Items</p>
         {entries.map(e=>{
           const cat = CATS.find(c=>c.id===e.category);
           return (
@@ -11511,7 +11602,7 @@ function FanDiscoverySection({ user, fans, loading, onViewProfile }) {
         </button>
       </div>
 
-      <p style={{ ...VS.softSectionHeader, marginBottom:14 }}>Fans you might vibe with ✦</p>
+      <p style={{ ...VS.softSectionHeader(), marginBottom:14 }}>Fans you might vibe with ✦</p>
 
       {loading && <div style={{ textAlign:"center",padding:"32px 20px",color:C.textMid,fontSize:12 }}>Finding fans...</div>}
 
@@ -11709,7 +11800,7 @@ function CityHubDetail({ city, user, onBack, onViewProfile }) {
       {(!loading || city.isMock) && (
         <>
           {/* Local Fans */}
-          <p style={{ ...VS.softSectionHeader, marginBottom:10 }}>Local Fans</p>
+          <p style={{ ...VS.softSectionHeader(), marginBottom:10 }}>Local Fans</p>
           {city.isMock ? (
             <div style={{ ...VS.elevatedCard(C.accent), padding:"12px 14px", marginBottom:10 }}>
               <div style={VS.innerGlow(C.accent)} />
@@ -11742,7 +11833,7 @@ function CityHubDetail({ city, user, onBack, onViewProfile }) {
           ) : null}
 
           {/* Open Trades */}
-          <p style={{ ...VS.softSectionHeader, marginTop:16, marginBottom:10 }}>Open Trades</p>
+          <p style={{ ...VS.softSectionHeader(), marginTop:16, marginBottom:10 }}>Open Trades</p>
           {city.isMock ? (
             <div style={{ ...VS.elevatedCard(C.mint), padding:"12px 14px", marginBottom:10 }}>
               <div style={VS.innerGlow(C.mint)} />
@@ -11771,14 +11862,14 @@ function CityHubDetail({ city, user, onBack, onViewProfile }) {
           ) : null}
 
           {/* Upcoming Events */}
-          <p style={{ ...VS.softSectionHeader, marginTop:16, marginBottom:10 }}>Upcoming Events</p>
+          <p style={{ ...VS.softSectionHeader(), marginTop:16, marginBottom:10 }}>Upcoming Events</p>
           <div style={{ ...VS.elevatedCard(C.pink), padding:"12px 14px", marginBottom:10 }}>
             <div style={VS.innerGlow(C.pink)} />
             <p style={{ fontSize:11.5, color:C.textMid, position:"relative", lineHeight:1.65 }}>🎤 Concerts, cupsleeves, fan events, and meetups will appear here soon.</p>
           </div>
 
           {/* Help Unlock */}
-          <p style={{ ...VS.softSectionHeader, marginTop:16, marginBottom:10 }}>Help Unlock This Hub</p>
+          <p style={{ ...VS.softSectionHeader(), marginTop:16, marginBottom:10 }}>Help Unlock This Hub</p>
           <div style={{ background:`${C.accent}10`, border:`1px solid ${C.accent}30`, borderRadius:12, padding:"13px 16px" }}>
             <p style={{ fontSize:12, color:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:700, marginBottom:5 }}>
               {isMyCity ? "🏡 This is your city!" : hasNoCity ? "📍 Join your local Hub" : "✦ Support this Hub"}
@@ -11981,7 +12072,7 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
       {/* City Activity — slow rotating ticker, not another card grid */}
       <div style={{ padding:"18px 0 0" }}>
         <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"0 18px",marginBottom:10 }}>
-          <p style={VS.softSectionHeader}>City Activity</p>
+          <p style={VS.softSectionHeader()}>City Activity</p>
           <StatusChip label="PREVIEW" />
         </div>
         <div style={{ padding:"0 18px" }}>
@@ -12007,13 +12098,14 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
   // Pass categories (Fit Check, Merch etc.) live in Backstage Passes only — not duplicated here.
 
   return (
-    <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden", position:"relative", background:"linear-gradient(165deg,#0B0718,#07050f 55%,#120B24)" }}>
+    <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden", position:"relative", background:`linear-gradient(165deg,${C.cosmic} 0%,${C.bg} 55%,${C.surfaceMid})` }}>
+      <AmbientStarfield />
       {/* Atmospheric depth glow — cosmic velvet, not a busy pattern */}
       <div style={{ position:"absolute", top:-60, right:-40, width:280, height:280, borderRadius:"50%", background:"radial-gradient(circle,rgba(184,162,255,0.07),transparent 70%)", pointerEvents:"none", zIndex:0 }} />
       <div style={{ position:"absolute", bottom:-80, right:-60, width:240, height:240, borderRadius:"50%", background:"radial-gradient(circle,rgba(232,201,135,0.05),transparent 72%)", pointerEvents:"none", zIndex:0 }} />
 
       {/* ── STICKY HEADER ZONE — never scrolls away ── */}
-      <div style={{ flexShrink:0, zIndex:20, position:"relative", background:scrolled?`linear-gradient(165deg,rgba(20,12,38,0.94),rgba(7,5,15,0.97))`:`linear-gradient(165deg,rgba(20,12,38,0.74),rgba(7,5,15,0.82))`, backdropFilter:"blur(18px)", borderBottom:scrolled?`1px solid rgba(214,189,255,0.16)`:"1px solid transparent", boxShadow:scrolled?"0 1px 0 rgba(255,255,255,0.04) inset":"none", transition:"background .3s ease, border-color .3s ease" }}>
+      <div style={{ flexShrink:0, zIndex:20, position:"relative", background:scrolled?`linear-gradient(165deg,${C.cosmic}f0,${C.bg}f7)`:`linear-gradient(165deg,${C.cosmic}bd,${C.bg}d1)`, backdropFilter:"blur(18px)", borderBottom:scrolled?`1px solid ${C.glassBorder}`:"1px solid transparent", boxShadow:scrolled?"0 1px 0 rgba(255,255,255,0.04) inset":"none", transition:"background .3s ease, border-color .3s ease" }}>
 
         {/* EXPANDED title — hides on scroll. Right padding clears the floating notification bell. */}
         <div style={{ overflow:"hidden", maxHeight:scrolled?0:36, opacity:scrolled?0:1, paddingTop:scrolled?0:8, paddingLeft:20, paddingRight:56, transition:"max-height .28s ease, opacity .22s ease, padding-top .28s ease" }}>
@@ -12044,7 +12136,7 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
           {/* Your Pass — always first. Bubbles sized so ~5 are visible at once; rest via horizontal swipe. */}
           <div onClick={()=>go?.("passes")} className="tap" style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:3,cursor:"pointer" }}>
             <div style={{ width:scrolled?46:60,height:scrolled?46:60,borderRadius:"50%",background:`linear-gradient(135deg,rgba(184,162,255,0.9),rgba(232,201,135,0.55))`,padding:2.5,boxShadow:`0 0 14px rgba(184,162,255,0.32), inset 0 1px 0 rgba(255,255,255,0.2)`,transition:"all .28s ease",flexShrink:0 }}>
-              <div style={{ width:"100%",height:"100%",borderRadius:"50%",background:"linear-gradient(160deg,#15102a,#0a0716)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:scrolled?18:22,color:C.gold }}>✦</div>
+              <div style={{ width:"100%",height:"100%",borderRadius:"50%",background:`linear-gradient(160deg,${C.cosmic},${C.bg})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:scrolled?18:22,color:C.gold }}>✦</div>
             </div>
             <p style={{ fontSize:8.5,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap" }}>Your Pass</p>
           </div>
@@ -12057,7 +12149,7 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
                 if(r.isFilter) { setRingFilter(ringFilter===r.filterType?null:r.filterType); }
                 else if(r.isUser) { setShowUserMoment(r); }
               }} className="tap" style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:4,cursor:"pointer" }}>
-                <div style={{ width:sz,height:sz,borderRadius:"50%",background:isActive?`linear-gradient(150deg,${r.color}cc,${r.color}88)`:`linear-gradient(150deg,rgba(20,12,38,0.85),rgba(10,7,22,0.85))`,padding:isActive?0:1.5,boxShadow:isActive?`0 0 14px ${r.color}55, inset 0 1px 0 rgba(255,255,255,0.25)`:`inset 0 1px 0 rgba(255,255,255,0.06)`,border:`${isActive?"1.5":"1"}px solid ${isActive?r.color+"cc":"rgba(214,189,255,0.22)"}`,transition:"all .25s ease",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:r.isUser?sz*0.36:sz*0.42,color:isActive?C.bg:r.color }}>
+                <div style={{ width:sz,height:sz,borderRadius:"50%",background:isActive?`linear-gradient(150deg,${r.color}cc,${r.color}88)`:`linear-gradient(150deg,${C.cosmic}d9,${C.bg}d9)`,padding:isActive?0:1.5,boxShadow:isActive?`0 0 14px ${r.color}55, inset 0 1px 0 rgba(255,255,255,0.25)`:"inset 0 1px 0 rgba(255,255,255,0.06)",border:`${isActive?"1.5":"1"}px solid ${isActive?r.color+"cc":C.glassBorder}`,transition:"all .25s ease",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:r.isUser?sz*0.36:sz*0.42,color:isActive?C.bg:r.color }}>
                   {r.avatar}
                 </div>
                 <p style={{ fontSize:8.5,color:isActive?r.color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap",maxWidth:64,overflow:"hidden",textOverflow:"ellipsis",textAlign:"center",transition:"color .2s" }}>{r.label}</p>
@@ -12096,10 +12188,13 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
 
         {/* ── STICKY TABS — compress on scroll ── */}
         <div style={{ padding:`${scrolled?2:0}px 14px ${scrolled?4:5}px`,transition:"padding .28s ease" }}>
-          <div style={{ display:"flex",gap:0,background:"rgba(255,255,255,0.035)",border:"1px solid rgba(214,189,255,0.14)",borderRadius:scrolled?10:11,padding:scrolled?2:2,backdropFilter:"blur(10px)",boxShadow:"inset 0 1px 0 rgba(255,255,255,0.05)",transition:"all .28s ease" }}>
-            {[["feed","🌐","Feed"],["map","🗺️","Map"],["hubs","🎉","Hubs"],["circles","✦","Circles"]].map(([id,icon,name])=>(
-              <span key={id} onClick={()=>changeView(id)} style={{ flex:1,textAlign:"center",padding:scrolled?"4px 2px":"5px 2px",borderRadius:scrolled?8:9,fontSize:scrolled?9:9.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:view===id?`linear-gradient(135deg,${C.accent},${C.gold}cc)`:"transparent",color:view===id?"#1a1228":C.textMid,boxShadow:view===id?`0 0 10px ${C.accent}33`:"none",transition:"all .18s",whiteSpace:"nowrap" }}>{icon} {name}</span>
-            ))}
+          <div style={{ display:"flex",gap:0,background:C.glassBgHi,border:`1px solid ${C.glassBorder}`,borderRadius:scrolled?10:11,padding:scrolled?2:2,backdropFilter:"blur(10px)",boxShadow:"inset 0 1px 0 rgba(255,255,255,0.05)",transition:"all .28s ease" }}>
+            {[["feed","🌐","Feed"],["map","🗺️","Map"],["hubs","🎉","Hubs"],["circles","✦","Circles"]].map(([id,icon,name])=>{
+              const active = view===id;
+              return (
+              <span key={id} onClick={()=>changeView(id)} style={{ ...getPillStyle({active}), flex:1,textAlign:"center",padding:scrolled?"4px 2px":"5px 2px",borderRadius:scrolled?8:9,fontSize:scrolled?9:9.5,border:"none" }}>{icon} {name}</span>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -12125,7 +12220,7 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
         <div style={{ flex:1, overflow:"hidden", display:"flex", flexDirection:"column" }}>
           <div style={{ display:"flex", gap:6, padding:"8px 14px 8px", flexShrink:0 }}>
             {[["activity","Activity"],["hubs","City Hubs"],["leaders","Leaders"]].map(([id,label])=>(
-              <span key={id} onClick={()=>setMapSubView(id)} className="tap" style={{ flex:1, textAlign:"center", padding:"7px 4px", borderRadius:9, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:mapSubView===id?`linear-gradient(135deg,${C.accent},${C.gold}cc)`:"rgba(255,255,255,0.05)", color:mapSubView===id?"#1a1228":C.textMid, transition:"all .18s" }}>{label}</span>
+              <span key={id} onClick={()=>setMapSubView(id)} className="tap" style={{ flex:1, textAlign:"center", padding:"7px 4px", borderRadius:9, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:mapSubView===id?`linear-gradient(135deg,${C.accent},${C.gold}cc)`:C.chipInactiveBg, color:mapSubView===id?"#1a1228":C.textMid, transition:"all .18s" }}>{label}</span>
             ))}
           </div>
           {mapSubView==="activity" && <FanverseMapView />}
@@ -12135,7 +12230,7 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
           {mapSubView==="hubs" && !hubDetail && (
         <div onScroll={e=>setScrolled(e.target.scrollTop>48)} style={{ flex:1,overflowY:"auto",overflowX:"hidden",padding:"14px 18px 100px" }}>
           {/* ── City Hubs — live from GET /api/hubs/cities ── */}
-          <p style={{ ...VS.softSectionHeader,marginBottom:10 }}>City Hubs</p>
+          <p style={{ ...VS.softSectionHeader(),marginBottom:10 }}>City Hubs</p>
 
           {/* Sub-tab chips */}
           <div style={{ display:"flex", gap:6, overflowX:"auto", scrollbarWidth:"none", marginBottom:14, paddingBottom:2 }}>
@@ -12249,7 +12344,7 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
               <span style={{ color:C.pink,fontSize:18 }}>›</span>
             </div>
           </div>
-          <p style={{ ...VS.softSectionHeader,marginBottom:10 }}>Upcoming Fan Events</p>
+          <p style={{ ...VS.softSectionHeader(),marginBottom:10 }}>Upcoming Fan Events</p>
           {MOCK_MEETUPS.slice(0,4).map(m=>(
             <div key={m.id} style={{ ...VS.glowCard(m.color),padding:"12px 14px",marginBottom:9,display:"flex",gap:11,alignItems:"center" }}>
               <div style={{ position:"absolute",top:-8,right:-8,width:50,height:50,borderRadius:"50%",background:`radial-gradient(circle,${m.color}18,transparent 65%)`,pointerEvents:"none" }} />
@@ -12712,7 +12807,7 @@ function BuildMyDay({ go }) {
 
       {/* City input */}
       <div style={{ marginBottom:14 }}>
-        <p style={{ ...VS.softSectionHeader, marginBottom:8 }}>Your City</p>
+        <p style={{ ...VS.softSectionHeader(), marginBottom:8 }}>Your City</p>
         <div style={{ position:"relative" }}>
           <svg style={{ position:"absolute",left:11,top:"50%",transform:"translateY(-50%)" }} width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill={C.pink} opacity="0.7"/></svg>
           <input value={city} onChange={e=>setCity(e.target.value)} placeholder="Dallas, TX" style={{ width:"100%",padding:"10px 12px 10px 32px",borderRadius:12,background:C.surfaceHi,border:`1.5px solid ${C.pink}33`,color:C.text,fontSize:13,outline:"none" }} />
@@ -12721,7 +12816,7 @@ function BuildMyDay({ go }) {
 
       {/* Meal of day filter */}
       <div style={{ marginBottom:12 }}>
-        <p style={{ ...VS.softSectionHeader, marginBottom:8 }}>Meal of Day</p>
+        <p style={{ ...VS.softSectionHeader(), marginBottom:8 }}>Meal of Day</p>
         <div style={{ display:"flex",gap:7,overflowX:"auto",scrollbarWidth:"none",paddingBottom:4 }}>
           {MEAL_FILTERS.map(f=>(
             <button key={f.id} onClick={()=>setMealFilter(f.id)} className="tap" style={{ flexShrink:0,padding:"7px 13px",borderRadius:99,fontSize:10.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:mealFilter===f.id?C.pink:`${C.pink}12`,color:mealFilter===f.id?C.bg:C.textMid,border:`1px solid ${mealFilter===f.id?C.pink:C.border}`,display:"flex",gap:5,alignItems:"center" }}>
@@ -12733,7 +12828,7 @@ function BuildMyDay({ go }) {
 
       {/* Vibe filter */}
       <div style={{ marginBottom:16 }}>
-        <p style={{ ...VS.softSectionHeader, marginBottom:8 }}>Vibe</p>
+        <p style={{ ...VS.softSectionHeader(), marginBottom:8 }}>Vibe</p>
         <div style={{ display:"flex",gap:7,overflowX:"auto",scrollbarWidth:"none",paddingBottom:4 }}>
           {VIBE_FILTERS.map(f=>(
             <button key={f.id} onClick={()=>setVibeFilter(f.id)} className="tap" style={{ flexShrink:0,padding:"7px 13px",borderRadius:99,fontSize:10.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:vibeFilter===f.id?C.accent:`${C.accent}10`,color:vibeFilter===f.id?C.bg:C.textMid,border:`1px solid ${vibeFilter===f.id?C.accent:C.border}`,display:"flex",gap:5,alignItems:"center" }}>
@@ -12747,7 +12842,7 @@ function BuildMyDay({ go }) {
       {LOCAL_EVENTS.length>0&&(
         <div style={{ marginBottom:16 }}>
           <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10 }}>
-            <p style={VS.softSectionHeader}>Fan Events Near You</p>
+            <p style={VS.softSectionHeader()}>Fan Events Near You</p>
             <div style={{ ...VS.activePill(C.rose),fontSize:8 }}>Backstage Verified ✦</div>
           </div>
           {LOCAL_EVENTS.map(ev=>(
@@ -12770,7 +12865,7 @@ function BuildMyDay({ go }) {
       {/* Local spots */}
       <div>
         <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10 }}>
-          <p style={VS.softSectionHeader}>Places Near {city}</p>
+          <p style={VS.softSectionHeader()}>Places Near {city}</p>
           <p style={{ fontSize:9,color:C.textMid }}>{allResults.length} spots found</p>
         </div>
         {filteredSpots.length===0?(
@@ -13710,7 +13805,7 @@ function ExploreTab({ user, go, onViewProfile }) {
   const [openItem, setOpenItem] = useState(null); // { kind, data }
 
   const PreviewTag = ({ label="Preview" }) => (
-    <span style={{ ...VS.mutedPill, fontSize:8.5, padding:"3px 8px", position:"absolute", top:12, right:12, maxWidth:150, textAlign:"right", whiteSpace:"normal", lineHeight:1.3, zIndex:2 }}>{label}</span>
+    <span style={{ ...VS.mutedPill(), fontSize:8.5, padding:"3px 8px", position:"absolute", top:12, right:12, maxWidth:150, textAlign:"right", whiteSpace:"normal", lineHeight:1.3, zIndex:2 }}>{label}</span>
   );
   const CategoryChip = ({ label, color }) => (
     <span style={{ display:"inline-flex", alignSelf:"flex-start", fontSize:8.5, color, background:`${color}22`, border:`1px solid ${color}44`, borderRadius:99, padding:"3px 9px", fontFamily:"'Epilogue',sans-serif", fontWeight:800, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:8 }}>{label}</span>
@@ -13819,9 +13914,9 @@ function ExploreTab({ user, go, onViewProfile }) {
       const ps = item.data;
       const pt = PASS_TYPES.find(x=>x.id===ps.type);
       return (
-        <div key={item.key} onClick={()=>setOpenItem(item)} className="tap" style={{ ...VS.glowCard(ps.color||C.pink), padding:14, cursor:"pointer", position:"relative" }}>
+        <div key={item.key} onClick={()=>setOpenItem(item)} className="tap" style={{ ...VS.glowCard(C.pink), padding:14, cursor:"pointer", position:"relative" }}>
           <PreviewTag />
-          <CategoryChip label="Live POV" color={ps.color||C.pink} />
+          <CategoryChip label="Live POV" color={C.pink} />
           <p style={{ fontSize:22,marginBottom:6 }}>{pt?.emoji||"🎫"}</p>
           <p style={{ fontSize:11,color:C.text,lineHeight:1.35,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical" }}>{ps.caption}</p>
           <p style={{ fontSize:9,color:C.textMid,marginTop:6 }}>{ps.username}</p>
@@ -13831,9 +13926,9 @@ function ExploreTab({ user, go, onViewProfile }) {
     if (item.kind === "fan") {
       const f = item.data;
       return (
-        <div key={item.key} onClick={()=>onViewProfile&&onViewProfile({ id:f.id, username:f.handle, display_name:f.display_name, fandoms:f.fandoms })} className="tap" style={{ ...VS.glowCard(C.mint), padding:14, cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", textAlign:"center" }}>
-          <CategoryChip label="Fan Creator" color={C.mint} />
-          <div style={{ width:44,height:44,borderRadius:"50%",background:`linear-gradient(135deg,${C.mint},${C.accent})`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,color:C.bg,fontSize:16,marginBottom:8 }}>{f.avatar}</div>
+        <div key={item.key} onClick={()=>onViewProfile&&onViewProfile({ id:f.id, username:f.handle, display_name:f.display_name, fandoms:f.fandoms })} className="tap" style={{ ...VS.glowCard(C.lavender), padding:14, cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", textAlign:"center" }}>
+          <CategoryChip label="Fan Creator" color={C.lavender} />
+          <div style={{ width:44,height:44,borderRadius:"50%",background:`linear-gradient(135deg,${C.lavender},${C.accent})`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,color:C.bg,fontSize:16,marginBottom:8 }}>{f.avatar}</div>
           <p style={{ fontSize:11,fontWeight:700,color:C.text }}>{f.display_name}</p>
           {f.fandoms?.[0] && <p style={{ fontSize:9.5,color:C.textMid,marginTop:2 }}>{f.fandoms[0]}</p>}
         </div>
@@ -13842,17 +13937,17 @@ function ExploreTab({ user, go, onViewProfile }) {
     if (item.kind === "show") {
       const s = item.data;
       return (
-        <div key={item.key} onClick={()=>setOpenItem(item)} className="tap" style={{ borderRadius:22, gridColumn:"span 2", cursor:"pointer", position:"relative", overflow:"hidden", border:`1.5px solid ${C.rose}40`, boxShadow:"0 10px 32px rgba(0,0,0,0.4)" }}>
+        <div key={item.key} onClick={()=>setOpenItem(item)} className="tap" style={{ borderRadius:22, gridColumn:"span 2", cursor:"pointer", position:"relative", overflow:"hidden", border:"1.5px solid rgba(217,199,255,0.28)", boxShadow:"0 10px 32px rgba(0,0,0,0.4)" }}>
           {upcomingPreviewLabel && <PreviewTag label={upcomingPreviewLabel} />}
           <div style={{
             minHeight:150, padding:16, display:"flex", flexDirection:"column", justifyContent:"flex-end",
             backgroundImage: s.image_url
               ? `linear-gradient(180deg,transparent 30%,rgba(6,4,12,0.92) 100%),url(${s.image_url})`
-              : `radial-gradient(ellipse at 12% -25%,${C.rose}60,transparent 55%),radial-gradient(ellipse at 88% -25%,${C.lavender}50,transparent 55%),linear-gradient(180deg,${C.cosmic},${C.bg})`,
+              : `linear-gradient(145deg, rgba(185,150,255,0.18), rgba(240,168,204,0.12), ${C.cosmic})`,
             backgroundSize:"cover", backgroundPosition:"center",
-            boxShadow: s.image_url ? "none" : `inset 0 0 0 1px ${C.rose}30`,
+            boxShadow: s.image_url ? "none" : "inset 0 0 0 1px rgba(217,199,255,0.22)",
           }}>
-            <CategoryChip label="Upcoming Show" color={C.rose} />
+            <CategoryChip label="Upcoming Show" color={C.lavender} />
             <p style={{ fontSize:s.image_url?14:17, fontWeight:800, color:"#fff", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", textShadow:"0 2px 8px rgba(0,0,0,0.6)" }}>{s.name||s.title}</p>
             <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:4, flexWrap:"wrap" }}>
               <p style={{ fontSize:10.5,color:"rgba(255,255,255,0.75)" }}>{s.city}{s.date?` · ${s.date}`:""}</p>
@@ -13867,6 +13962,7 @@ function ExploreTab({ user, go, onViewProfile }) {
 
   return (
     <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden", ...VS.cosmicPageBg(C.accent) }}>
+      <AmbientStarfield />
 
       {/* ── Detail overlays — content-first tap behavior, not routes to broad tabs ── */}
       {openItem?.kind==="trade" && (
@@ -13898,7 +13994,7 @@ function ExploreTab({ user, go, onViewProfile }) {
           </div>
           <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
             {Object.entries(ps.reactions||{}).map(([emoji,count])=>(
-              <span key={emoji} style={VS.mutedPill}>{emoji} {count}</span>
+              <span key={emoji} style={VS.mutedPill()}>{emoji} {count}</span>
             ))}
           </div>
           <p style={{ fontSize:10,color:C.textDim,marginTop:24 }}>Preview · sample pass content</p>
@@ -13957,7 +14053,7 @@ function ExploreTab({ user, go, onViewProfile }) {
           {/* Quick filter chips over the content feed */}
           <div style={{ display:"flex", gap:8, overflowX:"auto", paddingBottom:12 }}>
             {[["all","For You"],["concerts","Concerts"],["trades","Trades"],["passes","Passes"],["capsules","Capsules"],["fans","Fans"]].map(([id,label])=>(
-              <button key={id} onClick={()=>setFilterType(id)} className="tap" style={{ flexShrink:0, fontSize:11, padding:"7px 14px", borderRadius:99, background: filterType===id ? `linear-gradient(135deg,${C.accent},${C.pink})` : C.surfaceHi, border:`1px solid ${filterType===id?C.accent:C.border}`, color: filterType===id ? C.bg : C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer" }}>{label}</button>
+              <button key={id} onClick={()=>setFilterType(id)} className="tap" style={{ ...getPillStyle({active:filterType===id}), flexShrink:0, fontSize:11, padding:"7px 14px" }}>{label}</button>
             ))}
           </div>
         </>)}
@@ -13968,7 +14064,7 @@ function ExploreTab({ user, go, onViewProfile }) {
           <div>
             {fanSearching && <p style={{ fontSize:11,color:C.textDim,padding:"12px 0" }}>Searching…</p>}
             {fanResults.length>0 && (<>
-              <p style={VS.softSectionHeader}>Fans</p>
+              <p style={VS.softSectionHeader()}>Fans</p>
               {fanResults.map(u=>(
                 <div key={u.id} onClick={()=>onViewProfile&&onViewProfile({ id:u.id, username:u.handle||u.username, display_name:u.display_name||u.backstage_name, fandoms:u.fandoms||u.favorite_groups||[] })} className="tap" style={{ ...VS.glowCard(C.accent), padding:12, marginBottom:8, cursor:"pointer", display:"flex", alignItems:"center", gap:10 }}>
                   <div style={{ width:36,height:36,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.pink})`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,color:C.bg,flexShrink:0 }}>{(u.display_name||u.handle||"B").slice(0,1).toUpperCase()}</div>
@@ -13980,7 +14076,7 @@ function ExploreTab({ user, go, onViewProfile }) {
               ))}
             </>)}
             {concertMatches.length>0 && (<>
-              <p style={VS.softSectionHeader}>Concerts</p>
+              <p style={VS.softSectionHeader()}>Concerts</p>
               {concertMatches.map(c=>(
                 <div key={c.id} onClick={()=>go("concerts")} className="tap" style={{ ...VS.glowCard(c.color), padding:12, marginBottom:8, cursor:"pointer" }}>
                   <p style={{ fontSize:12.5,fontWeight:700,color:C.text }}>{c.name}</p>
@@ -13989,7 +14085,7 @@ function ExploreTab({ user, go, onViewProfile }) {
               ))}
             </>)}
             {cityMatches.length>0 && (<>
-              <p style={VS.softSectionHeader}>Cities</p>
+              <p style={VS.softSectionHeader()}>Cities</p>
               {cityMatches.map(c=>(
                 <div key={c.city} onClick={()=>go("fanverse")} className="tap" style={{ ...VS.glowCard(C.mint), padding:12, marginBottom:8, cursor:"pointer" }}>
                   <p style={{ fontSize:12.5,fontWeight:700,color:C.text }}>{c.city}</p>
@@ -14043,7 +14139,8 @@ function ToolsTab({ user, weather, isVip, onUpgrade, go, onBack }) {
   };
 
   return (
-    <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
+    <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden", position:"relative" }}>
+      <AmbientStarfield />
       {/* Era search modal */}
       {eraModal && (
         <div style={{ position:"absolute",inset:0,zIndex:400,background:"rgba(6,6,15,0.96)",display:"flex",flexDirection:"column",animation:"in .2s ease" }}>
@@ -14241,7 +14338,7 @@ function ToolsTab({ user, weather, isVip, onUpgrade, go, onBack }) {
         {/* View toggle */}
         <div style={{ display:"flex",gap:6,marginBottom:0,overflowX:"auto",scrollbarWidth:"none" }}>
           {[["grid","⊞ All Tools"],["buildday","🗓️ Build My Day"],["comebacks","🔔 Comebacks"],["chants","🎵 Chants"],["prep","📋 Prep"],["kdramas","🎬 K-Dramas"]].map(([id,label])=>(
-            <span key={id} onClick={()=>setView(id)} className="tap" style={{ flexShrink:0, padding:"7px 13px", borderRadius:99, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:view===id?C.accent:C.surfaceHi, color:view===id?C.bg:C.textMid, border:`1px solid ${view===id?C.accent:C.border}`, transition:"all .18s" }}>{label}</span>
+            <span key={id} onClick={()=>setView(id)} className="tap" style={{ ...getPillStyle({active:view===id}), flexShrink:0, padding:"7px 13px", fontSize:10.5 }}>{label}</span>
           ))}
         </div>
       </div>
@@ -15013,13 +15110,13 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
           <div style={{ marginBottom:5, position:"relative" }}>
             <div style={{ display:"flex", gap:8, alignItems:"center" }}>
               <div style={{ position:"relative", flex:1 }}>
-                <svg style={{ position:"absolute",left:9,top:"50%",transform:"translateY(-50%)" }} width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="8" stroke="rgba(237,232,255,0.5)" strokeWidth="1.8"/><path d="m21 21-4.35-4.35" stroke="rgba(237,232,255,0.5)" strokeWidth="1.8" strokeLinecap="round"/></svg>
+                <svg style={{ position:"absolute",left:9,top:"50%",transform:"translateY(-50%)" }} width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="8" stroke={C.textDim} strokeWidth="1.8"/><path d="m21 21-4.35-4.35" stroke={C.textDim} strokeWidth="1.8" strokeLinecap="round"/></svg>
                 <input
                   value={eraSearch}
                   onChange={e=>{setEraSearch(e.target.value);setEraSearchOpen(!!e.target.value);}}
                   onFocus={()=>setEraSearchOpen(true)}
                   placeholder="#search eras, groups, concerts..."
-                  style={{ width:"100%", padding:"7px 10px 7px 27px", borderRadius:10, background:"rgba(8,5,18,0.55)", border:`1.5px solid ${eraSearch?"rgba(240,204,136,0.4)":"rgba(214,189,255,0.18)"}`, color:C.text, fontSize:11, fontFamily:"'Instrument Sans',sans-serif", outline:"none", boxShadow:"inset 0 2px 6px rgba(0,0,0,0.35)", backdropFilter:"blur(6px)" }}
+                  style={{ width:"100%", padding:"7px 10px 7px 27px", borderRadius:10, background:C.inputBg, border:`1.5px solid ${eraSearch?"rgba(240,204,136,0.4)":C.glassBorder}`, color:C.text, fontSize:11, fontFamily:"'Instrument Sans',sans-serif", outline:"none", boxShadow:"inset 0 2px 6px rgba(0,0,0,0.12)", backdropFilter:"blur(6px)" }}
                 />
                 {eraSearch&&<button onClick={()=>{setEraSearch("");setEraSearchOpen(false);}} style={{ position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:C.textMid,cursor:"pointer",fontSize:13 }}>✕</button>}
               </div>
@@ -15027,7 +15124,7 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
             {/* Quick era tag chips */}
             <div style={{ display:"flex", gap:4, overflowX:"auto", paddingTop:5, scrollbarWidth:"none" }}>
               {ERA_TAGS.slice(0,8).map(tag=>(
-                <span key={tag} onClick={()=>{setEraSearch(tag);setEraSearchOpen(false);}} className="tap" style={{ flexShrink:0, padding:"3px 8px", borderRadius:99, fontSize:9, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:eraSearch===tag?`linear-gradient(135deg,${C.berry}cc,${C.accent}aa)`:"rgba(255,255,255,0.04)", color:eraSearch===tag?"#1a1228":C.textMid, border:`1px solid ${eraSearch===tag?"rgba(255,255,255,0.3)":"rgba(214,189,255,0.14)"}` }}>#{tag}</span>
+                <span key={tag} onClick={()=>{setEraSearch(tag);setEraSearchOpen(false);}} className="tap" style={{ flexShrink:0, padding:"3px 8px", borderRadius:99, fontSize:9, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:eraSearch===tag?`linear-gradient(135deg,${C.berry}cc,${C.accent}aa)`:C.chipInactiveBg, color:eraSearch===tag?"#1a1228":C.textMid, border:`1px solid ${eraSearch===tag?"rgba(255,255,255,0.3)":C.glassBorder}` }}>#{tag}</span>
               ))}
             </div>
           </div>
@@ -15037,7 +15134,7 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
             {/* Sort pills */}
             <div style={{ display:"flex", gap:5, flex:1, overflowX:"auto", scrollbarWidth:"none" }}>
               {[["trending","🔥"],["recent","⏱"],["liked","♥"]].map(([id,icon])=>(
-                <span key={id} onClick={()=>setSort(id)} className="tap" style={{ flexShrink:0, padding:"5px 10px", borderRadius:99, fontSize:10, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:sort===id?`linear-gradient(135deg,${C.accent},${C.lavender})`:"rgba(255,255,255,0.035)", color:sort===id?"#1a1228":C.textMid, border:`1px solid ${sort===id?"rgba(255,255,255,0.28)":"rgba(214,189,255,0.14)"}` }}>{icon} {id}</span>
+                <span key={id} onClick={()=>setSort(id)} className="tap" style={{ flexShrink:0, padding:"5px 10px", borderRadius:99, fontSize:10, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:sort===id?`linear-gradient(135deg,${C.accent},${C.lavender})`:C.chipInactiveBg, color:sort===id?"#1a1228":C.textMid, border:`1px solid ${sort===id?"rgba(255,255,255,0.28)":C.glassBorder}` }}>{icon} {id}</span>
               ))}
             </div>
             {/* Type dropdown — liquid-glass custom menu, not a system <select> */}
@@ -15045,7 +15142,7 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
               <button
                 onClick={()=>setFilterMenuOpen(v=>!v)}
                 className="tap"
-                style={{ appearance:"none", background:filter!=="all"?"rgba(240,204,136,0.14)":"rgba(255,255,255,0.035)", border:`1.5px solid ${filter!=="all"?"rgba(240,204,136,0.4)":"rgba(214,189,255,0.16)"}`, borderRadius:99, color:filter!=="all"?C.gold:C.textMid, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, padding:"6px 26px 6px 12px", cursor:"pointer", outline:"none", display:"flex", alignItems:"center", gap:4, whiteSpace:"nowrap" }}
+                style={{ appearance:"none", background:filter!=="all"?"rgba(240,204,136,0.14)":C.chipInactiveBg, border:`1.5px solid ${filter!=="all"?"rgba(240,204,136,0.4)":C.glassBorder}`, borderRadius:99, color:filter!=="all"?C.gold:C.textMid, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, padding:"6px 26px 6px 12px", cursor:"pointer", outline:"none", display:"flex", alignItems:"center", gap:4, whiteSpace:"nowrap" }}
               >
                 {FILTER_OPTIONS.find(f=>f.id===filter)?.label || "All Moments"}
                 <span style={{ fontSize:8, transform:filterMenuOpen?"rotate(180deg)":"none", transition:"transform .18s", color:filter!=="all"?C.gold:C.textMid }}>▼</span>
@@ -15056,9 +15153,9 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
                   <div onClick={()=>setFilterMenuOpen(false)} style={{ position:"fixed", inset:0, zIndex:80 }} />
                   <div style={{
                     position:"absolute", top:"calc(100% + 8px)", right:0, zIndex:81, minWidth:172,
-                    background:"linear-gradient(155deg,rgba(28,18,52,0.82),rgba(12,8,24,0.86))",
-                    border:"1px solid rgba(214,189,255,0.22)", borderRadius:16, padding:6,
-                    boxShadow:"0 16px 40px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.03) inset, inset 0 1px 0 rgba(255,255,255,0.1)",
+                    background:C.modalBg,
+                    border:`1px solid ${C.modalBorder}`, borderRadius:16, padding:6,
+                    boxShadow:`${C.modalShadow}, inset 0 1px 0 rgba(255,255,255,0.3)`,
                     backdropFilter:"blur(22px) saturate(140%)", animation:"up .16s ease",
                   }}>
                     {/* Iridescent sheen */}
@@ -15068,7 +15165,7 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
                       return (
                         <div key={opt.id} onClick={()=>{ setFilter(opt.id); setEraSearch(""); setFilterMenuOpen(false); }} className="tap" style={{
                           position:"relative", padding:"8px 11px", borderRadius:10, fontSize:11, fontFamily:"'Epilogue',sans-serif", fontWeight:700,
-                          cursor:"pointer", color:active?C.gold:C.text,
+                          cursor:"pointer", color:active?C.gold:C.modalText,
                           background:active?"linear-gradient(135deg,rgba(240,204,136,0.18),rgba(184,162,255,0.1))":"transparent",
                           boxShadow:active?"inset 0 0 0 1px rgba(240,204,136,0.3), 0 0 12px rgba(240,204,136,0.12)":"none",
                           transition:"background .15s",
@@ -15085,8 +15182,8 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
         {/* Compact sticky control row — replaces chrome above once collapsed */}
         {feedCompact && (
           <div style={{ display:"flex", gap:6, alignItems:"center", paddingBottom:6, animation:"in .15s ease" }}>
-            <button onClick={()=>setFeedCompact(false)} className="tap" aria-label="Expand search" style={{ width:28,height:28,borderRadius:9,background:"rgba(255,255,255,0.04)",border:"1px solid rgba(214,189,255,0.18)",backdropFilter:"blur(8px)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0 }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="8" stroke="rgba(237,232,255,0.55)" strokeWidth="1.8"/><path d="m21 21-4.35-4.35" stroke="rgba(237,232,255,0.55)" strokeWidth="1.8" strokeLinecap="round"/></svg>
+            <button onClick={()=>setFeedCompact(false)} className="tap" aria-label="Expand search" style={{ width:28,height:28,borderRadius:9,background:C.chipInactiveBg,border:`1px solid ${C.glassBorder}`,backdropFilter:"blur(8px)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0 }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="8" stroke={C.textDim} strokeWidth="1.8"/><path d="m21 21-4.35-4.35" stroke={C.textDim} strokeWidth="1.8" strokeLinecap="round"/></svg>
             </button>
             {eraSearch && (
               <span onClick={()=>setEraSearch("")} className="tap" style={{ flexShrink:0,display:"flex",alignItems:"center",gap:4,padding:"5px 9px",borderRadius:99,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:700,background:"rgba(240,204,136,0.12)",color:C.gold,border:"1px solid rgba(240,204,136,0.32)",cursor:"pointer",whiteSpace:"nowrap" }}>Searching: {eraSearch} ✕</span>
@@ -15094,7 +15191,7 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
             {!eraSearch && filter!=="all" && (
               <span onClick={()=>setFilter("all")} className="tap" style={{ flexShrink:0,padding:"5px 9px",borderRadius:99,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:700,background:"rgba(240,204,136,0.12)",color:C.gold,border:"1px solid rgba(240,204,136,0.32)",cursor:"pointer",whiteSpace:"nowrap" }}>{filter} ✕</span>
             )}
-            <span style={{ flexShrink:0,padding:"5px 9px",borderRadius:99,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:700,background:"rgba(255,255,255,0.04)",color:C.textMid,border:"1px solid rgba(214,189,255,0.16)",whiteSpace:"nowrap" }}>
+            <span style={{ flexShrink:0,padding:"5px 9px",borderRadius:99,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:700,background:C.chipInactiveBg,color:C.textMid,border:`1px solid ${C.glassBorder}`,whiteSpace:"nowrap" }}>
               {sort==="trending"?"🔥 trending":sort==="recent"?"⏱ recent":"♥ liked"}
             </span>
           </div>
@@ -15106,14 +15203,14 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
         {!hideStoryRail && <FanStories user={user} />}
 
         {/* FOMO microcopy */}
-        <div style={{ background:"rgba(255,255,255,0.035)", border:"1px solid rgba(214,189,255,0.14)", borderRadius:9, padding:"6px 12px", marginBottom:8, display:"flex", gap:7, alignItems:"center", backdropFilter:"blur(8px)" }}>
+        <div style={{ background:C.chipInactiveBg, border:`1px solid ${C.glassBorder}`, borderRadius:9, padding:"6px 12px", marginBottom:8, display:"flex", gap:7, alignItems:"center", backdropFilter:"blur(8px)" }}>
           <span style={{ fontSize:12 }}>🌸</span>
           <p style={{ fontSize:10.5, color:C.textMid }}>Fan Pulse · energy from fans near you</p>
         </div>
 
         {/* Posts — translucent glass panels over the cosmic backdrop */}
         {sortedPosts.map(p=>(
-          <div key={p.id} style={{ position:"relative", overflow:"hidden", background:"linear-gradient(160deg,rgba(20,12,38,0.64),rgba(10,7,20,0.58))", border:"1px solid rgba(214,189,255,0.14)", borderRadius:18, padding:"12px 14px", marginBottom:10, boxShadow:"0 10px 26px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.05)", backdropFilter:"blur(14px)", animation:"up .3s ease" }}>
+          <div key={p.id} style={{ position:"relative", overflow:"hidden", background:C.feedCard, border:`1px solid ${C.feedCardBorder}`, borderRadius:18, padding:"12px 14px", marginBottom:10, boxShadow:C.feedCardShadow, backdropFilter:"blur(14px)", animation:"up .3s ease" }}>
             {/* Inner top highlight — the "polished edge" */}
             <div style={{ position:"absolute", top:0, left:14, right:14, height:1, background:"linear-gradient(90deg,transparent,rgba(214,189,255,0.35),transparent)", pointerEvents:"none" }} />
             <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:8, position:"relative" }}>
@@ -15156,7 +15253,7 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
                   {["😭","✨","🎤","💜","🌸"].map(emoji=>(
                     <button key={emoji} onClick={()=>{setPosts(ps=>ps.map(x=>x.id===p.id?{...x,meme:emoji,likes:x.likes+1}:x));setMemeMode(null);}} style={{ background:C.surfaceHi,border:`1px solid ${C.border}`,borderRadius:10,width:36,height:36,fontSize:18,cursor:"pointer" }}>{emoji}</button>
                   ))}
-                  <button onClick={()=>setCustomEmojiFor(customEmojiFor===p.id?null:p.id)} title="Add any emoji" style={{ background:"rgba(255,255,255,0.04)",border:`1.5px dashed rgba(214,189,255,0.32)`,borderRadius:10,width:36,height:36,fontSize:16,color:C.lavender,cursor:"pointer" }}>+</button>
+                  <button onClick={()=>setCustomEmojiFor(customEmojiFor===p.id?null:p.id)} title="Add any emoji" style={{ background:C.chipInactiveBg,border:`1.5px dashed rgba(214,189,255,0.32)`,borderRadius:10,width:36,height:36,fontSize:16,color:C.lavender,cursor:"pointer" }}>+</button>
                 </div>
                 {customEmojiFor===p.id && (
                   <div style={{ display:"flex", gap:6, alignItems:"center" }}>
@@ -15166,7 +15263,7 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
                       onChange={e=>setCustomEmojiDraft(e.target.value)}
                       placeholder="Type or paste any emoji…"
                       maxLength={8}
-                      style={{ flex:1, background:"rgba(8,5,18,0.55)", border:"1.5px solid rgba(214,189,255,0.2)", borderRadius:99, padding:"7px 12px", fontSize:13, color:C.text, outline:"none" }}
+                      style={{ flex:1, background:C.inputBg, border:"1.5px solid rgba(214,189,255,0.2)", borderRadius:99, padding:"7px 12px", fontSize:13, color:C.text, outline:"none" }}
                     />
                     <button onClick={()=>{ if(customEmojiDraft.trim()){ setPosts(ps=>ps.map(x=>x.id===p.id?{...x,meme:customEmojiDraft.trim(),likes:x.likes+1}:x)); } setCustomEmojiFor(null); setCustomEmojiDraft(""); setMemeMode(null); }} className="tap" style={{ background:`linear-gradient(135deg,${C.accent},${C.lavender})`, border:"none", borderRadius:99, padding:"7px 14px", color:"#1a1228", fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>Add</button>
                   </div>
@@ -15183,48 +15280,48 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
       {composing && (()=>{
         const tagResults = ALL_GROUPS.filter(g=>g.toLowerCase().includes(tagQuery.toLowerCase()) && !draft.tags.includes(g)).slice(0,6);
         return (
-        <div onClick={()=>setComposing(false)} style={{ position:"fixed",inset:0,zIndex:470,background:"rgba(6,6,15,0.7)",backdropFilter:"blur(2px)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
-          <div onClick={e=>e.stopPropagation()} style={{ position:"relative", overflow:"hidden", background:"linear-gradient(165deg,rgba(28,18,52,0.88),rgba(10,7,20,0.94))",border:"1px solid rgba(214,189,255,0.22)",borderTop:"1px solid rgba(214,189,255,0.3)",borderRadius:"24px 24px 0 0",padding:"20px 20px calc(20px + env(safe-area-inset-bottom))",width:"100%",maxHeight:"86vh",overflowY:"auto",display:"flex",flexDirection:"column",animation:"slideUp .25s ease",boxShadow:"0 -16px 50px rgba(0,0,0,0.55)",backdropFilter:"blur(28px) saturate(150%)" }}>
+        <div onClick={()=>setComposing(false)} style={{ position:"fixed",inset:0,zIndex:470,background:C.overlayBg,backdropFilter:"blur(2px)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ position:"relative", overflow:"hidden", background:C.modalBg,border:`1px solid ${C.modalBorder}`,borderTop:`1px solid ${C.modalBorderHi}`,borderRadius:"24px 24px 0 0",padding:"20px 20px calc(20px + env(safe-area-inset-bottom))",width:"100%",maxHeight:"86vh",overflowY:"auto",display:"flex",flexDirection:"column",animation:"slideUp .25s ease",boxShadow:C.modalShadow,backdropFilter:"blur(28px) saturate(150%)" }}>
             <div style={{ position:"absolute", inset:0, background:"linear-gradient(150deg,rgba(184,162,255,0.07),transparent 30%,rgba(240,204,136,0.05) 70%,transparent)", pointerEvents:"none" }} />
-            <div style={{ width:34,height:4,borderRadius:99,background:"rgba(214,189,255,0.35)",margin:"0 auto 16px",flexShrink:0,position:"relative" }} />
+            <div style={{ width:34,height:4,borderRadius:99,background:C.modalBorderHi,margin:"0 auto 16px",flexShrink:0,position:"relative" }} />
             <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexShrink:0,position:"relative" }}>
-              <h3 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15.5,color:C.text }}>Share with the Fanverse ✦</h3>
-              <button onClick={()=>setComposing(false)} style={{ background:"none",border:"none",color:C.textMid,fontSize:20,cursor:"pointer" }}>✕</button>
+              <h3 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15.5,color:C.modalText }}>Share with the Fanverse ✦</h3>
+              <button onClick={()=>setComposing(false)} style={{ background:"none",border:"none",color:C.modalTextMid,fontSize:20,cursor:"pointer" }}>✕</button>
             </div>
 
             {/* Post type chips */}
             <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:12, position:"relative" }}>
               {POST_TYPES.map(t=>(
-                <span key={t.id} onClick={()=>setDraft(d=>({...d,type:t.id}))} className="tap" style={{ padding:"6px 12px", borderRadius:99, fontSize:11, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:draft.type===t.id?`${t.color}26`:"rgba(255,255,255,0.05)", border:`1.5px solid ${draft.type===t.id?t.color+"66":"rgba(214,189,255,0.16)"}`, color:draft.type===t.id?t.color:C.textMid }}>{t.label}</span>
+                <span key={t.id} onClick={()=>setDraft(d=>({...d,type:t.id}))} className="tap" style={{ padding:"6px 12px", borderRadius:99, fontSize:11, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:draft.type===t.id?`${t.color}26`:C.modalSurface, border:`1.5px solid ${draft.type===t.id?t.color+"66":C.modalBorder}`, color:draft.type===t.id?t.color:C.modalTextMid }}>{t.label}</span>
               ))}
             </div>
 
-            <textarea value={draft.text} onChange={e=>setDraft(d=>({...d,text:e.target.value}))} placeholder="What's happening in your fandom world? 💜" style={{ width:"100%", height:78, background:"rgba(8,5,18,0.5)", border:"1.5px solid rgba(214,189,255,0.2)", borderRadius:14, color:C.text, fontSize:13, resize:"none", outline:"none", fontFamily:"'Instrument Sans',sans-serif", padding:"11px 13px", marginBottom:11, boxSizing:"border-box", boxShadow:"inset 0 2px 6px rgba(0,0,0,0.3)" }} autoFocus />
+            <textarea value={draft.text} onChange={e=>setDraft(d=>({...d,text:e.target.value}))} placeholder="What's happening in your fandom world? 💜" style={{ width:"100%", height:78, background:C.modalSurface, border:`1.5px solid ${C.modalBorder}`, borderRadius:14, color:C.modalText, fontSize:13, resize:"none", outline:"none", fontFamily:"'Instrument Sans',sans-serif", padding:"11px 13px", marginBottom:11, boxSizing:"border-box", boxShadow:"inset 0 2px 6px rgba(0,0,0,0.12)" }} autoFocus />
 
             {/* Image upload */}
             {draft.image ? (
               <div style={{ position:"relative",marginBottom:11 }}>
                 <img src={draft.image} alt="post" style={{ width:"100%",maxHeight:190,objectFit:"cover",borderRadius:14 }} />
-                <button onClick={()=>setDraft(d=>({...d,image:null}))} style={{ position:"absolute",top:8,right:8,background:"rgba(6,6,15,0.85)",border:"none",borderRadius:"50%",width:28,height:28,color:C.text,cursor:"pointer",fontSize:13 }}>✕</button>
+                <button onClick={()=>setDraft(d=>({...d,image:null}))} style={{ position:"absolute",top:8,right:8,background:C.overlayBg,border:"none",borderRadius:"50%",width:28,height:28,color:C.modalText,cursor:"pointer",fontSize:13 }}>✕</button>
               </div>
             ) : (
-              <button onClick={()=>imgRef.current?.click()} style={{ width:"100%",padding:"11px",borderRadius:14,background:"rgba(255,255,255,0.04)",border:`1.5px dashed rgba(214,189,255,0.28)`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",marginBottom:11,display:"flex",alignItems:"center",justifyContent:"center",gap:7,backdropFilter:"blur(6px)" }}>📸 Add Photo</button>
+              <button onClick={()=>imgRef.current?.click()} style={{ width:"100%",padding:"11px",borderRadius:14,background:C.modalSurface,border:`1.5px dashed ${C.modalBorder}`,color:C.modalTextMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",marginBottom:11,display:"flex",alignItems:"center",justifyContent:"center",gap:7,backdropFilter:"blur(6px)" }}>📸 Add Photo</button>
             )}
             <input ref={imgRef} type="file" accept="image/*" onChange={handleImgUpload} style={{ display:"none" }} />
 
             {/* Location tag — user-entered venue/city only, no GPS */}
-            <button onClick={()=>setDraft(d=>({...d,locationOn:!d.locationOn}))} style={{ width:"100%", padding:"10px 12px", borderRadius:14, marginBottom:draft.locationOn?10:11, background:draft.locationOn?"rgba(255,255,255,0.07)":"rgba(255,255,255,0.04)", backdropFilter:"blur(10px)", border:`1.5px solid ${draft.locationOn?"rgba(240,204,136,0.4)":"rgba(214,189,255,0.18)"}`, color:draft.locationOn?C.gold:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:7 }}>
+            <button onClick={()=>setDraft(d=>({...d,locationOn:!d.locationOn}))} style={{ width:"100%", padding:"10px 12px", borderRadius:14, marginBottom:draft.locationOn?10:11, background:draft.locationOn?`${C.gold}14`:C.modalSurface, backdropFilter:"blur(10px)", border:`1.5px solid ${draft.locationOn?"rgba(240,204,136,0.4)":C.modalBorder}`, color:draft.locationOn?C.gold:C.modalTextMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:7 }}>
               📍 {draft.locationOn?"Tagging a location":"Tag a location"}
             </button>
             {draft.locationOn && (
-              <div style={{ marginBottom:11, padding:12, borderRadius:14, background:"rgba(255,255,255,0.04)", backdropFilter:"blur(12px)", border:"1px solid rgba(255,255,255,0.14)", boxShadow:`0 0 22px ${C.berry}1a, inset 0 1px 0 rgba(255,255,255,0.08)`, animation:"up .15s ease" }}>
+              <div style={{ marginBottom:11, padding:12, borderRadius:14, background:C.modalSurface, backdropFilter:"blur(12px)", border:`1px solid ${C.modalBorder}`, boxShadow:`0 0 22px ${C.berry}1a, inset 0 1px 0 rgba(255,255,255,0.08)`, animation:"up .15s ease" }}>
                 <input value={draft.venue} onChange={e=>setDraft(d=>({...d,venue:e.target.value}))} placeholder="Venue (e.g. Allegiant Stadium)"
-                  style={{ width:"100%",padding:"10px 12px",borderRadius:11,background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.14)",color:C.text,fontFamily:"'Epilogue',sans-serif",fontSize:12.5,marginBottom:8,boxSizing:"border-box" }} />
+                  style={{ width:"100%",padding:"10px 12px",borderRadius:11,background:C.modalSurface,border:`1px solid ${C.modalBorder}`,color:C.modalText,fontFamily:"'Epilogue',sans-serif",fontSize:12.5,marginBottom:8,boxSizing:"border-box" }} />
                 <input value={draft.city} onChange={e=>setDraft(d=>({...d,city:e.target.value}))} placeholder="City, State"
-                  style={{ width:"100%",padding:"10px 12px",borderRadius:11,background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.14)",color:C.text,fontFamily:"'Epilogue',sans-serif",fontSize:12.5,marginBottom:9,boxSizing:"border-box" }} />
+                  style={{ width:"100%",padding:"10px 12px",borderRadius:11,background:C.modalSurface,border:`1px solid ${C.modalBorder}`,color:C.modalText,fontFamily:"'Epilogue',sans-serif",fontSize:12.5,marginBottom:9,boxSizing:"border-box" }} />
                 <label style={{ display:"flex",alignItems:"center",gap:8,cursor:"pointer" }}>
                   <input type="checkbox" checked={draft.checkedIn} onChange={e=>setDraft(d=>({...d,checkedIn:e.target.checked}))} style={{ width:14,height:14,accentColor:C.gold,cursor:"pointer" }} />
-                  <span style={{ fontSize:10.5,color:C.textMid }}>✓ Checked in here now</span>
+                  <span style={{ fontSize:10.5,color:C.modalTextMid }}>✓ Checked in here now</span>
                 </label>
               </div>
             )}
@@ -15236,15 +15333,15 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
                 onChange={e=>setTagQuery(e.target.value)}
                 onKeyDown={e=>{ if(e.key==="Enter" && tagQuery.trim()){ e.preventDefault(); if(!draft.tags.includes(tagQuery.trim())) setDraft(d=>({...d,tags:[...d.tags,tagQuery.trim()]})); setTagQuery(""); } }}
                 placeholder="Tag fandom, group, artist, or event…"
-                style={{ width:"100%",padding:"10px 12px",borderRadius:12,background:"rgba(8,5,18,0.5)",border:"1.5px solid rgba(214,189,255,0.2)",color:C.text,fontFamily:"'Epilogue',sans-serif",fontSize:12,outline:"none",boxSizing:"border-box",boxShadow:"inset 0 2px 6px rgba(0,0,0,0.3)" }}
+                style={{ width:"100%",padding:"10px 12px",borderRadius:12,background:C.modalSurface,border:`1.5px solid ${C.modalBorder}`,color:C.modalText,fontFamily:"'Epilogue',sans-serif",fontSize:12,outline:"none",boxSizing:"border-box",boxShadow:"inset 0 2px 6px rgba(0,0,0,0.12)" }}
               />
               {tagQuery.trim() && (
-                <div style={{ position:"absolute", top:"calc(100% + 6px)", left:0, right:0, zIndex:5, maxHeight:160, overflowY:"auto", background:"linear-gradient(155deg,rgba(28,18,52,0.96),rgba(12,8,24,0.98))", border:"1px solid rgba(214,189,255,0.24)", borderRadius:13, padding:5, boxShadow:"0 12px 30px rgba(0,0,0,0.5)", backdropFilter:"blur(18px)" }}>
+                <div style={{ position:"absolute", top:"calc(100% + 6px)", left:0, right:0, zIndex:5, maxHeight:160, overflowY:"auto", background:C.modalBg, border:`1px solid ${C.modalBorder}`, borderRadius:13, padding:5, boxShadow:C.modalShadow, backdropFilter:"blur(18px)" }}>
                   {tagResults.map(g=>(
-                    <div key={g} onClick={()=>{ setDraft(d=>({...d, tags:[...d.tags,g]})); setTagQuery(""); }} className="tap" style={{ padding:"8px 10px", borderRadius:9, fontSize:12, color:C.text, cursor:"pointer", fontFamily:"'Epilogue',sans-serif", fontWeight:600 }}>{g}</div>
+                    <div key={g} onClick={()=>{ setDraft(d=>({...d, tags:[...d.tags,g]})); setTagQuery(""); }} className="tap" style={{ padding:"8px 10px", borderRadius:9, fontSize:12, color:C.modalText, cursor:"pointer", fontFamily:"'Epilogue',sans-serif", fontWeight:600 }}>{g}</div>
                   ))}
                   {tagResults.length===0 && (
-                    <div onClick={()=>{ if(!draft.tags.includes(tagQuery.trim())) setDraft(d=>({...d, tags:[...d.tags, tagQuery.trim()]})); setTagQuery(""); }} className="tap" style={{ padding:"8px 10px", borderRadius:9, fontSize:11.5, color:C.lavender, cursor:"pointer", fontFamily:"'Epilogue',sans-serif", fontWeight:600 }}>+ Add "{tagQuery.trim()}" as custom tag</div>
+                    <div onClick={()=>{ if(!draft.tags.includes(tagQuery.trim())) setDraft(d=>({...d, tags:[...d.tags, tagQuery.trim()]})); setTagQuery(""); }} className="tap" style={{ padding:"8px 10px", borderRadius:9, fontSize:11.5, color:C.modalAccent, cursor:"pointer", fontFamily:"'Epilogue',sans-serif", fontWeight:600 }}>+ Add "{tagQuery.trim()}" as custom tag</div>
                   )}
                 </div>
               )}
@@ -15252,14 +15349,14 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
             {draft.tags.length>0 && (
               <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:12 }}>
                 {draft.tags.map(t=>(
-                  <span key={t} onClick={()=>setDraft(d=>({...d, tags:d.tags.filter(x=>x!==t)}))} className="tap" style={{ display:"inline-flex",alignItems:"center",gap:5,padding:"5px 10px 5px 12px",borderRadius:99,fontSize:10.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,background:"rgba(184,162,255,0.16)",border:"1px solid rgba(184,162,255,0.4)",color:C.lavender,cursor:"pointer" }}>{t}<span style={{ fontSize:9,opacity:0.75 }}>✕</span></span>
+                  <span key={t} onClick={()=>setDraft(d=>({...d, tags:d.tags.filter(x=>x!==t)}))} className="tap" style={{ display:"inline-flex",alignItems:"center",gap:5,padding:"5px 10px 5px 12px",borderRadius:99,fontSize:10.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,background:`${C.modalAccent}22`,border:`1px solid ${C.modalAccent}55`,color:C.modalAccent,cursor:"pointer" }}>{t}<span style={{ fontSize:9,opacity:0.75 }}>✕</span></span>
                 ))}
               </div>
             )}
 
             <div style={{ display:"flex", gap:8, position:"relative" }}>
               <Btn onClick={addPost} disabled={!draft.text.trim()} style={{ flex:1 }} small>Post to Feed ✦</Btn>
-              <Btn ghost color={C.textMid} onClick={()=>setComposing(false)} style={{ width:80,flex:"none" }} small>Cancel</Btn>
+              <Btn ghost color={C.modalTextMid} onClick={()=>setComposing(false)} style={{ width:80,flex:"none" }} small>Cancel</Btn>
             </div>
           </div>
         </div>
@@ -15276,21 +15373,21 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
           part.startsWith("@") ? <span key={i} style={{ color:C.lavender, fontWeight:700 }}>{part}</span> : part
         );
         return (
-          <div onClick={()=>setCommentsOpenFor(null)} style={{ position:"fixed",inset:0,zIndex:470,background:"rgba(6,6,15,0.7)",backdropFilter:"blur(2px)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
-            <div onClick={e=>e.stopPropagation()} style={{ position:"relative", overflow:"hidden", background:"linear-gradient(165deg,rgba(28,18,52,0.86),rgba(10,7,20,0.92))",border:"1px solid rgba(214,189,255,0.2)",borderTop:"1px solid rgba(214,189,255,0.28)",borderRadius:"24px 24px 0 0",padding:"20px 20px",width:"100%",maxHeight:"80vh",display:"flex",flexDirection:"column",animation:"slideUp .25s ease",boxShadow:"0 -16px 50px rgba(0,0,0,0.5)",backdropFilter:"blur(26px) saturate(150%)" }}>
+          <div onClick={()=>setCommentsOpenFor(null)} style={{ position:"fixed",inset:0,zIndex:470,background:C.overlayBg,backdropFilter:"blur(2px)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+            <div onClick={e=>e.stopPropagation()} style={{ position:"relative", overflow:"hidden", background:C.modalBg,border:`1px solid ${C.modalBorder}`,borderTop:`1px solid ${C.modalBorderHi}`,borderRadius:"24px 24px 0 0",padding:"20px 20px",width:"100%",maxHeight:"80vh",display:"flex",flexDirection:"column",animation:"slideUp .25s ease",boxShadow:C.modalShadow,backdropFilter:"blur(26px) saturate(150%)" }}>
               {/* Iridescent sheen across the whole sheet */}
               <div style={{ position:"absolute", inset:0, background:"linear-gradient(150deg,rgba(184,162,255,0.06),transparent 30%,rgba(240,204,136,0.04) 70%,transparent)", pointerEvents:"none" }} />
-              <div style={{ width:34,height:4,borderRadius:99,background:"rgba(214,189,255,0.35)",margin:"0 auto 16px",flexShrink:0,position:"relative" }} />
+              <div style={{ width:34,height:4,borderRadius:99,background:C.modalBorderHi,margin:"0 auto 16px",flexShrink:0,position:"relative" }} />
               <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexShrink:0,position:"relative" }}>
-                <h3 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,color:C.text }}>Comments</h3>
-                <button onClick={()=>setCommentsOpenFor(null)} style={{ background:"none",border:"none",color:C.textMid,fontSize:20,cursor:"pointer" }}>✕</button>
+                <h3 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,color:C.modalText }}>Comments</h3>
+                <button onClick={()=>setCommentsOpenFor(null)} style={{ background:"none",border:"none",color:C.modalTextMid,fontSize:20,cursor:"pointer" }}>✕</button>
               </div>
               {/* Post context */}
               <div style={{ display:"flex",gap:8,alignItems:"flex-start",paddingBottom:14,marginBottom:14,borderBottom:"1px solid rgba(214,189,255,0.14)",flexShrink:0,position:"relative" }}>
                 <div style={{ width:30,height:30,borderRadius:"50%",background:`linear-gradient(135deg,${activePost.color},${activePost.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:"#1a1228",fontSize:12,flexShrink:0 }}>{activePost.avatar}</div>
                 <div style={{ flex:1,minWidth:0 }}>
-                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,color:C.text }}>{activePost.user}</p>
-                  <p style={{ fontSize:11.5,color:C.textMid,lineHeight:1.5,marginTop:2 }}>{activePost.text}</p>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,color:C.modalText }}>{activePost.user}</p>
+                  <p style={{ fontSize:11.5,color:C.modalTextMid,lineHeight:1.5,marginTop:2 }}>{activePost.text}</p>
                 </div>
               </div>
               {/* Mock comments */}
@@ -15300,27 +15397,27 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
                   const repliesShown = !!expandedReplies[i];
                   return (
                   <div key={i} style={{ display:"flex",gap:8,alignItems:"flex-start" }}>
-                    <div style={{ width:26,height:26,borderRadius:"50%",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(214,189,255,0.2)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.lavender,fontSize:10,flexShrink:0 }}>{c.user[1].toUpperCase()}</div>
+                    <div style={{ width:26,height:26,borderRadius:"50%",background:C.modalSurface,border:`1px solid ${C.modalBorder}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.modalAccent,fontSize:10,flexShrink:0 }}>{c.user[1].toUpperCase()}</div>
                     <div style={{ flex:1,minWidth:0 }}>
                       <div style={{ display:"flex", alignItems:"baseline", gap:6 }}>
-                        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,color:C.text }}>{c.user}</p>
-                        <p style={{ fontSize:9,color:C.textDim }}>2h</p>
+                        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,color:C.modalText }}>{c.user}</p>
+                        <p style={{ fontSize:9,color:C.modalTextDim }}>2h</p>
                       </div>
-                      <p style={{ fontSize:11.5,color:C.text,lineHeight:1.5,marginTop:1 }}>{renderMentions(c.text)}</p>
+                      <p style={{ fontSize:11.5,color:C.modalText,lineHeight:1.5,marginTop:1 }}>{renderMentions(c.text)}</p>
                       <div style={{ display:"flex", gap:14, alignItems:"center", marginTop:5 }}>
-                        <button onClick={()=>setCommentLiked(s=>({...s,[i]:!s[i]}))} className="tap" style={{ background:"none",border:"none",cursor:"pointer",display:"flex",alignItems:"center",gap:4,fontSize:10.5,color:cLiked?C.rose:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,padding:0 }}>
+                        <button onClick={()=>setCommentLiked(s=>({...s,[i]:!s[i]}))} className="tap" style={{ background:"none",border:"none",cursor:"pointer",display:"flex",alignItems:"center",gap:4,fontSize:10.5,color:cLiked?C.rose:C.modalTextMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,padding:0 }}>
                           {cLiked?"♥":"♡"} {(c.likes||0)+(cLiked?1:0)}
                         </button>
-                        <button onClick={()=>setReplyDraft(`@${c.user.replace("@","")} `)} className="tap" style={{ background:"none",border:"none",cursor:"pointer",fontSize:10.5,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,padding:0 }}>Reply</button>
+                        <button onClick={()=>setReplyDraft(`@${c.user.replace("@","")} `)} className="tap" style={{ background:"none",border:"none",cursor:"pointer",fontSize:10.5,color:C.modalTextMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,padding:0 }}>Reply</button>
                         {c.replies?.length>0 && (
-                          <button onClick={()=>setExpandedReplies(s=>({...s,[i]:!s[i]}))} className="tap" style={{ background:"none",border:"none",cursor:"pointer",fontSize:10.5,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:600,padding:0 }}>
+                          <button onClick={()=>setExpandedReplies(s=>({...s,[i]:!s[i]}))} className="tap" style={{ background:"none",border:"none",cursor:"pointer",fontSize:10.5,color:C.modalAccent,fontFamily:"'Epilogue',sans-serif",fontWeight:600,padding:0 }}>
                             {repliesShown?"Hide replies":`View replies (${c.replies.length})`}
                           </button>
                         )}
-                        <button onClick={()=>setReportMenuFor(reportMenuFor===i?null:i)} style={{ background:"none",border:"none",cursor:"pointer",fontSize:12,color:C.textDim,marginLeft:"auto",padding:0,position:"relative" }}>
+                        <button onClick={()=>setReportMenuFor(reportMenuFor===i?null:i)} style={{ background:"none",border:"none",cursor:"pointer",fontSize:12,color:C.modalTextDim,marginLeft:"auto",padding:0,position:"relative" }}>
                           ⋯
                           {reportMenuFor===i && (
-                            <div onClick={e=>e.stopPropagation()} style={{ position:"absolute", top:18, right:0, zIndex:5, background:"linear-gradient(155deg,rgba(28,18,52,0.95),rgba(12,8,24,0.97))", border:"1px solid rgba(214,189,255,0.22)", borderRadius:11, padding:5, minWidth:110, boxShadow:"0 10px 24px rgba(0,0,0,0.5)", backdropFilter:"blur(16px)" }}>
+                            <div onClick={e=>e.stopPropagation()} style={{ position:"absolute", top:18, right:0, zIndex:5, background:C.modalBg, border:`1px solid ${C.modalBorder}`, borderRadius:11, padding:5, minWidth:110, boxShadow:C.modalShadow, backdropFilter:"blur(16px)" }}>
                               <div onClick={()=>{ setReportMenuFor(null); showToast("Comment reported"); }} className="tap" style={{ padding:"7px 10px", borderRadius:8, fontSize:10.5, color:C.rose, fontFamily:"'Epilogue',sans-serif", fontWeight:600, cursor:"pointer", whiteSpace:"nowrap" }}>Report</div>
                             </div>
                           )}
@@ -15329,10 +15426,10 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
                       {/* Nested replies */}
                       {repliesShown && c.replies?.map((r,ri)=>(
                         <div key={ri} style={{ display:"flex", gap:7, alignItems:"flex-start", marginTop:10, paddingLeft:6, borderLeft:"1.5px solid rgba(214,189,255,0.16)" }}>
-                          <div style={{ width:20,height:20,borderRadius:"50%",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(214,189,255,0.16)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.textMid,fontSize:8.5,flexShrink:0,marginLeft:8 }}>{r.user[1].toUpperCase()}</div>
+                          <div style={{ width:20,height:20,borderRadius:"50%",background:C.modalSurface,border:`1px solid ${C.modalBorder}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.modalTextMid,fontSize:8.5,flexShrink:0,marginLeft:8 }}>{r.user[1].toUpperCase()}</div>
                           <div style={{ flex:1,minWidth:0 }}>
-                            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10,color:C.text }}>{r.user}</p>
-                            <p style={{ fontSize:10.5,color:C.text,lineHeight:1.45,marginTop:1 }}>{renderMentions(r.text)}</p>
+                            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10,color:C.modalText }}>{r.user}</p>
+                            <p style={{ fontSize:10.5,color:C.modalText,lineHeight:1.45,marginTop:1 }}>{renderMentions(r.text)}</p>
                           </div>
                         </div>
                       ))}
@@ -15340,12 +15437,12 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
                   </div>
                   );
                 })}
-                <p style={{ fontSize:9.5,color:C.textDim,textAlign:"center",marginTop:4 }}>Sample comments · live comments are coming soon</p>
+                <p style={{ fontSize:9.5,color:C.modalTextDim,textAlign:"center",marginTop:4 }}>Sample comments · live comments are coming soon</p>
               </div>
               {/* Reply input — disabled submit, honest toast */}
               <div style={{ display:"flex",gap:8,flexShrink:0,paddingTop:4,position:"relative" }}>
-                <input value={replyDraft} onChange={e=>setReplyDraft(e.target.value)} placeholder="Add a comment…" style={{ flex:1,background:"rgba(8,5,18,0.55)",border:"1.5px solid rgba(214,189,255,0.2)",borderRadius:99,padding:"10px 14px",fontSize:12.5,color:C.text,fontFamily:"'Epilogue',sans-serif",outline:"none",boxShadow:"inset 0 2px 6px rgba(0,0,0,0.3)" }} />
-                <button onClick={()=>{ setReplyDraft(""); showToast("Live comments are coming soon — your reply wasn't saved."); }} disabled={!replyDraft.trim()} className="tap" style={{ background:replyDraft.trim()?`linear-gradient(135deg,${C.accent},${C.lavender})`:"rgba(255,255,255,0.04)",border:`1.5px solid ${replyDraft.trim()?"rgba(255,255,255,0.28)":"rgba(214,189,255,0.16)"}`,borderRadius:99,padding:"0 16px",color:replyDraft.trim()?"#1a1228":C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:replyDraft.trim()?"pointer":"default",flexShrink:0 }}>Post</button>
+                <input value={replyDraft} onChange={e=>setReplyDraft(e.target.value)} placeholder="Add a comment…" style={{ flex:1,background:C.modalSurface,border:`1.5px solid ${C.modalBorder}`,borderRadius:99,padding:"10px 14px",fontSize:12.5,color:C.modalText,fontFamily:"'Epilogue',sans-serif",outline:"none",boxShadow:"inset 0 2px 6px rgba(0,0,0,0.12)" }} />
+                <button onClick={()=>{ setReplyDraft(""); showToast("Live comments are coming soon — your reply wasn't saved."); }} disabled={!replyDraft.trim()} className="tap" style={{ background:replyDraft.trim()?`linear-gradient(135deg,${C.modalAccent},${C.modalAccent}cc)`:C.modalSurface,border:`1.5px solid ${replyDraft.trim()?"rgba(255,255,255,0.28)":C.modalBorder}`,borderRadius:99,padding:"0 16px",color:replyDraft.trim()?"#1a1228":C.modalTextDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:replyDraft.trim()?"pointer":"default",flexShrink:0 }}>Post</button>
               </div>
             </div>
           </div>
@@ -16786,7 +16883,7 @@ function VenueCrowdTips({ concertId, concertColor }) {
   return (
     <div style={{ marginBottom:16 }}>
       <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:11 }}>
-        <p style={{ ...VS.softSectionHeader }}>Fan-Sourced Venue Tips</p>
+        <p style={{ ...VS.softSectionHeader() }}>Fan-Sourced Venue Tips</p>
         <button onClick={()=>setSubmitting(v=>!v)} style={{ background:`${col}18`,border:`1px solid ${col}33`,borderRadius:9,padding:"5px 10px",color:col,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>+ Add Tip</button>
       </div>
 
@@ -16995,7 +17092,7 @@ function ConcertDayMode({ concert: concertProp, onBack, go, isVip=false, onUpgra
         {section==="timeline" && (
           <div style={{ paddingTop:14 }}>
             <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}>
-              <p style={VS.softSectionHeader}>Concert Day Checklist</p>
+              <p style={VS.softSectionHeader()}>Concert Day Checklist</p>
               <p style={{ fontSize:10,color:col,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{doneCount}/{timeline.length} done</p>
             </div>
             {timeline.map((item,i)=>(
@@ -17151,7 +17248,7 @@ function ConcertDayMode({ concert: concertProp, onBack, go, isVip=false, onUpgra
             ) : (
               <div style={{ animation:"up .2s ease" }}>
                 <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14 }}>
-                  <p style={VS.softSectionHeader}>Set from {setlistData?.lastShow||"Previous Show"}</p>
+                  <p style={VS.softSectionHeader()}>Set from {setlistData?.lastShow||"Previous Show"}</p>
                   {setlistData?.verified&&<div style={{ ...VS.activePill(C.mint),fontSize:8 }}>✓ Verified</div>}
                 </div>
                 {(setlistData?.songs||[{order:1,title:"Setlist TBD"}]).map(song=>(
@@ -21114,6 +21211,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
 
   return(
     <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden", position:"relative", background:activeSkinGrad }}>
+      <AmbientStarfield />
       {/* Full-page skin sparkle wallpaper */}
       {activeSkinChars.map((ch,i)=>(
         <div key={i} style={{ position:"absolute", top:`${SPARKLE_POS[i]?.[0]??i*12}%`, left:`${SPARKLE_POS[i]?.[1]??80}%`, fontSize:ch.length>1?16:11, opacity:0.15, animation:`sparkleFloat ${3.5+i*0.6}s ease-in-out infinite`, animationDelay:`${i*0.45}s`, color:"rgba(255,255,255,0.9)", pointerEvents:"none", zIndex:0 }}>{ch}</div>
@@ -22001,7 +22099,7 @@ function MusicConnect({ nowPlaying, setNowPlaying, userId, isVip, onUpgrade }) {
 }
 
 // ─── CONCERT CAPSULE ─────────────────────────────────────────────────────────
-const CAPSULE_CAT_GRADIENTS = {
+const getCapsuleCatGradients = () => ({
   fit:       `linear-gradient(135deg,${C.accent},${C.berry})`,
   seat:      `linear-gradient(135deg,#2a0060,#4a0090)`,
   ocean:     `linear-gradient(135deg,${C.accentDim},${C.plum})`,
@@ -22012,7 +22110,7 @@ const CAPSULE_CAT_GRADIENTS = {
   moots:     `linear-gradient(135deg,${C.pink},${C.lavender})`,
   pulls:     `linear-gradient(135deg,${C.gold},${C.accent})`,
   afterglow: `linear-gradient(135deg,${C.mint},${C.mint}88)`,
-};
+});
 function fmtCapsuleTs(ts) {
   if (!ts) return 'just now';
   const d = (Date.now() - new Date(ts)) / 1000;
@@ -22022,10 +22120,26 @@ function fmtCapsuleTs(ts) {
   return `${Math.floor(d/86400)}d ago`;
 }
 function apiEntryToLocal(e) {
-  return { id:e.id, concertId:e.concert_id, category:e.category, caption:e.caption, username:e.username||'@stan', timestamp:fmtCapsuleTs(e.created_at), gradient:CAPSULE_CAT_GRADIENTS[e.category]||CAPSULE_CAT_GRADIENTS.fit, likes:e.like_count||0, likedByMe:!!e.liked_by_me, savedToScrapbook:false, _userId:e.user_id };
+  return { id:e.id, concertId:e.concert_id, category:e.category, caption:e.caption, username:e.username||'@stan', timestamp:fmtCapsuleTs(e.created_at), gradient:getCapsuleCatGradients()[e.category]||getCapsuleCatGradients().fit, likes:e.like_count||0, likedByMe:!!e.liked_by_me, savedToScrapbook:false, _userId:e.user_id };
 }
 // Concert-capsule DB rows carry a UUID id; local/mock entries use `e<timestamp>` / `e1`.
 const isCapsuleDbId = (id) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id||""));
+
+// Local mock venue directory for the Backstage Pass venue/city/state autocomplete —
+// no backend/API involved, just enough real arenas to make the feature feel alive.
+const VENUE_SUGGESTIONS = [
+  { name:"SoFi Stadium", city:"Inglewood", state:"CA" },
+  { name:"Allegiant Stadium", city:"Las Vegas", state:"NV" },
+  { name:"AT&T Stadium", city:"Arlington", state:"TX" },
+  { name:"Crypto.com Arena", city:"Los Angeles", state:"CA" },
+  { name:"Madison Square Garden", city:"New York", state:"NY" },
+  { name:"United Center", city:"Chicago", state:"IL" },
+  { name:"Toyota Center", city:"Houston", state:"TX" },
+  { name:"American Airlines Center", city:"Dallas", state:"TX" },
+  { name:"Kia Forum", city:"Inglewood", state:"CA" },
+  { name:"MetLife Stadium", city:"East Rutherford", state:"NJ" },
+  { name:"Tottenham Hotspur Stadium", city:"London", state:"UK" },
+];
 
 // Shared memory binder for fans at the same concert
 // GET /api/capsule/:concertId/entries | POST /api/capsule/:concertId/entries
@@ -22132,7 +22246,7 @@ function ConcertCapsule({ concert, onBack, user, isVip=false, onUpgrade, isSigne
     if(!draft.caption.trim()) return;
     if(atFreeLimit){ onUpgrade?.(); return; }
     const localId = `e${Date.now()}`;
-    const localEntry = {id:localId,concertId:CONCERT_ID,category:draft.category,caption:draft.caption,username:`@${user?.name||user?.username||"stan"}`,timestamp:"just now",gradient:CAPSULE_CAT_GRADIENTS[draft.category]||`linear-gradient(135deg,${C.accent},${C.pink})`,likes:0,savedToScrapbook:false};
+    const localEntry = {id:localId,concertId:CONCERT_ID,category:draft.category,caption:draft.caption,username:`@${user?.name||user?.username||"stan"}`,timestamp:"just now",gradient:getCapsuleCatGradients()[draft.category]||`linear-gradient(135deg,${C.accent},${C.pink})`,likes:0,savedToScrapbook:false};
     setEntries(es=>[localEntry,...es]);
     setMyCount(c=>{ const n=c+1; ls.set(`backstage_capsule_count_${CONCERT_ID}`,n); return n; });
     setDraft({category:"fit",caption:""}); setAdding(false);
@@ -22432,7 +22546,16 @@ function BackstagePasses({ onBack, user }) {
   const [section, setSection]   = useState("live"); // live | circle | capsule
   const [viewing, setViewing]   = useState(null);
   const [showDetails, setShowDetails] = useState(false);
+  const [venueSuggestOpen, setVenueSuggestOpen] = useState(false);
+  const captionRef = useRef(null);
   const fileRef = useRef(null);
+  const venueMatches = draft.venue.trim()
+    ? VENUE_SUGGESTIONS.filter(v => {
+        const q = draft.venue.trim().toLowerCase();
+        return v.name.toLowerCase().includes(q) || v.city.toLowerCase().includes(q) || v.state.toLowerCase().includes(q);
+      }).slice(0,5)
+    : [];
+  const pickVenue = (v) => { setDraft(d=>({...d, venue:v.name, city:`${v.city}, ${v.state}`})); setVenueSuggestOpen(false); };
   const handleMediaPick = (e) => {
     const f = e.target.files[0]; if(!f) return;
     const r = new FileReader();
@@ -22518,9 +22641,9 @@ function BackstagePasses({ onBack, user }) {
         </div>
 
         {/* ── SECTION TABS ── */}
-        <div style={{ display:"flex",gap:0,background:C.surfaceHi,borderRadius:14,padding:3,marginBottom:10 }}>
+        <div style={{ display:"flex",gap:0,background:C.glassBgHi,border:`1px solid ${C.glassBorder}`,borderRadius:14,padding:3,marginBottom:10 }}>
           {SECTIONS.map(s=>(
-            <span key={s.id} onClick={()=>{setSection(s.id);setFilter("all");}} className="tap" style={{ flex:1,textAlign:"center",padding:"7px 4px",borderRadius:11,fontSize:10.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:section===s.id?s.color:"transparent",color:section===s.id?C.bg:C.textMid,transition:"all .18s",whiteSpace:"nowrap",boxShadow:section===s.id?`0 0 10px ${s.color}40`:"none" }}>{s.label}</span>
+            <span key={s.id} onClick={()=>{setSection(s.id);setFilter("all");}} className="tap" style={{ ...getPillStyle({active:section===s.id}), flex:1,textAlign:"center",padding:"7px 4px",fontSize:10.5,border:"none" }}>{s.label}</span>
           ))}
         </div>
         {/* Section explainer */}
@@ -22528,9 +22651,9 @@ function BackstagePasses({ onBack, user }) {
 
         {/* ── FILTER PILLS ── */}
         <div style={{ display:"flex",gap:6,overflowX:"auto",paddingBottom:2,scrollbarWidth:"none" }}>
-          <span onClick={()=>setFilter("all")} className="tap" style={{ flexShrink:0,padding:"5px 12px",borderRadius:99,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:600,cursor:"pointer",background:filter==="all"?C.accent:C.surfaceHi,color:filter==="all"?C.bg:C.textMid,border:`1px solid ${filter==="all"?C.accent:C.border}` }}>✦ All</span>
+          <span onClick={()=>setFilter("all")} className="tap" style={{ ...getPillStyle({active:filter==="all"}), flexShrink:0,padding:"5px 12px",fontSize:10 }}>✦ All</span>
           {PASS_TYPES.map(t=>(
-            <span key={t.id} onClick={()=>setFilter(t.id)} className="tap" style={{ flexShrink:0,padding:"5px 11px",borderRadius:99,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:600,cursor:"pointer",background:filter===t.id?t.color:C.surfaceHi,color:filter===t.id?C.bg:C.textMid,border:`1px solid ${filter===t.id?t.color:C.border}`,whiteSpace:"nowrap" }}>{t.emoji}</span>
+            <span key={t.id} onClick={()=>setFilter(t.id)} className="tap" style={{ ...getPillStyle({active:filter===t.id}), flexShrink:0,padding:"5px 11px",fontSize:10,whiteSpace:"nowrap" }}>{t.emoji}</span>
           ))}
         </div>
       </div>
@@ -22684,34 +22807,39 @@ function BackstagePasses({ onBack, user }) {
               </div>
             </div>
 
-            {/* ── FLOATING CAPTION ── */}
+            {/* ── FLOATING CAPTION — a visible glass card, not transparent text
+                 floating on the photo, so it reads as an actual input field ── */}
             <div style={{ position:"absolute",bottom:0,left:0,right:0,padding:"0 18px 18px",background:"linear-gradient(to top,rgba(0,0,0,0.78),transparent)",zIndex:10 }}>
-              <textarea
-                value={draft.caption}
-                onChange={e=>setDraft(d=>({...d,caption:e.target.value}))}
-                placeholder={`${selectedType.hint}... 💜`}
-                maxLength={120}
-                rows={2}
-                style={{ width:"100%",background:"transparent",border:"none",color:"#fff",fontSize:16,fontStyle:"italic",fontFamily:"'Epilogue',sans-serif",fontWeight:700,textShadow:"0 1px 14px rgba(0,0,0,0.95)",resize:"none",outline:"none",textAlign:"center",lineHeight:1.45,padding:0,caretColor:C.lavender,boxSizing:"border-box",WebkitTextFillColor:"#fff" }}
-              />
-              <p style={{ fontSize:8,color:"rgba(255,255,255,0.3)",textAlign:"right",marginTop:2 }}>{draft.caption.length}/120</p>
+              <div style={{ background:"rgba(0,0,0,0.42)",backdropFilter:"blur(14px)",border:"1.5px solid rgba(255,255,255,0.22)",borderRadius:16,padding:"10px 14px" }}>
+                <p style={{ fontSize:8.5,color:"rgba(255,255,255,0.6)",fontFamily:"'Epilogue',sans-serif",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4 }}>Caption</p>
+                <textarea
+                  ref={captionRef}
+                  value={draft.caption}
+                  onChange={e=>setDraft(d=>({...d,caption:e.target.value}))}
+                  placeholder={`Tell the Fanverse: ${selectedType.hint}... 💜`}
+                  maxLength={120}
+                  rows={2}
+                  style={{ width:"100%",background:"transparent",border:"none",color:"#fff",fontSize:15,fontStyle:"italic",fontFamily:"'Epilogue',sans-serif",fontWeight:700,textShadow:"0 1px 10px rgba(0,0,0,0.9)",resize:"none",outline:"none",textAlign:"left",lineHeight:1.4,padding:0,caretColor:C.lavender,boxSizing:"border-box",WebkitTextFillColor:"#fff" }}
+                />
+                <p style={{ fontSize:9,color:"rgba(255,255,255,0.55)",textAlign:"right",marginTop:2 }}>{draft.caption.length}/120</p>
+              </div>
             </div>
           </div>
 
           {/* ── BOTTOM CONTROLS — minimal chrome ── */}
-          <div style={{ flexShrink:0,background:"rgba(4,2,13,0.97)",backdropFilter:"blur(24px)",padding:"12px 16px 44px",borderTop:`1px solid ${C.borderHi}` }}>
+          <div style={{ flexShrink:0,background:"rgba(4,2,13,0.97)",backdropFilter:"blur(24px)",padding:"12px 16px 44px",borderTop:"1px solid rgba(255,255,255,0.14)" }}>
 
             {/* Duration — compact horizontal pills */}
             <div style={{ display:"flex",gap:6,marginBottom:10 }}>
               {DURATIONS.map(d=>(
-                <button key={d.id} onClick={()=>setDraft(dr=>({...dr,duration:d.id}))} style={{ flex:1,padding:"7px 2px",borderRadius:10,border:`1.5px solid ${draft.duration===d.id?C.accent:C.border}`,background:draft.duration===d.id?`${C.accent}22`:C.surfaceHi,color:draft.duration===d.id?C.accent:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:9,cursor:"pointer",transition:"all .15s",whiteSpace:"nowrap" }}>
+                <button key={d.id} onClick={()=>setDraft(dr=>({...dr,duration:d.id}))} style={{ flex:1,padding:"7px 2px",borderRadius:10,border:`1.5px solid ${draft.duration===d.id?C.accent:"rgba(255,255,255,0.16)"}`,background:draft.duration===d.id?`${C.accent}22`:"rgba(255,255,255,0.06)",color:draft.duration===d.id?C.accent:"rgba(255,255,255,0.7)",fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:9,cursor:"pointer",transition:"all .15s",whiteSpace:"nowrap" }}>
                   {d.label}
                 </button>
               ))}
             </div>
 
             {/* Add details — collapsed by default */}
-            <button onClick={()=>setShowDetails(s=>!s)} style={{ width:"100%",background:"none",border:"none",color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:5,padding:"4px 0 8px" }}>
+            <button onClick={()=>setShowDetails(s=>!s)} style={{ width:"100%",background:"none",border:"none",color:"rgba(255,255,255,0.7)",fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:5,padding:"4px 0 8px" }}>
               <span>{showDetails?"Hide details":"Add details"}</span>
               <span style={{ fontSize:9,display:"inline-block",transition:"transform .2s ease",transform:showDetails?"rotate(180deg)":"none" }}>▾</span>
             </button>
@@ -22722,25 +22850,44 @@ function BackstagePasses({ onBack, user }) {
                 {/* Pass type selector — mature minimal pills */}
                 <div style={{ display:"flex",gap:5,overflowX:"auto",scrollbarWidth:"none",marginBottom:10,flexWrap:"wrap" }}>
                   {PASS_TYPES.map(t=>(
-                    <button key={t.id} onClick={()=>setDraft(d=>({...d,type:t.id}))} style={{ flexShrink:0,display:"flex",alignItems:"center",gap:5,padding:"5px 11px",borderRadius:99,cursor:"pointer",background:draft.type===t.id?`${t.color}22`:C.surfaceHi,border:`1px solid ${draft.type===t.id?t.color:C.border}`,transition:"all .15s" }}>
+                    <button key={t.id} onClick={()=>setDraft(d=>({...d,type:t.id}))} style={{ flexShrink:0,display:"flex",alignItems:"center",gap:5,padding:"5px 11px",borderRadius:99,cursor:"pointer",background:draft.type===t.id?`${t.color}22`:"rgba(255,255,255,0.06)",border:`1px solid ${draft.type===t.id?t.color:"rgba(255,255,255,0.16)"}`,transition:"all .15s" }}>
                       <div style={{ width:6,height:6,borderRadius:"50%",background:t.color,flexShrink:0,opacity:draft.type===t.id?1:0.5 }} />
-                      <span style={{ fontSize:9.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,color:draft.type===t.id?t.color:C.textMid,whiteSpace:"nowrap" }}>{t.label}</span>
+                      <span style={{ fontSize:9.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,color:draft.type===t.id?t.color:"rgba(255,255,255,0.7)",whiteSpace:"nowrap" }}>{t.label}</span>
                     </button>
                   ))}
                 </div>
                 {/* Venue + Capsule toggles */}
                 <div style={{ display:"flex",gap:7,marginBottom:draft.venueOn?8:4 }}>
-                  <button onClick={()=>setDraft(d=>({...d,venueOn:!d.venueOn}))} style={{ flex:1,padding:"8px 10px",borderRadius:11,border:`1.5px solid ${draft.venueOn?"rgba(255,255,255,0.22)":C.border}`,background:draft.venueOn?"rgba(255,255,255,0.07)":C.surfaceHi,backdropFilter:draft.venueOn?"blur(10px)":"none",color:draft.venueOn?C.gold:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10,cursor:"pointer",transition:"all .18s",display:"flex",alignItems:"center",justifyContent:"center",gap:5 }}>
+                  <button onClick={()=>setDraft(d=>({...d,venueOn:!d.venueOn}))} style={{ flex:1,padding:"8px 10px",borderRadius:11,border:`1.5px solid ${draft.venueOn?"rgba(255,255,255,0.22)":"rgba(255,255,255,0.16)"}`,background:draft.venueOn?"rgba(255,255,255,0.07)":"rgba(255,255,255,0.06)",backdropFilter:draft.venueOn?"blur(10px)":"none",color:draft.venueOn?C.gold:"rgba(255,255,255,0.7)",fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10,cursor:"pointer",transition:"all .18s",display:"flex",alignItems:"center",justifyContent:"center",gap:5 }}>
                     📍 {draft.venueOn?"Venue ✓":"Add Venue"}
                   </button>
-                  <button onClick={()=>setDraft(d=>({...d,toCapsule:!d.toCapsule}))} style={{ flex:1,padding:"8px 10px",borderRadius:11,border:`1.5px solid ${draft.toCapsule?C.accent:C.border}`,background:draft.toCapsule?`${C.accent}18`:C.surfaceHi,color:draft.toCapsule?C.accent:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10,cursor:"pointer",transition:"all .18s",display:"flex",alignItems:"center",justifyContent:"center",gap:5 }}>
+                  <button onClick={()=>setDraft(d=>({...d,toCapsule:!d.toCapsule}))} style={{ flex:1,padding:"8px 10px",borderRadius:11,border:`1.5px solid ${draft.toCapsule?C.accent:"rgba(255,255,255,0.16)"}`,background:draft.toCapsule?`${C.accent}18`:"rgba(255,255,255,0.06)",color:draft.toCapsule?C.accent:"rgba(255,255,255,0.7)",fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10,cursor:"pointer",transition:"all .18s",display:"flex",alignItems:"center",justifyContent:"center",gap:5 }}>
                     ✦ {draft.toCapsule?"Capsule ✓":"+ Capsule"}
                   </button>
                 </div>
                 {draft.venueOn && (
                   <div style={{ marginBottom:8, padding:10, borderRadius:12, background:"rgba(255,255,255,0.05)", backdropFilter:"blur(14px)", border:"1px solid rgba(255,255,255,0.16)", boxShadow:`0 0 20px ${C.berry}1f, inset 0 1px 0 rgba(255,255,255,0.08)`, animation:"up .15s ease" }}>
-                    <input value={draft.venue} onChange={e=>setDraft(d=>({...d,venue:e.target.value}))} placeholder="Venue (e.g. Allegiant Stadium)"
-                      style={{ width:"100%",padding:"9px 11px",borderRadius:10,background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.14)",color:"#fff",fontFamily:"'Epilogue',sans-serif",fontSize:11.5,marginBottom:7,boxSizing:"border-box" }} />
+                    <div style={{ position:"relative", marginBottom:7 }}>
+                      <input
+                        value={draft.venue}
+                        onChange={e=>{ setDraft(d=>({...d,venue:e.target.value})); setVenueSuggestOpen(true); }}
+                        onFocus={()=>setVenueSuggestOpen(true)}
+                        placeholder="Venue (e.g. Allegiant Stadium)"
+                        style={{ width:"100%",padding:"9px 11px",borderRadius:10,background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.14)",color:"#fff",fontFamily:"'Epilogue',sans-serif",fontSize:11.5,boxSizing:"border-box" }} />
+                      {venueSuggestOpen && venueMatches.length>0 && (
+                        <>
+                          <div onClick={()=>setVenueSuggestOpen(false)} style={{ position:"fixed", inset:0, zIndex:10 }} />
+                          <div style={{ position:"absolute", top:"calc(100% + 5px)", left:0, right:0, zIndex:11, maxHeight:180, overflowY:"auto", background:"linear-gradient(155deg,rgba(28,18,52,0.97),rgba(12,8,24,0.98))", border:"1px solid rgba(255,255,255,0.16)", borderRadius:12, padding:5, boxShadow:"0 12px 30px rgba(0,0,0,0.5)", backdropFilter:"blur(18px)" }}>
+                            {venueMatches.map(v=>(
+                              <div key={v.name} onClick={()=>pickVenue(v)} className="tap" style={{ padding:"8px 10px", borderRadius:8, cursor:"pointer" }}>
+                                <p style={{ fontSize:11.5, fontWeight:700, color:"#fff", fontFamily:"'Epilogue',sans-serif" }}>{v.name}</p>
+                                <p style={{ fontSize:9.5, color:"rgba(255,255,255,0.55)", marginTop:1 }}>{v.city}, {v.state}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
                     <input value={draft.city} onChange={e=>setDraft(d=>({...d,city:e.target.value}))} placeholder="City, State"
                       style={{ width:"100%",padding:"9px 11px",borderRadius:10,background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.14)",color:"#fff",fontFamily:"'Epilogue',sans-serif",fontSize:11.5,marginBottom:8,boxSizing:"border-box" }} />
                     <label style={{ display:"flex",alignItems:"center",gap:7,cursor:"pointer" }}>
@@ -22753,10 +22900,10 @@ function BackstagePasses({ onBack, user }) {
             )}
 
             {/* CTA */}
-            <p style={{ fontSize:9.5,color:draft.caption.trim()?C.textDim:"rgba(184,162,255,0.5)",textAlign:"center",marginBottom:9,fontStyle:"italic",transition:"color .2s" }}>
+            <p style={{ fontSize:9.5,color:draft.caption.trim()?"rgba(255,255,255,0.55)":"rgba(184,162,255,0.65)",textAlign:"center",marginBottom:9,fontStyle:"italic",transition:"color .2s" }}>
               {draft.caption.trim() ? "A live memory from your concert night ✨" : "Write your moment above to drop your pass"}
             </p>
-            <button onClick={addPass} disabled={!draft.caption.trim()} style={{ width:"100%",padding:"14px",borderRadius:14,border:"none",background:draft.caption.trim()?`linear-gradient(135deg,${C.accent},${C.berry})`:`rgba(255,255,255,0.05)`,color:draft.caption.trim()?"#04020d":C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,cursor:draft.caption.trim()?"pointer":"default",boxShadow:draft.caption.trim()?`0 0 24px ${C.accent}40,0 6px 20px rgba(0,0,0,0.5)`:"none",transition:"all .22s",letterSpacing:"-0.01em" }}>
+            <button onClick={draft.caption.trim() ? addPass : ()=>captionRef.current?.focus()} style={{ width:"100%",padding:"14px",borderRadius:14,border:"none",background:draft.caption.trim()?`linear-gradient(135deg,${C.accent},${C.berry})`:`rgba(255,255,255,0.08)`,color:draft.caption.trim()?"#04020d":"rgba(255,255,255,0.85)",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,cursor:"pointer",boxShadow:draft.caption.trim()?`0 0 24px ${C.accent}40,0 6px 20px rgba(0,0,0,0.5)`:"none",transition:"all .22s",letterSpacing:"-0.01em" }}>
               {draft.caption.trim() ? "Drop this Pass ✨" : "Add a caption first ↑"}
             </button>
           </div>
@@ -24570,7 +24717,7 @@ function CapsuleLandingPage({ onJoin, onExplore }) {
     {top:"90%",left:"70%",size:5,delay:"2.1s"},{top:"58%",left:"60%",size:4,delay:"0.9s"},
   ];
   return (
-    <div className="cosmic-bg" style={{ minHeight:"100vh", background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 45%,#0c0820 100%)`, display:"flex", flexDirection:"column", alignItems:"center", overflowY:"auto", position:"relative", paddingBottom:40 }}>
+    <div className="cosmic-bg" style={{ minHeight:"100vh", background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 45%,${C.surfaceMid} 100%)`, display:"flex", flexDirection:"column", alignItems:"center", overflowY:"auto", position:"relative", paddingBottom:40 }}>
       <style>{getCSS()}</style>
       {/* Ambient orbs */}
       <div style={{ position:"fixed",top:"15%",left:"-10%",width:260,height:260,borderRadius:"50%",background:`radial-gradient(circle,${C.berry}14,transparent 70%)`,pointerEvents:"none",zIndex:0 }} />
@@ -25114,7 +25261,7 @@ function ModalWrapper({ children }) {
   // padding edge — so it bypasses .app-shell's own safe-area-inset-top padding.
   // Every full-screen modal needs that clearance re-applied here, once, centrally.
   return (
-    <div style={{ position:"absolute",inset:0,zIndex:300,background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 50%,#0c0820 100%)`,display:"flex",flexDirection:"column",animation:"in .18s ease" }}>
+    <div style={{ position:"absolute",inset:0,zIndex:300,background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 50%,${C.surfaceMid} 100%)`,display:"flex",flexDirection:"column",animation:"in .18s ease" }}>
       <div style={{ position:"absolute",top:0,right:0,width:200,height:200,borderRadius:"50%",background:`radial-gradient(circle,${C.berry}06,transparent 70%)`,pointerEvents:"none",zIndex:0 }} />
       <div style={{ position:"absolute",bottom:100,left:0,width:150,height:150,borderRadius:"50%",background:`radial-gradient(circle,${C.accent}05,transparent 70%)`,pointerEvents:"none",zIndex:0 }} />
       <div style={{ position:"relative",zIndex:1,flex:1,display:"flex",flexDirection:"column",overflow:"hidden",paddingTop:"calc(env(safe-area-inset-top,0px) + 10px)" }}>{children}</div>
@@ -25664,7 +25811,7 @@ function AppInner() {
     return (
       <>
         <style>{getCSS()}</style>
-        <div className="cosmic-bg app-shell" style={{ background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 40%,#0c0820 100%)`,display:"flex",flexDirection:"column",overflow:"hidden" }}>
+        <div className="cosmic-bg app-shell" style={{ background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 40%,${C.surfaceMid} 100%)`,display:"flex",flexDirection:"column",overflow:"hidden" }}>
           <ConcertCapsule
             concert={MOCK_CONCERTS[0]}
             onBack={()=>setShowCapsulePreview(false)}
@@ -25684,7 +25831,7 @@ function AppInner() {
     <ThemeContext.Provider value={{ themeMode, setThemeMode }}>
     <>
       <style>{getCSS()}</style>
-      <div className="cosmic-bg app-shell" style={{ background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 40%,#0c0820 100%)`, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+      <div className="cosmic-bg app-shell" style={{ background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 40%,${C.surfaceMid} 100%)`, display:"flex", flexDirection:"column", overflow:"hidden" }}>
 
         {/* OFFLINE BANNER */}
         <OfflineReadyBanner />
