@@ -5601,7 +5601,7 @@ function NotificationBell({ onOpen }) {
   const openSettings = () => { setShowQuickView(false); ls.set("backstage_open_notif_settings", true); onOpen(); };
 
   return (
-    <div style={{ position:"absolute",top:16,right:14,zIndex:300 }}>
+    <div style={{ position:"absolute",top:6,right:14,zIndex:300 }}>
       <button
         onClick={()=>setShowQuickView(v=>!v)}
         className="tap"
@@ -12142,7 +12142,7 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
           className="tap"
           title="Messages"
           style={{
-            position:"absolute", top:16, right:62, zIndex:300,
+            position:"absolute", top:6, right:62, zIndex:300,
             width:40,height:40,
             borderRadius:13,
             background:C.glassBgHi,
@@ -12175,15 +12175,35 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
         {/* Pass categories (Fit Check, Merch, etc.) stay in Backstage Passes page only */}
         {/* Collapses fully on scroll — same maxHeight/opacity technique as the title block above */}
         <div style={{ display:"flex",gap:12,overflowX:"auto",scrollbarWidth:"none",overflowY:"hidden",maxHeight:scrolled?0:96,opacity:scrolled?0:1,padding:scrolled?"0 14px":"6px 54px 6px 14px",transition:"max-height .28s ease, opacity .2s ease, padding .28s ease",alignItems:"flex-start" }}>
-          {/* Your Pass — always first. Bubbles sized so ~5 are visible at once; rest via horizontal swipe. */}
-          <div onClick={()=>go?.("passes")} className="tap" style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:3,cursor:"pointer" }}>
-            <div style={{ width:scrolled?46:60,height:scrolled?46:60,borderRadius:"50%",background:`linear-gradient(135deg,rgba(184,162,255,0.9),rgba(232,201,135,0.55))`,padding:2.5,boxShadow:`0 0 14px rgba(184,162,255,0.32), inset 0 1px 0 rgba(255,255,255,0.2)`,transition:"all .28s ease",flexShrink:0 }}>
-              <div style={{ width:"100%",height:"100%",borderRadius:"50%",background:`linear-gradient(160deg,${C.cosmic},${C.bg})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:scrolled?18:22,color:C.gold }}>✦</div>
+          {/* Your Pass — always first. Bubbles sized so ~5 are visible at once; rest via horizontal swipe.
+              "+" badge is a shortcut straight into the Pass composer, same idea as tapping the +
+              on your own story ring in Instagram — the ring itself still opens the Passes page. */}
+          <div style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:3,position:"relative" }}>
+            <div onClick={()=>go?.("passes")} className="tap" style={{ cursor:"pointer" }}>
+              <div style={{ width:scrolled?46:60,height:scrolled?46:60,borderRadius:"50%",background:`linear-gradient(135deg,rgba(184,162,255,0.9),rgba(232,201,135,0.55))`,padding:2.5,boxShadow:`0 0 14px rgba(184,162,255,0.32), inset 0 1px 0 rgba(255,255,255,0.2)`,transition:"all .28s ease",flexShrink:0 }}>
+                <div style={{ width:"100%",height:"100%",borderRadius:"50%",background:`linear-gradient(160deg,${C.cosmic},${C.bg})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:scrolled?18:22,color:C.gold }}>✦</div>
+              </div>
             </div>
+            <button
+              onClick={(e)=>{ e.stopPropagation(); go?.("passes_create"); }}
+              className="tap"
+              aria-label="Post a new Backstage Pass"
+              style={{
+                position:"absolute", top:scrolled?28:36, right:-2, zIndex:1,
+                width:20,height:20, borderRadius:"50%",
+                background:`linear-gradient(135deg,${C.accent},${C.pink})`,
+                border:`2px solid ${C.bg}`,
+                color:C.mode==="light"?"#ffffff":"#1a1228",
+                fontSize:13, fontWeight:800, lineHeight:1,
+                display:"flex",alignItems:"center",justifyContent:"center",
+                cursor:"pointer", boxShadow:`0 2px 8px ${C.accent}55`,
+              }}
+            >+</button>
             <p style={{ fontSize:8.5,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap" }}>Your Pass</p>
           </div>
-          {/* Social rings — filter bubbles + user bubbles */}
-          {SOCIAL_RINGS.map(r=>{
+          {/* Social rings — individual fans only (no My Circle / Local Fans filter bubbles —
+              those are category filters, not people, and belong elsewhere). */}
+          {SOCIAL_RINGS.filter(r=>r.isUser).map(r=>{
             const isActive = r.isFilter && ringFilter===r.filterType;
             const sz = scrolled?46:60;
             return (
@@ -22591,6 +22611,14 @@ function BackstagePasses({ onBack, user }) {
   const [venueSuggestOpen, setVenueSuggestOpen] = useState(false);
   const captionRef = useRef(null);
   const fileRef = useRef(null);
+  // Your Pass "+" badge shortcut sets this one-shot flag before navigating here
+  // so we land straight in the composer, like tapping your own story ring's +.
+  useEffect(()=>{
+    if(ls.get("backstage_open_pass_composer", false)){
+      ls.del("backstage_open_pass_composer");
+      setCreating(true);
+    }
+  },[]);
   const venueMatches = draft.venue.trim()
     ? VENUE_SUGGESTIONS.filter(v => {
         const q = draft.venue.trim().toLowerCase();
@@ -25687,6 +25715,9 @@ function AppInner() {
   };
 
   const go = (dest) => {
+    // "+" shortcut on the Your Pass story bubble — jump straight into the Pass
+    // composer instead of just opening the Backstage Passes browsing page.
+    if(dest==="passes_create"){ ls.set("backstage_open_pass_composer", true); dest = "passes"; }
     const FULL_MODALS = ["concertprep","myshows","scrapbook","afterglow","friends","chats","qr","safety","events","concertday","timeline","tickets","nearby","trust","games","creator","backup","fanidentity","valuetracks","fanprojects","assistant","invite","contentgen","fanmap","livefeed","budget","capsule","passes","notifications"];
     if(FULL_MODALS.includes(dest)){
       // Push a new history entry so the browser back button can close this modal
