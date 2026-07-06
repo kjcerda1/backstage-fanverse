@@ -13303,7 +13303,7 @@ const ERA_SEARCH_GROUPS = [
 function ExploreTab({ user, go, onViewProfile }) {
   const { tokenReady } = useAuth();
 
-  // ── Universal search (ported from the retired HomeFeed) ──────────────────
+  // ── Universal search (unchanged) ──────────────────────────────────────────
   const [searchVal, setSearchVal] = useState("");
   const [fanResults, setFanResults] = useState([]);
   const [fanSearching, setFanSearching] = useState(false);
@@ -13329,6 +13329,18 @@ function ExploreTab({ user, go, onViewProfile }) {
     c.city.toLowerCase().includes(searchQNorm)
   ).slice(0,4) : [];
 
+  // ── Quick filter chips over the unified content feed ──────────────────────
+  const [filterType, setFilterType] = useState("all");
+
+  // ── Global fan posts — real, GET /api/feed (same feed Fanverse posts write to) ──
+  const [feedPosts, setFeedPosts] = useState([]);
+  useEffect(() => {
+    api.get('/api/feed?limit=12').then(d => setFeedPosts(d?.posts || [])).catch(()=>{});
+  }, []);
+
+  // ── Comeback/era announcements — real, GET /api/announcements ─────────────
+  const announcements = useAnnouncements({ fandom: user?.fandoms?.[0] });
+
   // ── Discover Fans — real, GET /api/friends/suggested (same as FanverseTab) ──
   const [discoverFans, setDiscoverFans] = useState([]);
   useEffect(() => {
@@ -13351,7 +13363,7 @@ function ExploreTab({ user, go, onViewProfile }) {
   useEffect(() => {
     if (!user?.id || !featuredConcert?.id) return;
     api.get(`/api/capsule/${featuredConcert.id}/entries`).then(res => {
-      setCapsuleEntries((res?.entries || []).slice(0,3));
+      setCapsuleEntries((res?.entries || []).slice(0,4));
     }).catch(()=>{});
   }, [user?.id]);
 
@@ -13362,44 +13374,230 @@ function ExploreTab({ user, go, onViewProfile }) {
     api.get('/api/trade-listings?limit=6').then(d => setTrades((d?.listings||[]).slice(0,4))).catch(()=>{});
   }, [tokenReady]);
 
-  // ── City Pulse — real, GET /api/hubs/cities (same as Fanverse Map→Hubs) ──
-  const [cityHubs, setCityHubs] = useState([]);
+  // ── Upcoming Shows — real /api/events. The route always merges in a pinned
+  // "confirmed" event even when it's no longer upcoming, so we filter for a
+  // genuinely future (or today) date before ever featuring one as current —
+  // this is the fix for stale sample dates being shown as if live.
+  const [rawEvents, setRawEvents] = useState(null); // null = fetch failed/empty → use MOCK_CONCERTS
   useEffect(() => {
-    if (!tokenReady) return;
-    api.get('/api/hubs/cities?limit=6').then(d => setCityHubs(d?.cities || [])).catch(()=>{});
-  }, [tokenReady]);
-
-  // ── Upcoming Shows — real /api/events (Ticketmaster + Supabase + confirmed),
-  // falling back to MOCK_CONCERTS only if the fetch fails or returns nothing.
-  // Only drops the Preview tag when a genuinely Ticketmaster-sourced event is present —
-  // the route always returns at least one pinned "confirmed" event even with no
-  // live Ticketmaster results, so that alone isn't proof of live data.
-  const [upcomingEvents, setUpcomingEvents] = useState(null); // null = use MOCK_CONCERTS fallback
-  const [upcomingLive, setUpcomingLive] = useState(false);
-  useEffect(() => {
-    api.get('/api/events?size=6').then(d => {
-      const events = d?.events || [];
-      if (d?.mock || !events.length) { setUpcomingEvents(null); return; }
-      setUpcomingLive(events.some(e => e.source==='ticketmaster' || e.sourceType==='ticketmaster'));
-      setUpcomingEvents(events.slice(0,2));
-    }).catch(()=>setUpcomingEvents(null));
+    api.get('/api/events?size=8').then(d => {
+      if (d?.mock || !d?.events?.length) { setRawEvents(null); return; }
+      setRawEvents(d.events);
+    }).catch(()=>setRawEvents(null));
   }, []);
-  const upcomingShows = upcomingEvents || MOCK_CONCERTS.slice(0,2);
-  const upcomingPreviewLabel = upcomingLive ? null
-    : upcomingEvents ? "Preview · live Ticketmaster wiring pending for this tile"
+  const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+  const isUpcoming = (e) => { const d = e?.date ? new Date(e.date) : null; return !d || isNaN(d.getTime()) || d.getTime() >= todayStart.getTime(); };
+  const futureEvents = rawEvents ? rawEvents.filter(isUpcoming) : null;
+  const upcomingShows = (futureEvents && futureEvents.length) ? futureEvents.slice(0,3) : MOCK_CONCERTS.slice(0,2);
+  const upcomingIsLive = !!(futureEvents && futureEvents.some(e => e.source==='ticketmaster' || e.sourceType==='ticketmaster'));
+  const upcomingPreviewLabel = upcomingIsLive ? null
+    : (futureEvents && futureEvents.length) ? "Preview · live Ticketmaster wiring pending for this tile"
     : "Preview · using sample concert cards";
+  // Prefer whichever show actually has real Ticketmaster poster art.
+  const primaryShow = upcomingShows.find(c=>c.image_url) || upcomingShows[0];
+
+  // ── One tapped-item overlay instead of five separate modal states ─────────
+  const [openItem, setOpenItem] = useState(null); // { kind, data }
 
   const PreviewTag = ({ label="Preview" }) => (
-    <span style={{ ...VS.mutedPill, fontSize:8.5, padding:"3px 8px", position:"absolute", top:12, right:12, maxWidth:150, textAlign:"right", whiteSpace:"normal", lineHeight:1.3 }}>{label}</span>
+    <span style={{ ...VS.mutedPill, fontSize:8.5, padding:"3px 8px", position:"absolute", top:12, right:12, maxWidth:150, textAlign:"right", whiteSpace:"normal", lineHeight:1.3, zIndex:2 }}>{label}</span>
   );
-  const TileHeader = ({ label, color }) => (
-    <p style={{ fontSize:9,color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8 }}>{label}</p>
+  const CategoryChip = ({ label, color }) => (
+    <span style={{ display:"inline-flex", alignSelf:"flex-start", fontSize:8.5, color, background:`${color}22`, border:`1px solid ${color}44`, borderRadius:99, padding:"3px 9px", fontFamily:"'Epilogue',sans-serif", fontWeight:800, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:8 }}>{label}</span>
   );
+  // Shared full-screen read-only detail sheet for content types that don't
+  // already have a real detail screen (trade listings reuse the real one below).
+  const DetailSheet = ({ onClose, children }) => (
+    <div style={{ position:"absolute", inset:0, zIndex:500, background:"rgba(6,6,15,0.96)", display:"flex", flexDirection:"column", animation:"in .2s ease" }}>
+      <div style={{ padding:"calc(env(safe-area-inset-top,0px) + 16px) 20px 4px", flexShrink:0, display:"flex", justifyContent:"flex-end" }}>
+        <button onClick={onClose} className="tap" style={{ width:32,height:32,borderRadius:"50%",background:C.surfaceHi,border:`1px solid ${C.border}`,color:C.textMid,fontSize:16,cursor:"pointer" }}>✕</button>
+      </div>
+      <div style={{ flex:1, overflowY:"auto", padding:"8px 20px calc(40px + env(safe-area-inset-bottom))" }}>{children}</div>
+    </div>
+  );
+
+  // ── Unified content feed — individual real items, not aggregate feature tiles ──
+  const feedItems = [];
+  feedPosts.forEach(p => feedItems.push({ kind:"post", key:`post-${p.id}`, data:p }));
+  (announcements||[]).slice(0,3).forEach(a => feedItems.push({ kind:"announcement", key:`ann-${a.id}`, data:a }));
+  capsuleEntries.slice(0,4).forEach(e => feedItems.push({ kind:"capsule", key:`cap-${e.id}`, data:e }));
+  trades.slice(0,4).forEach(t => feedItems.push({ kind:"trade", key:`trade-${t.id}`, data:t }));
+  MOCK_PASSES.slice(0,4).forEach(ps => feedItems.push({ kind:"pass", key:`pass-${ps.id}`, data:ps }));
+  discoverFans.slice(0,4).forEach(f => feedItems.push({ kind:"fan", key:`fan-${f.id}`, data:f }));
+  if (primaryShow) feedItems.push({ kind:"show", key:`show-${primaryShow.id}`, data:primaryShow });
+
+  const FILTER_KIND = { concerts:"show", trades:"trade", passes:"pass", capsules:"capsule", fans:"fan" };
+  const visibleItems = filterType==="all" ? feedItems : feedItems.filter(i=>i.kind===FILTER_KIND[filterType]);
+
+  // Interleave kinds instead of grouping them so the grid reads like a mixed
+  // curated feed rather than back-to-back runs of the same content type.
+  const orderedItems = (() => {
+    const buckets = {};
+    visibleItems.forEach(i => { (buckets[i.kind] ||= []).push(i); });
+    const out = [];
+    let added = true;
+    while (added) {
+      added = false;
+      for (const k of Object.keys(buckets)) { const b = buckets[k]; if (b.length) { out.push(b.shift()); added = true; } }
+    }
+    return out;
+  })();
+  const firstCapsuleKey = orderedItems.find(i=>i.kind==="capsule")?.key;
+
+  const renderCard = (item) => {
+    if (item.kind === "post") {
+      const p = item.data;
+      const wide = (p.content||"").length > 70;
+      return (
+        <div key={item.key} onClick={()=>setOpenItem(item)} className="tap" style={{ ...VS.glowCard(C.accent), gridColumn: wide?"span 2":undefined, padding:14, cursor:"pointer" }}>
+          <CategoryChip label={p.type||"Fan Post"} color={C.accent} />
+          <p style={{ fontSize:11.5,color:C.text,lineHeight:1.4,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:3,WebkitBoxOrient:"vertical" }}>{p.content}</p>
+          <p style={{ fontSize:9.5,color:C.textMid,marginTop:8 }}>@{p.user?.username||"fan"} · 💜 {p.likes||0}</p>
+        </div>
+      );
+    }
+    if (item.kind === "announcement") {
+      const a = item.data;
+      return (
+        <div key={item.key} onClick={()=>setOpenItem(item)} className="tap" style={{ ...VS.glowCard(C.gold), gridColumn:"span 2", padding:14, cursor:"pointer" }}>
+          <CategoryChip label="Era Announcement" color={C.gold} />
+          <p style={{ fontSize:13,fontWeight:800,color:C.text }}>{a.title}</p>
+          <p style={{ fontSize:10.5,color:C.textMid,marginTop:4,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical" }}>{a.body}</p>
+        </div>
+      );
+    }
+    if (item.kind === "capsule") {
+      const e = item.data;
+      const isHero = item.key === firstCapsuleKey;
+      return (
+        <div key={item.key} onClick={()=>go("capsule")} className="tap" style={{ ...VS.neonGlassCard(C.berry), gridRow:isHero?"span 2":undefined, padding:14, cursor:"pointer", display:"flex", flexDirection:"column" }}>
+          <CategoryChip label="Capsule Memory" color={C.berry} />
+          <p style={{ fontSize:11.5,color:C.text,lineHeight:1.4,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:isHero?5:2,WebkitBoxOrient:"vertical" }}>{e.caption}</p>
+          <p style={{ fontSize:9.5,color:C.blush||C.pink,marginTop:8,fontWeight:700 }}>{e.username} · 💜 {e.likes||0}</p>
+          {isHero && <p style={{ fontSize:9,color:C.textDim,marginTop:"auto",paddingTop:10 }}>{featuredConcert?.name}</p>}
+        </div>
+      );
+    }
+    if (item.kind === "trade") {
+      const t = item.data;
+      return (
+        <div key={item.key} onClick={()=>setOpenItem(item)} className="tap" style={{ ...VS.glowCard(C.rose), padding:14, cursor:"pointer" }}>
+          <CategoryChip label="Trade Listing" color={C.rose} />
+          <div style={{ width:44,height:52,borderRadius:8,background:`linear-gradient(160deg,${C.rose}66,${C.cosmic})`,border:`1.5px solid ${C.rose}66`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:800,color:C.text,marginBottom:8 }}>{(t.user_cards?.member||"?").slice(0,1)}</div>
+          <p style={{ fontSize:11,fontWeight:700,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{t.user_cards?.member||"Photocard"}</p>
+          <p style={{ fontSize:9.5,color:C.textMid,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{t.user_cards?.group_name||""}{t.user_cards?.era?` · ${t.user_cards.era}`:""}</p>
+        </div>
+      );
+    }
+    if (item.kind === "pass") {
+      const ps = item.data;
+      const pt = PASS_TYPES.find(x=>x.id===ps.type);
+      return (
+        <div key={item.key} onClick={()=>setOpenItem(item)} className="tap" style={{ ...VS.glowCard(ps.color||C.pink), padding:14, cursor:"pointer", position:"relative" }}>
+          <PreviewTag />
+          <CategoryChip label="Live POV" color={ps.color||C.pink} />
+          <p style={{ fontSize:22,marginBottom:6 }}>{pt?.emoji||"🎫"}</p>
+          <p style={{ fontSize:11,color:C.text,lineHeight:1.35,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical" }}>{ps.caption}</p>
+          <p style={{ fontSize:9,color:C.textMid,marginTop:6 }}>{ps.username}</p>
+        </div>
+      );
+    }
+    if (item.kind === "fan") {
+      const f = item.data;
+      return (
+        <div key={item.key} onClick={()=>onViewProfile&&onViewProfile({ id:f.id, username:f.handle, display_name:f.display_name, fandoms:f.fandoms })} className="tap" style={{ ...VS.glowCard(C.mint), padding:14, cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", textAlign:"center" }}>
+          <CategoryChip label="Fan Creator" color={C.mint} />
+          <div style={{ width:44,height:44,borderRadius:"50%",background:`linear-gradient(135deg,${C.mint},${C.accent})`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,color:C.bg,fontSize:16,marginBottom:8 }}>{f.avatar}</div>
+          <p style={{ fontSize:11,fontWeight:700,color:C.text }}>{f.display_name}</p>
+          {f.fandoms?.[0] && <p style={{ fontSize:9.5,color:C.textMid,marginTop:2 }}>{f.fandoms[0]}</p>}
+        </div>
+      );
+    }
+    if (item.kind === "show") {
+      const s = item.data;
+      return (
+        <div key={item.key} onClick={()=>setOpenItem(item)} className="tap" style={{ borderRadius:22, gridColumn:"span 2", cursor:"pointer", position:"relative", overflow:"hidden", border:`1.5px solid ${C.rose}40`, boxShadow:"0 10px 32px rgba(0,0,0,0.4)" }}>
+          {upcomingPreviewLabel && <PreviewTag label={upcomingPreviewLabel} />}
+          <div style={{
+            minHeight:150, padding:16, display:"flex", flexDirection:"column", justifyContent:"flex-end",
+            backgroundImage: s.image_url
+              ? `linear-gradient(180deg,transparent 30%,rgba(6,4,12,0.92) 100%),url(${s.image_url})`
+              : `radial-gradient(ellipse at 12% -25%,${C.rose}60,transparent 55%),radial-gradient(ellipse at 88% -25%,${C.lavender}50,transparent 55%),linear-gradient(180deg,${C.cosmic},${C.bg})`,
+            backgroundSize:"cover", backgroundPosition:"center",
+            boxShadow: s.image_url ? "none" : `inset 0 0 0 1px ${C.rose}30`,
+          }}>
+            <CategoryChip label="Upcoming Show" color={C.rose} />
+            <p style={{ fontSize:s.image_url?14:17, fontWeight:800, color:"#fff", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", textShadow:"0 2px 8px rgba(0,0,0,0.6)" }}>{s.name||s.title}</p>
+            <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:4, flexWrap:"wrap" }}>
+              <p style={{ fontSize:10.5,color:"rgba(255,255,255,0.75)" }}>{s.city}{s.date?` · ${s.date}`:""}</p>
+              {s.venue && <span style={{ fontSize:8.5, padding:"2px 8px", borderRadius:99, background:"rgba(255,255,255,0.14)", border:"1px solid rgba(255,255,255,0.22)", color:"rgba(255,255,255,0.85)" }}>{s.venue}</span>}
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return null;
+  };
 
   return (
     <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden", ...VS.cosmicPageBg(C.accent) }}>
-      <div style={{ padding:"calc(env(safe-area-inset-top,0px) + 16px) 20px 12px", flexShrink:0 }}>
-        <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:20, marginBottom:12 }}>Explore ✦</p>
+
+      {/* ── Detail overlays — content-first tap behavior, not routes to broad tabs ── */}
+      {openItem?.kind==="trade" && (
+        <div style={{ position:"absolute", inset:0, zIndex:500 }}>
+          <TradeListingDetail listing={openItem.data} user={user} onBack={()=>setOpenItem(null)} onOfferMade={()=>setOpenItem(null)} />
+        </div>
+      )}
+      {openItem?.kind==="post" && (
+        <DetailSheet onClose={()=>setOpenItem(null)}>
+          <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:16 }}>
+            <div style={{ width:44,height:44,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.pink})`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,color:C.bg,fontSize:16,flexShrink:0 }}>{(openItem.data.user?.username||"B").slice(0,1).toUpperCase()}</div>
+            <div>
+              <p style={{ fontSize:14,fontWeight:800,color:C.text }}>@{openItem.data.user?.username||"backstage_fan"}</p>
+              <p style={{ fontSize:10.5,color:C.textDim }}>{fmtCapsuleTs(openItem.data.created_at)}</p>
+            </div>
+          </div>
+          {openItem.data.tag && <span style={{ ...VS.activePill(C.accent), marginBottom:14 }}>{openItem.data.tag}</span>}
+          <p style={{ fontSize:15,color:C.text,lineHeight:1.6,marginTop:14 }}>{openItem.data.content}</p>
+          <p style={{ fontSize:12,color:C.textMid,marginTop:18 }}>💜 {openItem.data.likes||0} fans loved this</p>
+        </DetailSheet>
+      )}
+      {openItem?.kind==="pass" && (() => { const ps=openItem.data; const pt=PASS_TYPES.find(x=>x.id===ps.type); return (
+        <DetailSheet onClose={()=>setOpenItem(null)}>
+          <div style={{ ...VS.neonGlassCard(ps.color||C.pink), padding:20, marginBottom:16 }}>
+            <p style={{ fontSize:30,marginBottom:10 }}>{pt?.emoji||"🎫"}</p>
+            <p style={{ fontSize:15,fontWeight:700,color:C.text,lineHeight:1.5 }}>{ps.caption}</p>
+            <p style={{ fontSize:11,color:C.textMid,marginTop:10 }}>{ps.username} · {ps.expires}</p>
+            {ps.venue && <p style={{ fontSize:10.5,color:C.textDim,marginTop:4 }}>📍 {ps.venue}{ps.city?`, ${ps.city}`:""}</p>}
+          </div>
+          <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
+            {Object.entries(ps.reactions||{}).map(([emoji,count])=>(
+              <span key={emoji} style={VS.mutedPill}>{emoji} {count}</span>
+            ))}
+          </div>
+          <p style={{ fontSize:10,color:C.textDim,marginTop:24 }}>Preview · sample pass content</p>
+        </DetailSheet>
+      );})()}
+      {openItem?.kind==="announcement" && (
+        <DetailSheet onClose={()=>setOpenItem(null)}>
+          <span style={{ ...VS.activePill(C.gold), marginBottom:14 }}>{openItem.data.group_name || openItem.data.fandom || "Announcement"}</span>
+          <p style={{ fontSize:17,fontWeight:800,color:C.text,marginTop:12,lineHeight:1.4 }}>{openItem.data.title}</p>
+          <p style={{ fontSize:13,color:C.textMid,marginTop:12,lineHeight:1.6 }}>{openItem.data.body}</p>
+        </DetailSheet>
+      )}
+      {openItem?.kind==="show" && (() => { const s=openItem.data; const link=s.ticket_url||s.url; return (
+        <DetailSheet onClose={()=>setOpenItem(null)}>
+          {s.image_url && <div style={{ width:"100%",height:170,borderRadius:16,backgroundImage:`url(${s.image_url})`,backgroundSize:"cover",backgroundPosition:"center",marginBottom:16 }} />}
+          <p style={{ fontSize:17,fontWeight:800,color:C.text }}>{s.name||s.title}</p>
+          <p style={{ fontSize:12,color:C.textMid,marginTop:6 }}>{s.city}{s.date?` · ${s.date}`:""}</p>
+          {s.venue && <p style={{ fontSize:11.5,color:C.textDim,marginTop:2 }}>{s.venue}</p>}
+          {link && <button onClick={()=>window.open(link,"_blank")} className="tap" style={{ ...VS.glowButton(C.rose), padding:"13px 20px", marginTop:22, border:"none", width:"100%" }}>View Tickets ↗</button>}
+          <button onClick={()=>{ setOpenItem(null); go("concerts"); }} className="tap" style={{ marginTop:12, background:"none", border:`1px solid ${C.border}`, borderRadius:14, padding:"12px 20px", color:C.textMid, width:"100%", cursor:"pointer" }}>See All Shows in Concerts →</button>
+        </DetailSheet>
+      );})()}
+
+      <div style={{ padding:"calc(env(safe-area-inset-top,0px) + 16px) 20px 0", flexShrink:0 }}>
+        <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:20, marginBottom:12 }}>Explore</p>
         <div style={{ position:"relative" }}>
           <input
             value={searchVal}
@@ -13411,6 +13609,21 @@ function ExploreTab({ user, go, onViewProfile }) {
             ? <button onClick={()=>setSearchVal("")} style={{ position:"absolute",top:"50%",right:14,transform:"translateY(-50%)",background:"none",border:"none",color:C.textMid,cursor:"pointer",fontSize:15 }}>✕</button>
             : <span style={{ position:"absolute",top:"50%",right:15,transform:"translateY(-50%)",fontSize:14,pointerEvents:"none",color:C.textDim }}>🔍</span>}
         </div>
+
+        {!searchActive && (<>
+          {/* Slim Era Trend ticker — replaces the old large feature tile */}
+          <div style={{ display:"flex", gap:8, overflowX:"auto", padding:"12px 0 8px", WebkitMaskImage:"linear-gradient(to right, black 90%, transparent 100%)", maskImage:"linear-gradient(to right, black 90%, transparent 100%)" }}>
+            {ERA_SEARCH_GROUPS.slice(0,8).map(g=>(
+              <span key={g.group} onClick={()=>go("tools")} className="tap" style={{ flexShrink:0, fontSize:10.5, padding:"5px 11px", borderRadius:99, background:`${g.color}1c`, border:`1px solid ${g.color}44`, color:g.color, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>{g.group} · {g.eras?.[g.eras.length-1]}</span>
+            ))}
+          </div>
+          {/* Quick filter chips over the content feed */}
+          <div style={{ display:"flex", gap:8, overflowX:"auto", paddingBottom:12 }}>
+            {[["all","For You"],["concerts","Concerts"],["trades","Trades"],["passes","Passes"],["capsules","Capsules"],["fans","Fans"]].map(([id,label])=>(
+              <button key={id} onClick={()=>setFilterType(id)} className="tap" style={{ flexShrink:0, fontSize:11, padding:"7px 14px", borderRadius:99, background: filterType===id ? `linear-gradient(135deg,${C.accent},${C.pink})` : C.surfaceHi, border:`1px solid ${filterType===id?C.accent:C.border}`, color: filterType===id ? C.bg : C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer" }}>{label}</button>
+            ))}
+          </div>
+        </>)}
       </div>
 
       <div style={{ flex:1, overflowY:"auto", padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
@@ -13452,86 +13665,9 @@ function ExploreTab({ user, go, onViewProfile }) {
           </div>
         ) : (
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gridAutoFlow:"dense", gap:12, paddingTop:4 }}>
-            {/* Capsule Moments — tall */}
-            <div onClick={()=>go("capsule")} className="tap" style={{ ...VS.neonGlassCard(C.berry), gridRow:"span 2", padding:14, cursor:"pointer", display:"flex", flexDirection:"column" }}>
-              <TileHeader label="Capsule Moments" color={C.berry} />
-              {capsuleEntries.length>0 ? capsuleEntries.map(e=>(
-                <div key={e.id} style={{ marginBottom:10, paddingBottom:10, borderBottom:`1px solid ${C.border}` }}>
-                  <p style={{ fontSize:11.5,color:C.text,lineHeight:1.4 }}>{e.caption}</p>
-                  <p style={{ fontSize:9.5,color:C.textMid,marginTop:3 }}>{e.username} · {e.likes||0} 💜</p>
-                </div>
-              )) : <p style={{ fontSize:11,color:C.textMid }}>Real fan moments from {featuredConcert?.name} — tap to open the capsule.</p>}
-            </div>
-
-            {/* Discover Fans — square */}
-            <div onClick={()=>go("fanverse")} className="tap" style={{ ...VS.glowCard(C.accent), padding:14, cursor:"pointer" }}>
-              <TileHeader label="Discover Fans" color={C.accent} />
-              {discoverFans.length>0
-                ? <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-                    {discoverFans.slice(0,4).map(f=>(
-                      <div key={f.id} style={{ width:34,height:34,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.pink})`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,color:C.bg,fontSize:13 }}>{f.avatar}</div>
-                    ))}
-                  </div>
-                : <p style={{ fontSize:11,color:C.textMid }}>Find fans who share your bias & fandoms.</p>}
-            </div>
-
-            {/* Trending Trades — square */}
-            <div onClick={()=>go("collect")} className="tap" style={{ ...VS.glowCard(C.gold), padding:14, cursor:"pointer" }}>
-              <TileHeader label="Trending Trades" color={C.gold} />
-              {trades.length>0 ? trades.slice(0,2).map(t=>(
-                <p key={t.id} style={{ fontSize:11,color:C.text,marginBottom:6,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{t.user_cards?.member||"Photocard"} · {t.user_cards?.group_name||""}</p>
-              )) : <p style={{ fontSize:11,color:C.textMid }}>Browse live photocard trades.</p>}
-            </div>
-
-            {/* Backstage Passes — wide, Preview (localStorage-only mock content) */}
-            <div onClick={()=>go("passes")} className="tap" style={{ ...VS.glowCard(C.pink), gridColumn:"span 2", padding:14, cursor:"pointer", position:"relative" }}>
-              <PreviewTag />
-              <TileHeader label="Backstage Passes" color={C.pink} />
-              <p style={{ fontSize:11,color:C.textMid }}>Live fan POVs, fit checks & freebies from the show floor.</p>
-            </div>
-
-            {/* Upcoming Shows — wide; real /api/events when it surfaces live Ticketmaster
-                results, otherwise labeled with an accurate reason (see upcomingPreviewLabel) */}
-            <div onClick={()=>go("concerts")} className="tap" style={{ ...VS.glowCard(C.rose), gridColumn:"span 2", padding:14, cursor:"pointer", position:"relative" }}>
-              {upcomingPreviewLabel && <PreviewTag label={upcomingPreviewLabel} />}
-              <TileHeader label="Upcoming Shows" color={C.rose} />
-              <div style={{ display:"flex", gap:10 }}>
-                {upcomingShows.map(c=>(
-                  <div key={c.id} style={{ flex:1, minWidth:0 }}>
-                    <p style={{ fontSize:11.5,fontWeight:700,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{c.name||c.title}</p>
-                    <p style={{ fontSize:10,color:C.textMid }}>{c.city}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* City Pulse — wide */}
-            <div onClick={()=>go("fanverse")} className="tap" style={{ ...VS.glowCard(C.mint), gridColumn:"span 2", padding:14, cursor:"pointer" }}>
-              <TileHeader label="City Pulse" color={C.mint} />
-              {cityHubs.length>0
-                ? <div style={{ display:"flex", gap:8, overflowX:"auto" }}>
-                    {cityHubs.slice(0,5).map(c=>(
-                      <div key={c.city_key} style={{ flexShrink:0, padding:"8px 12px", borderRadius:12, background:C.surfaceHi, border:`1px solid ${C.border}` }}>
-                        <p style={{ fontSize:11,fontWeight:700,color:C.text }}>{c.city_display}</p>
-                        {c.total_fans!=null && <p style={{ fontSize:9.5,color:C.textMid }}>{c.total_fans} fans</p>}
-                      </div>
-                    ))}
-                  </div>
-                : <p style={{ fontSize:11,color:C.textMid }}>See where fans are gathering by city.</p>}
-            </div>
-
-            {/* Group & Era Trends — wide, real catalog data (same source as Tools → Eras Explorer) */}
-            <div onClick={()=>go("tools")} className="tap" style={{ ...VS.glowCard(C.lavender), gridColumn:"span 2", padding:14, cursor:"pointer" }}>
-              <TileHeader label="Group & Era Trends" color={C.lavender} />
-              <div style={{ display:"flex", gap:8, overflowX:"auto" }}>
-                {ERA_SEARCH_GROUPS.slice(0,6).map(g=>(
-                  <div key={g.group} style={{ flexShrink:0, padding:"8px 12px", borderRadius:12, background:`${g.color}18`, border:`1px solid ${g.color}40` }}>
-                    <p style={{ fontSize:11,fontWeight:700,color:C.text }}>{g.group}</p>
-                    <p style={{ fontSize:9.5,color:g.color }}>{g.eras?.[g.eras.length-1]}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
+            {orderedItems.length>0 ? orderedItems.map(renderCard) : (
+              <div style={{ gridColumn:"span 2", textAlign:"center", padding:"40px 0", color:C.textDim, fontSize:11.5 }}>Explore is warming up — check back soon.</div>
+            )}
           </div>
         )}
       </div>
@@ -21930,20 +22066,33 @@ function ConcertCapsule({ concert, onBack, user, isVip=false, onUpgrade, isSigne
 // ─── BACKSTAGE PASSES ─────────────────────────────────────────────────────────
 // Immersive fan-era moments — concert-first, fandom-coded, emotionally immediate
 // POST /api/passes | GET /api/passes/circle | DELETE /api/passes/:id (24h auto-expire)
+// PASS_TYPES/MOCK_PASSES hoisted to module scope (were previously local to this
+// component) so ExploreTab's "Live POVs" content rail can reuse the exact same
+// pass data instead of keeping a second, driftable copy.
+const PASS_TYPES = [
+  {id:"fitcheck",  label:"Fit Check",        emoji:"👗", color:C.pink,     grad:`linear-gradient(135deg,#3d0030,#8b1a5c,${C.pink}88)`,     hint:"Concert fit unlocked"},
+  {id:"merch",     label:"Merch Line",        emoji:"🛍️", color:C.gold,    grad:`linear-gradient(135deg,#2d1a00,#7a4a00,${C.gold}88)`,     hint:"Merch haul or line update"},
+  {id:"freebie",   label:"Freebie Drop",      emoji:"🎁", color:C.mint,    grad:`linear-gradient(135deg,#003d2a,#006644,${C.mint}88)`,     hint:"Sharing or spotting freebies"},
+  {id:"seat",      label:"Concert POV",       emoji:"📍", color:C.accent,  grad:`linear-gradient(135deg,#1a0044,#3d0090,${C.accent}88)`,   hint:"View from your section"},
+  {id:"lightstick",label:"Lightstick Ocean",  emoji:"💜", color:C.lavender,grad:`linear-gradient(135deg,#1a004d,#4d0099,${C.lavender}88)`, hint:"The lightstick ocean"},
+  {id:"afterglow", label:"Afterglow",         emoji:"✨", color:C.blush,   grad:`linear-gradient(135deg,#3d001a,#7a1a3d,${C.blush}88)`,    hint:"Post-concert floating feeling"},
+  {id:"moot",      label:"Fan Buddy",         emoji:"🤝", color:C.silver,  grad:`linear-gradient(135deg,#1a1a2e,#2e2e5a,${C.silver}88)`,   hint:"Found your moots?"},
+  {id:"biasmoment",label:"Bias Moment",       emoji:"⭐", color:C.gold,    grad:`linear-gradient(135deg,#2d1a00,#665500,${C.gold}88)`,     hint:"That member-coded moment"},
+  {id:"foodrun",   label:"Food Run",          emoji:"🍱", color:C.rose,    grad:`linear-gradient(135deg,#3d0010,#7a1a2a,${C.rose}88)`,     hint:"Pre or post-show meal"},
+  {id:"travel",    label:"Travel Day",        emoji:"✈️", color:C.mint,   grad:`linear-gradient(135deg,#003d44,#006655,${C.teal}88)`,     hint:"On the way to the show"},
+];
+const MOCK_PASSES = [
+  {id:"p1",type:"fitcheck",   caption:"arrived in full concert era 💜",                     username:"@armywrld",    expires:"Tonight",   color:C.pink,    grad:PASS_TYPES[0].grad,  viewed:false,likes:12,reactions:{"💜":8,"✨":3,"🫶":1}, venue:"Allegiant Stadium", city:"Las Vegas, NV", checkedIn:true},
+  {id:"p2",type:"merch",      caption:"merch line at 5am, worth it no regrets",             username:"@merchhunter", expires:"24 Hours",  color:C.gold,    grad:PASS_TYPES[1].grad,  viewed:false,likes:8, reactions:{"💜":5,"😭":2,"⚡":1}},
+  {id:"p3",type:"freebie",    caption:"handing out freebies at gate 4 come find me!!",      username:"@freebieera",  expires:"Tonight",   color:C.mint,    grad:PASS_TYPES[2].grad,  viewed:true, likes:31,reactions:{"💜":18,"🫶":9,"✨":4}},
+  {id:"p4",type:"biasmoment", caption:"PULLED MY BIAS WRECKER I AM NOT OKAY",               username:"@standancer",  expires:"Era Memory",color:C.gold,    grad:PASS_TYPES[7].grad,  viewed:false,likes:47,reactions:{"😭":22,"💜":15,"⚡":10}},
+  {id:"p5",type:"afterglow",  caption:"crying driving home. best night of my life",         username:"@concertcry",  expires:"24 Hours",  color:C.blush,   grad:PASS_TYPES[5].grad,  viewed:true, likes:28,reactions:{"😭":14,"💜":10,"🫶":4}},
+  {id:"p6",type:"lightstick", caption:"ocean was PURPLE from pit to nosebleeds",            username:"@lightstkk",   expires:"Tonight",   color:C.lavender,grad:PASS_TYPES[4].grad,  viewed:false,likes:63,reactions:{"💜":35,"✨":18,"🎤":10}},
+  {id:"p7",type:"moot",       caption:"finally met my twitter moots AT THE SHOW",           username:"@mootmeet",    expires:"24 Hours",  color:C.silver,  grad:PASS_TYPES[6].grad,  viewed:false,likes:19,reactions:{"🫶":11,"💜":7,"✨":1}},
+  {id:"p8",type:"travel",     caption:"flight lands in 2h. the era has started.",           username:"@travelfan",   expires:"Tonight",   color:C.mint,    grad:PASS_TYPES[9].grad,  viewed:false,likes:5, reactions:{"⚡":3,"💜":2}},
+];
 function BackstagePasses({ onBack, user }) {
   const KEY = "backstage_passes";
-  const PASS_TYPES = [
-    {id:"fitcheck",  label:"Fit Check",        emoji:"👗", color:C.pink,     grad:`linear-gradient(135deg,#3d0030,#8b1a5c,${C.pink}88)`,     hint:"Concert fit unlocked"},
-    {id:"merch",     label:"Merch Line",        emoji:"🛍️", color:C.gold,    grad:`linear-gradient(135deg,#2d1a00,#7a4a00,${C.gold}88)`,     hint:"Merch haul or line update"},
-    {id:"freebie",   label:"Freebie Drop",      emoji:"🎁", color:C.mint,    grad:`linear-gradient(135deg,#003d2a,#006644,${C.mint}88)`,     hint:"Sharing or spotting freebies"},
-    {id:"seat",      label:"Concert POV",       emoji:"📍", color:C.accent,  grad:`linear-gradient(135deg,#1a0044,#3d0090,${C.accent}88)`,   hint:"View from your section"},
-    {id:"lightstick",label:"Lightstick Ocean",  emoji:"💜", color:C.lavender,grad:`linear-gradient(135deg,#1a004d,#4d0099,${C.lavender}88)`, hint:"The lightstick ocean"},
-    {id:"afterglow", label:"Afterglow",         emoji:"✨", color:C.blush,   grad:`linear-gradient(135deg,#3d001a,#7a1a3d,${C.blush}88)`,    hint:"Post-concert floating feeling"},
-    {id:"moot",      label:"Fan Buddy",         emoji:"🤝", color:C.silver,  grad:`linear-gradient(135deg,#1a1a2e,#2e2e5a,${C.silver}88)`,   hint:"Found your moots?"},
-    {id:"biasmoment",label:"Bias Moment",       emoji:"⭐", color:C.gold,    grad:`linear-gradient(135deg,#2d1a00,#665500,${C.gold}88)`,     hint:"That member-coded moment"},
-    {id:"foodrun",   label:"Food Run",          emoji:"🍱", color:C.rose,    grad:`linear-gradient(135deg,#3d0010,#7a1a2a,${C.rose}88)`,     hint:"Pre or post-show meal"},
-    {id:"travel",    label:"Travel Day",        emoji:"✈️", color:C.mint,   grad:`linear-gradient(135deg,#003d44,#006655,${C.teal}88)`,     hint:"On the way to the show"},
-  ];
   const DURATIONS = [
     {id:"tonight",  label:"Tonight",          sub:"disappears after show"},
     {id:"24h",      label:"24 Hours",         sub:"classic pass"},
@@ -21951,16 +22100,6 @@ function BackstagePasses({ onBack, user }) {
     {id:"era",      label:"Era Memory",       sub:"featured forever"},
   ];
   const FANREACTIONS = ["💜","😭","✨","🫶","🎤","⚡"];
-  const MOCK_PASSES = [
-    {id:"p1",type:"fitcheck",   caption:"arrived in full concert era 💜",                     username:"@armywrld",    expires:"Tonight",   color:C.pink,    grad:PASS_TYPES[0].grad,  viewed:false,likes:12,reactions:{"💜":8,"✨":3,"🫶":1}, venue:"Allegiant Stadium", city:"Las Vegas, NV", checkedIn:true},
-    {id:"p2",type:"merch",      caption:"merch line at 5am, worth it no regrets",             username:"@merchhunter", expires:"24 Hours",  color:C.gold,    grad:PASS_TYPES[1].grad,  viewed:false,likes:8, reactions:{"💜":5,"😭":2,"⚡":1}},
-    {id:"p3",type:"freebie",    caption:"handing out freebies at gate 4 come find me!!",      username:"@freebieera",  expires:"Tonight",   color:C.mint,    grad:PASS_TYPES[2].grad,  viewed:true, likes:31,reactions:{"💜":18,"🫶":9,"✨":4}},
-    {id:"p4",type:"biasmoment", caption:"PULLED MY BIAS WRECKER I AM NOT OKAY",               username:"@standancer",  expires:"Era Memory",color:C.gold,    grad:PASS_TYPES[7].grad,  viewed:false,likes:47,reactions:{"😭":22,"💜":15,"⚡":10}},
-    {id:"p5",type:"afterglow",  caption:"crying driving home. best night of my life",         username:"@concertcry",  expires:"24 Hours",  color:C.blush,   grad:PASS_TYPES[5].grad,  viewed:true, likes:28,reactions:{"😭":14,"💜":10,"🫶":4}},
-    {id:"p6",type:"lightstick", caption:"ocean was PURPLE from pit to nosebleeds",            username:"@lightstkk",   expires:"Tonight",   color:C.lavender,grad:PASS_TYPES[4].grad,  viewed:false,likes:63,reactions:{"💜":35,"✨":18,"🎤":10}},
-    {id:"p7",type:"moot",       caption:"finally met my twitter moots AT THE SHOW",           username:"@mootmeet",    expires:"24 Hours",  color:C.silver,  grad:PASS_TYPES[6].grad,  viewed:false,likes:19,reactions:{"🫶":11,"💜":7,"✨":1}},
-    {id:"p8",type:"travel",     caption:"flight lands in 2h. the era has started.",           username:"@travelfan",   expires:"Tonight",   color:C.mint,    grad:PASS_TYPES[9].grad,  viewed:false,likes:5, reactions:{"⚡":3,"💜":2}},
-  ];
 
   const [passes, setPasses]     = useState(()=>ls.get(KEY,MOCK_PASSES));
   const [creating, setCreating] = useState(false);
