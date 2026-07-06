@@ -7148,7 +7148,7 @@ function ShowDetail({ concert, onBack, going, setGoing, go, isVip, onUpgrade, rs
           </div>
         )}
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:18 }}>
-          {[["💬 Show Chat",()=>setChatOpen(!chatOpen)],["📋 Prep Checklist",()=>go("concertprep")],["🎵 Fan Chants",()=>go("explore")],["📸 My Shows",()=>go("myshows")]].map(([label,action])=>(
+          {[["💬 Show Chat",()=>setChatOpen(!chatOpen)],["📋 Prep Checklist",()=>go("concertprep")],["🎵 Fan Chants",()=>go("tools")],["📸 My Shows",()=>go("myshows")]].map(([label,action])=>(
             <button key={label} onClick={action} className="tap" style={{ padding:14, borderRadius:14, background:C.surfaceHi, border:`1.5px solid ${C.border}`, color:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, cursor:"pointer", textAlign:"center" }}>{label}</button>
           ))}
         </div>
@@ -13296,7 +13296,250 @@ const ERA_SEARCH_GROUPS = [
   { group:"SHINee",      color:C.teal||C.sky,eras:["Replay","Ring Ding Dong","Lucifer","Sherlock","Married to the Music","View","Don't Call Me"],             members:["Onew","Jonghyun","Key","Minho","Taemin"] },
 ];
 
-function ExploreTab({ user, weather, isVip, onUpgrade, go, onBack }) {
+// Instagram-Explore-style discovery grid — real data where it exists
+// (Discover Fans, Capsule Moments, Trending Trades, City Pulse), a small
+// "Preview" tag where it's still mock (Backstage Passes, Upcoming Shows —
+// not yet Ticketmaster-synced). No fake stats without that tag.
+function ExploreTab({ user, go, onViewProfile }) {
+  const { tokenReady } = useAuth();
+
+  // ── Universal search (ported from the retired HomeFeed) ──────────────────
+  const [searchVal, setSearchVal] = useState("");
+  const [fanResults, setFanResults] = useState([]);
+  const [fanSearching, setFanSearching] = useState(false);
+
+  useEffect(() => {
+    const raw = searchVal.trim();
+    if (raw.length < 2) { setFanResults([]); setFanSearching(false); return; }
+    setFanSearching(true);
+    const t = setTimeout(async () => {
+      const users = await searchBackstageUsers(raw);
+      setFanResults(users === null ? [] : users);
+      setFanSearching(false);
+    }, 350);
+    return () => clearTimeout(t);
+  }, [searchVal]);
+
+  const searchQNorm = searchVal.trim().toLowerCase();
+  const searchActive = searchQNorm.length >= 2;
+  const concertMatches = searchActive ? MOCK_CONCERTS.filter(c =>
+    c.name.toLowerCase().includes(searchQNorm) || c.group.toLowerCase().includes(searchQNorm) || c.city.toLowerCase().includes(searchQNorm)
+  ).slice(0,4) : [];
+  const cityMatches = searchActive ? CITY_LIST.filter(c =>
+    c.city.toLowerCase().includes(searchQNorm)
+  ).slice(0,4) : [];
+
+  // ── Discover Fans — real, GET /api/friends/suggested (same as FanverseTab) ──
+  const [discoverFans, setDiscoverFans] = useState([]);
+  useEffect(() => {
+    if (!tokenReady) return;
+    api.get('/api/friends/suggested').then(d => {
+      const fans = (d?.users || []).map(u => ({
+        id: u.id,
+        handle: u.handle || u.username || '',
+        display_name: u.display_name || u.backstage_name || u.handle || 'Backstage fan',
+        avatar: (u.display_name || u.handle || u.username || 'B').slice(0,1).toUpperCase(),
+        fandoms: u.fandoms || u.favorite_groups || [],
+      }));
+      setDiscoverFans(fans);
+    }).catch(()=>{});
+  }, [tokenReady]);
+
+  // ── Capsule Moments — real entries, featured/first concert ────────────────
+  const featuredConcert = MOCK_CONCERTS[0];
+  const [capsuleEntries, setCapsuleEntries] = useState([]);
+  useEffect(() => {
+    if (!user?.id || !featuredConcert?.id) return;
+    api.get(`/api/capsule/${featuredConcert.id}/entries`).then(res => {
+      setCapsuleEntries((res?.entries || []).slice(0,3));
+    }).catch(()=>{});
+  }, [user?.id]);
+
+  // ── Trending Trades — real, GET /api/trade-listings (same as Trade Hub) ──
+  const [trades, setTrades] = useState([]);
+  useEffect(() => {
+    if (!tokenReady) return;
+    api.get('/api/trade-listings?limit=6').then(d => setTrades((d?.listings||[]).slice(0,4))).catch(()=>{});
+  }, [tokenReady]);
+
+  // ── City Pulse — real, GET /api/hubs/cities (same as Fanverse Map→Hubs) ──
+  const [cityHubs, setCityHubs] = useState([]);
+  useEffect(() => {
+    if (!tokenReady) return;
+    api.get('/api/hubs/cities?limit=6').then(d => setCityHubs(d?.cities || [])).catch(()=>{});
+  }, [tokenReady]);
+
+  // ── Upcoming Shows — real /api/events (Ticketmaster + Supabase + confirmed),
+  // falling back to MOCK_CONCERTS only if the fetch fails or returns nothing.
+  // Only drops the Preview tag when a genuinely Ticketmaster-sourced event is present —
+  // the route always returns at least one pinned "confirmed" event even with no
+  // live Ticketmaster results, so that alone isn't proof of live data.
+  const [upcomingEvents, setUpcomingEvents] = useState(null); // null = use MOCK_CONCERTS fallback
+  const [upcomingLive, setUpcomingLive] = useState(false);
+  useEffect(() => {
+    api.get('/api/events?size=6').then(d => {
+      const events = d?.events || [];
+      if (d?.mock || !events.length) { setUpcomingEvents(null); return; }
+      setUpcomingLive(events.some(e => e.source==='ticketmaster' || e.sourceType==='ticketmaster'));
+      setUpcomingEvents(events.slice(0,2));
+    }).catch(()=>setUpcomingEvents(null));
+  }, []);
+  const upcomingShows = upcomingEvents || MOCK_CONCERTS.slice(0,2);
+  const upcomingPreviewLabel = upcomingLive ? null
+    : upcomingEvents ? "Preview · live Ticketmaster wiring pending for this tile"
+    : "Preview · using sample concert cards";
+
+  const PreviewTag = ({ label="Preview" }) => (
+    <span style={{ ...VS.mutedPill, fontSize:8.5, padding:"3px 8px", position:"absolute", top:12, right:12, maxWidth:150, textAlign:"right", whiteSpace:"normal", lineHeight:1.3 }}>{label}</span>
+  );
+  const TileHeader = ({ label, color }) => (
+    <p style={{ fontSize:9,color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8 }}>{label}</p>
+  );
+
+  return (
+    <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden", ...VS.cosmicPageBg(C.accent) }}>
+      <div style={{ padding:"calc(env(safe-area-inset-top,0px) + 16px) 20px 12px", flexShrink:0 }}>
+        <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:20, marginBottom:12 }}>Explore ✦</p>
+        <div style={{ position:"relative" }}>
+          <input
+            value={searchVal}
+            onChange={e=>setSearchVal(e.target.value)}
+            placeholder="Search fans, concerts, groups, cities…"
+            style={{ width:"100%", boxSizing:"border-box", padding:"12px 38px 12px 16px", borderRadius:16, background:C.surfaceHi, border:`1.5px solid ${searchVal?C.accent:C.border}`, color:C.text, fontSize:13, fontFamily:"'Instrument Sans',sans-serif", outline:"none" }}
+          />
+          {searchVal
+            ? <button onClick={()=>setSearchVal("")} style={{ position:"absolute",top:"50%",right:14,transform:"translateY(-50%)",background:"none",border:"none",color:C.textMid,cursor:"pointer",fontSize:15 }}>✕</button>
+            : <span style={{ position:"absolute",top:"50%",right:15,transform:"translateY(-50%)",fontSize:14,pointerEvents:"none",color:C.textDim }}>🔍</span>}
+        </div>
+      </div>
+
+      <div style={{ flex:1, overflowY:"auto", padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
+        {searchActive ? (
+          <div>
+            {fanSearching && <p style={{ fontSize:11,color:C.textDim,padding:"12px 0" }}>Searching…</p>}
+            {fanResults.length>0 && (<>
+              <p style={VS.softSectionHeader}>Fans</p>
+              {fanResults.map(u=>(
+                <div key={u.id} onClick={()=>onViewProfile&&onViewProfile({ id:u.id, username:u.handle||u.username, display_name:u.display_name||u.backstage_name, fandoms:u.fandoms||u.favorite_groups||[] })} className="tap" style={{ ...VS.glowCard(C.accent), padding:12, marginBottom:8, cursor:"pointer", display:"flex", alignItems:"center", gap:10 }}>
+                  <div style={{ width:36,height:36,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.pink})`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,color:C.bg,flexShrink:0 }}>{(u.display_name||u.handle||"B").slice(0,1).toUpperCase()}</div>
+                  <div style={{ minWidth:0 }}>
+                    <p style={{ fontSize:12.5,fontWeight:700,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{u.display_name||u.handle}</p>
+                    <p style={{ fontSize:10.5,color:C.textMid }}>@{u.handle||u.username}</p>
+                  </div>
+                </div>
+              ))}
+            </>)}
+            {concertMatches.length>0 && (<>
+              <p style={VS.softSectionHeader}>Concerts</p>
+              {concertMatches.map(c=>(
+                <div key={c.id} onClick={()=>go("concerts")} className="tap" style={{ ...VS.glowCard(c.color), padding:12, marginBottom:8, cursor:"pointer" }}>
+                  <p style={{ fontSize:12.5,fontWeight:700,color:C.text }}>{c.name}</p>
+                  <p style={{ fontSize:10.5,color:C.textMid }}>{c.city}</p>
+                </div>
+              ))}
+            </>)}
+            {cityMatches.length>0 && (<>
+              <p style={VS.softSectionHeader}>Cities</p>
+              {cityMatches.map(c=>(
+                <div key={c.city} onClick={()=>go("fanverse")} className="tap" style={{ ...VS.glowCard(C.mint), padding:12, marginBottom:8, cursor:"pointer" }}>
+                  <p style={{ fontSize:12.5,fontWeight:700,color:C.text }}>{c.city}</p>
+                </div>
+              ))}
+            </>)}
+            {!fanSearching && !fanResults.length && !concertMatches.length && !cityMatches.length && (
+              <p style={{ textAlign:"center",color:C.textDim,fontSize:11.5,padding:"40px 0" }}>No results for "{searchVal}"</p>
+            )}
+          </div>
+        ) : (
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gridAutoFlow:"dense", gap:12, paddingTop:4 }}>
+            {/* Capsule Moments — tall */}
+            <div onClick={()=>go("capsule")} className="tap" style={{ ...VS.neonGlassCard(C.berry), gridRow:"span 2", padding:14, cursor:"pointer", display:"flex", flexDirection:"column" }}>
+              <TileHeader label="Capsule Moments" color={C.berry} />
+              {capsuleEntries.length>0 ? capsuleEntries.map(e=>(
+                <div key={e.id} style={{ marginBottom:10, paddingBottom:10, borderBottom:`1px solid ${C.border}` }}>
+                  <p style={{ fontSize:11.5,color:C.text,lineHeight:1.4 }}>{e.caption}</p>
+                  <p style={{ fontSize:9.5,color:C.textMid,marginTop:3 }}>{e.username} · {e.likes||0} 💜</p>
+                </div>
+              )) : <p style={{ fontSize:11,color:C.textMid }}>Real fan moments from {featuredConcert?.name} — tap to open the capsule.</p>}
+            </div>
+
+            {/* Discover Fans — square */}
+            <div onClick={()=>go("fanverse")} className="tap" style={{ ...VS.glowCard(C.accent), padding:14, cursor:"pointer" }}>
+              <TileHeader label="Discover Fans" color={C.accent} />
+              {discoverFans.length>0
+                ? <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                    {discoverFans.slice(0,4).map(f=>(
+                      <div key={f.id} style={{ width:34,height:34,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.pink})`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,color:C.bg,fontSize:13 }}>{f.avatar}</div>
+                    ))}
+                  </div>
+                : <p style={{ fontSize:11,color:C.textMid }}>Find fans who share your bias & fandoms.</p>}
+            </div>
+
+            {/* Trending Trades — square */}
+            <div onClick={()=>go("collect")} className="tap" style={{ ...VS.glowCard(C.gold), padding:14, cursor:"pointer" }}>
+              <TileHeader label="Trending Trades" color={C.gold} />
+              {trades.length>0 ? trades.slice(0,2).map(t=>(
+                <p key={t.id} style={{ fontSize:11,color:C.text,marginBottom:6,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{t.user_cards?.member||"Photocard"} · {t.user_cards?.group_name||""}</p>
+              )) : <p style={{ fontSize:11,color:C.textMid }}>Browse live photocard trades.</p>}
+            </div>
+
+            {/* Backstage Passes — wide, Preview (localStorage-only mock content) */}
+            <div onClick={()=>go("passes")} className="tap" style={{ ...VS.glowCard(C.pink), gridColumn:"span 2", padding:14, cursor:"pointer", position:"relative" }}>
+              <PreviewTag />
+              <TileHeader label="Backstage Passes" color={C.pink} />
+              <p style={{ fontSize:11,color:C.textMid }}>Live fan POVs, fit checks & freebies from the show floor.</p>
+            </div>
+
+            {/* Upcoming Shows — wide; real /api/events when it surfaces live Ticketmaster
+                results, otherwise labeled with an accurate reason (see upcomingPreviewLabel) */}
+            <div onClick={()=>go("concerts")} className="tap" style={{ ...VS.glowCard(C.rose), gridColumn:"span 2", padding:14, cursor:"pointer", position:"relative" }}>
+              {upcomingPreviewLabel && <PreviewTag label={upcomingPreviewLabel} />}
+              <TileHeader label="Upcoming Shows" color={C.rose} />
+              <div style={{ display:"flex", gap:10 }}>
+                {upcomingShows.map(c=>(
+                  <div key={c.id} style={{ flex:1, minWidth:0 }}>
+                    <p style={{ fontSize:11.5,fontWeight:700,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{c.name||c.title}</p>
+                    <p style={{ fontSize:10,color:C.textMid }}>{c.city}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* City Pulse — wide */}
+            <div onClick={()=>go("fanverse")} className="tap" style={{ ...VS.glowCard(C.mint), gridColumn:"span 2", padding:14, cursor:"pointer" }}>
+              <TileHeader label="City Pulse" color={C.mint} />
+              {cityHubs.length>0
+                ? <div style={{ display:"flex", gap:8, overflowX:"auto" }}>
+                    {cityHubs.slice(0,5).map(c=>(
+                      <div key={c.city_key} style={{ flexShrink:0, padding:"8px 12px", borderRadius:12, background:C.surfaceHi, border:`1px solid ${C.border}` }}>
+                        <p style={{ fontSize:11,fontWeight:700,color:C.text }}>{c.city_display}</p>
+                        {c.total_fans!=null && <p style={{ fontSize:9.5,color:C.textMid }}>{c.total_fans} fans</p>}
+                      </div>
+                    ))}
+                  </div>
+                : <p style={{ fontSize:11,color:C.textMid }}>See where fans are gathering by city.</p>}
+            </div>
+
+            {/* Group & Era Trends — wide, real catalog data (same source as Tools → Eras Explorer) */}
+            <div onClick={()=>go("tools")} className="tap" style={{ ...VS.glowCard(C.lavender), gridColumn:"span 2", padding:14, cursor:"pointer" }}>
+              <TileHeader label="Group & Era Trends" color={C.lavender} />
+              <div style={{ display:"flex", gap:8, overflowX:"auto" }}>
+                {ERA_SEARCH_GROUPS.slice(0,6).map(g=>(
+                  <div key={g.group} style={{ flexShrink:0, padding:"8px 12px", borderRadius:12, background:`${g.color}18`, border:`1px solid ${g.color}40` }}>
+                    <p style={{ fontSize:11,fontWeight:700,color:C.text }}>{g.group}</p>
+                    <p style={{ fontSize:9.5,color:g.color }}>{g.eras?.[g.eras.length-1]}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ToolsTab({ user, weather, isVip, onUpgrade, go, onBack }) {
   const [view, setView] = useState("grid");
   const [eraModal, setEraModal] = useState(null);
   const [eraRoom, setEraRoom] = useState(null);
@@ -22925,10 +23168,10 @@ function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNot
   //
   // Rules:
   //   - modal: must be in FULL_MODALS list and have a {modal==="..."&&...} render.
-  //   - tab:   must be a valid tab id ("home","concerts","community","collect","fanverse","profile").
+  //   - tab:   must be a valid tab id ("community","explore","collect","fanverse","profile").
   //   - "collect" is a TAB (renders LibraryTab), NOT a modal — use tab:"collect".
   //   - "community" is the tab id for FanverseTab (Fanverse/Community screen).
-  //   - "fanverse" tab id renders ExploreTab (Tools & Culture).
+  //   - "fanverse" tab id renders ToolsTab (Tools & Culture).
   const NOTIF_ROUTES = {
     crew_invite:  { modal:"invite"      }, // Bring Your Crew / My Circle
     capsule:      { modal:"capsule"     }, // Concert Capsule
@@ -24433,7 +24676,7 @@ function AppInner() {
   const _initUserId    = _initSessUser?.id || ls.get("backstage_pending_uid");
   const _initPerUser   = _initUserId ? normalizeProfile(ls.get(`backstage_profile_${_initUserId}`)) : null;
   const hasReachedMain = useRef(canEnterApp(_initSessUser) || canEnterApp(_initPerUser));
-  const [tab, setTab] = useState("home");
+  const [tab, setTab] = useState("community");
   // Auto-open capsule modal if signed-in user lands on /capsule
   const [modal, setModal] = useState(()=>_IS_CAPSULE_PATH&&canEnterApp(normalizeProfile(ls.get("backstage_session")?.user))?"capsule":null);
   const [fromCapsule, setFromCapsule] = useState(_IS_CAPSULE_PATH);
@@ -24603,9 +24846,9 @@ function AppInner() {
         window.history.pushState({ bsLevel:1 }, '');
         return;
       }
-      if(tab!=="home"){
-        // Navigate to home and re-seal
-        setTab("home");
+      if(tab!=="community"){
+        // Navigate to the default tab and re-seal
+        setTab("community");
         window.history.pushState({ bsLevel:1 }, '');
         return;
       }
@@ -24778,11 +25021,11 @@ function AppInner() {
     setUser(null);
     setIsVip(false);
     setAppState("auth");
-    setTab("home");
+    setTab("community");
   };
 
   const go = (dest) => {
-    const FULL_MODALS = ["concertprep","myshows","scrapbook","afterglow","friends","chats","qr","safety","events","concertday","timeline","tickets","nearby","trust","games","creator","backup","fanidentity","valuetracks","fanprojects","assistant","invite","contentgen","fanmap","explore","livefeed","budget","capsule","passes","notifications"];
+    const FULL_MODALS = ["concertprep","myshows","scrapbook","afterglow","friends","chats","qr","safety","events","concertday","timeline","tickets","nearby","trust","games","creator","backup","fanidentity","valuetracks","fanprojects","assistant","invite","contentgen","fanmap","livefeed","budget","capsule","passes","notifications"];
     if(FULL_MODALS.includes(dest)){
       // Push a new history entry so the browser back button can close this modal
       window.history.pushState({ bsLevel:1, modal:dest }, '');
@@ -24801,7 +25044,7 @@ function AppInner() {
     if(dest==="signout"){ handleSignOut(); return; }
     const tabs = ["home","concerts","community","collect","fanverse","explore","profile","feed"];
     if(tabs.includes(dest)){
-      if(dest!=="home") window.history.pushState({ bsLevel:1, tab:dest }, '');
+      if(dest!=="community") window.history.pushState({ bsLevel:1, tab:dest }, '');
       setTab(dest); setModal(null); return;
     }
     if(["kdramas","chants","eras"].includes(dest)){ setTab("fanverse"); setModal(null); return; }
@@ -24918,8 +25161,8 @@ function AppInner() {
   },[appState]);
 
   const NAV = [
-    {id:"home",      icon:"home",      label:"Home"},
     {id:"community", icon:"community", label:"Fanverse"},
+    {id:"explore",   icon:"explore",   label:"Explore"},
     {id:"collect",   icon:"shelf",     label:"My World"},
     {id:"fanverse",  icon:"fanverse",  label:"Tools"},
     {id:"profile",   icon:"profile",   label:"My Stage"},
@@ -25042,8 +25285,6 @@ function AppInner() {
         {modal==="budget"&&<ModalWrapper><BudgetTracker onBack={()=>setModal(null)} /></ModalWrapper>}
         {modal==="fanprojects"&&<ModalWrapper><FanProjects onBack={()=>setModal(null)} /></ModalWrapper>}
         {modal==="assistant"&&<ModalWrapper><AIAssistant onBack={()=>setModal(null)} user={user} go={go} /></ModalWrapper>}
-        {/* EXPLORE / TOOLS — all features accessible via go("explore") */}
-        {modal==="explore"&&<ModalWrapper><ExploreTab user={user} weather={weatherData} isVip={isVip} onUpgrade={openUpgrade} go={go} onBack={()=>setModal(null)} /></ModalWrapper>}
         {modal==="livefeed"&&<ModalWrapper><LiveFeedTab user={user} go={go} onBack={()=>setModal(null)} /></ModalWrapper>}
         {/* PHASE 5 MODALS */}
         {modal==="notifications"&&<ModalWrapper><StandaloneNotifCenter
@@ -25090,11 +25331,11 @@ function AppInner() {
                 const effectiveIsVip = isVip || hasVipEntitlement(user) || getCachedVip(user);
                 return (
                   <>
-              {tab==="home"&&<HomeFeed user={user} go={go} weather={weatherData} isVip={effectiveIsVip} onUpgrade={openUpgrade} onSmartNotifs={()=>setShowSmartNotifs(true)} onViewProfile={setFullProfileFan} />}
               {tab==="concerts"&&<ConcertsPage go={go} isVip={effectiveIsVip} onUpgrade={openUpgrade} user={user} />}
               {tab==="community"&&<FanverseTab go={go} user={user} isVip={effectiveIsVip} onUpgrade={openUpgrade} onViewProfile={setFullProfileFan} />}
+              {tab==="explore"&&<ExploreTab user={user} go={go} onViewProfile={setFullProfileFan} />}
               {tab==="collect"&&<LibraryTab cards={cards} setCards={setCards} isVip={effectiveIsVip} onUpgrade={openUpgrade} go={go} user={user} weather={weatherData} />}
-              {tab==="fanverse"&&<ExploreTab user={user} weather={weatherData} isVip={effectiveIsVip} onUpgrade={openUpgrade} go={go} />}
+              {tab==="fanverse"&&<ToolsTab user={user} weather={weatherData} isVip={effectiveIsVip} onUpgrade={openUpgrade} go={go} />}
               {tab==="profile"&&<ProfileTab user={user} cards={cards} go={go} isVip={effectiveIsVip} onUpgrade={openUpgrade} onReplayTour={()=>setShowVipTour(true)} onAccountRefresh={handleAccountRefresh} onViewProfile={setFullProfileFan} />}
                   </>
                 );
@@ -25102,8 +25343,8 @@ function AppInner() {
               {/* Ask Backstage AI — hidden on profile (has its own Studio/Preview actions) and
                   community (Fanverse renders its own combined Messages+AI dock instead) */}
               {tab!=="profile"&&tab!=="collect"&&tab!=="community"&&<AskBackstageButton go={go} />}
-              {/* Notification Bell — floating, hidden on home (own bell), profile (section nav), collect (own + Add button) */}
-              {tab!=="home"&&tab!=="profile"&&tab!=="collect"&&<NotificationBell onOpen={()=>setModal("notifications")} />}
+              {/* Notification Bell — floating, hidden on profile (section nav), collect (own + Add button) */}
+              {tab!=="profile"&&tab!=="collect"&&<NotificationBell onOpen={()=>setModal("notifications")} />}
             </>
           )}
         </div>
@@ -25117,6 +25358,7 @@ function AppInner() {
                 home: <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M7.15 19.55V8.45C7.15 7.88 7.43 7.35 7.9 7.03L11.05 4.9C11.62 4.52 12.38 4.52 12.95 4.9L16.1 7.03C16.57 7.35 16.85 7.88 16.85 8.45V19.55" stroke={active?"url(#navGrad)":C.textDim} strokeWidth="1.45" strokeLinecap="round" strokeLinejoin="round"/><path d="M5.25 19.55H18.75" stroke={active?"url(#navGrad)":C.textDim} strokeWidth="1.45" strokeLinecap="round"/><path d="M9.65 11.2C9.18 10.55 9.28 9.65 9.9 9.22C10.48 8.82 11.25 9.02 11.75 9.58L12 9.85L12.25 9.58C12.75 9.02 13.52 8.82 14.1 9.22C14.72 9.65 14.82 10.55 14.35 11.2C14.05 11.6 13.65 11.98 13.18 12.4L12 13.45L10.82 12.4C10.35 11.98 9.95 11.6 9.65 11.2Z" fill={active?"url(#navGrad)":C.textDim}/><path d="M12 15.15V16.85" stroke={active?"url(#navGrad)":C.textDim} strokeWidth="1.25" strokeLinecap="round" opacity="0.45"/><path d="M19.25 5.2L19.72 6.08L20.6 6.55L19.72 7.02L19.25 7.9L18.78 7.02L17.9 6.55L18.78 6.08L19.25 5.2Z" fill={active?"url(#navGrad)":C.textDim} opacity={active?0.72:0.45}/><defs><linearGradient id="navGrad" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent}/><stop offset="1" stopColor={C.pink}/></linearGradient></defs></svg>,
                 concerts: <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M12 2C12 2 7 6 7 11C7 13.76 9.24 16 12 16C14.76 16 17 13.76 17 11C17 6 12 2 12 2Z" fill={active?"url(#navG2)":"none"} stroke={active?"url(#navG2)":C.textDim} strokeWidth="1.8"/><path d="M8 20H16M12 16V20" stroke={active?"url(#navG2)":C.textDim} strokeWidth="1.8" strokeLinecap="round"/><defs><linearGradient id="navG2" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent}/><stop offset="1" stopColor={C.pink}/></linearGradient></defs></svg>,
                 community: <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M12 3.75C8.75 3.75 6.15 6.28 6.15 9.48C6.15 13.55 12 20.25 12 20.25C12 20.25 17.85 13.55 17.85 9.48C17.85 6.28 15.25 3.75 12 3.75Z" stroke={active?"url(#navG3)":C.textDim} strokeWidth="1.55" strokeLinejoin="round" fill={active?"url(#navG3Soft)":"none"}/><path d="M12 6.9L12.9 9.1L15.1 10L12.9 10.9L12 13.1L11.1 10.9L8.9 10L11.1 9.1L12 6.9Z" fill={active?"url(#navG3)":C.textDim}/><path d="M18.8 14.8C19.95 15.18 20.65 15.72 20.65 16.32C20.65 17.68 16.78 18.78 12 18.78C7.22 18.78 3.35 17.68 3.35 16.32C3.35 15.72 4.05 15.18 5.2 14.8" stroke={active?"url(#navG3)":C.textDim} strokeWidth="1.25" strokeLinecap="round" opacity="0.42"/><path d="M19.85 5.1L20.32 5.98L21.2 6.45L20.32 6.92L19.85 7.8L19.38 6.92L18.5 6.45L19.38 5.98L19.85 5.1Z" fill={active?"url(#navG3)":C.textDim} opacity={active?0.8:0.5}/><defs><linearGradient id="navG3" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent}/><stop offset="1" stopColor={C.pink}/></linearGradient><linearGradient id="navG3Soft" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent} stopOpacity="0.16"/><stop offset="1" stopColor={C.pink} stopOpacity="0.06"/></linearGradient></defs></svg>,
+                explore: <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="7.75" stroke={active?"url(#navG7)":C.textDim} strokeWidth="1.5"/><path d="M15.35 8.65L13.15 13.15L8.65 15.35L10.85 10.85L15.35 8.65Z" fill={active?"url(#navG7)":C.textDim} stroke={active?"url(#navG7)":C.textDim} strokeWidth="0.6" strokeLinejoin="round"/><path d="M18.9 3.25L19.3 4L20.05 4.4L19.3 4.8L18.9 5.55L18.5 4.8L17.75 4.4L18.5 4L18.9 3.25Z" fill={active?"url(#navG7)":C.textDim} opacity={active?0.78:0.45}/><defs><linearGradient id="navG7" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent}/><stop offset="1" stopColor={C.berry}/></linearGradient></defs></svg>,
                 shelf: <BackstageBNavIcon active={active} />,
                 fanverse: <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M8.05 4.75H15.95C17.78 4.75 19.25 6.22 19.25 8.05V15.95C19.25 17.78 17.78 19.25 15.95 19.25H8.05C6.22 19.25 4.75 17.78 4.75 15.95V8.05C4.75 6.22 6.22 4.75 8.05 4.75Z" stroke={active?"url(#navG6)":C.textDim} strokeWidth="1.45" strokeLinejoin="round" fill={active?"url(#navG6Soft)":"none"}/><path d="M12 7.7L12.92 10.12L15.35 11.05L12.92 11.98L12 14.4L11.08 11.98L8.65 11.05L11.08 10.12L12 7.7Z" fill={active?"url(#navG6)":C.textDim}/><path d="M8.7 15.6H15.3" stroke={active?"url(#navG6)":C.textDim} strokeWidth="1.25" strokeLinecap="round" opacity="0.5"/><path d="M18.9 3.25L19.3 4L20.05 4.4L19.3 4.8L18.9 5.55L18.5 4.8L17.75 4.4L18.5 4L18.9 3.25Z" fill={active?"url(#navG6)":C.textDim} opacity={active?0.78:0.45}/><defs><linearGradient id="navG6" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent}/><stop offset="1" stopColor={C.mint}/></linearGradient><linearGradient id="navG6Soft" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent} stopOpacity="0.18"/><stop offset="1" stopColor={C.mint} stopOpacity="0.08"/></linearGradient></defs></svg>,
                 profile: <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M5.25 12.15C5.25 8.42 8.27 5.4 12 5.4C15.73 5.4 18.75 8.42 18.75 12.15C18.75 15.88 15.73 18.9 12 18.9C8.27 18.9 5.25 15.88 5.25 12.15Z" stroke={active?"url(#navG5)":C.textDim} strokeWidth="1.45"/><path d="M8.25 11.2C7.72 10.3 7.9 9.25 8.65 8.72C9.38 8.2 10.35 8.42 11.05 9.15L12 10.15L12.95 9.15C13.65 8.42 14.62 8.2 15.35 8.72C16.1 9.25 16.28 10.3 15.75 11.2C15.42 11.78 14.88 12.32 14.25 12.9L12 14.95L9.75 12.9C9.12 12.32 8.58 11.78 8.25 11.2Z" fill={active?"url(#navG5)":C.textDim}/><path d="M12 2.9V4.1M12 20.2V21.1M2.9 12.15H4.1M19.9 12.15H21.1" stroke={active?"url(#navG5)":C.textDim} strokeWidth="1.25" strokeLinecap="round" opacity="0.48"/><path d="M17.95 4.25L18.48 5.25L19.48 5.78L18.48 6.31L17.95 7.31L17.42 6.31L16.42 5.78L17.42 5.25L17.95 4.25Z" fill={active?"url(#navG5)":C.textDim} opacity={active?0.78:0.45}/><defs><linearGradient id="navG5" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent}/><stop offset="1" stopColor={C.pink}/></linearGradient></defs></svg>,
