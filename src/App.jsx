@@ -5737,24 +5737,24 @@ function FanverseFloatingDock({ go }) {
         <div onClick={closeAll} style={{ position:"fixed", inset:0, zIndex:0 }} />
       )}
 
-      {/* Mini inbox flyout */}
+      {/* Mini inbox flyout — inverted-modal glass like every other popup */}
       {showInbox && (
         <div style={{
           position:"absolute", bottom:"calc(100% + 10px)", right:0, width:240, maxHeight:300,
-          background:"linear-gradient(160deg,rgba(28,18,52,0.88),rgba(10,7,20,0.92))",
-          border:"1px solid rgba(214,189,255,0.22)", borderRadius:18, padding:8,
-          boxShadow:"0 16px 40px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1)",
+          background:C.modalBg,
+          border:`1px solid ${C.modalBorder}`, borderRadius:18, padding:8,
+          boxShadow:C.modalShadow,
           backdropFilter:"blur(22px) saturate(140%)", animation:"up .18s ease",
           display:"flex", flexDirection:"column", zIndex:1,
         }}>
           <div style={{ position:"absolute", inset:0, borderRadius:18, background:"linear-gradient(135deg,rgba(184,162,255,0.06),transparent 40%,rgba(240,204,136,0.04) 75%,transparent)", pointerEvents:"none" }} />
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"4px 6px 8px", position:"relative" }}>
-            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:12.5, color:C.text }}>Messages</p>
-            <button onClick={closeAll} style={{ background:"none", border:"none", color:C.textMid, fontSize:14, cursor:"pointer", lineHeight:1 }}>✕</button>
+            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:12.5, color:C.modalText }}>Messages</p>
+            <button onClick={closeAll} style={{ background:"none", border:"none", color:C.modalTextMid, fontSize:14, cursor:"pointer", lineHeight:1 }}>✕</button>
           </div>
           <div style={{ overflowY:"auto", display:"flex", flexDirection:"column", gap:2, position:"relative" }}>
             {recent.length===0 ? (
-              <p style={{ fontSize:10.5, color:C.textMid, padding:"14px 8px", textAlign:"center" }}>No conversations yet — your Circle chats will show here.</p>
+              <p style={{ fontSize:10.5, color:C.modalTextMid, padding:"14px 8px", textAlign:"center" }}>No conversations yet — your Circle chats will show here.</p>
             ) : recent.map(convo => {
               const last = convo.messages?.[convo.messages.length - 1];
               const isCharm = last?.type==="charm" || last?.type==="sticker";
@@ -5766,34 +5766,34 @@ function FanverseFloatingDock({ go }) {
                     {convo.unread>0 && <div style={{ position:"absolute",top:-2,right:-2,width:13,height:13,borderRadius:"50%",background:`linear-gradient(135deg,${C.rose},${C.berry})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:7,color:"#fff",fontFamily:"'Epilogue',sans-serif",fontWeight:800,border:"1.5px solid rgba(10,7,20,0.9)" }}>{convo.unread}</div>}
                   </div>
                   <div style={{ flex:1, minWidth:0 }}>
-                    <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:convo.unread>0?700:600, fontSize:11, color:convo.unread>0?C.text:C.textMid }}>{convo.fan.name}</p>
-                    <p style={{ fontSize:9.5, color:C.textDim, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{preview}</p>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:convo.unread>0?700:600, fontSize:11, color:convo.unread>0?C.modalText:C.modalTextMid }}>{convo.fan.name}</p>
+                    <p style={{ fontSize:9.5, color:C.modalTextDim, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{preview}</p>
                   </div>
                 </div>
               );
             })}
           </div>
-          <button onClick={()=>{ closeAll(); go("chats"); }} className="tap" style={{ marginTop:6, background:"rgba(255,255,255,0.04)", border:"1px solid rgba(214,189,255,0.16)", borderRadius:10, padding:"7px", color:C.lavender, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10.5, cursor:"pointer", position:"relative" }}>Open all messages</button>
+          <button onClick={()=>{ closeAll(); go("chats"); }} className="tap" style={{ marginTop:6, background:C.modalSurface, border:`1px solid ${C.modalBorder}`, borderRadius:10, padding:"7px", color:C.modalAccent, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10.5, cursor:"pointer", position:"relative" }}>Open all messages</button>
         </div>
       )}
 
-      {/* Expanded action tray — Messages / Ask AI */}
+      {/* Expanded action tray — Messages / Ask AI — inverted-modal glass */}
       {expanded && !showInbox && (
         <div style={{
           position:"absolute", bottom:"calc(100% + 10px)", right:0, minWidth:190,
           display:"flex", flexDirection:"column", gap:2,
-          background:"linear-gradient(160deg,rgba(28,18,52,0.9),rgba(10,7,20,0.94))",
-          border:"1px solid rgba(214,189,255,0.22)", borderRadius:16, padding:7,
-          boxShadow:"0 16px 40px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1)",
+          background:C.modalBg,
+          border:`1px solid ${C.modalBorder}`, borderRadius:16, padding:7,
+          boxShadow:C.modalShadow,
           backdropFilter:"blur(22px) saturate(140%)", animation:"up .18s ease", zIndex:1,
         }}>
           <div style={{ position:"absolute", inset:0, borderRadius:16, background:"linear-gradient(135deg,rgba(184,162,255,0.06),transparent 40%,rgba(240,204,136,0.04) 75%,transparent)", pointerEvents:"none" }} />
-          <button onClick={()=>setShowInbox(true)} className="tap" style={{ display:"flex", alignItems:"center", gap:9, padding:"9px 10px", borderRadius:11, background:"transparent", border:"none", color:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, cursor:"pointer", textAlign:"left", position:"relative" }}>
+          <button onClick={()=>setShowInbox(true)} className="tap" style={{ display:"flex", alignItems:"center", gap:9, padding:"9px 10px", borderRadius:11, background:"transparent", border:"none", color:C.modalText, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, cursor:"pointer", textAlign:"left", position:"relative" }}>
             <span style={{ fontSize:14, width:20, textAlign:"center", flexShrink:0 }}>💬</span>
             <span style={{ flex:1 }}>Messages</span>
             {totalUnread>0 && <span style={{ minWidth:16,height:16,borderRadius:99,background:`linear-gradient(135deg,${C.rose},${C.berry})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,color:"#fff",fontFamily:"'Epilogue',sans-serif",fontWeight:800,padding:"0 3px" }}>{totalUnread>9?"9+":totalUnread}</span>}
           </button>
-          <button onClick={()=>{ go("assistant"); closeAll(); }} className="tap" style={{ display:"flex", alignItems:"center", gap:9, padding:"9px 10px", borderRadius:11, background:"transparent", border:"none", color:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, cursor:"pointer", textAlign:"left", position:"relative" }}>
+          <button onClick={()=>{ go("assistant"); closeAll(); }} className="tap" style={{ display:"flex", alignItems:"center", gap:9, padding:"9px 10px", borderRadius:11, background:"transparent", border:"none", color:C.modalText, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, cursor:"pointer", textAlign:"left", position:"relative" }}>
             <span style={{ fontSize:14, width:20, textAlign:"center", flexShrink:0 }}>✨</span>
             <span>Ask Backstage AI</span>
           </button>
