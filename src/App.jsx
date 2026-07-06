@@ -524,7 +524,19 @@ function AuthProvider({ children }) {
 
 
 // ─── PALETTE ──────────────────────────────────────────────────────────────────
-const C = {
+// Two full token sets — DARK_THEME (default, cosmic concert-night) and
+// LIGHT_THEME (airy lavender/pearl). `C` below is a single mutable object that
+// applyThemeMode() re-fills in place, so every one of the thousands of `C.xxx`
+// reads scattered through this file automatically picks up the active theme on
+// the next render — no per-usage edits required.
+//
+// modal* tokens are intentionally the OPPOSITE feel of their theme's main
+// surfaces: dark-mode modals render light iridescent, light-mode modals render
+// dark iridescent. Bottom sheets that opt into the inverted look should read
+// C.modalBg / C.modalText / C.modalTextMid / C.modalTextDim / C.modalBorder /
+// C.modalBorderHi / C.modalShadow / C.modalSurface / C.modalAccent.
+const DARK_THEME = {
+  mode: "dark",
   // ── Base / cosmic backgrounds ──────────────────────────────────────────────
   bg:       "#07050f",   // deep black-plum
   cosmic:   "#0a0618",   // even deeper for hero surfaces
@@ -533,6 +545,7 @@ const C = {
   surfaceMid:"#1c1236",  // mid surface
   border:   "#241848",   // plum border
   borderHi: "#32205e",   // highlighted border
+  navBg:    "rgba(10,10,22,0.98)",
   // ── Primary brand ──────────────────────────────────────────────────────────
   accent:   "#b8a2ff",   // lavender purple
   accentDim:"#6e52cc",   // dim purple
@@ -566,9 +579,90 @@ const C = {
   plum:     "#3b0764",   // deep plum (new)
   grape:    "#6d28d9",   // saturated violet (new)
   midnight: "#1e1b4b",   // midnight navy (new)
+  // ── Inverted modal/sheet tokens — pale lavender-pink iridescent glass ──────
+  modalBg:      "linear-gradient(150deg, rgba(255,241,250,0.96) 0%, rgba(230,210,255,0.9) 48%, rgba(255,246,252,0.95) 100%)",
+  modalText:    "#2a1550",
+  modalTextMid: "rgba(42,21,80,0.68)",
+  modalTextDim: "rgba(42,21,80,0.44)",
+  modalBorder:  "rgba(255,255,255,0.65)",
+  modalBorderHi:"rgba(255,255,255,0.85)",
+  modalShadow:  "0 -18px 70px rgba(224,185,255,0.38)",
+  modalSurface: "rgba(255,255,255,0.5)",
+  modalAccent:  "#8E68E8",
 };
 
-const CSS = `
+const LIGHT_THEME = {
+  mode: "light",
+  // ── Base / cosmic backgrounds — pale lavender/pearl, never plain white ─────
+  bg:       "#f8f2ff",
+  cosmic:   "#efe3ff",
+  surface:  "#fdfaff",
+  surfaceHi:"#ffffff",
+  surfaceMid:"#f2e8ff",
+  border:   "#ddd0f5",
+  borderHi: "#c9b4f0",
+  navBg:    "rgba(255,250,255,0.9)",
+  // ── Primary brand — deepened for contrast against pale surfaces ────────────
+  accent:   "#8e68e8",
+  accentDim:"#6b46c1",
+  accentGlow:"rgba(142,104,232,0.14)",
+  lavender: "#9f7fe0",
+  iris:     "#5b5fc7",
+  // ── Pinks / roses ────────────────────────────────────────────────────────
+  pink:     "#c94f8f",
+  pinkDim:  "#7a3a56",
+  blush:    "#d97a8a",
+  berry:    "#b8447a",
+  rose:     "#d63d68",
+  coral:    "#d96a4a",
+  // ── Cool accents ───────────────────────────────────────────────────────────
+  mint:     "#3f8fae",
+  mintDim:  "#2c5e70",
+  teal:     "#0f9488",
+  sky:      "#3f7bb0",
+  // ── Neutral / metallic ─────────────────────────────────────────────────────
+  silver:   "#7a72a8",
+  silverDim:"#4a4570",
+  gold:     "#a97e1f",
+  goldDim:  "#7a5a10",
+  holo:     "#a880d9",
+  // ── Text — deep purple/ink, never pure black ────────────────────────────────
+  text:     "#211134",
+  textMid:  "rgba(33,17,52,0.68)",
+  textDim:  "rgba(33,17,52,0.42)",
+  white:    "#ffffff",
+  // ── Era-inspired accents — already dark, read fine on pale bg unchanged ─────
+  plum:     "#3b0764",
+  grape:    "#6d28d9",
+  midnight: "#1e1b4b",
+  // ── Inverted modal/sheet tokens — deep plum/purple iridescent glass ────────
+  modalBg:      "linear-gradient(150deg, rgba(24,10,45,0.96) 0%, rgba(54,30,88,0.92) 50%, rgba(18,8,34,0.97) 100%)",
+  modalText:    "#f7f0ff",
+  modalTextMid: "rgba(247,240,255,0.7)",
+  modalTextDim: "rgba(247,240,255,0.44)",
+  modalBorder:  "rgba(198,166,255,0.32)",
+  modalBorderHi:"rgba(198,166,255,0.5)",
+  modalShadow:  "0 -18px 70px rgba(42,20,80,0.5)",
+  modalSurface: "rgba(255,255,255,0.08)",
+  modalAccent:  "#c9b6ff",
+};
+
+const C = Object.assign({}, DARK_THEME);
+function applyThemeMode(mode) {
+  Object.assign(C, mode === "light" ? LIGHT_THEME : DARK_THEME);
+}
+
+// CSS is a function (not a static const) so the handful of theme-colored rules
+// inside it (html/body bg+text, scrollbar thumb) re-read the current, possibly
+// just-toggled, C values instead of the ones frozen at module load.
+function getCSS() {
+// Stardust Pulse dot/glow colors — deep purple/pink specks on light mode's pale
+// bg, pale lavender/pink specks on dark mode's cosmic bg — so the ambient
+// twinkle stays visible (and premium, not muddy) against either background.
+const _dot1 = C.mode==="light" ? "rgba(110,70,190,0.34)" : "rgba(255,255,255,0.55)";
+const _dot2 = C.mode==="light" ? "rgba(150,80,200,0.3)"  : "rgba(196,181,253,0.4)";
+const _dot3 = C.mode==="light" ? "rgba(200,80,150,0.28)" : "rgba(240,168,204,0.35)";
+return `
 @import url('https://fonts.googleapis.com/css2?family=Epilogue:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,300;1,400;1,700;1,800&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap');
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html,body{width:100%;height:100%;overflow:hidden;background:${C.bg}}
@@ -578,6 +672,11 @@ body{color:${C.text};font-family:'Instrument Sans',sans-serif;-webkit-font-smoot
 /* ── Cosmic sparkle dots ─────────────────────────────────────────────────── */
 .cosmic-bg::before{content:'';position:fixed;inset:0;background-image:radial-gradient(circle,rgba(255,255,255,0.55) 1px,transparent 1px),radial-gradient(circle,rgba(196,181,253,0.4) 1px,transparent 1px),radial-gradient(circle,rgba(240,168,204,0.35) 1px,transparent 1px);background-size:180px 180px,240px 240px,320px 320px;background-position:0 0,90px 90px,160px 40px;pointer-events:none;z-index:0;opacity:0.18;animation:starTwinkle 8s ease-in-out infinite alternate}
 .cosmic-bg::after{content:'';position:fixed;inset:0;background:radial-gradient(ellipse at 15% 85%,rgba(107,33,168,0.08),transparent 55%),radial-gradient(ellipse at 85% 10%,rgba(236,72,153,0.07),transparent 55%),radial-gradient(ellipse at 50% 50%,rgba(99,102,241,0.04),transparent 60%);pointer-events:none;z-index:0}
+/* ── Stardust Pulse — ambient twinkling starfield mounted per main-nav page ── */
+.stardust-pulse{position:absolute;inset:0;z-index:-1;pointer-events:none;overflow:hidden}
+.stardust-pulse::before{content:'';position:absolute;inset:-10%;background-image:radial-gradient(circle,${_dot1} 1px,transparent 1px),radial-gradient(circle,${_dot2} 1px,transparent 1px),radial-gradient(circle,${_dot3} 1px,transparent 1px);background-size:180px 180px,240px 240px,320px 320px;background-position:0 0,90px 90px,160px 40px;opacity:0.32;animation:starTwinkle 9s ease-in-out infinite alternate}
+.stardust-pulse::after{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 20% 15%,${C.accent}0f,transparent 45%),radial-gradient(ellipse at 85% 80%,${C.pink}0c,transparent 50%);opacity:0.7}
+@media (prefers-reduced-motion: reduce){.stardust-pulse::before{animation:none!important}}
 ::-webkit-scrollbar{width:2px;height:2px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:${C.border};border-radius:99px}
@@ -659,6 +758,7 @@ body.bs-sheet-open .bs-bottom-nav{display:none!important}
 .ticker-fade{animation:tickerFade .5s ease}
 @media (prefers-reduced-motion: reduce){.ticker-fade{animation:none!important}}
 `;
+}
 
 // ─── RESERVED USERNAMES ────────────────────────────────────────────────────────
 // Blocked: exact matches (case-insensitive) to idol names, groups, agencies,
@@ -728,6 +828,10 @@ const ls = {
   set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
   del: (k)   => { try { localStorage.removeItem(k); } catch {} },
 };
+// Apply the persisted theme preference immediately at module load so the very
+// first render (and getCSS()) already reflects it — no flash of the wrong theme.
+applyThemeMode(ls.get("backstage_light_mode", false) ? "light" : "dark");
+const ThemeContext = createContext({ themeMode: "dark", setThemeMode: () => {} });
 
 // ─── MY WORLD SERVER SYNC ─────────────────────────────────────────────────────
 // Debounced push of the My World collection stores → users.my_world (jsonb).
@@ -1660,6 +1764,11 @@ const Textarea = ({ style:s, label, ...p }) => (
     <textarea style={{ width:"100%", padding:"11px 14px", borderRadius:11, background:C.surfaceHi, border:`1.5px solid ${C.border}`, color:C.text, fontSize:13, resize:"none", ...s }} {...p} />
   </div>
 );
+
+// Stardust Pulse — ambient twinkling starfield. Mount as the first child of a
+// `position:relative` page root; negative z-index keeps it behind normal-flow
+// content without requiring every sibling to opt in with its own z-index.
+const AmbientStarfield = () => <div className="stardust-pulse" aria-hidden="true" />;
 
 const Card = ({ children, style:s, onClick, glow, color, accent }) => (
   <div onClick={onClick} className={onClick?"tap":""} style={{
@@ -5381,6 +5490,8 @@ function NotificationBell({ onOpen }) {
     const inbox = filterActiveNotifs(ls.get("backstage_notif_inbox", []).filter(n=>!isMockNotifId(n?.id)));
     return inbox.filter(n=>!n.read).length;
   });
+  const [showQuickView, setShowQuickView] = useState(false);
+  const [recentNotifs, setRecentNotifs] = useState([]);
 
   // Re-count unread every 2 seconds (simple polling for localStorage updates)
   useEffect(()=>{
@@ -5391,12 +5502,23 @@ function NotificationBell({ onOpen }) {
     return ()=>clearInterval(iv);
   },[]);
 
+  // Snapshot the latest few notifications only when the quick view opens —
+  // the full Backstage Buzz page is still the source of truth for the whole inbox.
+  useEffect(()=>{
+    if(!showQuickView) return;
+    const inbox = filterActiveNotifs(ls.get("backstage_notif_inbox", []).filter(n=>!isMockNotifId(n?.id)));
+    setRecentNotifs(inbox.slice(0,5));
+  },[showQuickView]);
+
+  const openFullCenter = () => { setShowQuickView(false); onOpen(); };
+  const openSettings = () => { setShowQuickView(false); ls.set("backstage_open_notif_settings", true); onOpen(); };
+
   return (
     <div style={{ position:"absolute",top:16,right:14,zIndex:300 }}>
       <button
-        onClick={onOpen}
+        onClick={()=>setShowQuickView(v=>!v)}
         className="tap"
-        title="Backstage Buzz"
+        title="Notifications"
         style={{
           width:34,height:34,
           borderRadius:11,
@@ -5428,6 +5550,36 @@ function NotificationBell({ onOpen }) {
           }}>{unread>9?"9+":unread}</div>
         )}
       </button>
+
+      {/* Translucent quick-view — a glance, not a page transition. Backstage Buzz stays the full center. */}
+      {showQuickView && (<>
+        <div onClick={()=>setShowQuickView(false)} style={{ position:"fixed", inset:0, zIndex:349 }} />
+        <div style={{ position:"absolute", top:44, right:0, zIndex:350, width:272, maxHeight:380, overflowY:"auto", background:"rgba(26,16,50,0.86)", backdropFilter:"blur(22px)", WebkitBackdropFilter:"blur(22px)", border:`1px solid ${C.lavender}44`, borderRadius:24, boxShadow:"0 20px 50px rgba(0,0,0,0.55)", padding:14, animation:"in .15s ease" }}>
+          <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10 }}>
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,color:C.text }}>Notifications{unread>0?` · ${unread} new`:""}</p>
+            <button onClick={()=>setShowQuickView(false)} style={{ background:"none",border:"none",color:C.textMid,fontSize:14,cursor:"pointer",lineHeight:1 }}>✕</button>
+          </div>
+          {recentNotifs.length>0 ? (
+            <div style={{ display:"flex",flexDirection:"column",gap:6,marginBottom:12 }}>
+              {recentNotifs.map(n=>(
+                <div key={n.id} onClick={openFullCenter} className="tap" style={{ display:"flex",gap:8,alignItems:"flex-start",padding:"8px 9px",borderRadius:14,background:n.read?"rgba(255,255,255,0.03)":"rgba(184,162,255,0.10)",cursor:"pointer" }}>
+                  {n.fromAvatar
+                    ? <div style={{ width:26,height:26,borderRadius:"50%",background:`linear-gradient(135deg,${n.fromColor||C.accent},${(n.fromColor||C.accent)}77)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:11,color:C.bg,flexShrink:0 }}>{n.fromAvatar}</div>
+                    : <span style={{ fontSize:15,flexShrink:0 }}>{n.icon||"🔔"}</span>}
+                  <div style={{ minWidth:0 }}>
+                    <p style={{ fontSize:11,fontWeight:700,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{n.title}</p>
+                    {n.body && <p style={{ fontSize:9.5,color:C.textMid,marginTop:1,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical" }}>{n.body}</p>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : <p style={{ fontSize:11,color:C.textDim,textAlign:"center",padding:"20px 0" }}>You're all caught up.</p>}
+          <div style={{ display:"flex",flexDirection:"column",gap:6 }}>
+            <button onClick={openFullCenter} className="tap" style={{ ...VS.glowButton(C.accent,C.pink), padding:"9px 12px", fontSize:11.5, border:"none" }}>View all updates</button>
+            <button onClick={openSettings} className="tap" style={{ background:"none",border:`1px solid ${C.border}`,borderRadius:12,padding:"9px 12px",color:C.textMid,fontSize:10.5,cursor:"pointer",fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>Notification settings</button>
+          </div>
+        </div>
+      </>)}
     </div>
   );
 }
@@ -7685,6 +7837,8 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
   const [showShrine, setShowShrine] = useState(false);
   const [showSmartMatch, setShowSmartMatch] = useState(false);
   const [showCollectionTracker, setShowCollectionTracker] = useState(false);
+  const [trackerView, setTrackerView] = useState("overview"); // overview | groups | albumVersions | isoWanted | tradeable
+  const [trackerGroupFocus, setTrackerGroupFocus] = useState(null);
   const [pcView, setPcView] = useState("sets");
   const [pcSetData, setPcSetData] = useState(()=>ls.get("backstage_photocard_sets",{}));
   const [showAddCard, setShowAddCard] = useState(false);
@@ -7746,6 +7900,29 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
   }, {});
   const trackerWanted = [...wishlist.map(w => ({ label:w.member || w.name || "Wanted card", sub:[w.group_name || w.group, w.album || w.era].filter(Boolean).join(" - "), color:C.gold })), ...setWantedCards.map(w => ({ label:w.member, sub:[w.group, w.era, w.version].filter(Boolean).join(" - "), color:w.color || softBlue }))].slice(0, 6);
 
+  // ── Full (unsliced) data for the Collection Tracker's focused sub-views ──
+  const trackerGroupsFull = Array.from(new Set([...allCards.map(c => c.group_name || c.group), ...PC_CATALOG_SETS.map(s => s.group)].filter(Boolean))).map(group => {
+    const owned = allCards.filter(c => (c.group_name || c.group) === group).length + PC_CATALOG_SETS.filter(s => s.group === group).reduce((sum, set) => sum + Object.values(pcSetData[set.id] || {}).filter(v => v === "owned").length, 0);
+    const total = Math.max(owned + PC_CATALOG_SETS.filter(s => s.group === group).reduce((sum, set) => sum + set.members.length, 0), owned || 1);
+    return { group, owned, total, pct:Math.round((owned / Math.max(total, 1)) * 100) };
+  });
+  const trackerAlbumVersionsFull = Object.values(trackerAlbumVersions);
+  const isoItemsFull = [
+    ...wishlist.map((w,i) => ({ id:w.id||`w-${i}`, label:w.member || w.name || "Wanted card", group:w.group_name||w.group||"", sub:[w.group_name||w.group, w.album||w.era].filter(Boolean).join(" · "), color:C.gold })),
+    ...setWantedCards.map((w,i) => ({ id:`sw-${w.setId}-${w.member}-${i}`, label:w.member, group:w.group, sub:[w.group,w.era,w.version].filter(Boolean).join(" · "), color:w.color||softBlue })),
+  ];
+  const setTradeableCards = PC_CATALOG_SETS.flatMap(s => s.members.filter(m => ["dupe","trade"].includes((pcSetData[s.id]||{})[m])).map(m => ({ setId:s.id, group:s.group, era:s.era, version:s.version, member:m, color:s.color, album:s.album })));
+  const tradeableItemsFull = [
+    ...tradeable.map((c,i) => ({ id:c.id||`t-${i}`, label:c.member||c.name||"Photocard", group:c.group_name||c.group||"", sub:[c.group_name||c.group, c.era].filter(Boolean).join(" · "), color:C.rose })),
+    ...setTradeableCards.map((w,i) => ({ id:`st-${w.setId}-${w.member}-${i}`, label:w.member, group:w.group, sub:[w.group,w.era,w.version].filter(Boolean).join(" · "), color:w.color||C.rose })),
+  ];
+  const groupFocusCards = trackerGroupFocus ? [
+    ...allCards.filter(c=>(c.group_name||c.group)===trackerGroupFocus).map((c,i)=>({ id:c.id||`gc-${i}`, label:c.member||c.name||"Photocard", sub:c.era||"", status:c.status||(c.tradeable?"for_trade":"owned") })),
+    ...PC_CATALOG_SETS.filter(s=>s.group===trackerGroupFocus).flatMap(s=>s.members.map(m=>({ id:`gf-${s.id}-${m}`, label:m, sub:[s.era,s.version].filter(Boolean).join(" · "), status:(pcSetData[s.id]||{})[m]||"missing" }))),
+  ] : [];
+  const trackerSectionHeaderStyle = { fontSize:9,color:softBlue2,fontFamily:"'Epilogue',sans-serif",fontWeight:900,textTransform:"uppercase",letterSpacing:"0.13em",marginBottom:9 };
+  const TRACKER_STATUS_META = { owned:{label:"✓ Owned",color:softBlue}, for_trade:{label:"⇄ Trade",color:C.rose}, dupe:{label:"×2 Dupe",color:C.accent}, trade:{label:"⇄ Trade",color:C.rose}, wishlist:{label:"♡ ISO",color:C.gold}, missing:{label:"—",color:C.textDim} };
+
   const GROUPS = ["all", ...new Set(allCards.map(c=>c.group_name||c.group).filter(Boolean))].slice(0,6);
 
   const filteredCards = groupFilter==="all" ? allCards : allCards.filter(c=>(c.group_name||c.group)===groupFilter);
@@ -7791,6 +7968,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
 
   return (
     <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden", position:"relative" }}>
+      <AmbientStarfield />
       {/* EraRoom deep-link overlay from Era Boards */}
       {eraRoomDeep && <EraRoom group={eraRoomDeep.group} era={eraRoomDeep.era} color={eraRoomDeep.color} onBack={()=>setEraRoomDeep(null)} onBinderCreated={()=>{ refreshBinderCount(); setEraRoomDeep(null); setSection("albums"); }} onGoToTradeHub={()=>{ setEraRoomDeep(null); setSection("albums"); }} />}
       {showAddCard && (
@@ -7855,7 +8033,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
       <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))", position:"relative", zIndex:1 }}>
 
         {/* Collection Status — dominant completion ring + scroll capsule row, no spreadsheet grid */}
-        <div onClick={()=>setShowCollectionTracker(true)} role="button" tabIndex={0} onKeyDown={e=>{ if(e.key==="Enter"||e.key===" ") setShowCollectionTracker(true); }} className="tap" style={{ ...VS.premiumHeroCard(C.accent, C.pink), padding:"16px 16px", marginBottom:12, display:"flex", gap:14, alignItems:"center", cursor:"pointer", borderRadius:18, border:`1px solid ${softBlueGlow}` }}>
+        <div onClick={()=>{ setTrackerView("overview"); setTrackerGroupFocus(null); setShowCollectionTracker(true); }} role="button" tabIndex={0} onKeyDown={e=>{ if(e.key==="Enter"||e.key===" "){ setTrackerView("overview"); setTrackerGroupFocus(null); setShowCollectionTracker(true); } }} className="tap" style={{ ...VS.premiumHeroCard(C.accent, C.pink), padding:"16px 16px", marginBottom:12, display:"flex", gap:14, alignItems:"center", cursor:"pointer", borderRadius:18, border:`1px solid ${softBlueGlow}` }}>
           <div style={VS.orbitAccent(C.accent, 120)} />
           <div style={VS.shimmerLine(C.accent)} />
           <RingProgress value={completion} size={76} color={C.accent} color2={C.pink}>
@@ -8354,73 +8532,203 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
           (myWorldTheme / THEME_BG already drives the atmospheric background above). */}
       {showDecorate&&(
         <div onClick={()=>setShowDecorate(false)} style={{ position:"fixed",inset:0,zIndex:410,background:"rgba(6,6,15,0.72)",display:"flex",alignItems:"flex-end",animation:"in .2s ease",backdropFilter:"blur(7px)" }}>
-          <div onClick={e=>e.stopPropagation()} style={{ width:"100%",maxHeight:"82vh",overflowY:"auto",background:`linear-gradient(165deg,${C.surfaceHi}f7,${C.plum}f5)`,borderRadius:"24px 24px 0 0",border:`1px solid ${C.lavender}30`,padding:"18px 16px calc(30px + env(safe-area-inset-bottom))",boxShadow:`0 -18px 50px rgba(0,0,0,0.55), 0 0 28px ${C.lavender}22`,animation:"slideUp .25s ease" }}>
-            <div style={{ width:36,height:4,borderRadius:99,background:C.lavender,opacity:.65,margin:"0 auto 16px" }} />
+          <div onClick={e=>e.stopPropagation()} style={{ width:"100%",maxHeight:"82vh",overflowY:"auto",background:C.modalBg,backdropFilter:"blur(24px) saturate(1.4)",borderRadius:"26px 26px 0 0",border:`1px solid ${C.modalBorder}`,padding:"18px 16px calc(30px + env(safe-area-inset-bottom))",boxShadow:`${C.modalShadow}, inset 0 1px 0 rgba(255,255,255,0.42)`,animation:"slideUp .25s ease" }}>
+            <div style={{ width:36,height:4,borderRadius:99,background:C.modalBorderHi,opacity:.65,margin:"0 auto 16px" }} />
             <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:16 }}>
-              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:17,color:C.text }}>Decorate My Universe</p>
-              <button onClick={()=>setShowDecorate(false)} aria-label="Close" style={{ width:34,height:34,borderRadius:12,background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.12)",color:C.text,fontSize:16,cursor:"pointer" }}>✕</button>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:17,color:C.modalText }}>Decorate My Universe</p>
+              <button onClick={()=>setShowDecorate(false)} aria-label="Close" style={{ width:34,height:34,borderRadius:12,background:`${C.modalText}14`,border:`1px solid ${C.modalBorder}`,color:C.modalText,fontSize:16,cursor:"pointer" }}>✕</button>
             </div>
-            <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10 }}>World Theme</p>
+            <p style={{ fontSize:9,color:C.modalTextMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10 }}>World Theme</p>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:6 }}>
               {WORLD_THEMES.map(t=>(
                 <div key={t.id} onClick={()=>saveTheme(t.id)} className="tap" style={{ borderRadius:12, padding:"10px 8px", textAlign:"center", cursor:"pointer", background:myWorldTheme===t.id?`${t.color}28`:`${t.color}0a`, border:`1.5px solid ${myWorldTheme===t.id?t.color:t.color+"33"}`, transition:"all .2s" }}>
                   <div style={{ fontSize:18, marginBottom:3 }}>{t.emoji}</div>
-                  <p style={{ fontSize:8.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:myWorldTheme===t.id?t.color:C.textMid, lineHeight:1.3 }}>{t.id}</p>
+                  <p style={{ fontSize:8.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:myWorldTheme===t.id?t.color:C.modalTextMid, lineHeight:1.3 }}>{t.id}</p>
                   {myWorldTheme===t.id && <div style={{ width:5,height:5,borderRadius:"50%",background:t.color,margin:"4px auto 0" }} />}
                 </div>
               ))}
             </div>
-            <p style={{ fontSize:10.5, color:C.textDim, lineHeight:1.55 }}>Sets the ambient background across My Universe. More decoration options — album covers, shelf layout — are coming soon.</p>
+            <p style={{ fontSize:10.5, color:C.modalTextDim, lineHeight:1.55 }}>Sets the ambient background across My Universe. More decoration options — album covers, shelf layout — are coming soon.</p>
           </div>
         </div>
       )}
 
       {showCollectionTracker&&(
         <div onClick={()=>setShowCollectionTracker(false)} style={{ position:"fixed",inset:0,zIndex:410,background:"rgba(6,6,15,0.72)",display:"flex",alignItems:"flex-end",animation:"in .2s ease",backdropFilter:"blur(7px)" }}>
-          <div onClick={e=>e.stopPropagation()} style={{ width:"100%",maxHeight:"82vh",overflowY:"auto",background:`linear-gradient(165deg,${C.surfaceHi}f7,${C.plum}f5)`,borderRadius:"24px 24px 0 0",border:`1px solid ${softBlueGlow}`,padding:"18px 16px calc(30px + env(safe-area-inset-bottom))",boxShadow:`0 -18px 50px rgba(0,0,0,0.55), 0 0 28px ${softBlueGlow}`,animation:"slideUp .25s ease" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ width:"100%",maxHeight:"82vh",overflowY:"auto",background:C.modalBg,backdropFilter:"blur(24px) saturate(1.4)",borderRadius:"26px 26px 0 0",border:`1px solid ${C.modalBorder}`,padding:"18px 16px calc(30px + env(safe-area-inset-bottom))",boxShadow:`${C.modalShadow}, 0 0 28px ${softBlueGlow}, inset 0 1px 0 rgba(255,255,255,0.42)`,animation:"slideUp .25s ease" }}>
             <div style={{ width:36,height:4,borderRadius:99,background:softBlue2,opacity:.65,margin:"0 auto 16px" }} />
             <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:14 }}>
               <div>
-                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:19,color:C.text,marginBottom:3 }}>Collection Tracker</p>
-                <p style={{ fontSize:11,color:C.textMid }}>Albums, photocards, binders, ISO, and trades.</p>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:19,color:C.modalText,marginBottom:3 }}>Collection Tracker</p>
+                <p style={{ fontSize:11,color:C.modalTextMid }}>Albums, photocards, binders, ISO, and trades.</p>
               </div>
-              <button onClick={()=>setShowCollectionTracker(false)} aria-label="Close collection tracker" style={{ width:38,height:38,borderRadius:14,background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.12)",color:C.text,fontSize:18,cursor:"pointer" }}>x</button>
+              <button onClick={()=>setShowCollectionTracker(false)} aria-label="Close collection tracker" style={{ width:38,height:38,borderRadius:14,background:`${C.modalText}14`,border:`1px solid ${C.modalBorder}`,color:C.modalText,fontSize:18,cursor:"pointer" }}>x</button>
             </div>
-            <div style={{ border:`1px solid ${softBlueGlow}`,borderRadius:17,padding:12,marginBottom:12,background:"rgba(255,255,255,0.045)" }}>
-              <p style={{ fontSize:9,color:softBlue2,fontFamily:"'Epilogue',sans-serif",fontWeight:900,textTransform:"uppercase",letterSpacing:"0.13em",marginBottom:9 }}>Overview</p>
-              <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8 }}>
-                {[{label:"Actively collecting",val:totalOwned,color:softBlue},{label:"Wanted / ISO",val:wishlistTotal,color:C.gold},{label:"Tradeable",val:tradeableTotal,color:C.rose}].map(item=>(
-                  <div key={item.label} style={{ borderRadius:14,padding:"11px 8px",background:`${item.color}12`,border:`1px solid ${item.color}36`,minWidth:0 }}>
-                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:16,color:item.color,lineHeight:1 }}>{item.val}</p>
-                    <p style={{ fontSize:9.5,color:C.textMid,lineHeight:1.25,marginTop:5 }}>{item.label}</p>
+
+            {/* Segmented control — makes Collection Tracker a real mini control center, not a static readout */}
+            <div style={{ display:"flex", gap:6, overflowX:"auto", marginBottom:14, paddingBottom:2, scrollbarWidth:"none" }}>
+              {[["overview","Overview"],["groups","Groups"],["albumVersions","Versions"],["isoWanted","ISO"],["tradeable","Trade"]].map(([id,label])=>(
+                <button key={id} onClick={()=>{ setTrackerView(id); if(id!=="groups") setTrackerGroupFocus(null); }} className="tap" style={{ flexShrink:0, fontSize:11, padding:"7px 13px", borderRadius:99, background: trackerView===id ? `linear-gradient(135deg,${softBlue},${C.accent})` : "rgba(255,255,255,0.06)", border:`1px solid ${trackerView===id?softBlue:"rgba(255,255,255,0.14)"}`, color: trackerView===id ? C.bg : C.modalTextMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer" }}>{label}</button>
+              ))}
+            </div>
+
+            {trackerView==="overview" && (<>
+              <div style={{ border:`1px solid ${softBlueGlow}`,borderRadius:17,padding:12,marginBottom:12,background:"rgba(255,255,255,0.045)" }}>
+                <p style={trackerSectionHeaderStyle}>Overview</p>
+                <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8 }}>
+                  {[{label:"Actively collecting",val:totalOwned,color:softBlue,view:"groups"},{label:"Wanted / ISO",val:wishlistTotal,color:C.gold,view:"isoWanted"},{label:"Tradeable",val:tradeableTotal,color:C.rose,view:"tradeable"}].map(item=>(
+                    <div key={item.label} onClick={()=>setTrackerView(item.view)} className="tap" role="button" tabIndex={0} style={{ borderRadius:14,padding:"11px 8px",background:`${item.color}12`,border:`1px solid ${item.color}36`,minWidth:0,cursor:"pointer" }}>
+                      <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:16,color:item.color,lineHeight:1 }}>{item.val}</p>
+                      <p style={{ fontSize:9.5,color:C.modalTextMid,lineHeight:1.25,marginTop:5 }}>{item.label}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div onClick={()=>setTrackerView("groups")} className="tap" style={{ border:`1px solid rgba(255,255,255,0.09)`,borderRadius:17,padding:12,marginBottom:12,background:"rgba(255,255,255,0.035)",cursor:"pointer" }}>
+                <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between" }}>
+                  <p style={trackerSectionHeaderStyle}>Groups</p>
+                  <span style={{ fontSize:9.5,color:softBlue,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>See all →</span>
+                </div>
+                {trackerGroups.length ? (
+                  <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
+                    {trackerGroups.map(g=>(
+                      <div key={g.group} style={{ borderRadius:13,padding:"10px 11px",background:C.surface,border:`1px solid ${softBlueGlow}` }}><p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,color:C.modalText }}>{g.group}</p><p style={{ fontSize:10,color:C.modalTextMid,marginTop:3 }}>{g.owned} / {g.total} <span style={{ color:softBlue,marginLeft:5 }}>{g.pct}%</span></p></div>
+                    ))}
                   </div>
-                ))}
+                ) : <p style={{ fontSize:10.5,color:C.modalTextDim,padding:"4px 2px 0" }}>No groups tracked yet.</p>}
               </div>
-            </div>
-            <div style={{ border:`1px solid rgba(255,255,255,0.09)`,borderRadius:17,padding:12,marginBottom:12,background:"rgba(255,255,255,0.035)" }}>
-              <p style={{ fontSize:9,color:softBlue2,fontFamily:"'Epilogue',sans-serif",fontWeight:900,textTransform:"uppercase",letterSpacing:"0.13em",marginBottom:9 }}>Groups</p>
-              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
-                {(trackerGroups.length?trackerGroups:[{group:"BTS",owned:6,total:6,pct:100},{group:"ATEEZ",owned:4,total:5,pct:80}]).map(g=>(
-                  <div key={g.group} style={{ borderRadius:13,padding:"10px 11px",background:C.surface,border:`1px solid ${softBlueGlow}` }}><p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,color:C.text }}>{g.group}</p><p style={{ fontSize:10,color:C.textMid,marginTop:3 }}>{g.owned} / {g.total} <span style={{ color:softBlue,marginLeft:5 }}>{g.pct}%</span></p></div>
-                ))}
+              <div onClick={()=>setTrackerView("albumVersions")} className="tap" style={{ border:`1px solid rgba(255,255,255,0.09)`,borderRadius:17,padding:12,marginBottom:12,background:"rgba(255,255,255,0.035)",cursor:"pointer" }}>
+                <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between" }}>
+                  <p style={trackerSectionHeaderStyle}>Album Versions</p>
+                  <span style={{ fontSize:9.5,color:softBlue,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>See all →</span>
+                </div>
+                {Object.values(trackerAlbumVersions).length ? (
+                  <div style={{ display:"flex",gap:8,overflowX:"auto",scrollbarWidth:"none" }}>
+                    {Object.values(trackerAlbumVersions).map(v=>(
+                      <div key={v.version} style={{ flex:"0 0 auto",borderRadius:13,padding:"9px 12px",background:`${softBlue}0d`,border:`1px solid ${softBlue}32` }}><span style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:11,color:C.modalText }}>{v.version}</span><span style={{ marginLeft:8,color:softBlue,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:800 }}>{v.owned} / {v.total}</span></div>
+                    ))}
+                  </div>
+                ) : <p style={{ fontSize:10.5,color:C.modalTextDim,padding:"4px 2px 0" }}>No album versions tracked yet.</p>}
               </div>
-            </div>
-            <div style={{ border:`1px solid rgba(255,255,255,0.09)`,borderRadius:17,padding:12,marginBottom:12,background:"rgba(255,255,255,0.035)" }}>
-              <p style={{ fontSize:9,color:softBlue2,fontFamily:"'Epilogue',sans-serif",fontWeight:900,textTransform:"uppercase",letterSpacing:"0.13em",marginBottom:9 }}>Album Versions</p>
-              <div style={{ display:"flex",gap:8,overflowX:"auto",scrollbarWidth:"none" }}>
-                {(Object.values(trackerAlbumVersions).length?Object.values(trackerAlbumVersions):[{version:"Standard",owned:6,total:8},{version:"Limited",owned:3,total:4},{version:"Platform",owned:1,total:2}]).map(v=>(
-                  <div key={v.version} style={{ flex:"0 0 auto",borderRadius:13,padding:"9px 12px",background:`${softBlue}0d`,border:`1px solid ${softBlue}32` }}><span style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:11,color:C.text }}>{v.version}</span><span style={{ marginLeft:8,color:softBlue,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:800 }}>{v.owned} / {v.total}</span></div>
-                ))}
+              <div onClick={()=>setTrackerView("isoWanted")} className="tap" style={{ border:`1px solid rgba(255,255,255,0.09)`,borderRadius:17,padding:12,background:"rgba(255,255,255,0.035)",cursor:"pointer" }}>
+                <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between" }}>
+                  <p style={trackerSectionHeaderStyle}>ISO / Wanted</p>
+                  <span style={{ fontSize:9.5,color:softBlue,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>See all →</span>
+                </div>
+                {trackerWanted.length ? (
+                  <div style={{ display:"flex",gap:8,overflowX:"auto",scrollbarWidth:"none" }}>
+                    {trackerWanted.map((w,i)=>(
+                      <div key={`${w.label}-${i}`} style={{ flex:"0 0 190px",borderRadius:13,padding:"10px",background:`${(w.color||C.gold)}12`,border:`1px solid ${(w.color||C.gold)}34` }}><p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:11.5,color:C.modalText,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{w.label}</p><p style={{ fontSize:9.5,color:C.modalTextMid,marginTop:3,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{w.sub}</p></div>
+                    ))}
+                  </div>
+                ) : <p style={{ fontSize:10.5,color:C.modalTextDim,padding:"4px 2px 0" }}>No ISO cards yet. Add cards to your wishlist from albums or trades.</p>}
               </div>
-            </div>
-            <div style={{ border:`1px solid rgba(255,255,255,0.09)`,borderRadius:17,padding:12,background:"rgba(255,255,255,0.035)" }}>
-              <p style={{ fontSize:9,color:softBlue2,fontFamily:"'Epilogue',sans-serif",fontWeight:900,textTransform:"uppercase",letterSpacing:"0.13em",marginBottom:9 }}>ISO / Wanted</p>
-              <div style={{ display:"flex",gap:8,overflowX:"auto",scrollbarWidth:"none" }}>
-                {(trackerWanted.length?trackerWanted:[{label:"Proof Compact",sub:"BTS",color:C.gold},{label:"5-STAR Digipack",sub:"Stray Kids",color:softBlue}]).map((w,i)=>(
-                  <div key={`${w.label}-${i}`} style={{ flex:"0 0 190px",borderRadius:13,padding:"10px",background:`${(w.color||C.gold)}12`,border:`1px solid ${(w.color||C.gold)}34` }}><p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:11.5,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{w.label}</p><p style={{ fontSize:9.5,color:C.textMid,marginTop:3,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{w.sub}</p></div>
-                ))}
+            </>)}
+
+            {trackerView==="groups" && (
+              trackerGroupFocus ? (
+                <div>
+                  <button onClick={()=>setTrackerGroupFocus(null)} className="tap" style={{ background:"none",border:"none",color:softBlue,fontSize:12,marginBottom:12,cursor:"pointer",padding:0,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>← All Groups</button>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:16,color:C.modalText,marginBottom:12 }}>{trackerGroupFocus}</p>
+                  {groupFocusCards.length ? (
+                    <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+                      {groupFocusCards.map(c=>{
+                        const meta = TRACKER_STATUS_META[c.status] || { label:c.status, color:C.modalTextMid };
+                        return (
+                          <div key={c.id} style={{ display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:13,background:"rgba(255,255,255,0.035)",border:"1px solid rgba(255,255,255,0.09)" }}>
+                            <div style={{ flex:1,minWidth:0 }}>
+                              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,color:C.modalText }}>{c.label}</p>
+                              {c.sub && <p style={{ fontSize:9.5,color:C.modalTextMid,marginTop:2 }}>{c.sub}</p>}
+                            </div>
+                            <span style={{ fontSize:9,padding:"3px 8px",borderRadius:99,color:meta.color,background:`${meta.color}18`,border:`1px solid ${meta.color}33`,fontFamily:"'Epilogue',sans-serif",fontWeight:700,flexShrink:0 }}>{meta.label}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : <p style={{ fontSize:11,color:C.modalTextDim,textAlign:"center",padding:"30px 0" }}>No cards tracked for {trackerGroupFocus} yet.</p>}
+                </div>
+              ) : (
+                <div>
+                  <p style={trackerSectionHeaderStyle}>Groups</p>
+                  {trackerGroupsFull.length ? (
+                    <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
+                      {trackerGroupsFull.map(g=>(
+                        <div key={g.group} onClick={()=>setTrackerGroupFocus(g.group)} className="tap" style={{ borderRadius:13,padding:"10px 11px",background:C.surface,border:`1px solid ${softBlueGlow}`,cursor:"pointer" }}>
+                          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,color:C.modalText }}>{g.group}</p>
+                          <p style={{ fontSize:10,color:C.modalTextMid,marginTop:3 }}>{g.owned} / {g.total} <span style={{ color:softBlue,marginLeft:5 }}>{g.pct}%</span></p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : <p style={{ fontSize:11,color:C.modalTextDim,textAlign:"center",padding:"30px 0" }}>No groups tracked yet. Start a binder to see progress here.</p>}
+                </div>
+              )
+            )}
+
+            {trackerView==="albumVersions" && (
+              <div>
+                <p style={trackerSectionHeaderStyle}>Album Versions</p>
+                {trackerAlbumVersionsFull.length ? (
+                  <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+                    {trackerAlbumVersionsFull.map(v=>{
+                      const pct = Math.round((v.owned/Math.max(v.total,1))*100);
+                      return (
+                        <div key={v.version} style={{ borderRadius:13,padding:"12px 14px",background:`${softBlue}0d`,border:`1px solid ${softBlue}32` }}>
+                          <div style={{ display:"flex",justifyContent:"space-between",marginBottom:6 }}>
+                            <span style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,color:C.modalText }}>{v.version}</span>
+                            <span style={{ color:softBlue,fontSize:11,fontFamily:"'Epilogue',sans-serif",fontWeight:800 }}>{v.owned} / {v.total}</span>
+                          </div>
+                          <div style={{ height:6,borderRadius:99,background:"rgba(255,255,255,0.08)",overflow:"hidden" }}>
+                            <div style={{ height:"100%",width:`${pct}%`,borderRadius:99,background:`linear-gradient(90deg,${softBlue},${C.accent})` }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : <p style={{ fontSize:11,color:C.modalTextDim,textAlign:"center",padding:"30px 0" }}>No album versions tracked yet.</p>}
               </div>
-            </div>
+            )}
+
+            {trackerView==="isoWanted" && (
+              <div>
+                <p style={trackerSectionHeaderStyle}>ISO / Wanted</p>
+                {isoItemsFull.length ? (
+                  <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+                    {isoItemsFull.map(w=>(
+                      <div key={w.id} style={{ padding:"10px 12px",borderRadius:13,background:`${w.color}12`,border:`1px solid ${w.color}34` }}>
+                        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,color:C.modalText }}>{w.label}</p>
+                        {w.sub && <p style={{ fontSize:9.5,color:C.modalTextMid,marginTop:2 }}>{w.sub}</p>}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ textAlign:"center",padding:"30px 10px" }}>
+                    <p style={{ fontSize:11.5,color:C.modalTextDim,lineHeight:1.6,marginBottom:16 }}>No ISO cards yet. Add cards to your wishlist from albums or trades.</p>
+                    <button onClick={()=>{ setSection("albums"); setAlbumSubView("binders"); setShowCollectionTracker(false); }} className="tap" style={{ ...VS.glowButton(softBlue,C.accent), padding:"11px 22px", border:"none" }}>Browse Albums</button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {trackerView==="tradeable" && (
+              <div>
+                <p style={trackerSectionHeaderStyle}>Tradeable</p>
+                {tradeableItemsFull.length ? (
+                  <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+                    {tradeableItemsFull.map(w=>(
+                      <div key={w.id} style={{ padding:"10px 12px",borderRadius:13,background:`${w.color}12`,border:`1px solid ${w.color}34` }}>
+                        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,color:C.modalText }}>{w.label}</p>
+                        {w.sub && <p style={{ fontSize:9.5,color:C.modalTextMid,marginTop:2 }}>{w.sub}</p>}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ textAlign:"center",padding:"30px 10px" }}>
+                    <p style={{ fontSize:11.5,color:C.modalTextDim,lineHeight:1.6,marginBottom:16 }}>No tradeable cards yet. Mark duplicates as tradeable to appear here.</p>
+                    <button onClick={()=>{ setSection("albums"); setAlbumSubView("trades"); setShowCollectionTracker(false); }} className="tap" style={{ ...VS.glowButton(C.rose,C.berry), padding:"11px 22px", border:"none" }}>Open Trade Hub</button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -13331,6 +13639,8 @@ function ExploreTab({ user, go, onViewProfile }) {
 
   // ── Quick filter chips over the unified content feed ──────────────────────
   const [filterType, setFilterType] = useState("all");
+  // ── Trend-pill filter — tunes the feed to a group in-place, never navigates away ──
+  const [trendFilter, setTrendFilter] = useState(null); // { group, era, color }
 
   // ── Global fan posts — real, GET /api/feed (same feed Fanverse posts write to) ──
   const [feedPosts, setFeedPosts] = useState([]);
@@ -13427,7 +13737,23 @@ function ExploreTab({ user, go, onViewProfile }) {
   if (primaryShow) feedItems.push({ kind:"show", key:`show-${primaryShow.id}`, data:primaryShow });
 
   const FILTER_KIND = { concerts:"show", trades:"trade", passes:"pass", capsules:"capsule", fans:"fan" };
-  const visibleItems = filterType==="all" ? feedItems : feedItems.filter(i=>i.kind===FILTER_KIND[filterType]);
+  const kindFiltered = filterType==="all" ? feedItems : feedItems.filter(i=>i.kind===FILTER_KIND[filterType]);
+
+  // Best-effort group extraction per content kind, used only for trend-pill matching.
+  const itemGroup = (item) => {
+    switch (item.kind) {
+      case "post": return item.data.tag || "";
+      case "announcement": return item.data.group_name || item.data.fandom || "";
+      case "capsule": return featuredConcert?.group || "";
+      case "trade": return item.data.user_cards?.group_name || "";
+      case "fan": return (item.data.fandoms||[])[0] || "";
+      case "show": return item.data.group || item.data.group_name || "";
+      default: return "";
+    }
+  };
+  const trendMatches = trendFilter ? kindFiltered.filter(i => itemGroup(i).toLowerCase() === trendFilter.group.toLowerCase()) : null;
+  const trendHasMatches = !trendFilter || (trendMatches && trendMatches.length > 0);
+  const visibleItems = (trendFilter && trendHasMatches) ? trendMatches : kindFiltered;
 
   // Interleave kinds instead of grouping them so the grid reads like a mixed
   // curated feed rather than back-to-back runs of the same content type.
@@ -13611,12 +13937,23 @@ function ExploreTab({ user, go, onViewProfile }) {
         </div>
 
         {!searchActive && (<>
-          {/* Slim Era Trend ticker — replaces the old large feature tile */}
+          {/* Slim Era Trend ticker — tunes the feed to a group in-place; tap again to clear */}
           <div style={{ display:"flex", gap:8, overflowX:"auto", padding:"12px 0 8px", WebkitMaskImage:"linear-gradient(to right, black 90%, transparent 100%)", maskImage:"linear-gradient(to right, black 90%, transparent 100%)" }}>
-            {ERA_SEARCH_GROUPS.slice(0,8).map(g=>(
-              <span key={g.group} onClick={()=>go("tools")} className="tap" style={{ flexShrink:0, fontSize:10.5, padding:"5px 11px", borderRadius:99, background:`${g.color}1c`, border:`1px solid ${g.color}44`, color:g.color, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>{g.group} · {g.eras?.[g.eras.length-1]}</span>
-            ))}
+            {ERA_SEARCH_GROUPS.slice(0,8).map(g=>{
+              const era = g.eras?.[g.eras.length-1];
+              const active = trendFilter?.group === g.group;
+              return (
+                <span key={g.group} onClick={()=>setTrendFilter(active ? null : { group:g.group, era, color:g.color })} className="tap" style={{ flexShrink:0, fontSize:10.5, padding:"5px 11px", borderRadius:99, background: active ? g.color : `${g.color}1c`, border:`1px solid ${g.color}44`, color: active ? C.bg : g.color, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>{g.group} · {era}</span>
+              );
+            })}
           </div>
+          {/* Active trend filter indicator — subtle, dismissible, never a route away from Explore */}
+          {trendFilter && (
+            <div onClick={()=>setTrendFilter(null)} className="tap" style={{ display:"inline-flex", alignItems:"center", gap:6, fontSize:10.5, padding:"5px 6px 5px 11px", borderRadius:99, background:`${trendFilter.color}18`, border:`1px solid ${trendFilter.color}44`, color:trendFilter.color, fontWeight:700, cursor:"pointer", marginBottom:10 }}>
+              Showing {trendFilter.group} · {trendFilter.era}
+              <span style={{ width:16,height:16,borderRadius:"50%",background:"rgba(255,255,255,0.14)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9 }}>✕</span>
+            </div>
+          )}
           {/* Quick filter chips over the content feed */}
           <div style={{ display:"flex", gap:8, overflowX:"auto", paddingBottom:12 }}>
             {[["all","For You"],["concerts","Concerts"],["trades","Trades"],["passes","Passes"],["capsules","Capsules"],["fans","Fans"]].map(([id,label])=>(
@@ -13664,10 +14001,15 @@ function ExploreTab({ user, go, onViewProfile }) {
             )}
           </div>
         ) : (
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gridAutoFlow:"dense", gap:12, paddingTop:4 }}>
-            {orderedItems.length>0 ? orderedItems.map(renderCard) : (
-              <div style={{ gridColumn:"span 2", textAlign:"center", padding:"40px 0", color:C.textDim, fontSize:11.5 }}>Explore is warming up — check back soon.</div>
+          <div>
+            {trendFilter && !trendHasMatches && (
+              <p style={{ fontSize:11,color:C.textDim,lineHeight:1.6,marginBottom:12 }}>No {trendFilter.group} · {trendFilter.era} posts yet. Showing related {trendFilter.group} content instead.</p>
             )}
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gridAutoFlow:"dense", gap:12, paddingTop:4 }}>
+              {orderedItems.length>0 ? orderedItems.map(renderCard) : (
+                <div style={{ gridColumn:"span 2", textAlign:"center", padding:"40px 0", color:C.textDim, fontSize:11.5 }}>Explore is warming up — check back soon.</div>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -20584,6 +20926,7 @@ function Top5Section({ top5: top5Prop, setTop5, onBack }) {
 
 function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccountRefresh, onViewProfile }) {
   const { session } = useAuth();
+  const { themeMode, setThemeMode } = useContext(ThemeContext);
   const [pfp, setPfp] = useState(null);
   const npKey = `backstage_now_playing_${user?.id || 'anon'}`;
   const [nowPlaying, setNowPlaying] = useState(() => ls.get(npKey, {title:"Whiplash",artist:"aespa",source:"mock"}));
@@ -21100,26 +21443,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
               {label:"🔔 Push Notifications",sub:"Concert alerts, trade updates",val:notifOn,set:notifOn?()=>{ setNotifOn(false); setNotifSettings(prev=>({...prev,phonePush:false})); ls.set(`backstage_push_enabled_${pushUserKey}`,false); }:requestNotif,color:C.accent,action:()=>setSection("notifications")},
               {label:"🔍 Fan Discovery",sub:"Show me in fan suggestions & concert discovery",val:discoverable,set:setDiscoverable,color:C.mint,action:null},
               {label:"🎯 Solo Mode",sub:"Prioritize solo fans & safer meetups",val:soloMode,set:setSoloMode,color:C.gold,action:null},
-              {label:"☀️ Light Mode",sub:"Softer purple-tinted light theme",val:ls.get("backstage_light_mode",false),set:(v)=>{
-                ls.set("backstage_light_mode",v);
-                const root = document.documentElement;
-                if(v) {
-                  // Light theme — soft lilac/lavender purple
-                  root.style.setProperty("background","#ede8ff");
-                  document.body.style.background="#ede8ff";
-                  document.body.style.color="#1e0b3a";
-                  document.querySelectorAll('[style]').forEach(el=>{
-                    if(el.style.background==="rgb(6, 6, 15)"||el.style.background==="#06060f") el.style.background="#f0eeff";
-                  });
-                  // Show a toast that full light mode requires reload
-                } else {
-                  root.style.removeProperty("background");
-                  document.body.style.background="#06060f";
-                  document.body.style.color="#eae4ff";
-                }
-                // Reload to apply fully — CSS-in-JS needs re-render with new C values
-                setTimeout(()=>window.location.reload(),200);
-              },color:C.silver,action:null},
+              {label:"☀️ Light Mode",sub:"Airy lavender light theme",val:themeMode==="light",set:(v)=>setThemeMode(v?"light":"dark"),color:C.silver,action:null},
             ].map((s,i)=>(
               <div key={s.label}>
                 {i>0&&<div style={{ height:1,background:C.border,margin:"14px 0" }} />}
@@ -23280,6 +23604,10 @@ function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNot
   // mock entries from storage so existing sessions self-heal too.
   const [inbox, setInbox] = useState(()=>filterActiveNotifs(ls.get("backstage_notif_inbox", []).filter(n=>!isMockNotifId(n?.id))));
   const [tab, setTab]     = useState("updates"); // updates | settings
+  // Deep-link from the notification-bell quick view's "Notification settings" CTA.
+  // A useEffect (not a side-effecting lazy initializer) so this stays correct under
+  // StrictMode's dev-only double-invoke — the flag read/clear only ever fires once.
+  useEffect(()=>{ if(ls.get("backstage_open_notif_settings",false)){ ls.del("backstage_open_notif_settings"); setTab("settings"); } },[]);
   const unread = inbox.filter(n=>!n.read).length;
 
   useEffect(()=>{
@@ -23811,9 +24139,9 @@ function ScrapbookTab({ isVip, onUpgrade, onBack }) {
 
       {adding&&(
         <div onClick={()=>{ setAdding(false); setChooseTemplate(false); setForm({ name:"", concert:"", emoji:"📸", color:C.accent, template:null, collaborators:[] }); }} style={{ position:"fixed",inset:0,zIndex:400,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
-          <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:22,width:"100%",animation:"slideUp .25s ease",maxHeight:"88vh",overflowY:"auto" }}>
-            <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 18px" }} />
-            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:17, marginBottom:chooseTemplate?12:16 }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:C.modalBg,backdropFilter:"blur(24px) saturate(1.4)",borderRadius:"26px 26px 0 0",border:`1px solid ${C.modalBorder}`,boxShadow:`${C.modalShadow}, inset 0 1px 0 rgba(255,255,255,0.42)`,color:C.modalText,padding:22,width:"100%",animation:"slideUp .25s ease",maxHeight:"88vh",overflowY:"auto" }}>
+            <div style={{ width:34,height:4,borderRadius:99,background:C.modalBorderHi,margin:"0 auto 18px" }} />
+            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:17, marginBottom:chooseTemplate?12:16, color:C.modalText }}>
               {chooseTemplate ? "🎭 Pick a Template" : "Create Scrapbook"}
             </p>
 
@@ -23829,23 +24157,23 @@ function ScrapbookTab({ isVip, onUpgrade, onBack }) {
                       style={{ borderRadius:14, padding:"12px 10px", background:form.template===tpl.id?`${tpl.color}28`:tpl.bg||`${tpl.color}10`, border:`1.5px solid ${form.template===tpl.id?tpl.color:tpl.color+"33"}`, cursor:"pointer", textAlign:"center", transition:"all .18s" }}
                     >
                       <div style={{ fontSize:22, marginBottom:4 }}>{tpl.emoji}</div>
-                      <p style={{ fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:form.template===tpl.id?tpl.color:C.textMid, lineHeight:1.3 }}>{tpl.label}</p>
+                      <p style={{ fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:form.template===tpl.id?tpl.color:C.modalTextMid, lineHeight:1.3 }}>{tpl.label}</p>
                       {form.template===tpl.id&&<div style={{ width:6,height:6,borderRadius:"50%",background:tpl.color,margin:"5px auto 0" }} />}
                     </div>
                   ))}
                 </div>
-                {form.template&&<p style={{ fontSize:9.5,color:C.textMid,textAlign:"center",marginTop:2 }}>Template selected · fill in the details below</p>}
+                {form.template&&<p style={{ fontSize:9.5,color:C.modalTextMid,textAlign:"center",marginTop:2 }}>Template selected · fill in the details below</p>}
               </div>
             )}
 
             {/* Name / concert fields — always shown */}
-            <div style={{ marginBottom:12 }}><Input label="Name *" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder="e.g. BTS Dallas 2026" /></div>
-            <div style={{ marginBottom:12 }}><Input label="Linked Concert" value={form.concert} onChange={e=>setForm({...form,concert:e.target.value})} placeholder="Concert name..." /></div>
+            <div style={{ marginBottom:12 }}><Input label="Name *" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder="e.g. BTS Dallas 2026" style={{ background:C.modalSurface,border:`1.5px solid ${C.modalBorder}`,color:C.modalText }} /></div>
+            <div style={{ marginBottom:12 }}><Input label="Linked Concert" value={form.concert} onChange={e=>setForm({...form,concert:e.target.value})} placeholder="Concert name..." style={{ background:C.modalSurface,border:`1.5px solid ${C.modalBorder}`,color:C.modalText }} /></div>
 
             {/* Color picker — only when not using a template */}
             {!form.template && (
               <div style={{ marginBottom:18 }}>
-                <p style={{ fontSize:9.5,color:C.textMid,marginBottom:7,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em" }}>Color</p>
+                <p style={{ fontSize:9.5,color:C.modalTextMid,marginBottom:7,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em" }}>Color</p>
                 <div style={{ display:"flex", gap:10 }}>
                   {[C.pink,C.accent,C.mint,C.silver,C.gold].map(col=>(
                     <div key={col} onClick={()=>setForm({...form,color:col})} style={{ width:36,height:36,borderRadius:"50%",background:col,border:`3px solid ${form.color===col?C.white:"transparent"}`,cursor:"pointer",transition:"border-color .2s" }} />
@@ -23856,7 +24184,7 @@ function ScrapbookTab({ isVip, onUpgrade, onBack }) {
 
             <div style={{ display:"flex", gap:10, marginTop:chooseTemplate&&!form.template?4:0 }}>
               <Btn onClick={saveBook} disabled={!form.name.trim()||(chooseTemplate&&!form.template)} style={{ flex:1 }} small>Create</Btn>
-              <Btn ghost color={C.textMid} onClick={()=>{ setAdding(false); setChooseTemplate(false); setForm({ name:"", concert:"", emoji:"📸", color:C.accent, template:null, collaborators:[] }); }} style={{ width:82,flex:"none" }} small>Cancel</Btn>
+              <Btn ghost color={C.modalTextMid} onClick={()=>{ setAdding(false); setChooseTemplate(false); setForm({ name:"", concert:"", emoji:"📸", color:C.accent, template:null, collaborators:[] }); }} style={{ width:82,flex:"none" }} small>Cancel</Btn>
             </div>
           </div>
         </div>
@@ -24243,7 +24571,7 @@ function CapsuleLandingPage({ onJoin, onExplore }) {
   ];
   return (
     <div className="cosmic-bg" style={{ minHeight:"100vh", background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 45%,#0c0820 100%)`, display:"flex", flexDirection:"column", alignItems:"center", overflowY:"auto", position:"relative", paddingBottom:40 }}>
-      <style>{CSS}</style>
+      <style>{getCSS()}</style>
       {/* Ambient orbs */}
       <div style={{ position:"fixed",top:"15%",left:"-10%",width:260,height:260,borderRadius:"50%",background:`radial-gradient(circle,${C.berry}14,transparent 70%)`,pointerEvents:"none",zIndex:0 }} />
       <div style={{ position:"fixed",bottom:"20%",right:"-8%",width:220,height:220,borderRadius:"50%",background:`radial-gradient(circle,${C.accent}10,transparent 70%)`,pointerEvents:"none",zIndex:0 }} />
@@ -24796,6 +25124,12 @@ function ModalWrapper({ children }) {
 
 function AppInner() {
   const auth = useAuth();
+  const [themeMode, setThemeModeState] = useState(()=>ls.get("backstage_light_mode",false)?"light":"dark");
+  // Mutate the shared C palette in place before rendering anything below — every
+  // child function component reads C.xxx live during its own render, so this is
+  // the one place a theme switch has to happen for the whole tree to reflect it.
+  applyThemeMode(themeMode);
+  const setThemeMode = (mode)=>{ ls.set("backstage_light_mode", mode==="light"); setThemeModeState(mode); };
   const [user, setUser] = useState(()=>normalizeProfile(ls.get("backstage_session")?.user)||null);
   const [appState, setAppState] = useState(()=>{
     const u = normalizeProfile(ls.get("backstage_session")?.user);
@@ -25329,7 +25663,7 @@ function AppInner() {
   if (showCapsulePreview) {
     return (
       <>
-        <style>{CSS}</style>
+        <style>{getCSS()}</style>
         <div className="cosmic-bg app-shell" style={{ background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 40%,#0c0820 100%)`,display:"flex",flexDirection:"column",overflow:"hidden" }}>
           <ConcertCapsule
             concert={MOCK_CONCERTS[0]}
@@ -25347,8 +25681,9 @@ function AppInner() {
   }
 
   return(
+    <ThemeContext.Provider value={{ themeMode, setThemeMode }}>
     <>
-      <style>{CSS}</style>
+      <style>{getCSS()}</style>
       <div className="cosmic-bg app-shell" style={{ background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 40%,#0c0820 100%)`, display:"flex", flexDirection:"column", overflow:"hidden" }}>
 
         {/* OFFLINE BANNER */}
@@ -25490,7 +25825,7 @@ function AppInner() {
 
         {/* BOTTOM NAV */}
         {appState==="main"&&!modal&&(
-          <div className="bs-bottom-nav" style={{ position:"absolute",left:0,right:0,bottom:0,display:"flex",minHeight:62,background:"rgba(10,10,22,0.98)",borderTop:`1px solid ${C.borderHi}`,paddingBottom:"max(env(safe-area-inset-bottom), 10px)",backdropFilter:"blur(24px)",boxShadow:"0 -1px 0 rgba(184,162,255,0.06)",zIndex:100 }}>
+          <div className="bs-bottom-nav" style={{ position:"absolute",left:0,right:0,bottom:0,display:"flex",minHeight:62,background:C.navBg,borderTop:`1px solid ${C.borderHi}`,paddingBottom:"max(env(safe-area-inset-bottom), 10px)",backdropFilter:"blur(24px)",boxShadow:"0 -1px 0 rgba(184,162,255,0.06)",zIndex:100 }}>
             {NAV.map(n=>{
               const active = tab===n.id;
               const NAV_ICONS = {
@@ -25547,5 +25882,6 @@ function AppInner() {
       )}
       </div>{/* close app-shell */}
     </>
+    </ThemeContext.Provider>
   );
 }
