@@ -5607,12 +5607,12 @@ function NotificationBell({ onOpen }) {
         className="tap"
         title="Notifications"
         style={{
-          width:34,height:34,
-          borderRadius:11,
+          width:40,height:40,
+          borderRadius:13,
           background:C.glassBgHi,
           border:`1px solid ${unread>0?"rgba(184,162,255,0.45)":C.glassBorder}`,
           color:unread>0?C.lavender:C.textMid,
-          fontSize:14,
+          fontSize:15,
           cursor:"pointer",
           display:"flex",alignItems:"center",justifyContent:"center",
           boxShadow:unread>0?`0 0 12px rgba(184,162,255,0.22), inset 0 1px 0 rgba(255,255,255,0.1)`:"inset 0 1px 0 rgba(255,255,255,0.05)",
@@ -5641,7 +5641,7 @@ function NotificationBell({ onOpen }) {
       {/* Translucent quick-view — a glance, not a page transition. Backstage Buzz stays the full center. */}
       {showQuickView && (<>
         <div onClick={()=>setShowQuickView(false)} style={{ position:"fixed", inset:0, zIndex:349 }} />
-        <div style={{ position:"absolute", top:44, right:0, zIndex:350, width:272, maxHeight:380, overflowY:"auto", background:C.modalBg, backdropFilter:"blur(22px) saturate(1.4)", WebkitBackdropFilter:"blur(22px)", border:`1px solid ${C.modalBorder}`, borderRadius:24, boxShadow:C.modalShadow, padding:14, animation:"in .15s ease" }}>
+        <div style={{ position:"absolute", top:48, right:0, zIndex:350, width:272, maxHeight:380, overflowY:"auto", background:C.modalBg, backdropFilter:"blur(22px) saturate(1.4)", WebkitBackdropFilter:"blur(22px)", border:`1px solid ${C.modalBorder}`, borderRadius:24, boxShadow:C.modalShadow, padding:14, animation:"in .15s ease" }}>
           <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10 }}>
             <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,color:C.modalText }}>Notifications{unread>0?` · ${unread} new`:""}</p>
             <button onClick={()=>setShowQuickView(false)} style={{ background:"none",border:"none",color:C.modalTextMid,fontSize:14,cursor:"pointer",lineHeight:1 }}>✕</button>
@@ -11927,6 +11927,20 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
   const [showUserMoment, setShowUserMoment] = useState(null); // preview modal for user bubble tap
   const changeView = (v) => { setView(v); setScrolled(false); setRingFilter(null); };
 
+  // Header Messages shortcut — same backstage_dms store FanverseFloatingDock reads,
+  // so the unread badge here always matches the one on the floating dock.
+  const [dmUnread, setDmUnread] = useState(0);
+  useEffect(() => {
+    const computeUnread = () => {
+      const stored = ls.get("backstage_dms", []);
+      const convos = Array.isArray(stored) ? stored.filter(c => !String(c.id || "").startsWith("dm-")) : [];
+      setDmUnread(convos.reduce((s,c)=>s+(c.unread||0),0));
+    };
+    computeUnread();
+    const iv = setInterval(computeUnread, 2500);
+    return () => clearInterval(iv);
+  }, []);
+
   // Bottom-nav re-tap on Fanverse (while already there) snaps back to Feed + full chrome.
   useEffect(() => {
     const onReset = () => { setView("feed"); setScrolled(false); };
@@ -12107,27 +12121,55 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
       {/* ── STICKY HEADER ZONE — never scrolls away ── */}
       <div style={{ flexShrink:0, zIndex:20, position:"relative", background:scrolled?`linear-gradient(165deg,${C.cosmic}f0,${C.bg}f7)`:`linear-gradient(165deg,${C.cosmic}bd,${C.bg}d1)`, backdropFilter:"blur(18px)", borderBottom:scrolled?`1px solid ${C.glassBorder}`:"1px solid transparent", boxShadow:scrolled?"0 1px 0 rgba(255,255,255,0.04) inset":"none", transition:"background .3s ease, border-color .3s ease" }}>
 
-        {/* EXPANDED title — hides on scroll. Right padding clears the floating notification bell. */}
-        <div style={{ overflow:"hidden", maxHeight:scrolled?0:36, opacity:scrolled?0:1, paddingTop:scrolled?0:8, paddingLeft:20, paddingRight:56, transition:"max-height .28s ease, opacity .22s ease, padding-top .28s ease" }}>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", paddingBottom:3 }}>
+        {/* EXPANDED title — hides on scroll. Right padding clears the floating Messages + notification buttons. */}
+        <div style={{ overflow:"hidden", maxHeight:scrolled?0:36, opacity:scrolled?0:1, paddingTop:scrolled?0:8, paddingLeft:20, paddingRight:108, transition:"max-height .28s ease, opacity .22s ease, padding-top .28s ease" }}>
+          <div style={{ display:"flex", alignItems:"center", paddingBottom:3 }}>
             <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontStyle:"italic",fontWeight:700,fontSize:17,background:`linear-gradient(135deg,${C.lavender},${C.blush})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",lineHeight:1 }}>the Fanverse ✦</h2>
-            <div style={{ display:"flex",gap:6,alignItems:"center" }}>
-              <div style={{ width:5,height:5,borderRadius:"50%",background:C.lavender,animation:"pulse 2.2s ease infinite",boxShadow:`0 0 4px ${C.lavender}` }} />
-              <p style={{ fontSize:9,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>Fan Pulse</p>
-            </div>
           </div>
         </div>
 
         {/* COLLAPSED compact title row */}
         {scrolled && (
-          <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 56px 0 20px",animation:"in .15s ease" }}>
+          <div style={{ display:"flex",alignItems:"center",padding:"8px 108px 0 20px",animation:"in .15s ease" }}>
             <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontStyle:"italic",fontWeight:700,fontSize:15,background:`linear-gradient(135deg,${C.lavender},${C.blush})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent" }}>the Fanverse ✦</h2>
-            <div style={{ display:"flex",gap:5,alignItems:"center" }}>
-              <div style={{ width:4,height:4,borderRadius:"50%",background:C.lavender,animation:"pulse 2.2s ease infinite" }} />
-              <p style={{ fontSize:9,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>Fan Pulse</p>
-            </div>
           </div>
         )}
+
+        {/* Messages shortcut — floats beside the notification bell, same treatment,
+            since Home (and its old Messages entry point) is gone. */}
+        <button
+          onClick={()=>go?.("chats")}
+          className="tap"
+          title="Messages"
+          style={{
+            position:"absolute", top:16, right:62, zIndex:300,
+            width:40,height:40,
+            borderRadius:13,
+            background:C.glassBgHi,
+            border:`1px solid ${dmUnread>0?"rgba(184,162,255,0.45)":C.glassBorder}`,
+            color:dmUnread>0?C.lavender:C.textMid,
+            fontSize:15,
+            cursor:"pointer",
+            display:"flex",alignItems:"center",justifyContent:"center",
+            boxShadow:dmUnread>0?"0 0 12px rgba(184,162,255,0.22), inset 0 1px 0 rgba(255,255,255,0.1)":"inset 0 1px 0 rgba(255,255,255,0.05)",
+            backdropFilter:"blur(10px)",
+            transition:"all .2s",
+          }}
+        >
+          💬
+          {dmUnread>0&&(
+            <div style={{
+              position:"absolute",top:-3,right:-3,
+              width:14,height:14,borderRadius:"50%",
+              background:`linear-gradient(135deg,${C.rose},${C.berry})`,
+              display:"flex",alignItems:"center",justifyContent:"center",
+              fontSize:7.5,color:"#fff",
+              fontFamily:"'Epilogue',sans-serif",fontWeight:800,
+              boxShadow:`0 0 6px ${C.rose}55`,
+              border:`1.5px solid ${C.bg}`,
+            }}>{dmUnread>9?"9+":dmUnread}</div>
+          )}
+        </button>
 
         {/* ── SOCIAL STORY RAIL — personal/social bubbles (NOT pass categories) ── */}
         {/* Pass categories (Fit Check, Merch, etc.) stay in Backstage Passes page only */}
