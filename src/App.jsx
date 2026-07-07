@@ -4805,7 +4805,7 @@ function HomeShelfPreview({ go, cards }) {
   const allCards = cards || MOCK_CARDS;
 
   const stats = [
-    { val:binders.length,   label:"Albums",   color:C.accent, icon:"📁" },
+    { val:binders.length,   label:"Binders",  color:C.accent, icon:"📁" },
     { val:allCards.length,  label:"Cards",    color:C.pink,   icon:"🃏" },
     { val:wishlist.length,  label:"Wishlist", color:C.mint,   icon:"♡"  },
   ];
@@ -7497,6 +7497,7 @@ function ShowDetail({ concert, onBack, going, setGoing, go, isVip, onUpgrade, rs
 // ─── PHOTOCARD SETS VIEW — set-based catalog browser ─────────────────────────
 function PhotocardSetsView({ pcSetData, setPcSetData, groupFilter, setGroupFilter }) {
   const [selectedSet, setSelectedSet] = useState(null);
+  const [statusEditMember, setStatusEditMember] = useState(null);
   const [showExplore, setShowExplore] = useState(false);
   const [exploreSearch, setExploreSearch] = useState("");
   const [trackedSets, setTrackedSets] = useState(()=>ls.get("backstage_tracked_photocard_sets",[]));
@@ -7665,21 +7666,20 @@ function PhotocardSetsView({ pcSetData, setPcSetData, groupFilter, setGroupFilte
             })()}
             {selectedSet.members.length>0 ? (
               <>
-                <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10 }}>Cards · Tap to cycle status</p>
+                <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10 }}>Cards · tap for status</p>
                 <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14 }}>
                   {selectedSet.members.map(member=>{
                     const status = (pcSetData[selectedSet.id]||{})[member]||null;
                     const meta   = STATUS_META[status]||STATUS_META[null];
-                    const next   = STATUS_CYCLE[(STATUS_CYCLE.indexOf(status)+1)%STATUS_CYCLE.length];
                     return (
-                      <button key={member} onClick={()=>updateStatus(selectedSet.id,member,next)} style={{ padding:"10px 10px",borderRadius:13,background:meta.bg,border:`1.5px solid ${meta.border}`,cursor:"pointer",textAlign:"left",transition:"all .15s" }}>
+                      <button key={member} onClick={()=>setStatusEditMember(member)} style={{ padding:"10px 10px",borderRadius:13,background:meta.bg,border:`1.5px solid ${meta.border}`,cursor:"pointer",textAlign:"left",transition:"all .15s" }}>
                         <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,color:C.text,marginBottom:3,lineHeight:1.2 }}>{member}</p>
                         <p style={{ fontSize:9.5,color:meta.color,fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>{meta.label}</p>
                       </button>
                     );
                   })}
                 </div>
-                <p style={{ fontSize:10,color:C.textDim,textAlign:"center",lineHeight:1.6 }}>Tap a card to cycle: Missing → Owned → ISO → Dupe → Trade</p>
+                <p style={{ fontSize:10,color:C.textDim,textAlign:"center",lineHeight:1.6 }}>Tap a card to set its status</p>
               </>
             ) : (
               <div style={{ textAlign:"center",padding:"20px 16px",background:C.surface,border:`1px solid ${C.border}`,borderRadius:14 }}>
@@ -7688,6 +7688,26 @@ function PhotocardSetsView({ pcSetData, setPcSetData, groupFilter, setGroupFilte
                 <p style={{ fontSize:11,color:C.textMid,lineHeight:1.6 }}>You're tracking {selectedSet.group} at the group level for now. Add individual cards anytime from My Cards.</p>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Status selector sheet — replaces tap-to-cycle. Stacked above the set detail sheet. */}
+      {statusEditMember && selectedSet && (
+        <div onClick={()=>setStatusEditMember(null)} style={{ position:"fixed",inset:0,zIndex:470,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:"22px 20px 36px",width:"100%",animation:"slideUp .25s ease" }}>
+            <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 18px" }} />
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,color:C.text,marginBottom:2 }}>{statusEditMember}</p>
+            <p style={{ fontSize:11,color:C.textMid,marginBottom:16 }}>{selectedSet.group} · {selectedSet.era}</p>
+            <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+              {STATUS_CYCLE.map(s=>{
+                const m = STATUS_META[s]||STATUS_META[null];
+                const active = ((pcSetData[selectedSet.id]||{})[statusEditMember]||null)===s;
+                return (
+                  <button key={String(s)} onClick={()=>{ updateStatus(selectedSet.id,statusEditMember,s); setStatusEditMember(null); }} style={{ padding:"11px 14px",borderRadius:12,textAlign:"left",cursor:"pointer",background:active?m.bg:"transparent",border:`1.5px solid ${active?m.border:C.border}`,color:m.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12.5 }}>{m.label}</button>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}
@@ -7908,8 +7928,8 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
   const softBlueGlow = 'rgba(120,168,255,0.28)';
   const [section, setSection] = useState('albums');
   const [albumSubView, setAlbumSubView] = useState('binders');
-  const [showAlbumViewMenu, setShowAlbumViewMenu] = useState(false);
   const [bindersNoticeDismissed, setBindersNoticeDismissed] = useState(()=>ls.get("backstage_my_binders_notice_dismissed", false));
+  const [showTradeHub, setShowTradeHub] = useState(false);
   const [groupFilter, setGroupFilter] = useState("all");
   const [myWorldTheme, setMyWorldTheme] = useState(()=>ls.get("backstage_my_world_theme","Purple Galaxy"));
   const [featuredShelf, setFeaturedShelf] = useState(()=>ls.get("backstage_featured_shelf",{photocard:null,concert:null,capsule:null,outfit:null,biasMoment:null}));
@@ -7919,16 +7939,18 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
   const saveTheme = (t)=>{ setMyWorldTheme(t); ls.set("backstage_my_world_theme",t); syncMyWorldToServer(); };
   const saveFeatured = (key,val)=>{ const next={...featuredShelf,[key]:val}; setFeaturedShelf(next); ls.set("backstage_featured_shelf",next); syncMyWorldToServer(); };
   const [showQuickAdd, setShowQuickAdd] = useState(false);
-  const [showActionTray, setShowActionTray] = useState(false);
   const [showAchievements, setShowAchievements] = useState(false);
   const [showShrine, setShowShrine] = useState(false);
   const [showSmartMatch, setShowSmartMatch] = useState(false);
   const [showCollectionTracker, setShowCollectionTracker] = useState(false);
   const [trackerView, setTrackerView] = useState("overview"); // overview | groups | albumVersions | isoWanted | tradeable
   const [trackerGroupFocus, setTrackerGroupFocus] = useState(null);
-  const [pcView, setPcView] = useState("sets");
+  const [pcView, setPcView] = useState("cards");
   const [pcSetData, setPcSetData] = useState(()=>ls.get("backstage_photocard_sets",{}));
   const [showAddCard, setShowAddCard] = useState(false);
+  const [addCardInitialStatus, setAddCardInitialStatus] = useState("owned");
+  const [showStartBinder, setShowStartBinder] = useState(false);
+  const [showStartCustomBinder, setShowStartCustomBinder] = useState(false);
   // Cross-concert Capsule Memories — aggregates backstage_concert_capsules
   // across every concert, unlike ConcertCapsule which only ever shows the
   // one current concert. Re-reads on section focus so a Pass saved to
@@ -8052,11 +8074,13 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
   ];
 
   const SECTIONS = [
-    { id:'albums', label:'Albums', icon:'' },
-    { id:'eraboards', label:'Era Boards', icon:'' },
+    { id:'albums', label:'Binders', icon:'' },
+    { id:'wishlist', label:'Wishlist', icon:'' },
+    { id:'trades', label:'Trades', icon:'' },
     { id:'scrapbook', label:'Scrapbooks', icon:'' },
     { id:'memories', label:'Memories', icon:'' },
     { id:'capsule-memories', label:'Capsule Memories', icon:'' },
+    { id:'eraboards', label:'Era Rooms', icon:'' },
     { id:'achievements', label:'Achievements', icon:'' },
   ];
 
@@ -8067,7 +8091,22 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
       {eraRoomDeep && <EraRoom group={eraRoomDeep.group} era={eraRoomDeep.era} color={eraRoomDeep.color} onBack={()=>setEraRoomDeep(null)} onBinderCreated={()=>{ refreshBinderCount(); setEraRoomDeep(null); setSection("albums"); }} onGoToTradeHub={()=>{ setEraRoomDeep(null); setSection("albums"); }} />}
       {showAddCard && (
         <div style={{ position:"absolute",inset:0,zIndex:50,background:C.bg,overflowY:"auto" }}>
-          <AddCardForm onBack={()=>setShowAddCard(false)} onSaved={card=>{ setCards(cs=>[card,...cs]); setShowAddCard(false); }} />
+          <AddCardForm initialStatus={addCardInitialStatus} onBack={()=>{ setShowAddCard(false); setAddCardInitialStatus("owned"); }} onSaved={card=>{ setCards(cs=>[card,...cs]); setShowAddCard(false); setAddCardInitialStatus("owned"); setSection(card.status==="iso"?"wishlist":"albums"); if(card.status!=="iso"){ setAlbumSubView("photocards"); setPcView("cards"); } }} />
+        </div>
+      )}
+      {showStartBinder && (
+        <div style={{ position:"absolute",inset:0,zIndex:50,background:C.bg,overflowY:"auto" }}>
+          <BinderCreate onBack={()=>setShowStartBinder(false)} onCustom={()=>{ setShowStartBinder(false); setShowStartCustomBinder(true); }} onCreatedBinder={()=>{ refreshBinderCount(); setShowStartBinder(false); setSection("albums"); setAlbumSubView("binders"); }} />
+        </div>
+      )}
+      {showStartCustomBinder && (
+        <div style={{ position:"absolute",inset:0,zIndex:50,background:C.bg,overflowY:"auto" }}>
+          <CustomBinderForm onBack={()=>setShowStartCustomBinder(false)} onSaved={()=>{ refreshBinderCount(); setShowStartCustomBinder(false); setSection("albums"); setAlbumSubView("binders"); }} />
+        </div>
+      )}
+      {showTradeHub && (
+        <div style={{ position:"absolute",inset:0,zIndex:50,background:C.bg,overflowY:"auto" }}>
+          <TradeHub onBack={()=>setShowTradeHub(false)} user={user} />
         </div>
       )}
       {/* Atmospheric bg */}
@@ -8075,7 +8114,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
       {/* Theme overlay — changes with Decorate selection */}
       <div style={{ position:"absolute",inset:0,background:THEME_BG[myWorldTheme]||THEME_BG["Purple Galaxy"],pointerEvents:"none",zIndex:0,transition:"background .5s ease" }} />
 
-      {/* Full-bleed My Universe hero band — replaces the slim flat header.
+      {/* Full-bleed My World hero band — replaces the slim flat header.
           Dark mode keeps a deep plum "hero" backdrop; light mode uses a pale
           one instead, since the title's gradient-fill text darkens in light
           mode to stay readable on pale pages — a dark hero band would put
@@ -8088,64 +8127,54 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", position:"relative" }}>
           <div>
             <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.16em",marginBottom:4 }}>My World</p>
-            <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontStyle:"italic",fontWeight:800,fontSize:25,background:`linear-gradient(135deg,${C.lavender},${C.blush})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",lineHeight:1.1,filter:C.mode==="light"?"drop-shadow(0 1px 1px rgba(33,17,52,0.18))":"none" }}>My Universe ✦</h2>
-            <p style={{ fontSize:9.5,color:C.textDim,marginTop:4, maxWidth:210 }}>Collections, capsules, memories, and scrapbooks.</p>
+            <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontStyle:"italic",fontWeight:800,fontSize:25,background:`linear-gradient(135deg,${C.lavender},${C.blush})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",lineHeight:1.1,filter:C.mode==="light"?"drop-shadow(0 1px 1px rgba(33,17,52,0.18))":"none" }}>My World ✦</h2>
+            <p style={{ fontSize:9.5,color:C.textDim,marginTop:4, maxWidth:230 }}>Your photocards, binders, wishlists, trades, and fan memories.</p>
           </div>
           {isVip&&<VipBadge />}
         </div>
-        {/* Sub-nav */}
-        <div style={{ display:"flex", gap:6, overflowX:"auto", marginTop:16, paddingBottom:2, scrollbarWidth:"none", position:"relative" }}>
-          {SECTIONS.map(s=>(
-            <button key={s.id} onClick={()=>setSection(s.id)} className="tap" style={{ ...getPillStyle({active:section===s.id}), flexShrink:0, padding:"7px 14px", fontSize:11, display:"flex", gap:5, alignItems:"center" }}>
-              {s.icon&&s.icon!==s.label&&<span>{s.icon}</span>}<span>{s.label}</span>
-            </button>
-          ))}
+        {/* Sub-nav — horizontally scrollable; right-edge fade hints there's more to scroll on narrow screens */}
+        <div style={{ position:"relative", marginTop:16 }}>
+          <div style={{ display:"flex", gap:6, overflowX:"auto", paddingBottom:2, scrollbarWidth:"none" }}>
+            {SECTIONS.map(s=>(
+              <button key={s.id} onClick={()=>setSection(s.id)} className="tap" style={{ ...getPillStyle({active:section===s.id}), flexShrink:0, padding:"7px 14px", fontSize:11, display:"flex", gap:5, alignItems:"center" }}>
+                {s.icon&&s.icon!==s.label&&<span>{s.icon}</span>}<span>{s.label}</span>
+              </button>
+            ))}
+          </div>
+          <div aria-hidden style={{ position:"absolute", top:0, right:0, bottom:2, width:28, background:`linear-gradient(90deg, transparent, ${C.mode==="light"?C.cosmic:C.plum})`, pointerEvents:"none" }} />
         </div>
       </div>
 
-      {/* Floating action orb + tray — single FAB consolidating Add / Ask AI / Decorate */}
-      {showActionTray && (
-        <div onClick={()=>setShowActionTray(false)} style={{ position:"absolute", inset:0, zIndex:4 }} />
-      )}
-      {showActionTray && (
-        <div style={{ position:"absolute", bottom:"calc(156px + env(safe-area-inset-bottom))", right:20, zIndex:6, display:"flex", flexDirection:"column", gap:6, minWidth:198, borderRadius:16, padding:7,
-          background:`radial-gradient(circle at 20% 0%, rgba(255,255,255,0.62), transparent 34%), radial-gradient(circle at 85% 20%, rgba(167,199,255,0.24), transparent 38%), linear-gradient(135deg, rgba(244,226,255,0.78), rgba(218,196,255,0.58), rgba(246,216,240,0.52))`,
-          border:"1px solid rgba(255,255,255,0.42)", backdropFilter:"blur(22px) saturate(1.35)", boxShadow:"0 14px 36px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.5)" }}>
-          {[
-            { icon:"✦", label:"Add to My World", onClick:()=>{ setShowQuickAdd(true); setShowActionTray(false); } },
-            { icon:"✨", label:"Ask Backstage AI", onClick:()=>{ go("assistant"); setShowActionTray(false); } },
-            { icon:"🎨", label:"Decorate My Universe", onClick:()=>{ setSection("albums"); setShowDecorate(true); setShowActionTray(false); } },
-          ].map(item=>(
-            <button key={item.label} onClick={item.onClick} className="tap" style={{ display:"flex", alignItems:"center", gap:9, padding:"9px 10px", borderRadius:11, background:"transparent", border:"none", color:"#130B24", fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, cursor:"pointer", textAlign:"left" }}>
-              <span style={{ fontSize:14, width:20, textAlign:"center", flexShrink:0 }}>{item.icon}</span>
-              <span>{item.label}</span>
-            </button>
-          ))}
-        </div>
-      )}
-      <button onClick={()=>setShowActionTray(v=>!v)} className="tap" style={{ position:"absolute", bottom:"calc(96px + env(safe-area-inset-bottom))", right:20, width:54, height:54, borderRadius:18, display:"flex", alignItems:"center", justifyContent:"center", color:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:24, cursor:"pointer", zIndex:7, transform:showActionTray?"rotate(45deg)":"none", transition:"transform .2s",
+      {/* Floating action orb — opens the collector action sheet directly (no pre-menu detour) */}
+      <button onClick={()=>setShowQuickAdd(true)} className="tap" aria-label="Add to My World" style={{ position:"absolute", bottom:"calc(96px + env(safe-area-inset-bottom))", right:20, width:54, height:54, borderRadius:18, display:"flex", alignItems:"center", justifyContent:"center", color:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:24, cursor:"pointer", zIndex:7, transition:"transform .2s",
         background:`radial-gradient(circle at 30% 20%, rgba(255,255,255,0.38), transparent 45%), linear-gradient(150deg, rgba(196,181,253,0.42), rgba(240,168,204,0.32))`,
         border:"1px solid rgba(255,255,255,0.38)", backdropFilter:"blur(18px) saturate(1.3)", boxShadow:"0 10px 28px rgba(120,90,200,0.28), inset 0 1px 0 rgba(255,255,255,0.35)" }}>+</button>
 
       {/* CONTENT — all cards/stats scroll here */}
       <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))", position:"relative", zIndex:1 }}>
 
-        {/* Collection Status — dominant completion ring + scroll capsule row, no spreadsheet grid */}
+        {/* Photocard Binders hub — collector headline + Binder Progress snapshot.
+            Scoped to the Binders tab only; stats stay labeled a "snapshot" since
+            they still sum three separate sources (user_cards, pcSetData, era boards) —
+            see Phase 3 data-model plan before calling this a single source of truth. */}
+        {section==="albums" && (<>
+        <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em",marginBottom:3 }}>Photocard Binders</p>
+        <p style={{ fontSize:11,color:C.textDim,marginBottom:12,lineHeight:1.5 }}>Track what you own, what you want, and what you're ready to trade.</p>
         <div onClick={()=>{ setTrackerView("overview"); setTrackerGroupFocus(null); setShowCollectionTracker(true); }} role="button" tabIndex={0} onKeyDown={e=>{ if(e.key==="Enter"||e.key===" "){ setTrackerView("overview"); setTrackerGroupFocus(null); setShowCollectionTracker(true); } }} className="tap" style={{ ...VS.premiumHeroCard(C.accent, C.pink), padding:"16px 16px", marginBottom:12, display:"flex", gap:14, alignItems:"center", cursor:"pointer", borderRadius:18, border:`1px solid ${softBlueGlow}` }}>
           <div style={VS.orbitAccent(C.accent, 120)} />
           <div style={VS.shimmerLine(C.accent)} />
           <RingProgress value={completion} size={76} color={C.accent} color2={C.pink}>
             <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:18, color:C.text, lineHeight:1, position:"relative" }}>{completion}%</p>
-            <p style={{ fontSize:7, color:C.textMid, marginTop:1, position:"relative" }}>complete</p>
+            <p style={{ fontSize:7, color:C.textMid, marginTop:1, position:"relative" }}>snapshot</p>
           </RingProgress>
           <div style={{ flex:1, minWidth:0, position:"relative" }}>
-            <p style={{ fontSize:9, color:C.lavender, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.13em", marginBottom:9 }}>✦ Collection Status</p>
+            <p style={{ fontSize:9, color:C.lavender, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.13em", marginBottom:9 }}>✦ Binder Progress</p>
             <div style={{ display:"flex", gap:6, overflowX:"auto", scrollbarWidth:"none", paddingBottom:1 }}>
               {[
                 { val:totalOwned, label:"Owned", color:C.text },
                 { val:wishlistTotal, label:"Wanted", color:C.gold },
                 { val:tradeableTotal, label:"Tradeable", color:C.rose },
-                { val:binders.length, label:"Albums", color:C.accent },
+                { val:binders.length, label:"Binders", color:C.accent },
               ].map(s=>(
                 <div key={s.label} style={{ flexShrink:0, background:"rgba(255,255,255,0.045)", border:"1px solid rgba(255,255,255,0.07)", borderRadius:99, padding:"5px 11px", whiteSpace:"nowrap" }}>
                   <span style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:12, color:s.color }}>{s.val}</span>
@@ -8154,7 +8183,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
               ))}
             </div>
             {completion>=75&&<p style={{ fontSize:9, color:softBlue, fontFamily:"'Epilogue',sans-serif", fontWeight:700, marginTop:8 }}>Almost there!</p>}
-            <div style={{ display:"inline-flex", alignItems:"center", gap:6, color:softBlue2, fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:10, marginTop:9 }}>View collection tracker <span style={{ fontSize:15, lineHeight:1 }}>&rsaquo;</span></div>
+            <div style={{ display:"inline-flex", alignItems:"center", gap:6, color:softBlue2, fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:10, marginTop:9 }}>View binder progress <span style={{ fontSize:15, lineHeight:1 }}>&rsaquo;</span></div>
           </div>
         </div>
 
@@ -8167,7 +8196,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
               <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, color:C.text }}>So close! <span style={{ color:C.rose, textShadow:`0 0 12px ${C.rose}66` }}>{wishlistTotal} card{wishlistTotal>1?"s":""}</span> away</p>
               <p style={{ fontSize:10, color:C.textMid }}>Finish your collection — check Trade Hub</p>
             </div>
-            <button onClick={()=>{setSection("albums");setAlbumSubView("wishlist");}} style={{ ...VS.glowButton(C.rose, C.gold), padding:"7px 12px", fontSize:10, position:"relative" }}>Trade</button>
+            <button onClick={()=>setSection("wishlist")} style={{ ...VS.glowButton(C.rose, C.gold), padding:"7px 12px", fontSize:10, position:"relative" }}>Trade</button>
           </div>
         )}
 
@@ -8183,6 +8212,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
             <div style={{ ...VS.featurePill(C.gold), fontSize:9, position:"relative" }}>Upgrade →</div>
           </div>
         )}
+        </>)}
 
         {/* ── MY WORLD MUSEUM ─────────────────────────────────────────────── */}
         {section==="museum" && (
@@ -8434,45 +8464,29 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                 </div>
               </div>
             )}
-            {/* Era Boards cross-link */}
+            {/* Era Rooms cross-link */}
             {eraBoards.length > 0 && (
               <div onClick={()=>setSection("eraboards")} className="tap" style={{ display:"flex",alignItems:"center",gap:10,background:`${softBlue}0a`,border:`1px solid ${softBlue}28`,borderRadius:13,padding:"10px 14px",marginBottom:14,cursor:"pointer" }}>
                 <span style={{ fontSize:16 }}>🎭</span>
                 <div style={{ flex:1 }}>
-                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,color:C.text }}>You have {eraBoards.length} Era Board{eraBoards.length!==1?"s":""}</p>
-                  <p style={{ fontSize:10,color:C.textMid }}>Templates, fits, trades, and wishlist — saved from Eras Explorer</p>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,color:C.text }}>You have {eraBoards.length} Era Room{eraBoards.length!==1?"s":""}</p>
+                  <p style={{ fontSize:10,color:C.textMid }}>Your era shrines — favorites, memories, binder progress, and wishlist</p>
                 </div>
                 <span style={{ color:softBlue,fontSize:16 }}>→</span>
               </div>
             )}
-            {/* Single consolidated "Collection View" dropdown chip — replaces stacked pill rows */}
-            {(() => {
-              const ALBUM_VIEWS = [["binders","Albums"],["photocards","Photocards"],["wishlist","ISO / Wishlist"],["tradeable","Tradeable"],["trades","Trades"]];
-              const activeLabel = ALBUM_VIEWS.find(([id])=>id===albumSubView)?.[1] || "Albums";
-              return (
-                <div style={{ position:"relative", marginBottom:14 }}>
-                  <button onClick={()=>setShowAlbumViewMenu(v=>!v)} className="tap" style={{ display:"flex", alignItems:"center", gap:7, padding:"9px 14px", borderRadius:12, background:C.surfaceHi, border:`1px solid ${C.borderHi}`, color:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, cursor:"pointer" }}>
-                    <span style={{ color:C.textMid, fontWeight:600 }}>Viewing:</span> {activeLabel} <span style={{ color:softBlue, marginLeft:2 }}>{showAlbumViewMenu?"▴":"▾"}</span>
-                  </button>
-                  {showAlbumViewMenu && (
-                    <>
-                      <div onClick={()=>setShowAlbumViewMenu(false)} style={{ position:"fixed", inset:0, zIndex:8 }} />
-                      <div style={{ position:"absolute", top:"calc(100% + 6px)", left:0, zIndex:9, minWidth:190, background:`linear-gradient(160deg,${C.surfaceHi}f7,${C.cosmic}f7)`, border:`1px solid ${C.borderHi}`, borderRadius:14, padding:6, boxShadow:"0 14px 36px rgba(0,0,0,0.45)", backdropFilter:"blur(18px)" }}>
-                        {ALBUM_VIEWS.map(([id,label])=>(
-                          <div key={id} onClick={()=>{ setAlbumSubView(id); setShowAlbumViewMenu(false); }} className="tap" style={{ padding:"8px 10px", borderRadius:9, fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:albumSubView===id?800:600, color:albumSubView===id?softBlue2:C.text, background:albumSubView===id?`${softBlue}14`:"transparent", cursor:"pointer" }}>{label}</div>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </div>
-              );
-            })()}
+            {/* My Binders / All Cards — two plain segmented views, no nested dropdown.
+                Wishlist and Trades moved to their own top-level My World tabs. */}
+            <div style={{ display:"flex",gap:0,background:C.surfaceHi,borderRadius:13,padding:3,marginBottom:14 }}>
+              {[["binders","My Binders"],["photocards","All Cards"]].map(([id,label])=>(
+                <span key={id} onClick={()=>setAlbumSubView(id)} style={{ flex:1,textAlign:"center",padding:"8px 4px",borderRadius:10,fontSize:11.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:albumSubView===id?softBlue:"transparent",color:albumSubView===id?C.bg:C.textMid,transition:"all .18s" }}>{label}</span>
+              ))}
+            </div>
             {albumSubView==="binders" && <CollectTab cards={cards} setCards={setCards} isVip={isVip} onUpgrade={onUpgrade} user={user} onAddMemory={()=>setSection("scrapbook")} hideNav defaultView="binders" />}
-            {albumSubView==="trades" && <CollectTab cards={cards} setCards={setCards} isVip={isVip} onUpgrade={onUpgrade} user={user} onAddMemory={()=>setSection("scrapbook")} hideNav defaultView="trades" />}
             {albumSubView==="photocards" && (
               <div>
                 <div style={{ display:"flex",gap:0,background:C.surfaceHi,borderRadius:13,padding:3,marginBottom:14 }}>
-                  {[["sets","Sets"],["cards","My Cards"]].map(([id,label])=>(
+                  {[["cards","My Cards"],["sets","Templates"]].map(([id,label])=>(
                     <span key={id} onClick={()=>setPcView(id)} style={{ flex:1,textAlign:"center",padding:"8px 4px",borderRadius:10,fontSize:11.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:pcView===id?softBlue:"transparent",color:pcView===id?C.bg:C.textMid,transition:"all .18s" }}>{label}</span>
                   ))}
                 </div>
@@ -8482,20 +8496,78 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                 }
               </div>
             )}
-            {albumSubView==="wishlist" && (
-              <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-                {trackerWanted.length===0 ? <div style={{ textAlign:"center",padding:"28px 16px",background:`${C.gold}08`,border:`1.5px dashed ${C.gold}33`,borderRadius:18 }}><p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,marginBottom:5 }}>No ISO cards yet</p><p style={{ fontSize:11,color:C.textMid,lineHeight:1.5 }}>Open a binder or photocard set and mark cards as ISO to track what you are hunting.</p></div> : trackerWanted.map((w,i)=>(
-                  <div key={`${w.label}-${i}`} style={{ ...VS.glowCard(w.color || C.gold), padding:13, display:"flex", gap:10, alignItems:"center" }}>
-                    <div style={{ width:38,height:50,borderRadius:9,background:`${w.color || C.gold}18`,border:`1px solid ${(w.color || C.gold)}44`,display:"flex",alignItems:"center",justifyContent:"center",color:w.color || C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:900 }}>ISO</div>
-                    <div style={{ flex:1 }}><p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,color:C.text }}>{w.label}</p><p style={{ fontSize:10,color:C.textMid,marginTop:2 }}>{w.sub || "Wanted card"}</p></div>
-                  </div>
-                ))}
-                {isVip ? <button onClick={()=>setShowSmartMatch(true)} style={{ width:"100%", marginTop:4, padding:13, borderRadius:14, background:`${softBlue}12`, border:`1.5px solid ${softBlue}44`, color:softBlue2, fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:12, cursor:"pointer" }}>Smart Matching - Find My ISOs</button> : <button onClick={onUpgrade} style={{ width:"100%", marginTop:4, padding:13, borderRadius:14, background:`${C.gold}08`, border:`1.5px dashed ${C.gold}33`, color:C.gold, fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:12, cursor:"pointer" }}>VIP: Unlimited Wishlist + Smart Matching</button>}
+          </div>
+        )}
+
+        {/* ── WISHLIST — top-level tab, real ISO data from binders + photocard sets ── */}
+        {section==="wishlist" && (
+          <div style={{ paddingTop:4 }}>
+            <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em",marginBottom:3 }}>Wishlist</p>
+            <p style={{ fontSize:11,color:C.textDim,marginBottom:12,lineHeight:1.5 }}>Cards you want, pulled from your binders and tracked sets.</p>
+            {wishlistTotal===0 ? (
+              <div style={{ textAlign:"center",padding:"32px 16px",background:`${C.gold}08`,border:`1.5px dashed ${C.gold}33`,borderRadius:20,marginBottom:14 }}>
+                <p style={{ fontSize:30,marginBottom:10 }}>♡</p>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14,marginBottom:5 }}>No wishlist cards yet</p>
+                <p style={{ fontSize:12,color:C.textMid,lineHeight:1.6 }}>Open a binder and set cards to ISO, or mark set members as Wishlist to track what you're hunting.</p>
               </div>
+            ) : wishlist.map((w,i)=>(
+              <div key={w.id||i} className="tap" style={{ ...VS.glowCard(C.gold), padding:14, marginBottom:10, cursor:"pointer", display:"flex", gap:12, alignItems:"center" }}>
+                <div style={{ width:48,height:64,borderRadius:10,background:`linear-gradient(160deg,${C.gold}44,${C.gold}18)`,border:`1.5px solid ${C.gold}55`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0,boxShadow:`0 0 12px ${C.gold}33`,overflow:"hidden" }}>
+                  {w.image_url ? <img src={w.image_url} alt="" style={{ width:"100%",height:"100%",objectFit:"cover" }} /> : "🃏"}
+                </div>
+                <div style={{ flex:1 }}>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:14, color:C.text, marginBottom:3 }}>{w.member||w.name}</p>
+                  <p style={{ fontSize:11, color:C.textMid, marginBottom:6 }}>{w.group_name||w.group}{(w.album||w.era)&&` · ${w.album||w.era}`}</p>
+                  <div style={{ ...VS.activePill(C.gold), fontSize:8.5 }}>♡ ISO</div>
+                </div>
+                <button onClick={()=>go("collect")} style={{ background:`${C.gold}18`, border:`1.5px solid ${C.gold}44`, borderRadius:10, padding:"7px 12px", color:C.gold, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10, cursor:"pointer" }}>Find →</button>
+              </div>
+            ))}
+            {/* Set ISO cards */}
+            {PC_CATALOG_SETS.flatMap(s=>s.members.filter(m=>(pcSetData[s.id]||{})[m]==="wishlist").map(m=>({setId:s.id,group:s.group,era:s.era,version:s.version,emoji:s.emoji,color:s.color,member:m}))).map((w,i)=>(
+              <div key={`set-iso-${w.setId}-${w.member}`} className="tap" style={{ ...VS.glowCard(w.color), padding:14, marginBottom:10, cursor:"pointer", display:"flex", gap:12, alignItems:"center" }}>
+                <div style={{ width:48,height:64,borderRadius:10,background:`linear-gradient(160deg,${w.color}44,${w.color}18)`,border:`1.5px solid ${w.color}55`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0 }}>{w.emoji}</div>
+                <div style={{ flex:1 }}>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:14, color:C.text, marginBottom:3 }}>{w.member}</p>
+                  <p style={{ fontSize:11, color:C.textMid, marginBottom:4 }}>{w.group} · {w.era} · {w.version}</p>
+                  <div style={{ display:"flex", gap:5 }}>
+                    <div style={{ ...VS.activePill(w.color), fontSize:8.5 }}>♡ ISO</div>
+                    <div style={{ fontSize:8.5, color:C.textDim, padding:"3px 7px", borderRadius:99, background:C.surfaceHi }}>Set</div>
+                  </div>
+                </div>
+                <button onClick={()=>{ setSection("albums"); setAlbumSubView("photocards"); setPcView("sets"); }} style={{ background:`${w.color}18`, border:`1.5px solid ${w.color}44`, borderRadius:10, padding:"7px 12px", color:w.color, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10, cursor:"pointer" }}>Templates →</button>
+              </div>
+            ))}
+            {isVip ? (
+              <button onClick={()=>setShowSmartMatch(true)} style={{ width:"100%", marginTop:8, padding:14, borderRadius:14, background:`${softBlue}0a`, border:`1.5px solid ${softBlue}44`, color:softBlue, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, cursor:"pointer" }}>✦ Smart Matching — Find My ISOs</button>
+            ) : (
+              <button onClick={onUpgrade} style={{ width:"100%", marginTop:8, padding:14, borderRadius:14, background:`${C.gold}08`, border:`1.5px dashed ${C.gold}33`, color:C.gold, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, cursor:"pointer" }}>✦ VIP: Unlimited Wishlist + Smart Matching</button>
             )}
-            {albumSubView==="tradeable" && (
+          </div>
+        )}
+
+        {/* ── TRADES — top-level tab: real tradeable cards + a direct line to Trade Hub ── */}
+        {section==="trades" && (
+          <div style={{ paddingTop:4 }}>
+            <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em",marginBottom:3 }}>Trades</p>
+            <p style={{ fontSize:11,color:C.textDim,marginBottom:12,lineHeight:1.5 }}>Dupes and cards you've marked for trade.</p>
+            <button onClick={()=>setShowTradeHub(true)} className="tap" style={{ width:"100%", marginBottom:14, padding:"16px 18px", borderRadius:20, background:`linear-gradient(145deg,${C.pink}18,${C.accent}10)`, border:`1.5px solid ${C.pink}38`, boxShadow:`0 8px 28px ${C.pink}10`, textAlign:"left", cursor:"pointer", display:"flex", alignItems:"center", gap:14, position:"relative", overflow:"hidden" }}>
+              <div style={{ position:"absolute",top:-20,left:-20,width:100,height:100,borderRadius:"50%",background:`radial-gradient(circle,${C.pink}20,transparent 65%)`,pointerEvents:"none" }} />
+              <span style={{ fontSize:26,position:"relative" }}>⇄</span>
+              <div style={{ position:"relative" }}>
+                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:14, color:C.text }}>Open Trade Hub</p>
+                <p style={{ fontSize:10.5, color:C.textMid, marginTop:2 }}>Browse listings, make offers, track shipments</p>
+              </div>
+            </button>
+            <p style={VS.softSectionHeader()}>Your Tradeable Cards</p>
+            {tradeable.length===0 && setStats.trade===0 && setStats.dupe===0 ? (
+              <div style={{ textAlign:"center",padding:"28px 16px",background:`${softBlue}08`,border:`1.5px dashed ${softBlue}33`,borderRadius:18 }}>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,marginBottom:5 }}>No tradeable cards yet</p>
+                <p style={{ fontSize:11,color:C.textMid,lineHeight:1.5 }}>Mark duplicates or cards for trade from your binders.</p>
+              </div>
+            ) : (
               <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-                {tradeable.length===0 && setStats.trade===0 && setStats.dupe===0 ? <div style={{ textAlign:"center",padding:"28px 16px",background:`${softBlue}08`,border:`1.5px dashed ${softBlue}33`,borderRadius:18 }}><p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,marginBottom:5 }}>No tradeable cards yet</p><p style={{ fontSize:11,color:C.textMid,lineHeight:1.5 }}>Mark duplicates or cards for trade from your binders.</p></div> : tradeable.slice(0,8).map((card,i)=>(
+                {tradeable.slice(0,8).map((card,i)=>(
                   <div key={card.id || i} style={{ ...VS.glowCard(C.rose), padding:13, display:"flex", gap:10, alignItems:"center" }}><div style={{ width:38,height:50,borderRadius:9,background:`${C.rose}18`,border:`1px solid ${C.rose}44`,display:"flex",alignItems:"center",justifyContent:"center",color:C.rose,fontFamily:"'Epilogue',sans-serif",fontWeight:900 }}>FT</div><div style={{ flex:1 }}><p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,color:C.text }}>{card.member || card.name || "Tradeable card"}</p><p style={{ fontSize:10,color:C.textMid,marginTop:2 }}>{[card.group_name || card.group, card.album || card.era].filter(Boolean).join(" - ")}</p></div></div>
                 ))}
                 {(setStats.trade>0 || setStats.dupe>0) && <div style={{ background:`${C.rose}10`,border:`1px solid ${C.rose}30`,borderRadius:14,padding:12,color:C.textMid,fontSize:11,lineHeight:1.5 }}>{setStats.trade + setStats.dupe} set card{setStats.trade + setStats.dupe === 1 ? "" : "s"} marked as duplicate or tradeable in Photocard Sets.</div>}
@@ -8571,14 +8643,14 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
             {/* Section header */}
             <div style={{ background:`linear-gradient(140deg,${C.plum},${C.cosmic})`,border:`1.5px solid ${softBlue}20`,borderRadius:18,padding:"14px 16px",marginBottom:16,position:"relative",overflow:"hidden" }}>
               <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${softBlue}44,transparent)` }} />
-              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:C.text,marginBottom:4 }}>🎭 Era Boards</p>
-              <p style={{ fontSize:11,color:C.textMid,lineHeight:1.6 }}>Your saved eras, templates, pulls, fits, trades, and memories — all in one place.</p>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:C.text,marginBottom:4 }}>🎭 Era Rooms</p>
+              <p style={{ fontSize:11,color:C.textMid,lineHeight:1.6 }}>Your era shrines — favorites, memories, binder progress, and wishlist, all in one place.</p>
             </div>
             {eraBoards.length === 0 ? (
               <div style={{ textAlign:"center", padding:"40px 20px", color:C.textDim }}>
                 <p style={{ fontSize:32, marginBottom:12 }}>🎭</p>
-                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:14, color:C.text, marginBottom:6 }}>No Era Boards yet</p>
-                <p style={{ fontSize:12, lineHeight:1.7 }}>Go to Tools → Eras Explorer. Save templates, fits, start a binder, or add to wishlist to build your first board.</p>
+                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:14, color:C.text, marginBottom:6 }}>No Era Rooms yet</p>
+                <p style={{ fontSize:12, lineHeight:1.7 }}>Go to Tools → Eras Explorer. Save templates, fits, start a binder, or add to wishlist to build your first Era Room.</p>
               </div>
             ) : (
               <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
@@ -8629,59 +8701,16 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
           </div>
         )}
 
-        {section==="wishlist" && (
-          <div style={{ paddingTop:4 }}>
-            {wishlistTotal===0 ? (
-              <div style={{ textAlign:"center",padding:"32px 16px",background:`${C.gold}08`,border:`1.5px dashed ${C.gold}33`,borderRadius:20,marginBottom:14 }}>
-                <p style={{ fontSize:30,marginBottom:10 }}>♡</p>
-                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14,marginBottom:5 }}>No wishlist cards yet</p>
-                <p style={{ fontSize:12,color:C.textMid,lineHeight:1.6 }}>Open a binder and set cards to ISO, or mark set members as Wishlist to track what you're hunting.</p>
-              </div>
-            ) : wishlist.map((w,i)=>(
-              <div key={w.id||i} className="tap" style={{ ...VS.glowCard(C.gold), padding:14, marginBottom:10, cursor:"pointer", display:"flex", gap:12, alignItems:"center" }}>
-                <div style={{ width:48,height:64,borderRadius:10,background:`linear-gradient(160deg,${C.gold}44,${C.gold}18)`,border:`1.5px solid ${C.gold}55`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0,boxShadow:`0 0 12px ${C.gold}33`,overflow:"hidden" }}>
-                  {w.image_url ? <img src={w.image_url} alt="" style={{ width:"100%",height:"100%",objectFit:"cover" }} /> : "🃏"}
-                </div>
-                <div style={{ flex:1 }}>
-                  <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:14, color:C.text, marginBottom:3 }}>{w.member||w.name}</p>
-                  <p style={{ fontSize:11, color:C.textMid, marginBottom:6 }}>{w.group_name||w.group}{(w.album||w.era)&&` · ${w.album||w.era}`}</p>
-                  <div style={{ ...VS.activePill(C.gold), fontSize:8.5 }}>♡ ISO</div>
-                </div>
-                <button onClick={()=>go("collect")} style={{ background:`${C.gold}18`, border:`1.5px solid ${C.gold}44`, borderRadius:10, padding:"7px 12px", color:C.gold, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10, cursor:"pointer" }}>Find →</button>
-              </div>
-            ))}
-            {/* Set ISO cards */}
-            {PC_CATALOG_SETS.flatMap(s=>s.members.filter(m=>(pcSetData[s.id]||{})[m]==="wishlist").map(m=>({setId:s.id,group:s.group,era:s.era,version:s.version,emoji:s.emoji,color:s.color,member:m}))).map((w,i)=>(
-              <div key={`set-iso-${w.setId}-${w.member}`} className="tap" style={{ ...VS.glowCard(w.color), padding:14, marginBottom:10, cursor:"pointer", display:"flex", gap:12, alignItems:"center" }}>
-                <div style={{ width:48,height:64,borderRadius:10,background:`linear-gradient(160deg,${w.color}44,${w.color}18)`,border:`1.5px solid ${w.color}55`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0 }}>{w.emoji}</div>
-                <div style={{ flex:1 }}>
-                  <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:14, color:C.text, marginBottom:3 }}>{w.member}</p>
-                  <p style={{ fontSize:11, color:C.textMid, marginBottom:4 }}>{w.group} · {w.era} · {w.version}</p>
-                  <div style={{ display:"flex", gap:5 }}>
-                    <div style={{ ...VS.activePill(w.color), fontSize:8.5 }}>♡ ISO</div>
-                    <div style={{ fontSize:8.5, color:C.textDim, padding:"3px 7px", borderRadius:99, background:C.surfaceHi }}>Set</div>
-                  </div>
-                </div>
-                <button onClick={()=>{ setSection("albums"); setAlbumSubView("photocards"); }} style={{ background:`${w.color}18`, border:`1.5px solid ${w.color}44`, borderRadius:10, padding:"7px 12px", color:w.color, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10, cursor:"pointer" }}>Sets →</button>
-              </div>
-            ))}
-            {isVip ? (
-              <button onClick={()=>setShowSmartMatch(true)} style={{ width:"100%", marginTop:8, padding:14, borderRadius:14, background:`${softBlue}0a`, border:`1.5px solid ${softBlue}44`, color:softBlue, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, cursor:"pointer" }}>✦ Smart Matching — Find My ISOs</button>
-            ) : (
-              <button onClick={onUpgrade} style={{ width:"100%", marginTop:8, padding:14, borderRadius:14, background:`${C.gold}08`, border:`1.5px dashed ${C.gold}33`, color:C.gold, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, cursor:"pointer" }}>✦ VIP: Unlimited Wishlist + Smart Matching</button>
-            )}
-          </div>
-        )}
       </Screen>
 
-      {/* Decorate My Universe — wires the FAB action to the real theme system
+      {/* Decorate My World — wires the FAB action to the real theme system
           (myWorldTheme / THEME_BG already drives the atmospheric background above). */}
       {showDecorate&&(
         <div onClick={()=>setShowDecorate(false)} style={{ position:"fixed",inset:0,zIndex:410,background:"rgba(6,6,15,0.72)",display:"flex",alignItems:"flex-end",animation:"in .2s ease",backdropFilter:"blur(7px)" }}>
           <div onClick={e=>e.stopPropagation()} style={{ width:"100%",maxHeight:"82vh",overflowY:"auto",background:C.modalBg,backdropFilter:"blur(24px) saturate(1.4)",borderRadius:"26px 26px 0 0",border:`1px solid ${C.modalBorder}`,padding:"18px 16px calc(30px + env(safe-area-inset-bottom))",boxShadow:`${C.modalShadow}, inset 0 1px 0 rgba(255,255,255,0.42)`,animation:"slideUp .25s ease" }}>
             <div style={{ width:36,height:4,borderRadius:99,background:C.modalBorderHi,opacity:.65,margin:"0 auto 16px" }} />
             <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:16 }}>
-              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:17,color:C.modalText }}>Decorate My Universe</p>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:17,color:C.modalText }}>Decorate My World</p>
               <button onClick={()=>setShowDecorate(false)} aria-label="Close" style={{ width:34,height:34,borderRadius:12,background:`${C.modalText}14`,border:`1px solid ${C.modalBorder}`,color:C.modalText,fontSize:16,cursor:"pointer" }}>✕</button>
             </div>
             <p style={{ fontSize:9,color:C.modalTextMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10 }}>World Theme</p>
@@ -8694,7 +8723,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                 </div>
               ))}
             </div>
-            <p style={{ fontSize:10.5, color:C.modalTextDim, lineHeight:1.55 }}>Sets the ambient background across My Universe. More decoration options — album covers, shelf layout — are coming soon.</p>
+            <p style={{ fontSize:10.5, color:C.modalTextDim, lineHeight:1.55 }}>Sets the ambient background across My World. More decoration options — album covers, shelf layout — are coming soon.</p>
           </div>
         </div>
       )}
@@ -8705,8 +8734,8 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
             <div style={{ width:36,height:4,borderRadius:99,background:softBlue2,opacity:.65,margin:"0 auto 16px" }} />
             <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:14 }}>
               <div>
-                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:19,color:C.modalText,marginBottom:3 }}>Collection Tracker</p>
-                <p style={{ fontSize:11,color:C.modalTextMid }}>Albums, photocards, binders, ISO, and trades.</p>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:19,color:C.modalText,marginBottom:3 }}>Binder Progress</p>
+                <p style={{ fontSize:11,color:C.modalTextMid }}>A snapshot across binders, photocards, ISO, and trades.</p>
               </div>
               <button onClick={()=>setShowCollectionTracker(false)} aria-label="Close collection tracker" style={{ width:38,height:38,borderRadius:14,background:`${C.modalText}14`,border:`1px solid ${C.modalBorder}`,color:C.modalText,fontSize:18,cursor:"pointer" }}>x</button>
             </div>
@@ -8849,7 +8878,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                 ) : (
                   <div style={{ textAlign:"center",padding:"30px 10px" }}>
                     <p style={{ fontSize:11.5,color:C.modalTextDim,lineHeight:1.6,marginBottom:16 }}>No ISO cards yet. Add cards to your wishlist from albums or trades.</p>
-                    <button onClick={()=>{ setSection("albums"); setAlbumSubView("binders"); setShowCollectionTracker(false); }} className="tap" style={{ ...VS.glowButton(softBlue,C.accent), padding:"11px 22px", border:"none" }}>Browse Albums</button>
+                    <button onClick={()=>{ setSection("albums"); setAlbumSubView("binders"); setShowCollectionTracker(false); }} className="tap" style={{ ...VS.glowButton(softBlue,C.accent), padding:"11px 22px", border:"none" }}>Browse Binders</button>
                   </div>
                 )}
               </div>
@@ -8870,7 +8899,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                 ) : (
                   <div style={{ textAlign:"center",padding:"30px 10px" }}>
                     <p style={{ fontSize:11.5,color:C.modalTextDim,lineHeight:1.6,marginBottom:16 }}>No tradeable cards yet. Mark duplicates as tradeable to appear here.</p>
-                    <button onClick={()=>{ setSection("albums"); setAlbumSubView("trades"); setShowCollectionTracker(false); }} className="tap" style={{ ...VS.glowButton(C.rose,C.berry), padding:"11px 22px", border:"none" }}>Open Trade Hub</button>
+                    <button onClick={()=>{ setSection("trades"); setShowCollectionTracker(false); }} className="tap" style={{ ...VS.glowButton(C.rose,C.berry), padding:"11px 22px", border:"none" }}>Open Trades</button>
                   </div>
                 )}
               </div>
@@ -8883,12 +8912,14 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
         <div onClick={()=>setShowQuickAdd(false)} style={{ position:"fixed",inset:0,zIndex:400,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
           <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:"22px 20px 36px",width:"100%",animation:"slideUp .25s ease" }}>
             <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 18px" }} />
-            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17,marginBottom:18 }}>What do you want to add?</p>
-            <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17,marginBottom:4 }}>Add to My World</p>
+            <p style={{ fontSize:11,color:C.textMid,marginBottom:16 }}>Log a card, start a binder, or save what you're after.</p>
+            <div style={{ display:"flex",flexDirection:"column",gap:10,marginBottom:16 }}>
               {[
-                {emoji:"📸",label:"Add Memory",sub:"Save a moment to a scrapbook",color:C.sky,action:()=>{setSection("scrapbook");setShowQuickAdd(false);}},
-                {emoji:"🃏",label:"Add Photocard",sub:"Log a card to your collection",color:C.pink,action:()=>{setSection("albums");setAlbumSubView("photocards");setShowQuickAdd(false);}},
-                {emoji:"📁",label:"New Binder",sub:"Start a new era tracker",color:C.accent,action:()=>{setSection("albums");setShowQuickAdd(false);}},
+                {emoji:"🃏",label:"Add Photocard",sub:"Upload or log a card you own.",color:C.pink,action:()=>{setAddCardInitialStatus("owned");setShowAddCard(true);setShowQuickAdd(false);}},
+                {emoji:"📁",label:"Start Binder",sub:"Create a tracker for an album, era, or custom set.",color:C.accent,action:()=>{setShowStartBinder(true);setShowQuickAdd(false);}},
+                {emoji:"♡",label:"Add Wishlist / ISO Card",sub:"Save a card you're looking for.",color:C.gold,action:()=>{setAddCardInitialStatus("iso");setShowAddCard(true);setShowQuickAdd(false);}},
+                {emoji:"🎴",label:"Browse Templates",sub:"Start from official or starter templates.",color:softBlue,action:()=>{setSection("albums");setAlbumSubView("photocards");setPcView("sets");setShowQuickAdd(false);}},
               ].map(opt=>(
                 <div key={opt.label} onClick={opt.action} className="tap" style={{ display:"flex",gap:14,alignItems:"center",padding:"13px 14px",borderRadius:16,background:`${opt.color}12`,border:`1.5px solid ${opt.color}30`,cursor:"pointer" }}>
                   <span style={{ fontSize:22 }}>{opt.emoji}</span>
@@ -8897,6 +8928,18 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                     <p style={{ fontSize:11,color:C.textMid }}>{opt.sub}</p>
                   </div>
                 </div>
+              ))}
+            </div>
+            <div style={{ borderTop:`1px solid ${C.border}`,paddingTop:12,display:"flex",gap:8 }}>
+              {[
+                {emoji:"📸",label:"Add Memory",action:()=>{setSection("scrapbook");setShowQuickAdd(false);}},
+                {emoji:"✨",label:"Ask Backstage AI",action:()=>{go("assistant");setShowQuickAdd(false);}},
+                {emoji:"🎨",label:"Decorate",action:()=>{setSection("albums");setShowDecorate(true);setShowQuickAdd(false);}},
+              ].map(opt=>(
+                <button key={opt.label} onClick={opt.action} className="tap" style={{ flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"9px 4px",borderRadius:12,background:"transparent",border:`1px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:9.5,cursor:"pointer" }}>
+                  <span style={{ fontSize:15 }}>{opt.emoji}</span>
+                  <span>{opt.label}</span>
+                </button>
               ))}
             </div>
           </div>
@@ -9283,7 +9326,8 @@ function BinderCreate({ onBack, onCustom, onCreatedBinder }) {
         {/* DB templates */}
         {!dbLoading && showingDb && (
           <>
-            {!dbError && <p style={{ fontSize:9.5, color:C.textDim, marginBottom:10, fontFamily:"'Epilogue',sans-serif", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.08em" }}>Backstage Starter Templates</p>}
+            {!dbError && <p style={{ fontSize:9.5, color:C.textDim, marginBottom:4, fontFamily:"'Epilogue',sans-serif", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.08em" }}>Backstage Starter Templates</p>}
+            {!dbError && <p style={{ fontSize:10.5, color:C.textDim, marginBottom:10, lineHeight:1.6 }}>Starter templates help you begin — not a complete discography. Add or customize albums and versions anytime.</p>}
             <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:14 }}>
               {(filteredDb.length ? filteredDb : dbTemplates).map(t => {
                 const col = t.cover_color || C.accent;
@@ -9315,7 +9359,8 @@ function BinderCreate({ onBack, onCustom, onCreatedBinder }) {
         {/* Mock fallback (when DB unavailable) */}
         {!dbLoading && !showingDb && (
           <>
-            <p style={{ fontSize:9.5, color:C.textDim, marginBottom:10, fontFamily:"'Epilogue',sans-serif", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.08em" }}>Starter Templates</p>
+            <p style={{ fontSize:9.5, color:C.textDim, marginBottom:4, fontFamily:"'Epilogue',sans-serif", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.08em" }}>Starter Templates</p>
+            <p style={{ fontSize:10.5, color:C.textDim, marginBottom:10, lineHeight:1.6 }}>Starter templates help you begin — not a complete discography. Add or customize albums and versions anytime.</p>
             <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:14 }}>
               {filteredMock.map(t => (
                 <button key={t.id} onClick={()=>openMockTemplate(t)} className="tap" style={{ padding:"14px 16px", borderRadius:22, textAlign:"left", cursor:"pointer", ...VS.glowCard(t.color) }}>
@@ -9410,12 +9455,12 @@ function CustomBinderForm({ onBack, onSaved }) {
 }
 
 // ─── ADD CARD FORM ─────────────────────────────────────────────────────────────
-function AddCardForm({ binder, onBack, onSaved }) {
+function AddCardForm({ binder, initialStatus, onBack, onSaved }) {
   const STATUSES = ["owned","missing","iso","duplicate","for_trade"];
   const STATUS_LABELS = {owned:"✓ Owned",missing:"— Missing",iso:"♡ ISO",duplicate:"×2 Duplicate",for_trade:"⇄ For Trade"};
   const STATUS_COLORS = {owned:C.mint,missing:C.textDim,iso:C.accent,duplicate:C.gold,for_trade:C.rose};
 
-  const [form, setForm] = useState({ group_name:binder?.group_name||"", member:"", album:binder?.name||"", era:"", version:"", condition:"mint", status:"owned", notes:"" });
+  const [form, setForm] = useState({ group_name:binder?.group_name||"", member:"", album:binder?.name||"", era:"", version:"", condition:"mint", status:initialStatus||"owned", notes:"" });
   const [photoFile, setPhotoFile] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -9639,16 +9684,35 @@ function BinderDetail({ binder, onBack }) {
   const [loading, setLoading]           = useState(true);
   const [showAddCard, setShowAddCard]   = useState(false);
   const [tradingCard, setTradingCard]   = useState(null);
+  const [detailCard, setDetailCard]     = useState(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const photoInputRef = useRef(null);
 
   useEffect(() => {
     api.get(`/api/cards?binder_id=${binder.id}`)
       .then(d => { setCards(d?.cards || []); setLoading(false); });
   }, [binder.id]);
 
-  const cycleStatus = async (card) => {
-    const next = STATUS_ORDER[(STATUS_ORDER.indexOf(card.status)+1) % STATUS_ORDER.length];
+  // Explicit status change — no more tap-to-cycle. Called only from the Card Detail Sheet's status selector.
+  const setCardStatus = (card, next) => {
     setCards(cs => cs.map(c => c.id===card.id ? {...c,status:next} : c));
+    setDetailCard(d => d && d.id===card.id ? {...d,status:next} : d);
     api.patch(`/api/cards/${card.id}`, { status:next });
+  };
+
+  const uploadCardPhoto = async (e, card) => {
+    const f = e.target.files[0]; if (!f) return;
+    setUploadingPhoto(true);
+    try {
+      const urlRes = await api.post('/api/cards/upload-url', { filename: f.name, content_type: f.type });
+      if (urlRes?.signed_url) {
+        await fetch(urlRes.signed_url, { method:'PUT', body:f, headers:{'Content-Type':f.type} });
+        await api.patch(`/api/cards/${card.id}`, { image_url: urlRes.public_url });
+        setCards(cs => cs.map(c => c.id===card.id ? {...c,image_url:urlRes.public_url} : c));
+        setDetailCard(d => d && d.id===card.id ? {...d,image_url:urlRes.public_url} : d);
+      }
+    } catch { /* keep no-photo placeholder on failure */ }
+    setUploadingPhoto(false);
   };
 
   const deleteCard = (cardId) => {
@@ -9684,7 +9748,7 @@ function BinderDetail({ binder, onBack }) {
             <p style={{ fontSize:9,color:C.textMid }}>{m.badge}</p>
           </div>
         ))}
-        <p style={{ fontSize:9,color:C.textDim,marginLeft:"auto" }}>tap to cycle</p>
+        <p style={{ fontSize:9,color:C.textDim,marginLeft:"auto" }}>tap a card for details</p>
       </div>
 
       <Screen style={{ padding:"0 18px calc(120px + env(safe-area-inset-bottom))" }}>
@@ -9703,7 +9767,7 @@ function BinderDetail({ binder, onBack }) {
                     <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:13,color:C.text,lineHeight:1.1 }}>{linkedEraBoard.era}</p>
                     <p style={{ fontSize:10,color:pal[0],fontFamily:"'Epilogue',sans-serif",fontWeight:700,marginTop:2,textTransform:"uppercase",letterSpacing:"0.05em" }}>{linkedEraBoard.group}</p>
                   </div>
-                  <span style={{ background:`${pal[0]}18`,border:`1px solid ${pal[0]}44`,borderRadius:99,padding:"3px 9px",fontSize:8.5,color:pal[0],fontFamily:"'Epilogue',sans-serif",fontWeight:700,letterSpacing:"0.04em" }}>🎭 Era Board</span>
+                  <span style={{ background:`${pal[0]}18`,border:`1px solid ${pal[0]}44`,borderRadius:99,padding:"3px 9px",fontSize:8.5,color:pal[0],fontFamily:"'Epilogue',sans-serif",fontWeight:700,letterSpacing:"0.04em" }}>🎭 Era Room</span>
                 </div>
                 <div style={{ display:"flex",gap:8,marginBottom:10 }}>
                   {[[savedTmpls,"templates",C.accent],[savedWish,"wishlist",C.gold],[savedFits,"fits",C.lavender]].map(([val,label,col])=>(
@@ -9758,7 +9822,7 @@ function BinderDetail({ binder, onBack }) {
             {linkedEraBoard ? (
               <>
                 <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:15,marginBottom:6 }}>Binder linked — no cards yet</p>
-                <p style={{ fontSize:12,color:C.textMid,marginBottom:16,lineHeight:1.7 }}>This binder is linked to your {linkedEraBoard.group} {linkedEraBoard.era} Era Board. Open the Era Room to save templates or wishlist cards — they'll show up here.</p>
+                <p style={{ fontSize:12,color:C.textMid,marginBottom:16,lineHeight:1.7 }}>This binder is linked to your {linkedEraBoard.group} {linkedEraBoard.era} Era Room. Open it to save templates or wishlist cards — they'll show up here.</p>
                 <button onClick={openLinkedEraRoom} className="tap" style={{ padding:"10px 18px",borderRadius:12,background:`${linkedEraBoard.palette?.[0]||C.accent}18`,border:`1.5px solid ${linkedEraBoard.palette?.[0]||C.accent}44`,color:linkedEraBoard.palette?.[0]||C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer",marginBottom:12 }}>
                   Open Era Room →
                 </button>
@@ -9777,26 +9841,33 @@ function BinderDetail({ binder, onBack }) {
 
         {!loading && cards.length>0 && (
           <>
-            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:9,paddingTop:4 }}>
+            <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:9,paddingTop:4 }}>
               {cards.map(card=>{
                 const meta = STATUS_META[card.status]||STATUS_META.missing;
+                const photo = card.image_url;
                 return (
                   <div key={card.id} style={{ position:"relative" }}>
-                    <button onClick={()=>cycleStatus(card)} style={{
-                      width:"100%",padding:"12px 10px",borderRadius:18,textAlign:"left",cursor:"pointer",
-                      background:`linear-gradient(150deg,${meta.color}14,${meta.color}06)`,
-                      border:`1.5px solid ${meta.color}${card.status==="missing"?"22":"44"}`,
-                      boxShadow:`0 4px 12px ${meta.color}08`,position:"relative",overflow:"hidden",
+                    <div onClick={()=>setDetailCard(card)} className="tap card-lift" style={{
+                      borderRadius:16,aspectRatio:"2/3",cursor:"pointer",overflow:"hidden",position:"relative",
+                      background:photo?"transparent":`linear-gradient(160deg,${meta.color}38,${meta.color}14)`,
+                      border:`1.5px solid ${meta.color}${card.status==="missing"?"33":"66"}`,
+                      boxShadow:`0 4px 16px rgba(0,0,0,0.4)`,display:"flex",flexDirection:"column",justifyContent:"flex-end",
                     }}>
-                      <div style={{ position:"absolute",top:-10,right:-10,width:40,height:40,borderRadius:"50%",background:`radial-gradient(circle,${meta.color}18,transparent 65%)`,pointerEvents:"none" }} />
-                      <div style={{ display:"flex",alignItems:"center",gap:7,marginBottom:card.version?4:0 }}>
-                        <div style={{ width:22,height:22,borderRadius:7,background:meta.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:card.status==="missing"?C.textMid:C.bg,fontWeight:800,flexShrink:0 }}>{meta.label}</div>
-                        <p style={{ fontSize:10.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,color:card.status==="missing"?C.textMid:C.text,lineHeight:1.3 }}>{card.member}</p>
+                      {photo ? (
+                        <img src={photo} alt={card.member} style={{ position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover" }} />
+                      ) : (
+                        <div style={{ position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center" }}>
+                          <span style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:30,color:meta.color,opacity:0.32 }}>{(card.member||"?")[0]}</span>
+                        </div>
+                      )}
+                      <div style={{ position:"relative",zIndex:2,background:photo?"rgba(6,6,15,0.72)":"transparent",padding:"6px 7px" }}>
+                        <p style={{ fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:photo?C.white:C.text,lineHeight:1.2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{card.member}</p>
+                        <p style={{ fontSize:8,color:photo?"rgba(255,255,255,0.7)":C.textDim,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{binder.group_name||card.group_name||""}</p>
+                        <span style={{ display:"inline-block",marginTop:4,fontSize:7,fontWeight:800,padding:"2px 6px",borderRadius:99,background:meta.color,color:card.status==="missing"?C.text:C.bg }}>{meta.badge}</span>
                       </div>
-                      {card.version&&<p style={{ fontSize:9,color:C.textDim,marginLeft:29 }}>{card.version}</p>}
-                    </button>
+                    </div>
                     {card.status==="for_trade"&&(
-                      <button onClick={()=>setTradingCard(card)} style={{ position:"absolute",bottom:6,right:6,background:C.rose,border:"none",borderRadius:7,padding:"3px 7px",color:C.bg,fontSize:8.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>List →</button>
+                      <button onClick={()=>setTradingCard(card)} style={{ position:"absolute",bottom:6,right:6,background:C.rose,border:"none",borderRadius:7,padding:"3px 7px",color:C.bg,fontSize:8.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",zIndex:3 }}>List →</button>
                     )}
                     <button onClick={e=>{e.stopPropagation();deleteCard(card.id);}} style={{ position:"absolute",top:-5,right:-5,width:18,height:18,borderRadius:"50%",background:C.surfaceMid,border:`1.5px solid ${C.border}`,color:C.textDim,fontSize:9,cursor:"pointer",zIndex:5,display:"flex",alignItems:"center",justifyContent:"center",padding:0 }}>✕</button>
                   </div>
@@ -9823,6 +9894,58 @@ function BinderDetail({ binder, onBack }) {
           </>
         )}
       </Screen>
+
+      {/* Card Detail Sheet — replaces tap-to-cycle. Status changes only happen
+          through this explicit selector, never from tapping the tile itself. */}
+      {detailCard && (() => {
+        const meta = STATUS_META[detailCard.status]||STATUS_META.missing;
+        const photo = detailCard.image_url;
+        return (
+          <div onClick={()=>setDetailCard(null)} style={{ position:"fixed",inset:0,zIndex:420,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+            <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:"22px 20px 36px",width:"100%",maxHeight:"85vh",overflowY:"auto",animation:"slideUp .25s ease" }}>
+              <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 18px" }} />
+              <div style={{ display:"flex",gap:14,alignItems:"flex-start",marginBottom:18 }}>
+                <div style={{ width:78,height:117,borderRadius:14,flexShrink:0,overflow:"hidden",position:"relative",background:photo?"transparent":`linear-gradient(160deg,${meta.color}38,${meta.color}14)`,border:`1.5px solid ${meta.color}55` }}>
+                  {photo ? <img src={photo} alt={detailCard.member} style={{ width:"100%",height:"100%",objectFit:"cover" }} /> : (
+                    <div style={{ position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center" }}>
+                      <span style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:26,color:meta.color,opacity:0.35 }}>{(detailCard.member||"?")[0]}</span>
+                    </div>
+                  )}
+                </div>
+                <div style={{ flex:1,minWidth:0 }}>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:17,color:C.text,lineHeight:1.2,marginBottom:3 }}>{detailCard.member}</p>
+                  <p style={{ fontSize:11.5,color:C.textMid,marginBottom:2 }}>{binder.group_name||detailCard.group_name||""}</p>
+                  <p style={{ fontSize:11,color:C.textDim }}>{[detailCard.album||detailCard.era, detailCard.version].filter(Boolean).join(" · ")}</p>
+                  <div style={{ marginTop:8,display:"inline-block",fontSize:9.5,fontWeight:800,padding:"3px 9px",borderRadius:99,background:meta.color,color:detailCard.status==="missing"?C.text:C.bg }}>{meta.badge}</div>
+                </div>
+              </div>
+
+              {detailCard.status==="owned" && (
+                <>
+                  <button onClick={()=>photoInputRef.current?.click()} disabled={uploadingPhoto} style={{ width:"100%",marginBottom:14,padding:"10px",borderRadius:12,background:`${C.accent}14`,border:`1.5px solid ${C.accent}44`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer" }}>{uploadingPhoto?"⏳ Uploading...":photo?"📷 Replace photo":"📸 Add a photo"}</button>
+                  <input ref={photoInputRef} type="file" accept="image/*" onChange={e=>uploadCardPhoto(e,detailCard)} style={{ display:"none" }} />
+                </>
+              )}
+
+              <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8 }}>Status</p>
+              <div style={{ display:"flex",gap:6,flexWrap:"wrap",marginBottom:16 }}>
+                {STATUS_ORDER.map(s=>{
+                  const m = STATUS_META[s];
+                  const active = detailCard.status===s;
+                  return (
+                    <button key={s} onClick={()=>setCardStatus(detailCard,s)} style={{ padding:"8px 13px",borderRadius:99,fontSize:11,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:active?m.color:"transparent",color:active?(s==="missing"?C.text:C.bg):m.color,border:`1.5px solid ${m.color}${active?"":"55"}` }}>{m.badge}</button>
+                  );
+                })}
+              </div>
+
+              {detailCard.status==="for_trade" && (
+                <button onClick={()=>{ setTradingCard(detailCard); setDetailCard(null); }} className="tap" style={{ width:"100%",marginBottom:10,padding:"11px",borderRadius:12,background:C.rose,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,cursor:"pointer" }}>List for Trade →</button>
+              )}
+              <button onClick={()=>{ deleteCard(detailCard.id); setDetailCard(null); }} className="tap" style={{ width:"100%",padding:"11px",borderRadius:12,background:"transparent",border:`1.5px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer" }}>Remove card</button>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -10821,7 +10944,7 @@ function CollectTab({ cards, setCards, isVip, onUpgrade, user, onAddMemory, hide
       {!hideNav && (
         <div style={{ padding:"0 20px 0", flexShrink:0 }}>
           <div style={{ display:"flex", gap:0, background:C.surfaceHi, borderRadius:13, padding:3, marginBottom:14 }}>
-            {[["shelf","Memories"],["wishlist","Wishlist"],["binders","Albums"],["trades","Trades"]].map(([id,label])=>(
+            {[["shelf","Memories"],["wishlist","Wishlist"],["binders","Binders"],["trades","Trades"]].map(([id,label])=>(
               <span key={id} onClick={()=>setView(id)} style={{ flex:1, textAlign:"center", padding:"8px 4px", borderRadius:10, fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:view===id?C.accent:"transparent", color:view===id?C.bg:C.textMid, transition:"all .18s" }}>{label}</span>
             ))}
           </div>
@@ -10860,22 +10983,22 @@ function CollectTab({ cards, setCards, isVip, onUpgrade, user, onAddMemory, hide
           <div>
             {/* Create Binder CTAs */}
             <div style={{ display:"flex", gap:10, marginBottom:16 }}>
-              <button onClick={()=>setShowBinderCreate(true)} className="tap" style={{ flex:1, padding:"14px 14px", borderRadius:20, textAlign:"left", cursor:"pointer", background:`linear-gradient(145deg,${C.accent}18,${C.pink}10)`, border:`1.5px solid ${C.accent}38`, position:"relative", overflow:"hidden" }}>
+              <button onClick={()=>setShowBinderCreate(true)} className="tap" style={{ flex:1, minWidth:0, padding:"12px 10px", borderRadius:20, textAlign:"left", cursor:"pointer", background:`linear-gradient(145deg,${C.accent}18,${C.pink}10)`, border:`1.5px solid ${C.accent}38`, position:"relative", overflow:"hidden" }}>
                 <div style={{ position:"absolute",top:-10,right:-10,width:60,height:60,borderRadius:"50%",background:`radial-gradient(circle,${C.accent}18,transparent 65%)`,pointerEvents:"none" }} />
-                <div style={{ position:"relative", display:"flex", gap:10, alignItems:"center" }}>
-                  <div style={{ width:38,height:38,borderRadius:12,background:`${C.accent}22`,border:`1.5px solid ${C.accent}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18 }}>🃏</div>
-                  <div>
-                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,color:C.text,marginBottom:1 }}>Use Template</p>
-                    <p style={{ fontSize:10,color:C.textMid }}>BTS, SKZ, aespa + more</p>
+                <div style={{ position:"relative", display:"flex", gap:8, alignItems:"center", minWidth:0 }}>
+                  <div style={{ width:32,height:32,borderRadius:11,flexShrink:0,background:`${C.accent}22`,border:`1.5px solid ${C.accent}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16 }}>🃏</div>
+                  <div style={{ minWidth:0 }}>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,color:C.text,marginBottom:1,whiteSpace:"nowrap" }}>Use Template</p>
+                    <p style={{ fontSize:9.5,color:C.textMid,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>BTS, SKZ, aespa + more</p>
                   </div>
                 </div>
               </button>
-              <button onClick={()=>setShowCustomBinder(true)} className="tap" style={{ flex:1, padding:"14px 14px", borderRadius:20, textAlign:"left", cursor:"pointer", background:`linear-gradient(145deg,${C.pink}14,${C.rose}08)`, border:`1.5px solid ${C.pink}38`, position:"relative", overflow:"hidden" }}>
-                <div style={{ position:"relative", display:"flex", gap:10, alignItems:"center" }}>
-                  <div style={{ width:38,height:38,borderRadius:12,background:`${C.pink}22`,border:`1.5px solid ${C.pink}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18 }}>✨</div>
-                  <div>
-                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,color:C.text,marginBottom:1 }}>Custom</p>
-                    <p style={{ fontSize:10,color:C.textMid }}>Any group / era</p>
+              <button onClick={()=>setShowCustomBinder(true)} className="tap" style={{ flex:1, minWidth:0, padding:"12px 10px", borderRadius:20, textAlign:"left", cursor:"pointer", background:`linear-gradient(145deg,${C.pink}14,${C.rose}08)`, border:`1.5px solid ${C.pink}38`, position:"relative", overflow:"hidden" }}>
+                <div style={{ position:"relative", display:"flex", gap:8, alignItems:"center", minWidth:0 }}>
+                  <div style={{ width:32,height:32,borderRadius:11,flexShrink:0,background:`${C.pink}22`,border:`1.5px solid ${C.pink}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16 }}>✨</div>
+                  <div style={{ minWidth:0 }}>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,color:C.text,marginBottom:1,whiteSpace:"nowrap" }}>Custom</p>
+                    <p style={{ fontSize:9.5,color:C.textMid,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>Any group / era</p>
                   </div>
                 </div>
               </button>
@@ -10896,7 +11019,7 @@ function CollectTab({ cards, setCards, isVip, onUpgrade, user, onAddMemory, hide
             {binders.map(b=>{
               const col = b.cover_color || C.accent;
               return (
-                <div key={b.id} onClick={()=>setSelectedBinder(b)} className="tap" style={{ marginBottom:12, ...VS.glowCard(col), padding:16, cursor:"pointer" }}>
+                <div key={b.id} onClick={()=>setSelectedBinder(b)} className="tap" style={{ marginBottom:12, ...VS.glowCard(col), padding:"16px 56px 16px 16px", cursor:"pointer" }}>
                   <div style={VS.shimmerLine(col)} />
                   <div style={VS.innerGlow(col)} />
                   <div style={{ position:"relative" }}>
