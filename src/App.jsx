@@ -22623,40 +22623,37 @@ const PASS_TEXT_POSITIONS = [
   {id:"bottom", label:"Bottom",      top:"60%"},
   {id:"lower",  label:"Lower Third", top:"74%"},
 ];
-const PASS_STICKER_CATEGORIES = [
-  {id:"concert",    label:"Concert",    items:[
-    {id:"lightstick", emoji:"💡", label:"Lightstick"},
-    {id:"vip",         emoji:"🎫", label:"VIP"},
-    {id:"soundcheck",  emoji:"🔊", label:"Soundcheck"},
-    {id:"seatview",    emoji:"📍", label:"Seat View"},
-    {id:"checkedin",   emoji:"✓",  label:"Checked In"},
-  ]},
-  {id:"fandom",     label:"Fandom",     items:[
-    {id:"biasmoment", emoji:"⭐", label:"Bias Moment"},
-    {id:"fanbuddy",    emoji:"🤝", label:"Fan Buddy"},
-    {id:"eraworthy",   emoji:"✨", label:"In My Concert Era"},
-  ]},
-  {id:"photocards", label:"Photocards", items:[
-    {id:"pullreveal",   emoji:"🃏", label:"Pull Reveal"},
-    {id:"tradepending", emoji:"🔄", label:"Trade Pending"},
-    {id:"iso",          emoji:"🔍", label:"ISO"},
-    {id:"wtt",          emoji:"↔️", label:"WTT / WTS"},
-  ]},
-  {id:"afterglow",  label:"Afterglow",  items:[
-    {id:"afterglow",  emoji:"🌙", label:"Afterglow"},
-    {id:"cryingcar",  emoji:"😭", label:"Crying in the Car"},
-  ]},
-  {id:"freebies",   label:"Freebies",   items:[
-    {id:"freebiedrop", emoji:"🎁", label:"Freebie Drop"},
-    {id:"merchline",   emoji:"🛍️", label:"Merch Line"},
-  ]},
-  {id:"travel",     label:"Travel",     items:[
-    {id:"travelday", emoji:"✈️", label:"Travel Day"},
-  ]},
-  {id:"mood",       label:"Mood",       items:[
-    {id:"capsuleworthy", emoji:"🔮", label:"Capsule Worthy"},
-  ]},
+// Extra swatches — collapsed behind a "+ More" toggle so the core 5-color
+// Backstage palette stays the default, uncluttered view.
+const PASS_TEXT_COLORS_EXTRA = [
+  {id:"white",  label:"White",       hex:"#FFFFFF"},
+  {id:"ink",    label:"Ink",         hex:"#150B28"},
+  {id:"rose",   label:"Rose",        hex:"#E85D8A"},
+  {id:"sky",    label:"Sky",         hex:"#6FB3E0"},
+  {id:"mint",   label:"Mint",        hex:"#6FE0C0"},
+  {id:"amber",  label:"Amber",       hex:"#D9A441"},
+  {id:"berry",  label:"Berry",       hex:"#B8447A"},
+  {id:"violet", label:"Violet",      hex:"#7C5CFF"},
 ];
+
+// Shared renderer for a text overlay — used by the composer (editable, with a
+// live unsaved-edit preview) and the read-only Pass viewer, so both stay in sync.
+function PassTextLayer({ layer, onEdit, onRemove, preview }) {
+  const styleDef = PASS_TEXT_STYLES.find(s=>s.id===layer.styleId)||PASS_TEXT_STYLES[0];
+  const colorDef = [...PASS_TEXT_COLORS,...PASS_TEXT_COLORS_EXTRA].find(c=>c.id===layer.colorId)||PASS_TEXT_COLORS[0];
+  const posDef = PASS_TEXT_POSITIONS.find(p=>p.id===layer.pos)||PASS_TEXT_POSITIONS[1];
+  const bgStyle = layer.bgId==="pill" ? { background:"rgba(0,0,0,0.42)",backdropFilter:"blur(10px)",padding:"6px 14px",borderRadius:99,border:"1px solid rgba(255,255,255,0.2)" }
+    : layer.bgId==="strip" ? { background:"rgba(0,0,0,0.55)",padding:"8px 16px",display:"block" }
+    : { padding:"2px 4px" };
+  return (
+    <div style={{ position:"absolute",top:posDef.top,left:16,right:16,transform:"translateY(-50%)",zIndex:9,textAlign:layer.align,opacity:preview?0.88:1,pointerEvents:onEdit||onRemove?"auto":"none" }}>
+      <span onClick={onEdit} className={onEdit?"tap":undefined} style={{ display:"inline-block",cursor:onEdit?"pointer":"default",...bgStyle,fontFamily:styleDef.fontFamily,fontWeight:styleDef.fontWeight,fontStyle:styleDef.fontStyle||"normal",textTransform:styleDef.textTransform||"none",letterSpacing:styleDef.letterSpacing||"normal",color:colorDef.hex,fontSize:19,lineHeight:1.3,textShadow:styleDef.glow?`0 0 12px ${colorDef.hex},0 0 24px ${colorDef.hex}88,0 2px 10px rgba(0,0,0,0.6)`:"0 2px 10px rgba(0,0,0,0.7)",maxWidth:"100%",wordBreak:"break-word" }}>
+        {layer.text}
+      </span>
+      {onRemove&&<button onClick={onRemove} style={{ marginLeft:6,background:"rgba(0,0,0,0.55)",border:"1px solid rgba(255,255,255,0.3)",borderRadius:"50%",width:18,height:18,color:"#fff",fontSize:10,cursor:"pointer",display:"inline-flex",alignItems:"center",justifyContent:"center",verticalAlign:"middle" }}>✕</button>}
+    </div>
+  );
+}
 
 function BackstagePasses({ onBack, user }) {
   const KEY = "backstage_passes";
@@ -22684,7 +22681,7 @@ function BackstagePasses({ onBack, user }) {
   const [textForm, setTextForm] = useState({ text:"", styleId:"classic", colorId:"pearl", bgId:"none", align:"center", pos:"center", editingId:null });
   const [mentionQuery, setMentionQuery] = useState("");
   const [locationQuery, setLocationQuery] = useState("");
-  const [stickerCat, setStickerCat] = useState(PASS_STICKER_CATEGORIES[0].id);
+  const [showMoreColors, setShowMoreColors] = useState(false);
 
   const addLayer = (layer) => setDraft(d=>({...d, layers:[...d.layers, {id:`ly${Date.now()}${Math.random().toString(36).slice(2,6)}`, ...layer}]}));
   const removeLayer = (id) => setDraft(d=>({...d, layers:d.layers.filter(l=>l.id!==id)}));
@@ -22726,10 +22723,9 @@ function BackstagePasses({ onBack, user }) {
     else addLayer({ type:"mention", username });
   };
 
-  const toggleSticker = (item) => {
-    const existing = stickerLayers.find(l=>l.stickerId===item.id);
-    if(existing) removeLayer(existing.id);
-    else addLayer({ type:"sticker", stickerId:item.id, emoji:item.emoji, label:item.label });
+  const addStickerLayer = (gif) => {
+    addLayer({ type:"sticker", giphyId:gif.id, previewUrl:gif.previewUrl, fullUrl:gif.fullUrl, title:gif.title });
+    setActiveTool(null);
   };
 
   const locationMatches = (locationQuery.trim()
@@ -22775,6 +22771,7 @@ function BackstagePasses({ onBack, user }) {
     setPasses(ps=>[newPass,...ps]);
     if(draft.toCapsule){ const caps=ls.get("backstage_concert_capsules",[]); ls.set("backstage_concert_capsules",[...caps,{...newPass,concertId:"bts-lv-1",category:draft.type,savedAt:Date.now()}]); }
     setDraft({type:"fitcheck",caption:"",duration:"tonight",venueOn:false,venue:"",city:"",checkedIn:false,toCapsule:false,image:null,layers:[]}); setShowDetails(false); setCreating(false);
+    setViewing(newPass); // land on the story you just posted, like Instagram does
   };
 
   // Section filtering
@@ -22791,6 +22788,8 @@ function BackstagePasses({ onBack, user }) {
   const filtered = filter==="all"?sectionPasses:sectionPasses.filter(p=>p.type===filter);
   const unviewed = passes.filter(p=>!p.viewed).length;
   const selectedType = PASS_TYPES.find(t=>t.id===draft.type)||PASS_TYPES[0];
+  const myUsername = `@${user?.name||user?.username||"stan"}`;
+  const myPasses = passes.filter(p=>p.username===myUsername);
 
   const SECTIONS = [
     { id:"circle", label:"My Circle",     color:C.lavender, desc:"Moments from your people." },
@@ -22818,23 +22817,25 @@ function BackstagePasses({ onBack, user }) {
           <button onClick={()=>setCreating(true)} style={{ background:`linear-gradient(135deg,${C.accent},${C.berry})`,border:"none",borderRadius:13,padding:"8px 14px",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:11,cursor:"pointer",flexShrink:0,boxShadow:`0 0 14px ${C.accent}40` }}>+ Pass</button>
         </div>
 
-        {/* ── STORY RINGS ── */}
+        {/* ── STORY RINGS — also the category filter, tap again to clear ── */}
         <div style={{ display:"flex",gap:10,overflowX:"auto",paddingBottom:10,scrollbarWidth:"none" }}>
-          {/* Your ring */}
-          <div onClick={()=>setCreating(true)} className="tap" style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:4,cursor:"pointer" }}>
-            <div style={{ width:52,height:52,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.berry})`,padding:2,boxShadow:`0 0 16px ${C.accent}44` }}>
+          {/* Your ring — view your own latest pass if you have one; the + badge always creates */}
+          <div onClick={()=>{ if(myPasses.length>0) setViewing(myPasses[0]); else setCreating(true); }} className="tap" style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:4,cursor:"pointer" }}>
+            <div style={{ width:52,height:52,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.berry})`,padding:2,boxShadow:`0 0 16px ${C.accent}44`,position:"relative" }}>
               <div style={{ width:"100%",height:"100%",borderRadius:"50%",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20 }}>✦</div>
+              <button onClick={e=>{ e.stopPropagation(); setCreating(true); }} style={{ position:"absolute",bottom:-2,right:-2,width:20,height:20,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.berry})`,border:`2px solid ${C.bg}`,color:"#fff",fontSize:12,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",lineHeight:1 }}>+</button>
             </div>
             <p style={{ fontSize:8,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap" }}>Your Pass</p>
           </div>
           {ringTypes.map(t=>{
             const hasUnviewed=passes.some(p=>p.type===t.id&&!p.viewed);
+            const active=filter===t.id;
             return (
-              <div key={t.id} onClick={()=>setFilter(t.id)} className="tap" style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:4,cursor:"pointer" }}>
-                <div style={{ width:52,height:52,borderRadius:"50%",background:hasUnviewed?`linear-gradient(135deg,${t.color},${C.berry})`:`${t.color}44`,padding:hasUnviewed?2:1.5,boxShadow:hasUnviewed?`0 0 14px ${t.color}55`:"none",transition:"all .2s" }}>
+              <div key={t.id} onClick={()=>setFilter(f=>f===t.id?"all":t.id)} className="tap" style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:4,cursor:"pointer" }}>
+                <div style={{ width:52,height:52,borderRadius:"50%",background:hasUnviewed?`linear-gradient(135deg,${t.color},${C.berry})`:`${t.color}44`,padding:hasUnviewed?2:1.5,boxShadow:active?`0 0 0 2px ${C.bg},0 0 0 4px ${t.color}`:hasUnviewed?`0 0 14px ${t.color}55`:"none",transform:active?"scale(1.06)":"scale(1)",transition:"all .2s" }}>
                   <div style={{ width:"100%",height:"100%",borderRadius:"50%",background:t.grad||C.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22 }}>{t.emoji}</div>
                 </div>
-                <p style={{ fontSize:8,color:hasUnviewed?t.color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap",maxWidth:56,overflow:"hidden",textOverflow:"ellipsis" }}>{t.label}</p>
+                <p style={{ fontSize:8,color:active?t.color:hasUnviewed?t.color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap",maxWidth:56,overflow:"hidden",textOverflow:"ellipsis" }}>{t.label}</p>
               </div>
             );
           })}
@@ -22846,15 +22847,10 @@ function BackstagePasses({ onBack, user }) {
             <span key={s.id} onClick={()=>{setSection(s.id);setFilter("all");}} className="tap" style={{ ...getPillStyle({active:section===s.id}), flex:1,textAlign:"center",padding:"7px 4px",fontSize:10.5,border:"none" }}>{s.label}</span>
           ))}
         </div>
-        {/* Section explainer */}
-        {(() => { const s = SECTIONS.find(s=>s.id===section); return s ? <p style={{ fontSize:10,color:C.textMid,marginBottom:8,fontStyle:"italic" }}>{s.desc}</p> : null; })()}
-
-        {/* ── FILTER PILLS ── */}
-        <div style={{ display:"flex",gap:6,overflowX:"auto",paddingBottom:2,scrollbarWidth:"none" }}>
-          <span onClick={()=>setFilter("all")} className="tap" style={{ ...getPillStyle({active:filter==="all"}), flexShrink:0,padding:"5px 12px",fontSize:10 }}>✦ All</span>
-          {PASS_TYPES.map(t=>(
-            <span key={t.id} onClick={()=>setFilter(t.id)} className="tap" style={{ ...getPillStyle({active:filter===t.id}), flexShrink:0,padding:"5px 11px",fontSize:10,whiteSpace:"nowrap" }}>{t.emoji}</span>
-          ))}
+        {/* Section explainer + clear-filter (filtering now lives on the story rings above) */}
+        <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8 }}>
+          {(() => { const s = SECTIONS.find(s=>s.id===section); return s ? <p style={{ fontSize:10,color:C.textMid,fontStyle:"italic" }}>{s.desc}</p> : <span />; })()}
+          {filter!=="all"&&<span onClick={()=>setFilter("all")} className="tap" style={{ fontSize:9.5,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>✦ Clear filter</span>}
         </div>
       </div>
 
@@ -22941,21 +22937,9 @@ function BackstagePasses({ onBack, user }) {
             {/* Large emoji */}
             <div style={{ position:"absolute",top:"35%",left:"50%",transform:"translate(-50%,-50%)",fontSize:80,opacity:0.15,pointerEvents:"none" }}>{PASS_TYPES.find(t=>t.id===viewing.type)?.emoji||"🎟️"}</div>
             {/* Pass Studio text overlays */}
-            {(viewing.creative_layers||[]).filter(l=>l.type==="text").map(layer=>{
-              const styleDef = PASS_TEXT_STYLES.find(s=>s.id===layer.styleId)||PASS_TEXT_STYLES[0];
-              const colorDef = PASS_TEXT_COLORS.find(c=>c.id===layer.colorId)||PASS_TEXT_COLORS[0];
-              const posDef = PASS_TEXT_POSITIONS.find(p=>p.id===layer.pos)||PASS_TEXT_POSITIONS[1];
-              const bgStyle = layer.bgId==="pill" ? { background:"rgba(0,0,0,0.42)",backdropFilter:"blur(10px)",padding:"6px 14px",borderRadius:99,border:"1px solid rgba(255,255,255,0.2)" }
-                : layer.bgId==="strip" ? { background:"rgba(0,0,0,0.55)",padding:"8px 16px",display:"block" }
-                : { padding:"2px 4px" };
-              return (
-                <div key={layer.id} style={{ position:"absolute",top:posDef.top,left:24,right:24,transform:"translateY(-50%)",zIndex:6,textAlign:layer.align,pointerEvents:"none" }}>
-                  <span style={{ display:"inline-block",...bgStyle,fontFamily:styleDef.fontFamily,fontWeight:styleDef.fontWeight,fontStyle:styleDef.fontStyle||"normal",textTransform:styleDef.textTransform||"none",letterSpacing:styleDef.letterSpacing||"normal",color:colorDef.hex,fontSize:20,lineHeight:1.3,textShadow:styleDef.glow?`0 0 12px ${colorDef.hex},0 0 24px ${colorDef.hex}88,0 2px 10px rgba(0,0,0,0.6)`:"0 2px 10px rgba(0,0,0,0.7)" }}>
-                    {layer.text}
-                  </span>
-                </div>
-              );
-            })}
+            {(viewing.creative_layers||[]).filter(l=>l.type==="text").map(layer=>(
+              <PassTextLayer key={layer.id} layer={layer} />
+            ))}
             {/* Caption */}
             <p style={{ fontFamily:"'Epilogue',sans-serif",fontStyle:"italic",fontWeight:700,fontSize:22,color:"#fff",lineHeight:1.3,marginBottom:10,textShadow:"0 2px 16px rgba(0,0,0,0.8)" }}>"{viewing.caption}"</p>
             {/* Meta */}
@@ -22972,7 +22956,7 @@ function BackstagePasses({ onBack, user }) {
                 <div style={{ display:"flex",gap:6,flexWrap:"wrap",marginBottom:14 }}>
                   {loc&&<span style={{ background:"rgba(0,0,0,0.45)",backdropFilter:"blur(8px)",border:"1px solid rgba(255,255,255,0.2)",borderRadius:99,padding:"5px 11px",fontSize:10.5,color:"#fff",fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>📍 {loc.venue}{loc.city?`, ${loc.city}`:""}</span>}
                   {mentions.map(m=>(<span key={m.id} style={{ background:`${C.accent}22`,border:`1px solid ${C.accent}55`,borderRadius:99,padding:"5px 11px",fontSize:10.5,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>@{m.username}</span>))}
-                  {stickers.map(s=>(<span key={s.id} style={{ background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.2)",borderRadius:99,padding:"5px 11px",fontSize:10.5,color:"#fff",fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{s.emoji} {s.label}</span>))}
+                  {stickers.map(s=>(<img key={s.id} src={s.previewUrl} alt={s.title||"sticker"} style={{ width:44,height:44,borderRadius:10,objectFit:"contain",background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.2)" }} />))}
                 </div>
               );
             })()}
@@ -23030,23 +23014,17 @@ function BackstagePasses({ onBack, user }) {
               ))}
             </div>
 
-            {/* ── TEXT OVERLAYS — placed via position presets, tap to edit ── */}
-            {textLayers.map(layer=>{
-              const styleDef = PASS_TEXT_STYLES.find(s=>s.id===layer.styleId)||PASS_TEXT_STYLES[0];
-              const colorDef = PASS_TEXT_COLORS.find(c=>c.id===layer.colorId)||PASS_TEXT_COLORS[0];
-              const posDef = PASS_TEXT_POSITIONS.find(p=>p.id===layer.pos)||PASS_TEXT_POSITIONS[1];
-              const bgStyle = layer.bgId==="pill" ? { background:"rgba(0,0,0,0.42)",backdropFilter:"blur(10px)",padding:"6px 14px",borderRadius:99,border:"1px solid rgba(255,255,255,0.2)" }
-                : layer.bgId==="strip" ? { background:"rgba(0,0,0,0.55)",padding:"8px 16px",display:"block" }
-                : { padding:"2px 4px" };
-              return (
-                <div key={layer.id} style={{ position:"absolute",top:posDef.top,left:16,right:16,transform:"translateY(-50%)",zIndex:9,textAlign:layer.align }}>
-                  <span onClick={()=>openTextTool(layer)} className="tap" style={{ display:"inline-block",cursor:"pointer",...bgStyle,fontFamily:styleDef.fontFamily,fontWeight:styleDef.fontWeight,fontStyle:styleDef.fontStyle||"normal",textTransform:styleDef.textTransform||"none",letterSpacing:styleDef.letterSpacing||"normal",color:colorDef.hex,fontSize:19,lineHeight:1.3,textShadow:styleDef.glow?`0 0 12px ${colorDef.hex},0 0 24px ${colorDef.hex}88,0 2px 10px rgba(0,0,0,0.6)`:"0 2px 10px rgba(0,0,0,0.7)",maxWidth:"100%",wordBreak:"break-word" }}>
-                    {layer.text}
-                  </span>
-                  <button onClick={()=>removeLayer(layer.id)} style={{ marginLeft:6,background:"rgba(0,0,0,0.55)",border:"1px solid rgba(255,255,255,0.3)",borderRadius:"50%",width:18,height:18,color:"#fff",fontSize:10,cursor:"pointer",display:"inline-flex",alignItems:"center",justifyContent:"center",verticalAlign:"middle" }}>✕</button>
-                </div>
-              );
-            })}
+            {/* ── TEXT OVERLAYS — placed via position presets, tap to edit ──
+                 The layer currently open in the Text sheet is hidden here and
+                 replaced by a live "preview" render below, so style/color/
+                 background/align/position changes are visible on the canvas
+                 immediately, before "Update Text" is pressed. ── */}
+            {textLayers.filter(l=>l.id!==textForm.editingId).map(layer=>(
+              <PassTextLayer key={layer.id} layer={layer} onEdit={()=>openTextTool(layer)} onRemove={()=>removeLayer(layer.id)} />
+            ))}
+            {activeTool==="text"&&textForm.text.trim()&&(
+              <PassTextLayer layer={textForm} preview />
+            )}
 
             {/* ── MEDIA PICKER — visible when no photo ── */}
             {!draft.image&&(
@@ -23073,9 +23051,9 @@ function BackstagePasses({ onBack, user }) {
             {/* ── FLOATING CAPTION — a visible glass card, not transparent text
                  floating on the photo, so it reads as an actual input field ── */}
             <div style={{ position:"absolute",bottom:0,left:0,right:0,padding:"0 18px 18px",background:"linear-gradient(to top,rgba(0,0,0,0.78),transparent)",zIndex:10 }}>
-              {/* ── STICKER TRAY — location, mentions, fandom stickers ── */}
+              {/* ── STICKER TRAY — location, mentions, real Giphy stickers ── */}
               {(locationLayer||mentionLayers.length>0||stickerLayers.length>0)&&(
-                <div style={{ display:"flex",gap:6,flexWrap:"wrap",marginBottom:10 }}>
+                <div style={{ display:"flex",gap:6,flexWrap:"wrap",marginBottom:10,alignItems:"center" }}>
                   {locationLayer&&(
                     <span onClick={()=>removeLayer(locationLayer.id)} className="tap" style={{ display:"flex",alignItems:"center",gap:5,background:"rgba(0,0,0,0.45)",backdropFilter:"blur(10px)",border:"1px solid rgba(255,255,255,0.22)",borderRadius:99,padding:"5px 11px",fontSize:10,color:"#fff",fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>
                       📍 {locationLayer.venue}{locationLayer.city?`, ${locationLayer.city}`:""} <span style={{ opacity:0.5 }}>✕</span>
@@ -23087,8 +23065,9 @@ function BackstagePasses({ onBack, user }) {
                     </span>
                   ))}
                   {stickerLayers.map(l=>(
-                    <span key={l.id} onClick={()=>removeLayer(l.id)} className="tap" style={{ background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.22)",borderRadius:99,padding:"5px 11px",fontSize:10,color:"#fff",fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>
-                      {l.emoji} {l.label} <span style={{ opacity:0.5 }}>✕</span>
+                    <span key={l.id} onClick={()=>removeLayer(l.id)} className="tap" style={{ position:"relative",width:44,height:44,borderRadius:10,overflow:"hidden",border:"1px solid rgba(255,255,255,0.22)",background:"rgba(255,255,255,0.08)",cursor:"pointer",flexShrink:0,display:"block" }}>
+                      <img src={l.previewUrl} alt={l.title||"sticker"} style={{ width:"100%",height:"100%",objectFit:"contain" }} />
+                      <span style={{ position:"absolute",top:1,right:1,background:"rgba(0,0,0,0.6)",borderRadius:"50%",width:14,height:14,fontSize:8,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center" }}>✕</span>
                     </span>
                   ))}
                 </div>
@@ -23210,11 +23189,19 @@ function BackstagePasses({ onBack, user }) {
                 </div>
 
                 <p style={{ fontSize:9,color:"rgba(255,255,255,0.5)",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6 }}>Color</p>
-                <div style={{ display:"flex",gap:8,marginBottom:14 }}>
+                <div style={{ display:"flex",gap:8,marginBottom:showMoreColors?8:14,flexWrap:"wrap",alignItems:"center" }}>
                   {PASS_TEXT_COLORS.map(c=>(
-                    <button key={c.id} onClick={()=>setTextForm(f=>({...f,colorId:c.id}))} title={c.label} style={{ width:30,height:30,borderRadius:"50%",background:c.hex,border:textForm.colorId===c.id?"2.5px solid #fff":"2px solid rgba(255,255,255,0.25)",cursor:"pointer",boxShadow:textForm.colorId===c.id?"0 0 10px rgba(255,255,255,0.5)":"none" }} />
+                    <button key={c.id} onClick={()=>setTextForm(f=>({...f,colorId:c.id}))} title={c.label} style={{ width:30,height:30,borderRadius:"50%",background:c.hex,border:textForm.colorId===c.id?"2.5px solid #fff":"2px solid rgba(255,255,255,0.25)",cursor:"pointer",boxShadow:textForm.colorId===c.id?"0 0 10px rgba(255,255,255,0.5)":"none",flexShrink:0 }} />
                   ))}
+                  <button onClick={()=>setShowMoreColors(s=>!s)} title="More colors" style={{ width:30,height:30,borderRadius:"50%",background:"rgba(255,255,255,0.08)",border:"1.5px dashed rgba(255,255,255,0.35)",color:"rgba(255,255,255,0.8)",fontSize:14,cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center" }}>{showMoreColors?"−":"+"}</button>
                 </div>
+                {showMoreColors&&(
+                  <div style={{ display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",animation:"in .15s ease" }}>
+                    {PASS_TEXT_COLORS_EXTRA.map(c=>(
+                      <button key={c.id} onClick={()=>setTextForm(f=>({...f,colorId:c.id}))} title={c.label} style={{ width:30,height:30,borderRadius:"50%",background:c.hex,border:textForm.colorId===c.id?"2.5px solid #fff":"2px solid rgba(255,255,255,0.25)",cursor:"pointer",boxShadow:textForm.colorId===c.id?"0 0 10px rgba(255,255,255,0.5)":"none",flexShrink:0 }} />
+                    ))}
+                  </div>
+                )}
 
                 <p style={{ fontSize:9,color:"rgba(255,255,255,0.5)",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6 }}>Background</p>
                 <div style={{ display:"flex",gap:6,marginBottom:14 }}>
@@ -23284,30 +23271,17 @@ function BackstagePasses({ onBack, user }) {
             </div>
           )}
 
-          {/* ── STICKER TOOL SHEET ── */}
+          {/* ── STICKER TOOL — real Giphy stickers via the existing GifPicker,
+               same source the DM/reaction pickers already use — no more static
+               fandom-badge placeholders. ── */}
           {activeTool==="sticker"&&(
-            <div onClick={()=>setActiveTool(null)} style={{ position:"fixed",inset:0,zIndex:640,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"flex-end",animation:"in .18s ease" }}>
-              <div onClick={e=>e.stopPropagation()} style={{ width:"100%",maxHeight:"78vh",overflowY:"auto",background:"linear-gradient(170deg,rgba(28,18,52,0.98),rgba(8,5,18,0.99))",borderRadius:"22px 22px 0 0",border:"1px solid rgba(255,255,255,0.16)",padding:"16px 16px calc(24px + env(safe-area-inset-bottom))",animation:"slideUp .22s ease" }}>
-                <div style={{ width:36,height:4,borderRadius:99,background:"rgba(255,255,255,0.25)",margin:"0 auto 14px" }} />
-                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,color:"#fff",marginBottom:12 }}>Stickers</p>
-                <div style={{ display:"flex",gap:6,overflowX:"auto",paddingBottom:2,marginBottom:14 }}>
-                  {PASS_STICKER_CATEGORIES.map(cat=>(
-                    <button key={cat.id} onClick={()=>setStickerCat(cat.id)} style={{ flexShrink:0,padding:"6px 12px",borderRadius:99,border:`1.5px solid ${stickerCat===cat.id?C.accent:"rgba(255,255,255,0.18)"}`,background:stickerCat===cat.id?`${C.accent}22`:"rgba(255,255,255,0.06)",color:stickerCat===cat.id?C.lavender:"rgba(255,255,255,0.75)",fontSize:10.5,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap" }}>{cat.label}</button>
-                  ))}
-                </div>
-                <div style={{ display:"flex",flexWrap:"wrap",gap:8 }}>
-                  {(PASS_STICKER_CATEGORIES.find(c=>c.id===stickerCat)?.items||[]).map(item=>{
-                    const active = stickerLayers.some(l=>l.stickerId===item.id);
-                    return (
-                      <button key={item.id} onClick={()=>toggleSticker(item)} style={{ display:"flex",alignItems:"center",gap:6,padding:"8px 13px",borderRadius:99,border:`1.5px solid ${active?C.accent:"rgba(255,255,255,0.18)"}`,background:active?`${C.accent}22`:"rgba(255,255,255,0.06)",color:active?C.lavender:"rgba(255,255,255,0.85)",fontSize:11.5,fontWeight:700,fontFamily:"'Epilogue',sans-serif",cursor:"pointer" }}>
-                        <span>{item.emoji}</span>{item.label}
-                      </button>
-                    );
-                  })}
-                </div>
-                <button onClick={()=>setActiveTool(null)} style={{ width:"100%",marginTop:16,padding:"12px",borderRadius:12,border:"none",background:`linear-gradient(135deg,${C.accent},${C.berry})`,color:"#04020d",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer" }}>Done</button>
-              </div>
-            </div>
+            <GifPicker
+              defaultMediaType="sticker"
+              title="Add a Sticker"
+              subtitle="Concert reactions, fandom moments, and more"
+              onSelect={addStickerLayer}
+              onClose={()=>setActiveTool(null)}
+            />
           )}
 
           {/* ── LOCATION TOOL SHEET ── */}
