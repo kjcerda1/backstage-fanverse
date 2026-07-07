@@ -13824,6 +13824,28 @@ function ExploreTab({ user, go, onViewProfile }) {
     }).catch(()=>{});
   }, [tokenReady]);
 
+  // ── Near You — location-aware rail, foundational pass ────────────────────
+  // Reuses the same /api/users/discover?city_key= endpoint CityHubDetail
+  // already uses (Fanverse → Map → Hubs), rather than inventing new location
+  // logic. Explore previously had zero location awareness at all.
+  const [nearbyFans, setNearbyFans] = useState([]);
+  useEffect(() => {
+    if (!tokenReady || !user?.city_key) return;
+    api.get(`/api/users/discover?city_key=${encodeURIComponent(user.city_key)}`).then(d => {
+      setNearbyFans((d?.users || []).slice(0, 8));
+    }).catch(()=>{});
+  }, [tokenReady, user?.city_key]);
+
+  const [nearbyMeetups, setNearbyMeetups] = useState([]);
+  useEffect(() => {
+    const myCity = (user?.city || "").split(",")[0].trim().toLowerCase();
+    if (!myCity) return;
+    api.get("/api/meetups").then(d => {
+      const list = (d?.meetups || []).filter(m => (m.city || "").toLowerCase().includes(myCity));
+      setNearbyMeetups(list.slice(0, 4));
+    }).catch(()=>{});
+  }, [user?.city]);
+
   // ── Capsule Moments — real entries, featured/first concert ────────────────
   const featuredConcert = MOCK_CONCERTS[0];
   const [capsuleEntries, setCapsuleEntries] = useState([]);
@@ -14160,6 +14182,39 @@ function ExploreTab({ user, go, onViewProfile }) {
           </div>
         ) : (
           <div>
+            {/* ── NEAR YOU — location-aware rail, reuses the same city_key data
+                 that already powers Fanverse → Map → Hubs. Explore previously
+                 had zero location awareness. Renders nothing if the user
+                 hasn't set a city, or nothing local turned up (no empty state
+                 clutter). ── */}
+            {(nearbyFans.length>0 || nearbyMeetups.length>0) && (
+              <div style={{ marginBottom:16 }}>
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+                  <p style={VS.softSectionHeader()}>📍 Near {(user?.city||"you").split(",")[0]}</p>
+                  <span onClick={()=>go("fanverse")} className="tap" style={{ fontSize:10, color:C.accent, fontWeight:700, cursor:"pointer" }}>See more →</span>
+                </div>
+                {nearbyFans.length>0 && (
+                  <div style={{ display:"flex", gap:10, overflowX:"auto", paddingBottom:8, scrollbarWidth:"none" }}>
+                    {nearbyFans.map(f=>(
+                      <div key={f.id} onClick={()=>onViewProfile&&onViewProfile({ id:f.id, username:f.handle||f.username, display_name:f.display_name, fandoms:f.fandoms||f.favorite_groups||[] })} className="tap" style={{ flexShrink:0, width:72, display:"flex", flexDirection:"column", alignItems:"center", gap:4, cursor:"pointer" }}>
+                        <div style={{ width:48,height:48,borderRadius:"50%",background:`linear-gradient(135deg,${C.lavender},${C.accent})`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,color:C.bg,fontSize:16 }}>{f.avatar||(f.display_name||f.handle||"B").slice(0,1).toUpperCase()}</div>
+                        <p style={{ fontSize:9.5,color:C.text,fontWeight:700,textAlign:"center",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:70 }}>{f.display_name}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {nearbyMeetups.length>0 && (
+                  <div style={{ display:"flex", gap:8, overflowX:"auto", paddingBottom:4, scrollbarWidth:"none" }}>
+                    {nearbyMeetups.map(m=>(
+                      <div key={m.id} onClick={()=>go("concerts")} className="tap" style={{ flexShrink:0, ...VS.glowCard(C.mint), padding:"9px 13px", cursor:"pointer", minWidth:140 }}>
+                        <p style={{ fontSize:11,fontWeight:700,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{m.title}</p>
+                        <p style={{ fontSize:9.5,color:C.textMid,marginTop:2 }}>{m.city}{(()=>{ const d=m.time?new Date(m.time):null; return d && !isNaN(d.getTime()) ? ` · ${d.toLocaleDateString("en-US",{month:"short",day:"numeric"})}` : ""; })()}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             {trendFilter && !trendHasMatches && (
               <p style={{ fontSize:11,color:C.textDim,lineHeight:1.6,marginBottom:12 }}>No {trendFilter.group} · {trendFilter.era} posts yet. Showing related {trendFilter.group} content instead.</p>
             )}
