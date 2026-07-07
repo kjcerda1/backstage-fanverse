@@ -22591,6 +22591,73 @@ const MOCK_PASSES = [
   {id:"p7",type:"moot",       caption:"finally met my twitter moots AT THE SHOW",           username:"@mootmeet",    expires:"24 Hours",  color:C.silver,  grad:PASS_TYPES[6].grad,  viewed:false,likes:19,reactions:{"🫶":11,"💜":7,"✨":1}},
   {id:"p8",type:"travel",     caption:"flight lands in 2h. the era has started.",           username:"@travelfan",   expires:"Tonight",   color:C.mint,    grad:PASS_TYPES[9].grad,  viewed:false,likes:5, reactions:{"⚡":3,"💜":2}},
 ];
+
+// ── PASS STUDIO — creative layer tools (text/mentions/stickers/location) ─────
+// Hoisted to module scope like PASS_TYPES above, since both the composer and
+// the full-screen viewer render layers using these same definitions.
+const PASS_TEXT_STYLES = [
+  {id:"classic", label:"Classic",     fontFamily:"'Epilogue',sans-serif",              fontWeight:800, fontStyle:"normal"},
+  {id:"glow",    label:"Glow",        fontFamily:"'Epilogue',sans-serif",              fontWeight:800, fontStyle:"normal", glow:true},
+  {id:"serif",   label:"Soft Serif",  fontFamily:"'Georgia',serif",                    fontWeight:500, fontStyle:"italic"},
+  {id:"bold",    label:"Concert Bold",fontFamily:"'Epilogue',sans-serif",              fontWeight:900, textTransform:"uppercase", letterSpacing:"0.03em"},
+  {id:"hand",    label:"Handwritten", fontFamily:"'Bradley Hand','Segoe Print',cursive",fontWeight:600, fontStyle:"normal"},
+  {id:"minimal", label:"Minimal",     fontFamily:"'Epilogue',sans-serif",              fontWeight:400, letterSpacing:"0.02em"},
+  {id:"chant",   label:"Fan Chant",   fontFamily:"'Epilogue',sans-serif",              fontWeight:800, textTransform:"uppercase", letterSpacing:"0.08em"},
+];
+const PASS_TEXT_COLORS = [
+  {id:"pearl",     label:"Pearl",     hex:"#F7F0FF"},
+  {id:"lavender",  label:"Lavender",  hex:"#C6A6FF"},
+  {id:"blush",     label:"Blush",     hex:"#F2A8C0"},
+  {id:"champagne", label:"Champagne", hex:"#E8C77A"},
+  {id:"plum",      label:"Deep Plum", hex:"#5b2a8f"},
+];
+const PASS_TEXT_BG = [
+  {id:"none",  label:"None"},
+  {id:"pill",  label:"Glass Pill"},
+  {id:"glow",  label:"Soft Glow"},
+  {id:"strip", label:"Caption Strip"},
+];
+const PASS_TEXT_POSITIONS = [
+  {id:"top",    label:"Top",         top:"16%"},
+  {id:"center", label:"Center",      top:"42%"},
+  {id:"bottom", label:"Bottom",      top:"60%"},
+  {id:"lower",  label:"Lower Third", top:"74%"},
+];
+const PASS_STICKER_CATEGORIES = [
+  {id:"concert",    label:"Concert",    items:[
+    {id:"lightstick", emoji:"💡", label:"Lightstick"},
+    {id:"vip",         emoji:"🎫", label:"VIP"},
+    {id:"soundcheck",  emoji:"🔊", label:"Soundcheck"},
+    {id:"seatview",    emoji:"📍", label:"Seat View"},
+    {id:"checkedin",   emoji:"✓",  label:"Checked In"},
+  ]},
+  {id:"fandom",     label:"Fandom",     items:[
+    {id:"biasmoment", emoji:"⭐", label:"Bias Moment"},
+    {id:"fanbuddy",    emoji:"🤝", label:"Fan Buddy"},
+    {id:"eraworthy",   emoji:"✨", label:"In My Concert Era"},
+  ]},
+  {id:"photocards", label:"Photocards", items:[
+    {id:"pullreveal",   emoji:"🃏", label:"Pull Reveal"},
+    {id:"tradepending", emoji:"🔄", label:"Trade Pending"},
+    {id:"iso",          emoji:"🔍", label:"ISO"},
+    {id:"wtt",          emoji:"↔️", label:"WTT / WTS"},
+  ]},
+  {id:"afterglow",  label:"Afterglow",  items:[
+    {id:"afterglow",  emoji:"🌙", label:"Afterglow"},
+    {id:"cryingcar",  emoji:"😭", label:"Crying in the Car"},
+  ]},
+  {id:"freebies",   label:"Freebies",   items:[
+    {id:"freebiedrop", emoji:"🎁", label:"Freebie Drop"},
+    {id:"merchline",   emoji:"🛍️", label:"Merch Line"},
+  ]},
+  {id:"travel",     label:"Travel",     items:[
+    {id:"travelday", emoji:"✈️", label:"Travel Day"},
+  ]},
+  {id:"mood",       label:"Mood",       items:[
+    {id:"capsuleworthy", emoji:"🔮", label:"Capsule Worthy"},
+  ]},
+];
+
 function BackstagePasses({ onBack, user }) {
   const KEY = "backstage_passes";
   const DURATIONS = [
@@ -22603,7 +22670,7 @@ function BackstagePasses({ onBack, user }) {
 
   const [passes, setPasses]     = useState(()=>ls.get(KEY,MOCK_PASSES));
   const [creating, setCreating] = useState(false);
-  const [draft, setDraft]       = useState({type:"fitcheck",caption:"",duration:"tonight",venueOn:false,venue:"",city:"",checkedIn:false,toCapsule:false,image:null});
+  const [draft, setDraft]       = useState({type:"fitcheck",caption:"",duration:"tonight",venueOn:false,venue:"",city:"",checkedIn:false,toCapsule:false,image:null,layers:[]});
   const [filter, setFilter]     = useState("all");
   const [section, setSection]   = useState("live"); // live | circle | capsule
   const [viewing, setViewing]   = useState(null);
@@ -22611,6 +22678,69 @@ function BackstagePasses({ onBack, user }) {
   const [venueSuggestOpen, setVenueSuggestOpen] = useState(false);
   const captionRef = useRef(null);
   const fileRef = useRef(null);
+
+  // ── PASS STUDIO — tool rail state ──────────────────────────────────────────
+  const [activeTool, setActiveTool] = useState(null); // "text" | "mention" | "sticker" | "location" | null
+  const [textForm, setTextForm] = useState({ text:"", styleId:"classic", colorId:"pearl", bgId:"none", align:"center", pos:"center", editingId:null });
+  const [mentionQuery, setMentionQuery] = useState("");
+  const [locationQuery, setLocationQuery] = useState("");
+  const [stickerCat, setStickerCat] = useState(PASS_STICKER_CATEGORIES[0].id);
+
+  const addLayer = (layer) => setDraft(d=>({...d, layers:[...d.layers, {id:`ly${Date.now()}${Math.random().toString(36).slice(2,6)}`, ...layer}]}));
+  const removeLayer = (id) => setDraft(d=>({...d, layers:d.layers.filter(l=>l.id!==id)}));
+  const updateLayer = (id, patch) => setDraft(d=>({...d, layers:d.layers.map(l=>l.id===id?{...l,...patch}:l)}));
+
+  const openTextTool = (existing) => {
+    setTextForm(existing
+      ? { text:existing.text, styleId:existing.styleId, colorId:existing.colorId, bgId:existing.bgId, align:existing.align, pos:existing.pos, editingId:existing.id }
+      : { text:"", styleId:"classic", colorId:"pearl", bgId:"none", align:"center", pos:"center", editingId:null });
+    setActiveTool("text");
+  };
+  const saveTextLayer = () => {
+    if(!textForm.text.trim()){ setActiveTool(null); return; }
+    const { editingId, ...fields } = textForm;
+    if(editingId) updateLayer(editingId, fields);
+    else addLayer({ type:"text", ...fields });
+    setActiveTool(null);
+  };
+
+  const textLayers = draft.layers.filter(l=>l.type==="text");
+  const mentionLayers = draft.layers.filter(l=>l.type==="mention");
+  const stickerLayers = draft.layers.filter(l=>l.type==="sticker");
+  const locationLayer = draft.layers.find(l=>l.type==="location");
+
+  const tagCandidates = (()=>{
+    const friends = ls.get("backstage_friends", MOCK_FRIENDS).map(f=>({username:f.name?.replace("@",""), source:"circle"}));
+    const fanverse = MOCK_FANVERSE_USERS.map(u=>({username:u.username, source:"fanverse"}));
+    const seen = new Set(); const merged = [];
+    [...friends,...fanverse].forEach(u=>{ if(u.username && !seen.has(u.username)){ seen.add(u.username); merged.push(u); } });
+    return merged;
+  })();
+  const mentionMatches = (mentionQuery.trim()
+    ? tagCandidates.filter(u=>u.username.toLowerCase().includes(mentionQuery.trim().toLowerCase()))
+    : tagCandidates
+  ).filter(u=>!mentionLayers.some(l=>l.username===u.username)).slice(0,8);
+  const toggleMention = (username) => {
+    const existing = mentionLayers.find(l=>l.username===username);
+    if(existing) removeLayer(existing.id);
+    else addLayer({ type:"mention", username });
+  };
+
+  const toggleSticker = (item) => {
+    const existing = stickerLayers.find(l=>l.stickerId===item.id);
+    if(existing) removeLayer(existing.id);
+    else addLayer({ type:"sticker", stickerId:item.id, emoji:item.emoji, label:item.label });
+  };
+
+  const locationMatches = (locationQuery.trim()
+    ? VENUE_SUGGESTIONS.filter(v=>{ const q=locationQuery.trim().toLowerCase(); return v.name.toLowerCase().includes(q)||v.city.toLowerCase().includes(q)||v.state.toLowerCase().includes(q); })
+    : VENUE_SUGGESTIONS
+  ).slice(0,6);
+  const pickLocationLayer = (v) => {
+    if(locationLayer) removeLayer(locationLayer.id);
+    addLayer({ type:"location", venue:v.name, city:v.city, state:v.state });
+    setActiveTool(null);
+  };
   // Your Pass "+" badge shortcut sets this one-shot flag before navigating here
   // so we land straight in the composer, like tapping your own story ring's +.
   useEffect(()=>{
@@ -22641,10 +22771,10 @@ function BackstagePasses({ onBack, user }) {
     if(!draft.caption.trim()) return;
     const t=PASS_TYPES.find(tp=>tp.id===draft.type)||PASS_TYPES[0];
     const dur=DURATIONS.find(d=>d.id===draft.duration)||DURATIONS[0];
-    const newPass={id:`p${Date.now()}`,type:draft.type,caption:draft.caption,username:`@${user?.name||user?.username||"stan"}`,expires:dur.label,color:t.color,grad:t.grad,viewed:false,likes:0,reactions:{},venue:draft.venueOn&&draft.venue.trim()?draft.venue.trim():null,city:draft.venueOn&&draft.city.trim()?draft.city.trim():null,checkedIn:draft.venueOn&&draft.checkedIn,inCapsule:draft.toCapsule};
+    const newPass={id:`p${Date.now()}`,type:draft.type,caption:draft.caption,username:`@${user?.name||user?.username||"stan"}`,expires:dur.label,color:t.color,grad:t.grad,viewed:false,likes:0,reactions:{},venue:draft.venueOn&&draft.venue.trim()?draft.venue.trim():null,city:draft.venueOn&&draft.city.trim()?draft.city.trim():null,checkedIn:draft.venueOn&&draft.checkedIn,inCapsule:draft.toCapsule,creative_layers:draft.layers,mentions:draft.layers.filter(l=>l.type==="mention").map(l=>l.username)};
     setPasses(ps=>[newPass,...ps]);
     if(draft.toCapsule){ const caps=ls.get("backstage_concert_capsules",[]); ls.set("backstage_concert_capsules",[...caps,{...newPass,concertId:"bts-lv-1",category:draft.type,savedAt:Date.now()}]); }
-    setDraft({type:"fitcheck",caption:"",duration:"tonight",venueOn:false,venue:"",city:"",checkedIn:false,toCapsule:false,image:null}); setShowDetails(false); setCreating(false);
+    setDraft({type:"fitcheck",caption:"",duration:"tonight",venueOn:false,venue:"",city:"",checkedIn:false,toCapsule:false,image:null,layers:[]}); setShowDetails(false); setCreating(false);
   };
 
   // Section filtering
@@ -22810,11 +22940,42 @@ function BackstagePasses({ onBack, user }) {
             </div>
             {/* Large emoji */}
             <div style={{ position:"absolute",top:"35%",left:"50%",transform:"translate(-50%,-50%)",fontSize:80,opacity:0.15,pointerEvents:"none" }}>{PASS_TYPES.find(t=>t.id===viewing.type)?.emoji||"🎟️"}</div>
+            {/* Pass Studio text overlays */}
+            {(viewing.creative_layers||[]).filter(l=>l.type==="text").map(layer=>{
+              const styleDef = PASS_TEXT_STYLES.find(s=>s.id===layer.styleId)||PASS_TEXT_STYLES[0];
+              const colorDef = PASS_TEXT_COLORS.find(c=>c.id===layer.colorId)||PASS_TEXT_COLORS[0];
+              const posDef = PASS_TEXT_POSITIONS.find(p=>p.id===layer.pos)||PASS_TEXT_POSITIONS[1];
+              const bgStyle = layer.bgId==="pill" ? { background:"rgba(0,0,0,0.42)",backdropFilter:"blur(10px)",padding:"6px 14px",borderRadius:99,border:"1px solid rgba(255,255,255,0.2)" }
+                : layer.bgId==="strip" ? { background:"rgba(0,0,0,0.55)",padding:"8px 16px",display:"block" }
+                : { padding:"2px 4px" };
+              return (
+                <div key={layer.id} style={{ position:"absolute",top:posDef.top,left:24,right:24,transform:"translateY(-50%)",zIndex:6,textAlign:layer.align,pointerEvents:"none" }}>
+                  <span style={{ display:"inline-block",...bgStyle,fontFamily:styleDef.fontFamily,fontWeight:styleDef.fontWeight,fontStyle:styleDef.fontStyle||"normal",textTransform:styleDef.textTransform||"none",letterSpacing:styleDef.letterSpacing||"normal",color:colorDef.hex,fontSize:20,lineHeight:1.3,textShadow:styleDef.glow?`0 0 12px ${colorDef.hex},0 0 24px ${colorDef.hex}88,0 2px 10px rgba(0,0,0,0.6)`:"0 2px 10px rgba(0,0,0,0.7)" }}>
+                    {layer.text}
+                  </span>
+                </div>
+              );
+            })}
             {/* Caption */}
             <p style={{ fontFamily:"'Epilogue',sans-serif",fontStyle:"italic",fontWeight:700,fontSize:22,color:"#fff",lineHeight:1.3,marginBottom:10,textShadow:"0 2px 16px rgba(0,0,0,0.8)" }}>"{viewing.caption}"</p>
             {/* Meta */}
             <p style={{ fontSize:11,color:"rgba(255,255,255,0.6)",marginBottom:viewing.venue||viewing.city?8:16 }}>{viewing.username} · {viewing.expires}</p>
             {(viewing.venue||viewing.city)&&<div style={{ marginBottom:16 }}><LocationTag venue={viewing.venue} city={viewing.city} checkedIn={viewing.checkedIn} glass /></div>}
+            {/* Pass Studio stickers — location/mention/fandom badges */}
+            {(()=>{
+              const layers = viewing.creative_layers||[];
+              const loc = layers.find(l=>l.type==="location");
+              const mentions = layers.filter(l=>l.type==="mention");
+              const stickers = layers.filter(l=>l.type==="sticker");
+              if(!loc && mentions.length===0 && stickers.length===0) return null;
+              return (
+                <div style={{ display:"flex",gap:6,flexWrap:"wrap",marginBottom:14 }}>
+                  {loc&&<span style={{ background:"rgba(0,0,0,0.45)",backdropFilter:"blur(8px)",border:"1px solid rgba(255,255,255,0.2)",borderRadius:99,padding:"5px 11px",fontSize:10.5,color:"#fff",fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>📍 {loc.venue}{loc.city?`, ${loc.city}`:""}</span>}
+                  {mentions.map(m=>(<span key={m.id} style={{ background:`${C.accent}22`,border:`1px solid ${C.accent}55`,borderRadius:99,padding:"5px 11px",fontSize:10.5,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>@{m.username}</span>))}
+                  {stickers.map(s=>(<span key={s.id} style={{ background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.2)",borderRadius:99,padding:"5px 11px",fontSize:10.5,color:"#fff",fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{s.emoji} {s.label}</span>))}
+                </div>
+              );
+            })()}
             {/* Fandom reactions */}
             <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
               {FANREACTIONS.map(emoji=>(
@@ -22849,11 +23010,43 @@ function BackstagePasses({ onBack, user }) {
 
             {/* ── TOP CHROME ── */}
             <div style={{ position:"absolute",top:0,left:0,right:0,padding:"16px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",zIndex:10 }}>
-              <button onClick={()=>{ setCreating(false); setShowDetails(false); setDraft(d=>({...d,image:null,caption:""})); }} style={{ background:"rgba(0,0,0,0.42)",backdropFilter:"blur(10px)",border:"none",borderRadius:99,width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:18,cursor:"pointer" }}>✕</button>
+              <button onClick={()=>{ setCreating(false); setShowDetails(false); setActiveTool(null); setDraft(d=>({...d,image:null,caption:"",layers:[]})); }} style={{ background:"rgba(0,0,0,0.42)",backdropFilter:"blur(10px)",border:"none",borderRadius:99,width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:18,cursor:"pointer" }}>✕</button>
               <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,letterSpacing:"0.04em",color:"rgba(255,255,255,0.88)",textShadow:"0 1px 8px rgba(0,0,0,0.8)" }}>New Backstage Pass ✨</p>
               {/* Camera roll re-pick */}
               <button onClick={()=>fileRef.current?.click()} style={{ background:"rgba(0,0,0,0.42)",backdropFilter:"blur(10px)",border:"none",borderRadius:99,width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:16,cursor:"pointer" }}>📷</button>
             </div>
+
+            {/* ── PASS STUDIO TOOL RAIL — vertical, right edge ── */}
+            <div style={{ position:"absolute",top:120,right:14,zIndex:11,display:"flex",flexDirection:"column",gap:10 }}>
+              {[
+                { id:"text",     icon:"Aa", onTap:()=>openTextTool(null) },
+                { id:"mention",  icon:"@",  onTap:()=>setActiveTool("mention") },
+                { id:"sticker",  icon:"✦",  onTap:()=>setActiveTool("sticker") },
+                { id:"location", icon:"📍", onTap:()=>setActiveTool("location") },
+              ].map(tool=>(
+                <button key={tool.id} onClick={tool.onTap} style={{ width:38,height:38,borderRadius:"50%",background:"rgba(0,0,0,0.42)",backdropFilter:"blur(10px)",border:"1px solid rgba(255,255,255,0.2)",color:"#fff",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:tool.id==="mention"?17:15,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center" }}>
+                  {tool.icon}
+                </button>
+              ))}
+            </div>
+
+            {/* ── TEXT OVERLAYS — placed via position presets, tap to edit ── */}
+            {textLayers.map(layer=>{
+              const styleDef = PASS_TEXT_STYLES.find(s=>s.id===layer.styleId)||PASS_TEXT_STYLES[0];
+              const colorDef = PASS_TEXT_COLORS.find(c=>c.id===layer.colorId)||PASS_TEXT_COLORS[0];
+              const posDef = PASS_TEXT_POSITIONS.find(p=>p.id===layer.pos)||PASS_TEXT_POSITIONS[1];
+              const bgStyle = layer.bgId==="pill" ? { background:"rgba(0,0,0,0.42)",backdropFilter:"blur(10px)",padding:"6px 14px",borderRadius:99,border:"1px solid rgba(255,255,255,0.2)" }
+                : layer.bgId==="strip" ? { background:"rgba(0,0,0,0.55)",padding:"8px 16px",display:"block" }
+                : { padding:"2px 4px" };
+              return (
+                <div key={layer.id} style={{ position:"absolute",top:posDef.top,left:16,right:16,transform:"translateY(-50%)",zIndex:9,textAlign:layer.align }}>
+                  <span onClick={()=>openTextTool(layer)} className="tap" style={{ display:"inline-block",cursor:"pointer",...bgStyle,fontFamily:styleDef.fontFamily,fontWeight:styleDef.fontWeight,fontStyle:styleDef.fontStyle||"normal",textTransform:styleDef.textTransform||"none",letterSpacing:styleDef.letterSpacing||"normal",color:colorDef.hex,fontSize:19,lineHeight:1.3,textShadow:styleDef.glow?`0 0 12px ${colorDef.hex},0 0 24px ${colorDef.hex}88,0 2px 10px rgba(0,0,0,0.6)`:"0 2px 10px rgba(0,0,0,0.7)",maxWidth:"100%",wordBreak:"break-word" }}>
+                    {layer.text}
+                  </span>
+                  <button onClick={()=>removeLayer(layer.id)} style={{ marginLeft:6,background:"rgba(0,0,0,0.55)",border:"1px solid rgba(255,255,255,0.3)",borderRadius:"50%",width:18,height:18,color:"#fff",fontSize:10,cursor:"pointer",display:"inline-flex",alignItems:"center",justifyContent:"center",verticalAlign:"middle" }}>✕</button>
+                </div>
+              );
+            })}
 
             {/* ── MEDIA PICKER — visible when no photo ── */}
             {!draft.image&&(
@@ -22880,6 +23073,26 @@ function BackstagePasses({ onBack, user }) {
             {/* ── FLOATING CAPTION — a visible glass card, not transparent text
                  floating on the photo, so it reads as an actual input field ── */}
             <div style={{ position:"absolute",bottom:0,left:0,right:0,padding:"0 18px 18px",background:"linear-gradient(to top,rgba(0,0,0,0.78),transparent)",zIndex:10 }}>
+              {/* ── STICKER TRAY — location, mentions, fandom stickers ── */}
+              {(locationLayer||mentionLayers.length>0||stickerLayers.length>0)&&(
+                <div style={{ display:"flex",gap:6,flexWrap:"wrap",marginBottom:10 }}>
+                  {locationLayer&&(
+                    <span onClick={()=>removeLayer(locationLayer.id)} className="tap" style={{ display:"flex",alignItems:"center",gap:5,background:"rgba(0,0,0,0.45)",backdropFilter:"blur(10px)",border:"1px solid rgba(255,255,255,0.22)",borderRadius:99,padding:"5px 11px",fontSize:10,color:"#fff",fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>
+                      📍 {locationLayer.venue}{locationLayer.city?`, ${locationLayer.city}`:""} <span style={{ opacity:0.5 }}>✕</span>
+                    </span>
+                  )}
+                  {mentionLayers.map(l=>(
+                    <span key={l.id} onClick={()=>removeLayer(l.id)} className="tap" style={{ background:`${C.accent}22`,border:`1px solid ${C.accent}55`,borderRadius:99,padding:"5px 11px",fontSize:10,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>
+                      @{l.username} <span style={{ opacity:0.6 }}>✕</span>
+                    </span>
+                  ))}
+                  {stickerLayers.map(l=>(
+                    <span key={l.id} onClick={()=>removeLayer(l.id)} className="tap" style={{ background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.22)",borderRadius:99,padding:"5px 11px",fontSize:10,color:"#fff",fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>
+                      {l.emoji} {l.label} <span style={{ opacity:0.5 }}>✕</span>
+                    </span>
+                  ))}
+                </div>
+              )}
               <div style={{ background:"rgba(0,0,0,0.42)",backdropFilter:"blur(14px)",border:"1.5px solid rgba(255,255,255,0.22)",borderRadius:16,padding:"10px 14px" }}>
                 <p style={{ fontSize:8.5,color:"rgba(255,255,255,0.6)",fontFamily:"'Epilogue',sans-serif",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4 }}>Caption</p>
                 <textarea
@@ -22979,6 +23192,152 @@ function BackstagePasses({ onBack, user }) {
           </div>
 
           <input ref={fileRef} type="file" accept="image/*,video/*" style={{ display:"none" }} onChange={handleMediaPick} />
+
+          {/* ── TEXT TOOL SHEET ── */}
+          {activeTool==="text"&&(
+            <div onClick={()=>setActiveTool(null)} style={{ position:"fixed",inset:0,zIndex:640,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"flex-end",animation:"in .18s ease" }}>
+              <div onClick={e=>e.stopPropagation()} style={{ width:"100%",maxHeight:"78vh",overflowY:"auto",background:"linear-gradient(170deg,rgba(28,18,52,0.98),rgba(8,5,18,0.99))",borderRadius:"22px 22px 0 0",border:"1px solid rgba(255,255,255,0.16)",padding:"16px 16px calc(24px + env(safe-area-inset-bottom))",animation:"slideUp .22s ease" }}>
+                <div style={{ width:36,height:4,borderRadius:99,background:"rgba(255,255,255,0.25)",margin:"0 auto 14px" }} />
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,color:"#fff",marginBottom:12 }}>Add Text</p>
+                <textarea value={textForm.text} onChange={e=>setTextForm(f=>({...f,text:e.target.value}))} placeholder="Type something..." maxLength={80} rows={2}
+                  style={{ width:"100%",background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.18)",borderRadius:12,color:"#fff",fontFamily:"'Epilogue',sans-serif",fontSize:15,padding:"10px 12px",resize:"none",outline:"none",marginBottom:14,boxSizing:"border-box" }} />
+
+                <p style={{ fontSize:9,color:"rgba(255,255,255,0.5)",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6 }}>Style</p>
+                <div style={{ display:"flex",gap:6,overflowX:"auto",paddingBottom:2,marginBottom:14 }}>
+                  {PASS_TEXT_STYLES.map(s=>(
+                    <button key={s.id} onClick={()=>setTextForm(f=>({...f,styleId:s.id}))} style={{ flexShrink:0,padding:"6px 12px",borderRadius:99,border:`1.5px solid ${textForm.styleId===s.id?C.accent:"rgba(255,255,255,0.18)"}`,background:textForm.styleId===s.id?`${C.accent}22`:"rgba(255,255,255,0.06)",color:textForm.styleId===s.id?C.lavender:"rgba(255,255,255,0.75)",fontSize:10.5,fontWeight:700,fontFamily:s.fontFamily,cursor:"pointer",whiteSpace:"nowrap" }}>{s.label}</button>
+                  ))}
+                </div>
+
+                <p style={{ fontSize:9,color:"rgba(255,255,255,0.5)",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6 }}>Color</p>
+                <div style={{ display:"flex",gap:8,marginBottom:14 }}>
+                  {PASS_TEXT_COLORS.map(c=>(
+                    <button key={c.id} onClick={()=>setTextForm(f=>({...f,colorId:c.id}))} title={c.label} style={{ width:30,height:30,borderRadius:"50%",background:c.hex,border:textForm.colorId===c.id?"2.5px solid #fff":"2px solid rgba(255,255,255,0.25)",cursor:"pointer",boxShadow:textForm.colorId===c.id?"0 0 10px rgba(255,255,255,0.5)":"none" }} />
+                  ))}
+                </div>
+
+                <p style={{ fontSize:9,color:"rgba(255,255,255,0.5)",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6 }}>Background</p>
+                <div style={{ display:"flex",gap:6,marginBottom:14 }}>
+                  {PASS_TEXT_BG.map(b=>(
+                    <button key={b.id} onClick={()=>setTextForm(f=>({...f,bgId:b.id}))} style={{ flex:1,padding:"7px 4px",borderRadius:10,border:`1.5px solid ${textForm.bgId===b.id?C.accent:"rgba(255,255,255,0.18)"}`,background:textForm.bgId===b.id?`${C.accent}22`:"rgba(255,255,255,0.06)",color:textForm.bgId===b.id?C.lavender:"rgba(255,255,255,0.75)",fontSize:9.5,fontWeight:700,cursor:"pointer" }}>{b.label}</button>
+                  ))}
+                </div>
+
+                <div style={{ display:"flex",gap:10,marginBottom:16 }}>
+                  <div style={{ flex:1 }}>
+                    <p style={{ fontSize:9,color:"rgba(255,255,255,0.5)",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6 }}>Align</p>
+                    <div style={{ display:"flex",gap:5 }}>
+                      {["left","center","right"].map(a=>(
+                        <button key={a} onClick={()=>setTextForm(f=>({...f,align:a}))} style={{ flex:1,padding:"6px 0",borderRadius:8,border:`1.5px solid ${textForm.align===a?C.accent:"rgba(255,255,255,0.18)"}`,background:textForm.align===a?`${C.accent}22`:"rgba(255,255,255,0.06)",color:"#fff",fontSize:12,cursor:"pointer" }}>{a==="left"?"⇤":a==="center"?"⇔":"⇥"}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{ flex:1.5 }}>
+                    <p style={{ fontSize:9,color:"rgba(255,255,255,0.5)",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6 }}>Position</p>
+                    <div style={{ display:"flex",gap:5 }}>
+                      {PASS_TEXT_POSITIONS.map(p=>(
+                        <button key={p.id} onClick={()=>setTextForm(f=>({...f,pos:p.id}))} style={{ flex:1,padding:"6px 2px",borderRadius:8,border:`1.5px solid ${textForm.pos===p.id?C.accent:"rgba(255,255,255,0.18)"}`,background:textForm.pos===p.id?`${C.accent}22`:"rgba(255,255,255,0.06)",color:textForm.pos===p.id?C.lavender:"rgba(255,255,255,0.75)",fontSize:8.5,fontWeight:700,cursor:"pointer" }}>{p.label}</button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display:"flex",gap:8 }}>
+                  {textForm.editingId&&(
+                    <button onClick={()=>{ removeLayer(textForm.editingId); setActiveTool(null); }} style={{ padding:"12px 16px",borderRadius:12,border:"1.5px solid rgba(255,90,110,0.4)",background:"rgba(255,90,110,0.12)",color:"#ff8a9a",fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}>Delete</button>
+                  )}
+                  <button onClick={saveTextLayer} disabled={!textForm.text.trim()} style={{ flex:1,padding:"12px",borderRadius:12,border:"none",background:textForm.text.trim()?`linear-gradient(135deg,${C.accent},${C.berry})`:"rgba(255,255,255,0.08)",color:textForm.text.trim()?"#04020d":"rgba(255,255,255,0.5)",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:textForm.text.trim()?"pointer":"default" }}>{textForm.editingId?"Update Text":"Add Text"}</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── MENTION TOOL SHEET ── */}
+          {activeTool==="mention"&&(
+            <div onClick={()=>setActiveTool(null)} style={{ position:"fixed",inset:0,zIndex:640,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"flex-end",animation:"in .18s ease" }}>
+              <div onClick={e=>e.stopPropagation()} style={{ width:"100%",maxHeight:"78vh",overflowY:"auto",background:"linear-gradient(170deg,rgba(28,18,52,0.98),rgba(8,5,18,0.99))",borderRadius:"22px 22px 0 0",border:"1px solid rgba(255,255,255,0.16)",padding:"16px 16px calc(24px + env(safe-area-inset-bottom))",animation:"slideUp .22s ease" }}>
+                <div style={{ width:36,height:4,borderRadius:99,background:"rgba(255,255,255,0.25)",margin:"0 auto 14px" }} />
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,color:"#fff",marginBottom:12 }}>Tag Fans</p>
+                <input value={mentionQuery} onChange={e=>setMentionQuery(e.target.value)} placeholder="Search by username..."
+                  style={{ width:"100%",background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.18)",borderRadius:12,color:"#fff",fontFamily:"'Epilogue',sans-serif",fontSize:13,padding:"10px 12px",outline:"none",marginBottom:12,boxSizing:"border-box" }} />
+                {mentionLayers.length>0&&(
+                  <div style={{ display:"flex",gap:6,flexWrap:"wrap",marginBottom:12 }}>
+                    {mentionLayers.map(l=>(
+                      <span key={l.id} onClick={()=>removeLayer(l.id)} className="tap" style={{ background:`${C.accent}22`,border:`1px solid ${C.accent}55`,borderRadius:99,padding:"5px 10px",fontSize:11,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>@{l.username} ✕</span>
+                    ))}
+                  </div>
+                )}
+                <div style={{ display:"flex",flexDirection:"column",gap:4,maxHeight:260,overflowY:"auto" }}>
+                  {mentionMatches.length===0&&<p style={{ fontSize:11,color:"rgba(255,255,255,0.5)",textAlign:"center",padding:"20px 0" }}>No matching fans found</p>}
+                  {mentionMatches.map(u=>(
+                    <div key={u.username} onClick={()=>toggleMention(u.username)} className="tap" style={{ display:"flex",alignItems:"center",gap:10,padding:"9px 8px",borderRadius:10,cursor:"pointer" }}>
+                      <div style={{ width:30,height:30,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.berry})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:800,color:"#fff",flexShrink:0 }}>{u.username[0]?.toUpperCase()}</div>
+                      <div style={{ flex:1 }}>
+                        <p style={{ fontSize:12,fontWeight:700,color:"#fff",fontFamily:"'Epilogue',sans-serif" }}>@{u.username}</p>
+                        <p style={{ fontSize:9.5,color:"rgba(255,255,255,0.45)" }}>{u.source==="circle"?"In your Circle":"Fanverse"}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <button onClick={()=>setActiveTool(null)} style={{ width:"100%",marginTop:14,padding:"12px",borderRadius:12,border:"none",background:`linear-gradient(135deg,${C.accent},${C.berry})`,color:"#04020d",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer" }}>Done</button>
+              </div>
+            </div>
+          )}
+
+          {/* ── STICKER TOOL SHEET ── */}
+          {activeTool==="sticker"&&(
+            <div onClick={()=>setActiveTool(null)} style={{ position:"fixed",inset:0,zIndex:640,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"flex-end",animation:"in .18s ease" }}>
+              <div onClick={e=>e.stopPropagation()} style={{ width:"100%",maxHeight:"78vh",overflowY:"auto",background:"linear-gradient(170deg,rgba(28,18,52,0.98),rgba(8,5,18,0.99))",borderRadius:"22px 22px 0 0",border:"1px solid rgba(255,255,255,0.16)",padding:"16px 16px calc(24px + env(safe-area-inset-bottom))",animation:"slideUp .22s ease" }}>
+                <div style={{ width:36,height:4,borderRadius:99,background:"rgba(255,255,255,0.25)",margin:"0 auto 14px" }} />
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,color:"#fff",marginBottom:12 }}>Stickers</p>
+                <div style={{ display:"flex",gap:6,overflowX:"auto",paddingBottom:2,marginBottom:14 }}>
+                  {PASS_STICKER_CATEGORIES.map(cat=>(
+                    <button key={cat.id} onClick={()=>setStickerCat(cat.id)} style={{ flexShrink:0,padding:"6px 12px",borderRadius:99,border:`1.5px solid ${stickerCat===cat.id?C.accent:"rgba(255,255,255,0.18)"}`,background:stickerCat===cat.id?`${C.accent}22`:"rgba(255,255,255,0.06)",color:stickerCat===cat.id?C.lavender:"rgba(255,255,255,0.75)",fontSize:10.5,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap" }}>{cat.label}</button>
+                  ))}
+                </div>
+                <div style={{ display:"flex",flexWrap:"wrap",gap:8 }}>
+                  {(PASS_STICKER_CATEGORIES.find(c=>c.id===stickerCat)?.items||[]).map(item=>{
+                    const active = stickerLayers.some(l=>l.stickerId===item.id);
+                    return (
+                      <button key={item.id} onClick={()=>toggleSticker(item)} style={{ display:"flex",alignItems:"center",gap:6,padding:"8px 13px",borderRadius:99,border:`1.5px solid ${active?C.accent:"rgba(255,255,255,0.18)"}`,background:active?`${C.accent}22`:"rgba(255,255,255,0.06)",color:active?C.lavender:"rgba(255,255,255,0.85)",fontSize:11.5,fontWeight:700,fontFamily:"'Epilogue',sans-serif",cursor:"pointer" }}>
+                        <span>{item.emoji}</span>{item.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <button onClick={()=>setActiveTool(null)} style={{ width:"100%",marginTop:16,padding:"12px",borderRadius:12,border:"none",background:`linear-gradient(135deg,${C.accent},${C.berry})`,color:"#04020d",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer" }}>Done</button>
+              </div>
+            </div>
+          )}
+
+          {/* ── LOCATION TOOL SHEET ── */}
+          {activeTool==="location"&&(
+            <div onClick={()=>setActiveTool(null)} style={{ position:"fixed",inset:0,zIndex:640,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"flex-end",animation:"in .18s ease" }}>
+              <div onClick={e=>e.stopPropagation()} style={{ width:"100%",maxHeight:"78vh",overflowY:"auto",background:"linear-gradient(170deg,rgba(28,18,52,0.98),rgba(8,5,18,0.99))",borderRadius:"22px 22px 0 0",border:"1px solid rgba(255,255,255,0.16)",padding:"16px 16px calc(24px + env(safe-area-inset-bottom))",animation:"slideUp .22s ease" }}>
+                <div style={{ width:36,height:4,borderRadius:99,background:"rgba(255,255,255,0.25)",margin:"0 auto 14px" }} />
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,color:"#fff",marginBottom:12 }}>Add Location</p>
+                {draft.venueOn&&draft.venue.trim()&&(
+                  <div onClick={()=>pickLocationLayer({ name:draft.venue.trim(), city:draft.city.split(",")[0]?.trim()||"", state:draft.city.split(",")[1]?.trim()||"" })} className="tap" style={{ padding:"10px 12px",borderRadius:12,background:`${C.gold}18`,border:`1px solid ${C.gold}44`,marginBottom:12,cursor:"pointer" }}>
+                    <p style={{ fontSize:11.5,fontWeight:700,color:C.gold,fontFamily:"'Epilogue',sans-serif" }}>📍 Use your added venue</p>
+                    <p style={{ fontSize:10.5,color:"rgba(255,255,255,0.65)",marginTop:2 }}>{draft.venue}{draft.city?` · ${draft.city}`:""}</p>
+                  </div>
+                )}
+                <input value={locationQuery} onChange={e=>setLocationQuery(e.target.value)} placeholder="Search venue or city..."
+                  style={{ width:"100%",background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.18)",borderRadius:12,color:"#fff",fontFamily:"'Epilogue',sans-serif",fontSize:13,padding:"10px 12px",outline:"none",marginBottom:12,boxSizing:"border-box" }} />
+                <div style={{ display:"flex",flexDirection:"column",gap:4,maxHeight:260,overflowY:"auto" }}>
+                  {locationMatches.map(v=>(
+                    <div key={v.name} onClick={()=>pickLocationLayer(v)} className="tap" style={{ padding:"9px 10px",borderRadius:10,cursor:"pointer" }}>
+                      <p style={{ fontSize:12,fontWeight:700,color:"#fff",fontFamily:"'Epilogue',sans-serif" }}>{v.name}</p>
+                      <p style={{ fontSize:10,color:"rgba(255,255,255,0.5)",marginTop:1 }}>{v.city}, {v.state}</p>
+                    </div>
+                  ))}
+                </div>
+                {locationLayer&&(
+                  <button onClick={()=>{ removeLayer(locationLayer.id); setActiveTool(null); }} style={{ width:"100%",marginTop:12,padding:"10px",borderRadius:12,border:"1.5px solid rgba(255,90,110,0.4)",background:"rgba(255,90,110,0.1)",color:"#ff8a9a",fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}>Remove Location Sticker</button>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
