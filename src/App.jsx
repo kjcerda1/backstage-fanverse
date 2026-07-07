@@ -22655,6 +22655,21 @@ function PassTextLayer({ layer, onEdit, onRemove, preview }) {
   );
 }
 
+// Deterministic "who reacted" breakdown for the poster's own Insights view.
+// MOCK_PASSES only ever stored aggregate {emoji:count} reactions (no per-user
+// record — there never was one), so this samples a stable, non-random list
+// from the existing fan pool proportional to each emoji's count, capped so a
+// pass with hundreds of reactions doesn't render hundreds of rows.
+function synthesizeReactors(reactions) {
+  const pool = [...MOCK_FANVERSE_USERS.map(u=>u.username), ...MOCK_FRIENDS.map(f=>f.name.replace("@",""))];
+  const rows = []; let i = 0;
+  Object.entries(reactions||{}).forEach(([emoji,count])=>{
+    const shown = Math.min(count, 4);
+    for(let n=0;n<shown;n++){ rows.push({ username:pool[i%pool.length], emoji }); i++; }
+  });
+  return rows;
+}
+
 function BackstagePasses({ onBack, user }) {
   const KEY = "backstage_passes";
   const DURATIONS = [
@@ -22671,6 +22686,9 @@ function BackstagePasses({ onBack, user }) {
   const [filter, setFilter]     = useState("all");
   const [section, setSection]   = useState("live"); // live | circle | capsule
   const [viewing, setViewing]   = useState(null);
+  const [showComments, setShowComments] = useState(false);
+  const [commentDraft, setCommentDraft] = useState("");
+  const [showInsights, setShowInsights] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const [venueSuggestOpen, setVenueSuggestOpen] = useState(false);
   const captionRef = useRef(null);
@@ -22779,12 +22797,27 @@ function BackstagePasses({ onBack, user }) {
   useEffect(()=>{ ls.set(KEY,passes); },[passes]);
 
   const likePass   = (id,emoji="💜") => setPasses(ps=>ps.map(p=>p.id===id?{...p,likes:(p.likes||0)+1,reactions:{...(p.reactions||{}), [emoji]:((p.reactions||{})[emoji]||0)+1}}:p));
-  const viewPass   = id => { setPasses(ps=>ps.map(p=>p.id===id?{...p,viewed:true}:p)); setViewing(passes.find(p=>p.id===id)); };
+  const viewPass   = id => {
+    // Read the freshly-updated pass out of the setPasses updater itself,
+    // rather than the stale `passes` closure — otherwise the viewer opens
+    // showing the pre-increment view count until the next reopen.
+    setPasses(ps=>{
+      const next = ps.map(p=>p.id===id?{...p,viewed:true,views:(p.views||0)+1}:p);
+      setViewing(next.find(p=>p.id===id));
+      return next;
+    });
+  };
+  const addComment = (id, text) => {
+    if(!text.trim()) return;
+    const comment = { id:`cm${Date.now()}`, username:myUsername, text:text.trim(), ts:Date.now() };
+    setPasses(ps=>ps.map(p=>p.id===id?{...p,comments:[...(p.comments||[]),comment]}:p));
+    setViewing(v=>v&&v.id===id?{...v,comments:[...(v.comments||[]),comment]}:v);
+  };
   const addPass    = () => {
     if(!draft.caption.trim()) return;
     const t=PASS_TYPES.find(tp=>tp.id===draft.type)||PASS_TYPES[0];
     const dur=DURATIONS.find(d=>d.id===draft.duration)||DURATIONS[0];
-    const newPass={id:`p${Date.now()}`,type:draft.type,caption:draft.caption,username:`@${user?.name||user?.username||"stan"}`,expires:dur.label,color:t.color,grad:t.grad,viewed:false,likes:0,reactions:{},venue:draft.venueOn&&draft.venue.trim()?draft.venue.trim():null,city:draft.venueOn&&draft.city.trim()?draft.city.trim():null,checkedIn:draft.venueOn&&draft.checkedIn,inCapsule:draft.toCapsule,creative_layers:draft.layers,mentions:draft.layers.filter(l=>l.type==="mention"&&!l.pending).map(l=>l.username),visibility:draft.visibility};
+    const newPass={id:`p${Date.now()}`,type:draft.type,caption:draft.caption,username:`@${user?.name||user?.username||"stan"}`,expires:dur.label,color:t.color,grad:t.grad,viewed:false,likes:0,reactions:{},venue:draft.venueOn&&draft.venue.trim()?draft.venue.trim():null,city:draft.venueOn&&draft.city.trim()?draft.city.trim():null,checkedIn:draft.venueOn&&draft.checkedIn,inCapsule:draft.toCapsule,creative_layers:draft.layers,mentions:draft.layers.filter(l=>l.type==="mention"&&!l.pending).map(l=>l.username),visibility:draft.visibility,views:0,comments:[]};
     setPasses(ps=>[newPass,...ps]);
     if(draft.toCapsule){ const caps=ls.get("backstage_concert_capsules",[]); ls.set("backstage_concert_capsules",[...caps,{...newPass,concertId:"bts-lv-1",category:draft.type,savedAt:Date.now()}]); }
     setDraft({type:"fitcheck",caption:"",duration:"tonight",venueOn:false,venue:"",city:"",checkedIn:false,toCapsule:false,image:null,layers:[],visibility:"public"}); setShowDetails(false); setCreating(false);
@@ -22951,8 +22984,16 @@ function BackstagePasses({ onBack, user }) {
           ))}
           {/* Close */}
           <div style={{ position:"absolute",top:16,left:16,zIndex:10 }}>
-            <button onClick={()=>setViewing(null)} style={{ background:"rgba(0,0,0,0.5)",backdropFilter:"blur(8px)",border:"none",borderRadius:99,width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:18,cursor:"pointer" }}>✕</button>
+            <button onClick={()=>{ setViewing(null); setShowComments(false); setShowInsights(false); setCommentDraft(""); }} style={{ background:"rgba(0,0,0,0.5)",backdropFilter:"blur(8px)",border:"none",borderRadius:99,width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:18,cursor:"pointer" }}>✕</button>
           </div>
+          {/* Insights — only visible on your own Pass */}
+          {viewing.username===myUsername&&(
+            <div style={{ position:"absolute",top:16,right:16,zIndex:10 }}>
+              <button onClick={()=>setShowInsights(true)} style={{ background:"rgba(0,0,0,0.5)",backdropFilter:"blur(8px)",border:"none",borderRadius:99,padding:"8px 14px",display:"flex",alignItems:"center",gap:5,color:"#fff",fontSize:12,cursor:"pointer" }}>
+                📊 <span style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11 }}>Insights</span>
+              </button>
+            </div>
+          )}
           {/* Content */}
           <div style={{ position:"relative",zIndex:5,flex:1,display:"flex",flexDirection:"column",justifyContent:"flex-end",padding:"24px 24px 48px" }}>
             {/* Pass type badge */}
@@ -22990,14 +23031,81 @@ function BackstagePasses({ onBack, user }) {
               );
             })()}
             {/* Fandom reactions */}
-            <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
+            <div style={{ display:"flex",gap:8,flexWrap:"wrap",alignItems:"center" }}>
               {FANREACTIONS.map(emoji=>(
                 <button key={emoji} onClick={()=>{ likePass(viewing.id,emoji); setViewing(v=>({...v,reactions:{...(v.reactions||{}),[emoji]:((v.reactions||{})[emoji]||0)+1}})); }} style={{ background:"rgba(0,0,0,0.45)",backdropFilter:"blur(8px)",border:"1px solid rgba(255,255,255,0.18)",borderRadius:99,padding:"6px 14px",fontSize:16,cursor:"pointer",color:"#fff",display:"flex",alignItems:"center",gap:4 }}>
                   {emoji}<span style={{ fontSize:10,color:"rgba(255,255,255,0.7)" }}>{(viewing.reactions||{})[emoji]||""}</span>
                 </button>
               ))}
+              <button onClick={()=>setShowComments(true)} style={{ background:"rgba(0,0,0,0.45)",backdropFilter:"blur(8px)",border:"1px solid rgba(255,255,255,0.18)",borderRadius:99,padding:"6px 14px",fontSize:14,cursor:"pointer",color:"#fff",display:"flex",alignItems:"center",gap:4 }}>
+                💬 <span style={{ fontSize:10,color:"rgba(255,255,255,0.7)" }}>{(viewing.comments||[]).length||""}</span>
+              </button>
             </div>
+            <p style={{ marginTop:8,fontSize:9.5,color:"rgba(255,255,255,0.4)" }}>👁️ {viewing.views||0} views</p>
             {viewing.inCapsule&&<p style={{ marginTop:12,fontSize:10,color:"rgba(255,255,255,0.5)",fontStyle:"italic" }}>✦ Saved to tonight's Concert Capsule</p>}
+          </div>
+        </div>
+      )}
+
+      {/* ── COMMENTS — real, persisted per-Pass (unlike Feed's mock-only comments,
+           Passes already fully persist to localStorage, so this is a working
+           feature, not a placeholder) ── */}
+      {showComments&&viewing&&(
+        <div onClick={()=>setShowComments(false)} style={{ position:"fixed",inset:0,zIndex:760,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"flex-end",animation:"in .18s ease" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ width:"100%",maxHeight:"78vh",overflowY:"auto",background:"linear-gradient(170deg,rgba(28,18,52,0.98),rgba(8,5,18,0.99))",borderRadius:"22px 22px 0 0",border:"1px solid rgba(255,255,255,0.16)",padding:"16px 16px calc(24px + env(safe-area-inset-bottom))",display:"flex",flexDirection:"column" }}>
+            <div style={{ width:36,height:4,borderRadius:99,background:"rgba(255,255,255,0.25)",margin:"0 auto 14px",flexShrink:0 }} />
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,color:"#fff",marginBottom:12,flexShrink:0 }}>Comments</p>
+            <div style={{ flex:1,overflowY:"auto",marginBottom:12 }}>
+              {(viewing.comments||[]).length===0?(
+                <p style={{ fontSize:11.5,color:"rgba(255,255,255,0.5)",textAlign:"center",padding:"20px 0" }}>No comments yet — be the first</p>
+              ):(viewing.comments||[]).map(c=>(
+                <div key={c.id} style={{ display:"flex",gap:8,marginBottom:12 }}>
+                  <div style={{ width:26,height:26,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.berry})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:"#fff",flexShrink:0 }}>{c.username?.replace("@","")[0]?.toUpperCase()}</div>
+                  <div style={{ flex:1,minWidth:0 }}>
+                    <p style={{ fontSize:11,fontWeight:700,color:"#fff",fontFamily:"'Epilogue',sans-serif" }}>{c.username}</p>
+                    <p style={{ fontSize:11.5,color:"rgba(255,255,255,0.85)",lineHeight:1.4,marginTop:1 }}>{c.text}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{ display:"flex",gap:8,flexShrink:0 }}>
+              <input value={commentDraft} onChange={e=>setCommentDraft(e.target.value)} placeholder="Add a comment…"
+                style={{ flex:1,background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.18)",borderRadius:99,padding:"10px 14px",color:"#fff",fontFamily:"'Epilogue',sans-serif",fontSize:12.5,outline:"none",boxSizing:"border-box" }} />
+              <button onClick={()=>{ addComment(viewing.id, commentDraft); setCommentDraft(""); }} disabled={!commentDraft.trim()} style={{ background:commentDraft.trim()?`linear-gradient(135deg,${C.accent},${C.berry})`:"rgba(255,255,255,0.08)",border:"none",borderRadius:99,padding:"0 18px",color:commentDraft.trim()?"#04020d":"rgba(255,255,255,0.5)",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,cursor:commentDraft.trim()?"pointer":"default",flexShrink:0 }}>Post</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── INSIGHTS — poster-only view/reaction/comment breakdown ── */}
+      {showInsights&&viewing&&(
+        <div onClick={()=>setShowInsights(false)} style={{ position:"fixed",inset:0,zIndex:760,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"flex-end",animation:"in .18s ease" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ width:"100%",maxHeight:"78vh",overflowY:"auto",background:"linear-gradient(170deg,rgba(28,18,52,0.98),rgba(8,5,18,0.99))",borderRadius:"22px 22px 0 0",border:"1px solid rgba(255,255,255,0.16)",padding:"16px 16px calc(24px + env(safe-area-inset-bottom))" }}>
+            <div style={{ width:36,height:4,borderRadius:99,background:"rgba(255,255,255,0.25)",margin:"0 auto 14px" }} />
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,color:"#fff",marginBottom:14 }}>Insights</p>
+            <div style={{ display:"flex",gap:8,marginBottom:16 }}>
+              {[["👁️",viewing.views||0,"Views"],["💜",Object.values(viewing.reactions||{}).reduce((a,b)=>a+b,0),"Reactions"],["💬",(viewing.comments||[]).length,"Comments"]].map(([icon,count,label])=>(
+                <div key={label} style={{ flex:1,padding:"12px 8px",borderRadius:14,background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.16)",textAlign:"center" }}>
+                  <p style={{ fontSize:18 }}>{icon}</p>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,color:"#fff" }}>{count}</p>
+                  <p style={{ fontSize:9,color:"rgba(255,255,255,0.5)" }}>{label}</p>
+                </div>
+              ))}
+            </div>
+            <p style={{ fontSize:9,color:"rgba(255,255,255,0.5)",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8 }}>Who Reacted</p>
+            {synthesizeReactors(viewing.reactions).length===0?(
+              <p style={{ fontSize:11.5,color:"rgba(255,255,255,0.5)",textAlign:"center",padding:"12px 0" }}>No reactions yet</p>
+            ):(
+              <div style={{ display:"flex",flexDirection:"column",gap:6,marginBottom:8 }}>
+                {synthesizeReactors(viewing.reactions).map((r,i)=>(
+                  <div key={i} style={{ display:"flex",alignItems:"center",gap:8,padding:"6px 4px" }}>
+                    <div style={{ width:24,height:24,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.berry})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:800,color:"#fff",flexShrink:0 }}>{r.username[0]?.toUpperCase()}</div>
+                    <p style={{ flex:1,fontSize:11.5,color:"#fff",fontFamily:"'Epilogue',sans-serif" }}>@{r.username}</p>
+                    <span style={{ fontSize:14 }}>{r.emoji}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
