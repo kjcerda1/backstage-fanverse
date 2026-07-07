@@ -7929,6 +7929,12 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
   const [pcView, setPcView] = useState("sets");
   const [pcSetData, setPcSetData] = useState(()=>ls.get("backstage_photocard_sets",{}));
   const [showAddCard, setShowAddCard] = useState(false);
+  // Cross-concert Capsule Memories — aggregates backstage_concert_capsules
+  // across every concert, unlike ConcertCapsule which only ever shows the
+  // one current concert. Re-reads on section focus so a Pass saved to
+  // Capsule while this tab is open shows up without a full reload.
+  const [capsuleMemories, setCapsuleMemories] = useState(()=>ls.get("backstage_concert_capsules",[]));
+  useEffect(()=>{ if(section==="capsule-memories") setCapsuleMemories(ls.get("backstage_concert_capsules",[])); },[section]);
   const WORLD_THEMES = [
     {id:"Purple Galaxy",  emoji:"🌌", color:C.lavender},
     {id:"Pink Lightstick",emoji:"🩷", color:C.pink    },
@@ -8050,6 +8056,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
     { id:'eraboards', label:'Era Boards', icon:'' },
     { id:'scrapbook', label:'Scrapbooks', icon:'' },
     { id:'memories', label:'Memories', icon:'' },
+    { id:'capsule-memories', label:'Capsule Memories', icon:'' },
     { id:'achievements', label:'Achievements', icon:'' },
   ];
 
@@ -8500,6 +8507,54 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
         {section==="scrapbook" && <ScrapbookTab isVip={isVip} onUpgrade={onUpgrade} />}
 
         {section==="memories" && <CollectTab cards={cards} setCards={setCards} isVip={isVip} onUpgrade={onUpgrade} user={user} onAddMemory={()=>setSection("scrapbook")} hideNav defaultView="shelf" />}
+
+        {section==="capsule-memories" && (() => {
+          // Group every saved-to-Capsule/Era-Memory entry by concert, across
+          // ALL concerts — unlike ConcertCapsule which only ever shows the
+          // single current concert. Entries can come from either the Pass
+          // composer (PASS_TYPES categories) or ConcertCapsule itself (its
+          // own CATS categories), so category is rendered as plain text
+          // rather than mapped through either taxonomy specifically.
+          const groups = {};
+          capsuleMemories.forEach(e => { (groups[e.concertId || "unknown"] ||= []).push(e); });
+          const concertIds = Object.keys(groups).sort((a, b) => {
+            const latest = arr => Math.max(...arr.map(e => e.savedAt || 0));
+            return latest(groups[b]) - latest(groups[a]);
+          });
+          return (
+            <div style={{ paddingTop:4 }}>
+              <div style={{ background:`linear-gradient(140deg,${C.plum},${C.cosmic})`,border:`1.5px solid ${softBlue}20`,borderRadius:18,padding:"14px 16px",marginBottom:16 }}>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:C.text,marginBottom:4 }}>💊 Capsule Memories</p>
+                <p style={{ fontSize:11,color:C.textMid,lineHeight:1.6 }}>Every night you kept — across every show, not just the last one.</p>
+              </div>
+              {concertIds.length===0 ? (
+                <div style={{ textAlign:"center", padding:"40px 20px", color:C.textDim }}>
+                  <p style={{ fontSize:32, marginBottom:12 }}>💊</p>
+                  <p style={{ fontSize:12.5, lineHeight:1.6 }}>No capsule memories saved yet.<br/>Save a Pass as "Keep in Capsule" or "Era Memory" to start one.</p>
+                </div>
+              ) : concertIds.map(cid => {
+                const concert = MOCK_CONCERTS.find(c => c.id === cid);
+                const entries = groups[cid];
+                return (
+                  <div key={cid} style={{ marginBottom:18 }}>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:12.5, color:C.text, marginBottom:2 }}>{concert?.name || cid}</p>
+                    <p style={{ fontSize:9.5, color:C.textDim, marginBottom:8 }}>{concert?.city || ""}{concert?.date ? ` · ${concert.date}` : ""}</p>
+                    {entries.map(e => (
+                      <div key={e.id} style={{ ...VS.glowCard(C.berry), padding:12, marginBottom:8, display:"flex", flexDirection:"column", gap:4 }}>
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                          <span style={{ ...VS.mutedPill(), fontSize:8.5 }}>{(e.category||"memory").replace(/[-_]/g," ")}</span>
+                          <span style={{ fontSize:9, color:C.textDim }}>{e.timestamp || fmtCapsuleTs(e.savedAt)}</span>
+                        </div>
+                        <p style={{ fontSize:11.5, color:C.text, lineHeight:1.4 }}>{e.caption}</p>
+                        <p style={{ fontSize:9.5, color:C.textMid }}>{e.username}</p>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
 
         {section==="achievements" && (
           <div style={{ paddingTop:4 }}>
