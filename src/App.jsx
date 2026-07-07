@@ -15524,8 +15524,8 @@ const MOCK_FRIENDS = [
 const MOCK_FANVERSE_USERS = [
   { id:"fu1", username:"armyjoon",    displayName:"Joon",      fandoms:["BTS"],              city:"Las Vegas, NV",    concertContext:"BTS Vegas Night 1",     avatar:"J", color:C.pink,    status:"none",  tags:["concert buddy","lightsticks"],     bio:"Looking for concert buddies 💜" },
   { id:"fu2", username:"kacyverse",   displayName:"Kacy",      fandoms:["aespa","NewJeans"],  city:"Los Angeles, CA",  concertContext:"aespa Drama Tour LA",   avatar:"K", color:C.mint,    status:"none",  tags:["photocards","K-pop fashion"],      bio:"Trading freebies at Gate 3 ✨" },
-  { id:"fu3", username:"staymia",     displayName:"Mia",       fandoms:["Stray Kids"],        city:"Chicago, IL",      concertContext:"SKZ 5-STAR Chicago",    avatar:"M", color:C.accent,  status:"none",  tags:["ult wrecker","section 107"],       bio:"Solo concert mode — find me 🖤" },
-  { id:"fu4", username:"jungkookfilm",displayName:"Jk",        fandoms:["BTS"],               city:"Las Vegas, NV",    concertContext:"BTS Vegas Night 2",     avatar:"J", color:C.lavender,status:"none",  tags:["fancam","film"],                   bio:"Film photographer + ARMY 📷" },
+  { id:"fu3", username:"staymia",     displayName:"Mia",       fandoms:["Stray Kids"],        city:"Chicago, IL",      concertContext:"SKZ 5-STAR Chicago",    avatar:"M", color:C.accent,  status:"none",  tags:["ult wrecker","section 107"],       bio:"Solo concert mode — find me 🖤", private:true },
+  { id:"fu4", username:"jungkookfilm",displayName:"Jk",        fandoms:["BTS"],               city:"Las Vegas, NV",    concertContext:"BTS Vegas Night 2",     avatar:"J", color:C.lavender,status:"none",  tags:["fancam","film"],                   bio:"Film photographer + ARMY 📷", private:true },
   { id:"fu5", username:"vegasarmy",   displayName:"Yuna",      fandoms:["BTS","SEVENTEEN"],   city:"Las Vegas, NV",    concertContext:"BTS Vegas Weekend",     avatar:"Y", color:C.rose,    status:"none",  tags:["travel fan","pit mode"],           bio:"Vegas weekend crew — anyone?" },
   { id:"fu6", username:"mochi.trades",displayName:"Mochi",     fandoms:["BTS"],               city:"Dallas, TX",       concertContext:"BTS Dallas Night 1",    avatar:"M", color:C.gold,    status:"none",  tags:["photocards","trusted trader"],     bio:"Jimin PC collector 🍡 DM to trade" },
   { id:"fu7", username:"purplehour",  displayName:"Hana",      fandoms:["BTS","ENHYPEN"],     city:"New York, NY",     concertContext:"MSG Next Era",          avatar:"H", color:C.iris,    status:"none",  tags:["freebies maker","cup sleeves"],    bio:"Making freebies for the next show 💜" },
@@ -22667,7 +22667,7 @@ function BackstagePasses({ onBack, user }) {
 
   const [passes, setPasses]     = useState(()=>ls.get(KEY,MOCK_PASSES));
   const [creating, setCreating] = useState(false);
-  const [draft, setDraft]       = useState({type:"fitcheck",caption:"",duration:"tonight",venueOn:false,venue:"",city:"",checkedIn:false,toCapsule:false,image:null,layers:[]});
+  const [draft, setDraft]       = useState({type:"fitcheck",caption:"",duration:"tonight",venueOn:false,venue:"",city:"",checkedIn:false,toCapsule:false,image:null,layers:[],visibility:"public"});
   const [filter, setFilter]     = useState("all");
   const [section, setSection]   = useState("live"); // live | circle | capsule
   const [viewing, setViewing]   = useState(null);
@@ -22682,6 +22682,18 @@ function BackstagePasses({ onBack, user }) {
   const [mentionQuery, setMentionQuery] = useState("");
   const [locationQuery, setLocationQuery] = useState("");
   const [showMoreColors, setShowMoreColors] = useState(false);
+  const [showTagRequests, setShowTagRequests] = useState(false);
+  // Incoming tag-approval requests — scoped per-account (by handle) so
+  // switching between test accounts doesn't bleed one account's requests
+  // onto another's. Seeded with 2 demo requests so the approve/decline flow
+  // is testable without a second live account tagging you for real.
+  const TAG_REQUESTS_KEY = `backstage_pending_tags_${user?.name||user?.username||"stan"}`;
+  const [tagRequests, setTagRequests] = useState(()=>ls.get(TAG_REQUESTS_KEY, [
+    { id:"tr1", byUsername:"freebieera", passId:"p3", passCaption:"handing out freebies at gate 4 come find me!!", status:"pending", createdAt:Date.now()-3600000 },
+    { id:"tr2", byUsername:"lightstkk",  passId:"p6", passCaption:"ocean was PURPLE from pit to nosebleeds",       status:"pending", createdAt:Date.now()-7200000 },
+  ]));
+  useEffect(()=>{ ls.set(TAG_REQUESTS_KEY, tagRequests); },[tagRequests]);
+  const pendingTagCount = tagRequests.filter(r=>r.status==="pending").length;
 
   const addLayer = (layer) => setDraft(d=>({...d, layers:[...d.layers, {id:`ly${Date.now()}${Math.random().toString(36).slice(2,6)}`, ...layer}]}));
   const removeLayer = (id) => setDraft(d=>({...d, layers:d.layers.filter(l=>l.id!==id)}));
@@ -22706,9 +22718,13 @@ function BackstagePasses({ onBack, user }) {
   const stickerLayers = draft.layers.filter(l=>l.type==="sticker");
   const locationLayer = draft.layers.find(l=>l.type==="location");
 
+  // "private" candidates are non-discoverable users — tagging them creates a
+  // pending mention (no handle shown publicly) instead of an instant tag,
+  // until they'd approve it. Your own accepted Circle is never private here —
+  // you already have a relationship with them.
   const tagCandidates = (()=>{
-    const friends = ls.get("backstage_friends", MOCK_FRIENDS).map(f=>({username:f.name?.replace("@",""), source:"circle"}));
-    const fanverse = MOCK_FANVERSE_USERS.map(u=>({username:u.username, source:"fanverse"}));
+    const friends = ls.get("backstage_friends", MOCK_FRIENDS).map(f=>({username:f.name?.replace("@",""), source:"circle", private:false}));
+    const fanverse = MOCK_FANVERSE_USERS.map(u=>({username:u.username, source:"fanverse", private:!!u.private}));
     const seen = new Set(); const merged = [];
     [...friends,...fanverse].forEach(u=>{ if(u.username && !seen.has(u.username)){ seen.add(u.username); merged.push(u); } });
     return merged;
@@ -22719,8 +22735,9 @@ function BackstagePasses({ onBack, user }) {
   ).filter(u=>!mentionLayers.some(l=>l.username===u.username)).slice(0,8);
   const toggleMention = (username) => {
     const existing = mentionLayers.find(l=>l.username===username);
-    if(existing) removeLayer(existing.id);
-    else addLayer({ type:"mention", username });
+    if(existing){ removeLayer(existing.id); return; }
+    const candidate = tagCandidates.find(u=>u.username===username);
+    addLayer({ type:"mention", username, pending:!!candidate?.private });
   };
 
   const addStickerLayer = (gif) => {
@@ -22767,10 +22784,10 @@ function BackstagePasses({ onBack, user }) {
     if(!draft.caption.trim()) return;
     const t=PASS_TYPES.find(tp=>tp.id===draft.type)||PASS_TYPES[0];
     const dur=DURATIONS.find(d=>d.id===draft.duration)||DURATIONS[0];
-    const newPass={id:`p${Date.now()}`,type:draft.type,caption:draft.caption,username:`@${user?.name||user?.username||"stan"}`,expires:dur.label,color:t.color,grad:t.grad,viewed:false,likes:0,reactions:{},venue:draft.venueOn&&draft.venue.trim()?draft.venue.trim():null,city:draft.venueOn&&draft.city.trim()?draft.city.trim():null,checkedIn:draft.venueOn&&draft.checkedIn,inCapsule:draft.toCapsule,creative_layers:draft.layers,mentions:draft.layers.filter(l=>l.type==="mention").map(l=>l.username)};
+    const newPass={id:`p${Date.now()}`,type:draft.type,caption:draft.caption,username:`@${user?.name||user?.username||"stan"}`,expires:dur.label,color:t.color,grad:t.grad,viewed:false,likes:0,reactions:{},venue:draft.venueOn&&draft.venue.trim()?draft.venue.trim():null,city:draft.venueOn&&draft.city.trim()?draft.city.trim():null,checkedIn:draft.venueOn&&draft.checkedIn,inCapsule:draft.toCapsule,creative_layers:draft.layers,mentions:draft.layers.filter(l=>l.type==="mention"&&!l.pending).map(l=>l.username),visibility:draft.visibility};
     setPasses(ps=>[newPass,...ps]);
     if(draft.toCapsule){ const caps=ls.get("backstage_concert_capsules",[]); ls.set("backstage_concert_capsules",[...caps,{...newPass,concertId:"bts-lv-1",category:draft.type,savedAt:Date.now()}]); }
-    setDraft({type:"fitcheck",caption:"",duration:"tonight",venueOn:false,venue:"",city:"",checkedIn:false,toCapsule:false,image:null,layers:[]}); setShowDetails(false); setCreating(false);
+    setDraft({type:"fitcheck",caption:"",duration:"tonight",venueOn:false,venue:"",city:"",checkedIn:false,toCapsule:false,image:null,layers:[],visibility:"public"}); setShowDetails(false); setCreating(false);
     setViewing(newPass); // land on the story you just posted, like Instagram does
   };
 
@@ -22784,7 +22801,7 @@ function BackstagePasses({ onBack, user }) {
     ? passes.filter(p=>circleUsernames.some(u=>p.username?.includes(u)))
     : section==="capsule"
     ? passes.filter(p=>p.inCapsule||p.expires==="Era Memory"||p.expires==="Keep in Capsule")
-    : passes; // "live" = all public
+    : passes.filter(p=>p.visibility!=="circle"); // "live" = public only — Circle-only passes stay out of the public feed
   const filtered = filter==="all"?sectionPasses:sectionPasses.filter(p=>p.type===filter);
   const unviewed = passes.filter(p=>!p.viewed).length;
   const selectedType = PASS_TYPES.find(t=>t.id===draft.type)||PASS_TYPES[0];
@@ -22814,6 +22831,12 @@ function BackstagePasses({ onBack, user }) {
             </div>
             <p style={{ fontSize:10,color:C.textMid }}>Live fan moments · share your concert night</p>
           </div>
+          {pendingTagCount>0&&(
+            <button onClick={()=>setShowTagRequests(true)} title="Tag requests" style={{ position:"relative",background:C.glassBgHi,border:`1px solid ${C.glassBorder}`,borderRadius:12,width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,cursor:"pointer",flexShrink:0 }}>
+              🏷️
+              <span style={{ position:"absolute",top:-4,right:-4,background:C.rose,color:"#fff",fontSize:8,fontWeight:800,borderRadius:99,minWidth:15,height:15,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 3px" }}>{pendingTagCount}</span>
+            </button>
+          )}
           <button onClick={()=>setCreating(true)} style={{ background:`linear-gradient(135deg,${C.accent},${C.berry})`,border:"none",borderRadius:13,padding:"8px 14px",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:11,cursor:"pointer",flexShrink:0,boxShadow:`0 0 14px ${C.accent}40` }}>+ Pass</button>
         </div>
 
@@ -22883,9 +22906,12 @@ function BackstagePasses({ onBack, user }) {
                     {/* Live pulse */}
                     {!pass.viewed&&<div style={{ position:"absolute",top:0,left:0,right:0,height:2,background:`linear-gradient(90deg,transparent,${pass.color},transparent)`,animation:"shimmer 2s ease-in-out infinite" }} />}
                     {/* Pass type chip */}
-                    <div style={{ alignSelf:"flex-start",background:"rgba(0,0,0,0.45)",backdropFilter:"blur(8px)",borderRadius:99,padding:"3px 9px",display:"flex",alignItems:"center",gap:4 }}>
-                      <span style={{ fontSize:9 }}>{t.emoji}</span>
-                      <span style={{ fontSize:8,color:"rgba(255,255,255,0.9)",fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{t.label}</span>
+                    <div style={{ display:"flex",gap:4 }}>
+                      <div style={{ alignSelf:"flex-start",background:"rgba(0,0,0,0.45)",backdropFilter:"blur(8px)",borderRadius:99,padding:"3px 9px",display:"flex",alignItems:"center",gap:4 }}>
+                        <span style={{ fontSize:9 }}>{t.emoji}</span>
+                        <span style={{ fontSize:8,color:"rgba(255,255,255,0.9)",fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{t.label}</span>
+                      </div>
+                      {pass.visibility==="circle"&&<div title="My Circle only" style={{ background:"rgba(0,0,0,0.45)",backdropFilter:"blur(8px)",borderRadius:99,padding:"3px 7px",display:"flex",alignItems:"center" }}><span style={{ fontSize:9 }}>🔒</span></div>}
                     </div>
                     {/* Large emoji watermark */}
                     <div style={{ position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",fontSize:38,opacity:0.18 }}>{t.emoji}</div>
@@ -22930,9 +22956,12 @@ function BackstagePasses({ onBack, user }) {
           {/* Content */}
           <div style={{ position:"relative",zIndex:5,flex:1,display:"flex",flexDirection:"column",justifyContent:"flex-end",padding:"24px 24px 48px" }}>
             {/* Pass type badge */}
-            <div style={{ alignSelf:"flex-start",background:"rgba(0,0,0,0.5)",backdropFilter:"blur(10px)",borderRadius:99,padding:"5px 14px",marginBottom:14,display:"flex",alignItems:"center",gap:6 }}>
-              <span style={{ fontSize:14 }}>{PASS_TYPES.find(t=>t.id===viewing.type)?.emoji||"🎟️"}</span>
-              <span style={{ fontSize:11,color:"#fff",fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{PASS_TYPES.find(t=>t.id===viewing.type)?.label||"Pass"}</span>
+            <div style={{ display:"flex",gap:6,marginBottom:14 }}>
+              <div style={{ alignSelf:"flex-start",background:"rgba(0,0,0,0.5)",backdropFilter:"blur(10px)",borderRadius:99,padding:"5px 14px",display:"flex",alignItems:"center",gap:6 }}>
+                <span style={{ fontSize:14 }}>{PASS_TYPES.find(t=>t.id===viewing.type)?.emoji||"🎟️"}</span>
+                <span style={{ fontSize:11,color:"#fff",fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{PASS_TYPES.find(t=>t.id===viewing.type)?.label||"Pass"}</span>
+              </div>
+              {viewing.visibility==="circle"&&<div style={{ alignSelf:"flex-start",background:"rgba(0,0,0,0.5)",backdropFilter:"blur(10px)",borderRadius:99,padding:"5px 12px",display:"flex",alignItems:"center",gap:5 }}><span style={{ fontSize:12 }}>🔒</span><span style={{ fontSize:10,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>Circle Only</span></div>}
             </div>
             {/* Large emoji */}
             <div style={{ position:"absolute",top:"35%",left:"50%",transform:"translate(-50%,-50%)",fontSize:80,opacity:0.15,pointerEvents:"none" }}>{PASS_TYPES.find(t=>t.id===viewing.type)?.emoji||"🎟️"}</div>
@@ -22955,7 +22984,7 @@ function BackstagePasses({ onBack, user }) {
               return (
                 <div style={{ display:"flex",gap:6,flexWrap:"wrap",marginBottom:14 }}>
                   {loc&&<span style={{ background:"rgba(0,0,0,0.45)",backdropFilter:"blur(8px)",border:"1px solid rgba(255,255,255,0.2)",borderRadius:99,padding:"5px 11px",fontSize:10.5,color:"#fff",fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>📍 {loc.venue}{loc.city?`, ${loc.city}`:""}</span>}
-                  {mentions.map(m=>(<span key={m.id} style={{ background:`${C.accent}22`,border:`1px solid ${C.accent}55`,borderRadius:99,padding:"5px 11px",fontSize:10.5,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>@{m.username}</span>))}
+                  {mentions.map(m=>(<span key={m.id} style={{ background:m.pending?"rgba(255,255,255,0.08)":`${C.accent}22`,border:`1px solid ${m.pending?"rgba(255,255,255,0.2)":`${C.accent}55`}`,borderRadius:99,padding:"5px 11px",fontSize:10.5,color:m.pending?"rgba(255,255,255,0.7)":C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{m.pending?"🔒 Tag pending":`@${m.username}`}</span>))}
                   {stickers.map(s=>(<img key={s.id} src={s.previewUrl} alt={s.title||"sticker"} style={{ width:44,height:44,borderRadius:10,objectFit:"contain",background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.2)" }} />))}
                 </div>
               );
@@ -22969,6 +22998,29 @@ function BackstagePasses({ onBack, user }) {
               ))}
             </div>
             {viewing.inCapsule&&<p style={{ marginTop:12,fontSize:10,color:"rgba(255,255,255,0.5)",fontStyle:"italic" }}>✦ Saved to tonight's Concert Capsule</p>}
+          </div>
+        </div>
+      )}
+
+      {/* ── TAG REQUESTS — incoming pending mentions awaiting your approval ── */}
+      {showTagRequests&&(
+        <div onClick={()=>setShowTagRequests(false)} style={{ position:"fixed",inset:0,zIndex:850,background:"rgba(6,6,15,0.75)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ width:"100%",maxHeight:"78vh",overflowY:"auto",background:C.modalBg,color:C.modalText,borderRadius:"24px 24px 0 0",border:`1px solid ${C.modalBorder}`,padding:"18px 18px calc(24px + env(safe-area-inset-bottom))",boxShadow:C.modalShadow,boxSizing:"border-box" }}>
+            <div style={{ width:36,height:4,borderRadius:99,background:C.modalBorderHi,margin:"0 auto 14px" }} />
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,marginBottom:4 }}>Tag Requests</p>
+            <p style={{ fontSize:11,color:C.modalTextMid,marginBottom:14 }}>Approve a tag before it shows your handle on someone else's Pass.</p>
+            {tagRequests.filter(r=>r.status==="pending").length===0?(
+              <p style={{ fontSize:12,color:C.modalTextMid,textAlign:"center",padding:"24px 0" }}>No pending tag requests</p>
+            ):tagRequests.filter(r=>r.status==="pending").map(r=>(
+              <div key={r.id} style={{ padding:12,borderRadius:14,background:C.modalSurface,border:`1px solid ${C.modalBorder}`,marginBottom:10 }}>
+                <p style={{ fontSize:12.5,fontWeight:700,marginBottom:3 }}>@{r.byUsername} tagged you</p>
+                <p style={{ fontSize:11,color:C.modalTextMid,fontStyle:"italic",marginBottom:10 }}>"{r.passCaption}"</p>
+                <div style={{ display:"flex",gap:8 }}>
+                  <button onClick={()=>setTagRequests(rs=>rs.map(x=>x.id===r.id?{...x,status:"declined"}:x))} style={{ flex:1,padding:"8px",borderRadius:10,border:`1px solid ${C.modalBorder}`,background:"transparent",color:C.modalTextMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>Decline</button>
+                  <button onClick={()=>setTagRequests(rs=>rs.map(x=>x.id===r.id?{...x,status:"approved"}:x))} style={{ flex:1,padding:"8px",borderRadius:10,border:"none",background:`linear-gradient(135deg,${C.accent},${C.berry})`,color:"#fff",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:11,cursor:"pointer" }}>Approve</button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -22994,7 +23046,7 @@ function BackstagePasses({ onBack, user }) {
 
             {/* ── TOP CHROME ── */}
             <div style={{ position:"absolute",top:0,left:0,right:0,padding:"16px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",zIndex:10 }}>
-              <button onClick={()=>{ setCreating(false); setShowDetails(false); setActiveTool(null); setDraft(d=>({...d,image:null,caption:"",layers:[]})); }} style={{ background:"rgba(0,0,0,0.42)",backdropFilter:"blur(10px)",border:"none",borderRadius:99,width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:18,cursor:"pointer" }}>✕</button>
+              <button onClick={()=>{ setCreating(false); setShowDetails(false); setActiveTool(null); setDraft(d=>({...d,image:null,caption:"",layers:[],visibility:"public"})); }} style={{ background:"rgba(0,0,0,0.42)",backdropFilter:"blur(10px)",border:"none",borderRadius:99,width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:18,cursor:"pointer" }}>✕</button>
               <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,letterSpacing:"0.04em",color:"rgba(255,255,255,0.88)",textShadow:"0 1px 8px rgba(0,0,0,0.8)" }}>New Backstage Pass ✨</p>
               {/* Camera roll re-pick */}
               <button onClick={()=>fileRef.current?.click()} style={{ background:"rgba(0,0,0,0.42)",backdropFilter:"blur(10px)",border:"none",borderRadius:99,width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:16,cursor:"pointer" }}>📷</button>
@@ -23060,8 +23112,8 @@ function BackstagePasses({ onBack, user }) {
                     </span>
                   )}
                   {mentionLayers.map(l=>(
-                    <span key={l.id} onClick={()=>removeLayer(l.id)} className="tap" style={{ background:`${C.accent}22`,border:`1px solid ${C.accent}55`,borderRadius:99,padding:"5px 11px",fontSize:10,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>
-                      @{l.username} <span style={{ opacity:0.6 }}>✕</span>
+                    <span key={l.id} onClick={()=>removeLayer(l.id)} className="tap" style={{ background:l.pending?"rgba(255,255,255,0.1)":`${C.accent}22`,border:`1px solid ${l.pending?"rgba(255,255,255,0.25)":`${C.accent}55`}`,borderRadius:99,padding:"5px 11px",fontSize:10,color:l.pending?"rgba(255,255,255,0.8)":C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>
+                      {l.pending?"🔒 Tag pending":`@${l.username}`} <span style={{ opacity:0.6 }}>✕</span>
                     </span>
                   ))}
                   {stickerLayers.map(l=>(
@@ -23090,6 +23142,19 @@ function BackstagePasses({ onBack, user }) {
 
           {/* ── BOTTOM CONTROLS — minimal chrome ── */}
           <div style={{ flexShrink:0,background:"rgba(4,2,13,0.97)",backdropFilter:"blur(24px)",padding:"12px 16px 44px",borderTop:"1px solid rgba(255,255,255,0.14)" }}>
+
+            {/* Who can see this — Public vs Circle-only, a real per-post privacy
+                 choice (not just a browse-side filter). Kept visible by default
+                 rather than tucked in "Add details" since it's a decision users
+                 should make every time, like Instagram's audience picker. */}
+            <div style={{ display:"flex",gap:6,marginBottom:10 }}>
+              <button onClick={()=>setDraft(d=>({...d,visibility:"public"}))} style={{ flex:1,padding:"8px 6px",borderRadius:10,border:`1.5px solid ${draft.visibility==="public"?C.accent:"rgba(255,255,255,0.16)"}`,background:draft.visibility==="public"?`${C.accent}22`:"rgba(255,255,255,0.06)",color:draft.visibility==="public"?C.accent:"rgba(255,255,255,0.7)",fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,cursor:"pointer",transition:"all .15s",display:"flex",alignItems:"center",justifyContent:"center",gap:5 }}>
+                🌐 Public
+              </button>
+              <button onClick={()=>setDraft(d=>({...d,visibility:"circle"}))} style={{ flex:1,padding:"8px 6px",borderRadius:10,border:`1.5px solid ${draft.visibility==="circle"?C.lavender:"rgba(255,255,255,0.16)"}`,background:draft.visibility==="circle"?`${C.lavender}22`:"rgba(255,255,255,0.06)",color:draft.visibility==="circle"?C.lavender:"rgba(255,255,255,0.7)",fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,cursor:"pointer",transition:"all .15s",display:"flex",alignItems:"center",justifyContent:"center",gap:5 }}>
+                🔒 My Circle Only
+              </button>
+            </div>
 
             {/* Duration — compact horizontal pills */}
             <div style={{ display:"flex",gap:6,marginBottom:10 }}>
@@ -23250,7 +23315,7 @@ function BackstagePasses({ onBack, user }) {
                 {mentionLayers.length>0&&(
                   <div style={{ display:"flex",gap:6,flexWrap:"wrap",marginBottom:12 }}>
                     {mentionLayers.map(l=>(
-                      <span key={l.id} onClick={()=>removeLayer(l.id)} className="tap" style={{ background:`${C.accent}22`,border:`1px solid ${C.accent}55`,borderRadius:99,padding:"5px 10px",fontSize:11,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>@{l.username} ✕</span>
+                      <span key={l.id} onClick={()=>removeLayer(l.id)} className="tap" style={{ background:`${C.accent}22`,border:`1px solid ${C.accent}55`,borderRadius:99,padding:"5px 10px",fontSize:11,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>{l.pending?"🔒 ":""}@{l.username} ✕</span>
                     ))}
                   </div>
                 )}
@@ -23260,8 +23325,8 @@ function BackstagePasses({ onBack, user }) {
                     <div key={u.username} onClick={()=>toggleMention(u.username)} className="tap" style={{ display:"flex",alignItems:"center",gap:10,padding:"9px 8px",borderRadius:10,cursor:"pointer" }}>
                       <div style={{ width:30,height:30,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.berry})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:800,color:"#fff",flexShrink:0 }}>{u.username[0]?.toUpperCase()}</div>
                       <div style={{ flex:1 }}>
-                        <p style={{ fontSize:12,fontWeight:700,color:"#fff",fontFamily:"'Epilogue',sans-serif" }}>@{u.username}</p>
-                        <p style={{ fontSize:9.5,color:"rgba(255,255,255,0.45)" }}>{u.source==="circle"?"In your Circle":"Fanverse"}</p>
+                        <p style={{ fontSize:12,fontWeight:700,color:"#fff",fontFamily:"'Epilogue',sans-serif" }}>@{u.username}{u.private&&<span style={{ marginLeft:6,fontSize:9,color:"rgba(255,255,255,0.5)",fontWeight:600 }}>🔒 Private</span>}</p>
+                        <p style={{ fontSize:9.5,color:"rgba(255,255,255,0.45)" }}>{u.source==="circle"?"In your Circle":u.private?"Requires tag approval":"Fanverse"}</p>
                       </div>
                     </div>
                   ))}
