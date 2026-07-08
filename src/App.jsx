@@ -3183,6 +3183,22 @@ const getSanitizedSetData = (rawSetData={}, cards=[]) => {
   return out;
 };
 
+// Phase 3c — Era Room's only real per-item, per-user action is wishlisting a
+// MEMBER-type era template ("I want this member's cards from this era" — no
+// album/version, since Era Room doesn't track those). Matches a real
+// user_cards row by group_name+album(=era)+member, requiring an EMPTY version
+// so this generic "want" entry never collides with (or overwrites the status
+// of) a specific-version card the user already owns for that member. Era
+// Room's other actions (Save bookmarks, non-member Wishlist board bookmarks,
+// member-binder-started flag, mock Trades tab) have no card identity and are
+// intentionally left as pure legacy bookmarks — see Phase 3 memory notes.
+const findRealCardForEraMember = (cards, group, era, member) => (cards||[]).find(c =>
+  (c.group_name||"") === (group||"") &&
+  (c.album||"")       === (era||"") &&
+  !c.version &&
+  (c.member||"")      === member
+) || null;
+
 // localStorage: backstage_binders | backstage_card_slots
 // GET /api/collections/templates?group=
 // GET /api/collections/albums/:albumId/cards
@@ -8356,7 +8372,7 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
     <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden", position:"relative" }}>
       <AmbientStarfield />
       {/* EraRoom deep-link overlay from Era Boards */}
-      {eraRoomDeep && <EraRoom group={eraRoomDeep.group} era={eraRoomDeep.era} color={eraRoomDeep.color} onBack={()=>setEraRoomDeep(null)} onBinderCreated={()=>{ refreshBinderCount(); setEraRoomDeep(null); setSection("albums"); }} onGoToTradeHub={()=>{ setEraRoomDeep(null); setSection("albums"); }} />}
+      {eraRoomDeep && <EraRoom group={eraRoomDeep.group} era={eraRoomDeep.era} color={eraRoomDeep.color} cards={allCards} patchCard={patchCard} addCard={addCard} onBack={()=>setEraRoomDeep(null)} onBinderCreated={()=>{ refreshBinderCount(); setEraRoomDeep(null); setSection("albums"); }} onGoToTradeHub={()=>{ setEraRoomDeep(null); setSection("albums"); }} />}
       {showAddCard && (
         <div style={{ position:"absolute",inset:0,zIndex:50,background:C.bg,overflowY:"auto" }}>
           <AddCardForm initialStatus={addCardInitialStatus} onBack={()=>{ setShowAddCard(false); setAddCardInitialStatus("owned"); }} onSaved={card=>{ addCard(card); setShowAddCard(false); setAddCardInitialStatus("owned"); setSection(card.status==="iso"?"wishlist":"albums"); if(card.status!=="iso"){ setAlbumSubView("photocards"); setPcView("cards"); } }} />
@@ -13532,7 +13548,10 @@ function syncEraBoardsToServer() {
 }
 
 // ─── ERA ROOM COMPONENT ───────────────────────────────────────────────────────
-function EraRoom({ group, era, color, onBack, onBinderCreated, onGoToTradeHub }) {
+function EraRoom({ group, era, color, onBack, onBinderCreated, onGoToTradeHub, cards, patchCard, addCard }) {
+  // Phase 3c — slots currently being promoted to a real user_cards row, keyed
+  // by `${group}::${era}::${member}`, mirroring Phase 3b's in-flight guard.
+  const pendingEraCreates = useRef(new Set());
   const [tab, setTab] = useState("templates");
   const [toast, setToast] = useState(null);
   const [showTradeSheet, setShowTradeSheet] = useState(false);
@@ -13631,8 +13650,37 @@ function EraRoom({ group, era, color, onBack, onBinderCreated, onGoToTradeHub })
     showToast(next.started ? `${memberName} binder started!` : `${memberName} binder removed`);
   };
 
-  const addToWishlist = (id, label, tmplType) => {
-    if (wishlist.some(w => (typeof w==="string"?w:w.id)===id)) { showToast("Already on wishlist"); return; }
+  // Legacy-only wishlist check (pre-3c bookmark array) — used as the fallback
+  // for non-member templates, and for member templates that haven't been
+  // promoted to a real card yet.
+  const isLegacyWished = (id) => wishlist.some(w => (typeof w==="string"?w:w.id)===id);
+
+  // Phase 3c — real card wins for member templates; everything else (board/
+  // concept bookmarks with no card identity) stays on the legacy array.
+  const isWished = (tmpl) => {
+    if (tmpl.type === "member" && findRealCardForEraMember(cards, group, era, tmpl.memberName)) return true;
+    return isLegacyWished(tmpl.id);
+  };
+
+  const addToWishlist = (id, label, tmplType, memberName) => {
+    if (tmplType === "member") {
+      if (isWished({ id, type:"member", memberName })) { showToast("Already on wishlist"); return; }
+      const key = `${eraKey}::${memberName}`;
+      const existing = findRealCardForEraMember(cards, group, era, memberName);
+      if (existing) {
+        patchCard(existing.id, { status:'iso' });
+      } else if (!pendingEraCreates.current.has(key)) {
+        pendingEraCreates.current.add(key);
+        api.post('/api/cards', { group_name:group, album:era, era, member:memberName, status:'iso' })
+          .then(d => { if (d?.card) addCard(d.card); })
+          .finally(() => pendingEraCreates.current.delete(key));
+      }
+      showToast(`Added to wishlist`);
+      return;
+    }
+    // Non-member templates (checklist/POB/dupe board/fansign/wishlist board) —
+    // board/concept bookmarks with no card identity, unchanged legacy path.
+    if (isLegacyWished(id)) { showToast("Already on wishlist"); return; }
     const entry = { id, label, eraKey, group, era, itemType:tmplType||"template", addedAt:new Date().toISOString() };
     const u = [...wishlist, entry];
     setWishlist(u);
@@ -13648,7 +13696,9 @@ function EraRoom({ group, era, color, onBack, onBinderCreated, onGoToTradeHub })
   // ── Progress stats ──
   const eraTemplateIds = data.templates.map(t=>t.id);
   const savedCount  = eraTemplateIds.filter(id=>saves[id]).length;
-  const wishCount   = wishlist.filter(w=>{const id=typeof w==="string"?w:w.id; return eraTemplateIds.includes(id);}).length;
+  // Sanitized — a member template promoted to a real card counts once (via
+  // isWished's real-first check), never also from the legacy bookmark array.
+  const wishCount   = data.templates.filter(t => eraTemplateIds.includes(t.id) && isWished(t)).length;
   const isoCount    = data.trades.filter(t=>t.urgency==="ISO").length;
 
   const TABS = [
@@ -13775,7 +13825,7 @@ function EraRoom({ group, era, color, onBack, onBinderCreated, onGoToTradeHub })
               {data.templates.map((tmpl,i)=>{
                 const tc = typeColors[tmpl.type]||color;
                 const saved = saves[tmpl.id];
-                const wished = wishlist.some(w=>(typeof w==="string"?w:w.id)===tmpl.id);
+                const wished = isWished(tmpl);
                 const isMember = tmpl.type === "member";
                 // Mini checklist grid slots
                 const slotCount = Math.min(tmpl.totalCards, 12);
@@ -13821,7 +13871,7 @@ function EraRoom({ group, era, color, onBack, onBinderCreated, onGoToTradeHub })
                         <button onClick={()=>saveItem(tmpl.id,tmpl.label,"template",tmpl.type)} className="tap" style={{ padding:"4px 9px",borderRadius:8,background:saved?`${tc}22`:`${tc}18`,border:`1px solid ${saved?tc:tc+"44"}`,color:saved?tc:C.textMid,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>
                           {saved?"✓ Saved":"Save"}
                         </button>
-                        <button onClick={()=>addToWishlist(tmpl.id,tmpl.label,tmpl.type)} className="tap" style={{ padding:"4px 9px",borderRadius:8,background:`${C.gold}14`,border:`1px solid ${wished?C.gold:C.gold+"33"}`,color:wished?C.gold:C.textMid,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>
+                        <button onClick={()=>addToWishlist(tmpl.id,tmpl.label,tmpl.type,tmpl.memberName)} className="tap" style={{ padding:"4px 9px",borderRadius:8,background:`${C.gold}14`,border:`1px solid ${wished?C.gold:C.gold+"33"}`,color:wished?C.gold:C.textMid,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>
                           {wished?"⭐ Wishlisted":"Wishlist"}
                         </button>
                         <button onClick={addToBinder} className="tap" style={{ padding:"4px 9px",borderRadius:8,background:`${C.mint}14`,border:`1px solid ${C.mint}33`,color:C.mint,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>
@@ -14766,7 +14816,7 @@ function ExploreTab({ user, go, onViewProfile }) {
   );
 }
 
-function ToolsTab({ user, weather, isVip, onUpgrade, go, onBack }) {
+function ToolsTab({ user, weather, isVip, onUpgrade, go, onBack, cards, patchCard, addCard }) {
   const [view, setView] = useState("grid");
   const [eraModal, setEraModal] = useState(null);
   const [eraRoom, setEraRoom] = useState(null);
@@ -14971,7 +15021,7 @@ function ToolsTab({ user, weather, isVip, onUpgrade, go, onBack }) {
               </div>
             )}
           </div>
-          {eraRoom && <EraRoom group={eraRoom.group} era={eraRoom.era} color={eraRoom.color} onBack={()=>setEraRoom(null)} />}
+          {eraRoom && <EraRoom group={eraRoom.group} era={eraRoom.era} color={eraRoom.color} cards={cards} patchCard={patchCard} addCard={addCard} onBack={()=>setEraRoom(null)} />}
         </div>
       )}
 
@@ -27122,7 +27172,7 @@ function AppInner() {
               {tab==="community"&&<FanverseTab go={go} user={user} isVip={effectiveIsVip} onUpgrade={openUpgrade} onViewProfile={setFullProfileFan} />}
               {tab==="explore"&&<ExploreTab user={user} go={go} onViewProfile={setFullProfileFan} />}
               {tab==="collect"&&<LibraryTab cards={cards} setCards={setCards} patchCard={patchCard} deleteCard={deleteCard} addCard={addCard} cardsLoading={cardsLoading} refreshCards={refreshCards} isVip={effectiveIsVip} onUpgrade={openUpgrade} go={go} user={user} weather={weatherData} />}
-              {tab==="fanverse"&&<ToolsTab user={user} weather={weatherData} isVip={effectiveIsVip} onUpgrade={openUpgrade} go={go} />}
+              {tab==="fanverse"&&<ToolsTab user={user} weather={weatherData} isVip={effectiveIsVip} onUpgrade={openUpgrade} go={go} cards={cards} patchCard={patchCard} addCard={addCard} />}
               {tab==="profile"&&<ProfileTab user={user} cards={cards} go={go} isVip={effectiveIsVip} onUpgrade={openUpgrade} onReplayTour={()=>setShowVipTour(true)} onAccountRefresh={handleAccountRefresh} onViewProfile={setFullProfileFan} />}
                   </>
                 );
