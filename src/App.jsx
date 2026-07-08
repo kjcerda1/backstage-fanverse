@@ -7507,7 +7507,9 @@ const CARD_STATUS_META = {
   for_trade: { label:"⇄",  badge:"For Trade", color:C.rose    },
 };
 const normalizeSetCardStatus = (v) => ({ owned:"owned", wishlist:"iso", dupe:"duplicate", trade:"for_trade" }[v] || "missing");
-const CARD_CONDITION_OPTIONS = [["mint","Mint"],["near_mint","Near Mint"],["good","Good"],["played","Played"]];
+// Stored value stays "played" (existing rows / AddCardForm untouched) — only the
+// user-facing label changes, since "Played" reads as TCG jargon for photocards.
+const CARD_CONDITION_OPTIONS = [["mint","Mint"],["near_mint","Near Mint"],["good","Good"],["played","Worn"]];
 
 // Lightweight client-side resize before upload — caps the longest edge at
 // 1280px and re-encodes as JPEG ~0.85 quality so uploads stay small. Falls
@@ -7539,11 +7541,24 @@ async function resizeImageForUpload(file, maxDim = 1280, quality = 0.85) {
 function CardDetailSheet({ card, groupLabel, onClose, onPatch, onDelete, onListForTrade, onAiIdentify, aiIdentifying }) {
   const [uploading, setUploading] = useState(false);
   const [notesDraft, setNotesDraft] = useState(card.notes || "");
+  const [savedFlash, setSavedFlash] = useState(false);
   const photoInputRef = useRef(null);
+  const savedTimerRef = useRef(null);
   useEffect(() => { setNotesDraft(card.notes || ""); }, [card.id]);
+  useEffect(() => () => { if (savedTimerRef.current) clearTimeout(savedTimerRef.current); }, []);
 
   const meta = CARD_STATUS_META[card.status] || CARD_STATUS_META.missing;
   const photo = card.image_url;
+
+  // Every field change funnels through here so "Saved" feedback is consistent
+  // and never duplicated — the notes textarea's blur-save uses this too, it
+  // doesn't run a separate save flow.
+  const firePatch = (patch) => {
+    onPatch(patch);
+    setSavedFlash(true);
+    if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+    savedTimerRef.current = setTimeout(() => setSavedFlash(false), 1600);
+  };
 
   const uploadPhoto = async (e) => {
     const raw = e.target.files[0]; if (!raw) return;
@@ -7553,18 +7568,21 @@ function CardDetailSheet({ card, groupLabel, onClose, onPatch, onDelete, onListF
       const urlRes = await api.post('/api/cards/upload-url', { filename: f.name, content_type: f.type });
       if (urlRes?.signed_url) {
         await fetch(urlRes.signed_url, { method: 'PUT', body: f, headers: { 'Content-Type': f.type } });
-        onPatch({ image_url: urlRes.public_url });
+        firePatch({ image_url: urlRes.public_url });
       }
     } catch { /* keep placeholder on failure */ }
     setUploading(false);
   };
 
-  const adjustQuantity = (delta) => onPatch({ quantity: Math.max(1, (card.quantity || 1) + delta) });
+  const adjustQuantity = (delta) => firePatch({ quantity: Math.max(1, (card.quantity || 1) + delta) });
 
   return (
     <div onClick={onClose} style={{ position:"fixed",inset:0,zIndex:420,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
       <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:"22px 20px 36px",width:"100%",maxHeight:"88vh",overflowY:"auto",animation:"slideUp .25s ease" }}>
-        <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 18px" }} />
+        <div style={{ position:"relative", display:"flex", justifyContent:"center", marginBottom:18 }}>
+          <div style={{ width:34,height:4,borderRadius:99,background:C.border }} />
+          <span aria-live="polite" style={{ position:"absolute", right:0, top:-2, fontSize:10.5, fontWeight:700, fontFamily:"'Epilogue',sans-serif", color:C.mint, display:"flex", alignItems:"center", gap:4, opacity:savedFlash?1:0, transform:savedFlash?"translateY(0)":"translateY(-3px)", transition:"opacity .25s ease, transform .25s ease", pointerEvents:"none" }}>✓ Saved</span>
+        </div>
         <div style={{ display:"flex", gap:14, marginBottom:18 }}>
           <div style={{ width:100,height:150,borderRadius:16,flexShrink:0,overflow:"hidden",position:"relative",background:photo?"transparent":`linear-gradient(160deg,${meta.color}40,${meta.color}14)`,border:`1.5px solid ${meta.color}66`,boxShadow:"0 8px 22px rgba(0,0,0,0.35)" }}>
             {photo ? <img src={photo} alt={card.member} style={{ width:"100%",height:"100%",objectFit:"cover",objectPosition:"center" }} /> : (
@@ -7598,7 +7616,7 @@ function CardDetailSheet({ card, groupLabel, onClose, onPatch, onDelete, onListF
             const m = CARD_STATUS_META[s];
             const active = card.status===s;
             return (
-              <button key={s} onClick={()=>onPatch({status:s})} style={{ padding:"8px 13px",borderRadius:99,fontSize:11,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:active?m.color:"transparent",color:active?(s==="missing"?C.text:C.bg):m.color,border:`1.5px solid ${m.color}${active?"":"55"}` }}>{m.badge}</button>
+              <button key={s} onClick={()=>firePatch({status:s})} style={{ padding:"8px 13px",borderRadius:99,fontSize:11,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:active?m.color:"transparent",color:active?(s==="missing"?C.text:C.bg):m.color,border:`1.5px solid ${m.color}${active?"":"55"}` }}>{m.badge}</button>
             );
           })}
         </div>
@@ -7620,13 +7638,13 @@ function CardDetailSheet({ card, groupLabel, onClose, onPatch, onDelete, onListF
           {CARD_CONDITION_OPTIONS.map(([v,label])=>{
             const active = (card.condition||"mint")===v;
             return (
-              <button key={v} onClick={()=>onPatch({condition:v})} style={{ padding:"7px 12px",borderRadius:10,fontSize:10.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:active?C.accent:"transparent",color:active?C.bg:C.textMid,border:`1.5px solid ${active?C.accent:C.border}` }}>{label}</button>
+              <button key={v} onClick={()=>firePatch({condition:v})} style={{ padding:"7px 12px",borderRadius:10,fontSize:10.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:active?C.accent:"transparent",color:active?C.bg:C.textMid,border:`1.5px solid ${active?C.accent:C.border}` }}>{label}</button>
             );
           })}
         </div>
 
         <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8 }}>Notes</p>
-        <textarea value={notesDraft} onChange={e=>setNotesDraft(e.target.value)} onBlur={()=>{ if(notesDraft!==(card.notes||"")) onPatch({notes:notesDraft}); }} placeholder="e.g. Pulled from unsealed pack, concert freebie..." style={{ width:"100%",height:60,background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:10,color:C.text,fontSize:12,padding:"9px 12px",resize:"none",outline:"none",fontFamily:"'Instrument Sans',sans-serif",marginBottom:16,boxSizing:"border-box" }} />
+        <textarea value={notesDraft} onChange={e=>setNotesDraft(e.target.value)} onBlur={()=>{ if(notesDraft!==(card.notes||"")) firePatch({notes:notesDraft}); }} placeholder="e.g. Pulled from unsealed pack, concert freebie..." style={{ width:"100%",height:60,background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:10,color:C.text,fontSize:12,padding:"9px 12px",resize:"none",outline:"none",fontFamily:"'Instrument Sans',sans-serif",marginBottom:16,boxSizing:"border-box" }} />
 
         {card.status==="for_trade" && onListForTrade && (
           <button onClick={()=>onListForTrade(card)} className="tap" style={{ width:"100%",marginBottom:10,padding:"11px",borderRadius:12,background:C.rose,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,cursor:"pointer" }}>List for Trade →</button>
@@ -7718,12 +7736,14 @@ function PhotocardSetsView({ pcSetData, setPcSetData, groupFilter, setGroupFilte
     syncMyWorldToServer();
   };
 
+  // Colors match the shared CARD_STATUS_META (ISO=accent, Dupe=gold) so a card's
+  // status chip looks the same whether it's viewed here or in Binders/My Cards.
   const STATUS_CYCLE = [null,"owned","wishlist","dupe","trade"];
   const STATUS_META  = {
     null:     { label:"Missing",  color:C.textDim, bg:C.surface,       border:C.border        },
     owned:    { label:"✓ Owned",  color:C.mint,    bg:`${C.mint}18`,   border:`${C.mint}44`   },
-    wishlist: { label:"♡ ISO",    color:C.gold,    bg:`${C.gold}14`,   border:`${C.gold}44`   },
-    dupe:     { label:"×2 Dupe",  color:C.accent,  bg:`${C.accent}14`, border:`${C.accent}44` },
+    wishlist: { label:"♡ ISO",    color:C.accent,  bg:`${C.accent}14`, border:`${C.accent}44` },
+    dupe:     { label:"×2 Dupe",  color:C.gold,    bg:`${C.gold}14`,   border:`${C.gold}44`   },
     trade:    { label:"⇄ Trade",  color:C.rose,    bg:`${C.rose}14`,   border:`${C.rose}44`   },
   };
 
@@ -7765,8 +7785,8 @@ function PhotocardSetsView({ pcSetData, setPcSetData, groupFilter, setGroupFilte
               <ProgressBar value={pct} color={set.color} />
               <div style={{ display:"flex",gap:6,marginTop:8,flexWrap:"wrap" }}>
                 {s.owned>0    && <div style={{ fontSize:8.5,padding:"2px 7px",borderRadius:99,background:`${C.mint}18`,border:`1px solid ${C.mint}33`,color:C.mint }}>{s.owned} owned</div>}
-                {s.wishlist>0 && <div style={{ fontSize:8.5,padding:"2px 7px",borderRadius:99,background:`${C.gold}18`,border:`1px solid ${C.gold}33`,color:C.gold }}>{s.wishlist} ISO</div>}
-                {s.dupe>0     && <div style={{ fontSize:8.5,padding:"2px 7px",borderRadius:99,background:`${C.accent}18`,border:`1px solid ${C.accent}33`,color:C.accent }}>{s.dupe} dupe</div>}
+                {s.wishlist>0 && <div style={{ fontSize:8.5,padding:"2px 7px",borderRadius:99,background:`${C.accent}18`,border:`1px solid ${C.accent}33`,color:C.accent }}>{s.wishlist} ISO</div>}
+                {s.dupe>0     && <div style={{ fontSize:8.5,padding:"2px 7px",borderRadius:99,background:`${C.gold}18`,border:`1px solid ${C.gold}33`,color:C.gold }}>{s.dupe} dupe</div>}
                 {s.trade>0    && <div style={{ fontSize:8.5,padding:"2px 7px",borderRadius:99,background:`${C.rose}18`,border:`1px solid ${C.rose}33`,color:C.rose }}>{s.trade} trade</div>}
                 {s.owned===0&&s.wishlist===0&&s.dupe===0&&s.trade===0 && <div style={{ fontSize:8.5,color:C.textDim }}>Not started · {s.total} cards</div>}
               </div>
@@ -7798,7 +7818,7 @@ function PhotocardSetsView({ pcSetData, setPcSetData, groupFilter, setGroupFilte
                   </div>
                   <ProgressBar value={pct} color={selectedSet.color} />
                   <div style={{ display:"flex",justifyContent:"space-around",textAlign:"center",marginTop:12 }}>
-                    {[{label:"Owned",val:s.owned,color:C.mint},{label:"ISO",val:s.wishlist,color:C.gold},{label:"Dupe",val:s.dupe,color:C.accent},{label:"Trade",val:s.trade,color:C.rose}].map(st=>(
+                    {[{label:"Owned",val:s.owned,color:C.mint},{label:"ISO",val:s.wishlist,color:C.accent},{label:"Dupe",val:s.dupe,color:C.gold},{label:"Trade",val:s.trade,color:C.rose}].map(st=>(
                       <div key={st.label}>
                         <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18,color:st.color,lineHeight:1 }}>{st.val}</p>
                         <p style={{ fontSize:9,color:C.textMid,marginTop:2 }}>{st.label}</p>
@@ -8184,7 +8204,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
     ...PC_CATALOG_SETS.filter(s=>s.group===trackerGroupFocus).flatMap(s=>s.members.map(m=>({ id:`gf-${s.id}-${m}`, label:m, sub:[s.era,s.version].filter(Boolean).join(" · "), status:(pcSetData[s.id]||{})[m]||"missing" }))),
   ] : [];
   const trackerSectionHeaderStyle = { fontSize:9,color:softBlue2,fontFamily:"'Epilogue',sans-serif",fontWeight:900,textTransform:"uppercase",letterSpacing:"0.13em",marginBottom:9 };
-  const TRACKER_STATUS_META = { owned:{label:"✓ Owned",color:softBlue}, for_trade:{label:"⇄ Trade",color:C.rose}, dupe:{label:"×2 Dupe",color:C.accent}, trade:{label:"⇄ Trade",color:C.rose}, wishlist:{label:"♡ ISO",color:C.gold}, missing:{label:"—",color:C.textDim} };
+  const TRACKER_STATUS_META = { owned:{label:"✓ Owned",color:softBlue}, for_trade:{label:"⇄ Trade",color:C.rose}, dupe:{label:"×2 Dupe",color:C.gold}, trade:{label:"⇄ Trade",color:C.rose}, wishlist:{label:"♡ ISO",color:C.accent}, missing:{label:"—",color:C.textDim} };
 
   const GROUPS = ["all", ...new Set(allCards.map(c=>c.group_name||c.group).filter(Boolean))].slice(0,6);
 
@@ -9718,8 +9738,8 @@ function AddCardForm({ binder, initialStatus, onBack, onSaved }) {
           <div>
             <p style={{ fontSize:10,color:C.textMid,marginBottom:8,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em" }}>Condition</p>
             <div style={{ display:"flex",gap:6 }}>
-              {["mint","near_mint","good","played"].map(c=>(
-                <button key={c} onClick={()=>setForm(f=>({...f,condition:c}))} style={{ flex:1,padding:"7px 4px",borderRadius:10,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:700,background:form.condition===c?C.accent:"transparent",color:form.condition===c?C.bg:C.textMid,border:`1.5px solid ${form.condition===c?C.accent:C.border}`,cursor:"pointer",textAlign:"center" }}>{c.replace("_"," ")}</button>
+              {CARD_CONDITION_OPTIONS.map(([c,label])=>(
+                <button key={c} onClick={()=>setForm(f=>({...f,condition:c}))} style={{ flex:1,padding:"7px 4px",borderRadius:10,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:700,background:form.condition===c?C.accent:"transparent",color:form.condition===c?C.bg:C.textMid,border:`1.5px solid ${form.condition===c?C.accent:C.border}`,cursor:"pointer",textAlign:"center" }}>{label}</button>
               ))}
             </div>
           </div>
