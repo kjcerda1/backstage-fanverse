@@ -14064,14 +14064,7 @@ function EraRoom({ group, era, color, onBack, onBinderCreated, onGoToTradeHub, c
                     </div>
                     <div style={{ flex:1,minWidth:0 }}>
                       <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13.5,color:C.text,lineHeight:1.2 }}>{memberName}</p>
-                      <p style={{ fontSize:10,color:C.textMid,marginTop:2 }}>{started ? `${era} · Binder active` : `${era} · No binder yet`}</p>
-                      {started && (
-                        <div style={{ display:"flex",gap:8,marginTop:5 }}>
-                          {[{val:mb.ownedCount||0,label:"Owned",color:C.mint},{val:mb.wishlistCount||0,label:"ISO",color:C.gold},{val:mb.dupeCount||0,label:"Dupes",color:C.sky}].map(s=>(
-                            <span key={s.label} style={{ fontSize:9,color:s.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{s.val} {s.label}</span>
-                          ))}
-                        </div>
-                      )}
+                      <p style={{ fontSize:10,color:C.textMid,marginTop:2 }}>{started ? `${era} · Member archive` : `${era} · No binder yet`}</p>
                     </div>
                     <button onClick={()=>toggleMemberBinder(memberName)} className="tap" style={{ padding:"7px 12px",borderRadius:11,background:started?`${color}22`:`${color}14`,border:`1.5px solid ${started?color:color+"44"}`,color:started?color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:10,cursor:"pointer",flexShrink:0,transition:"all .15s" }}>
                       {started ? "✓ Started" : "+ Start"}
