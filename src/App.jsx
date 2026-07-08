@@ -7493,6 +7493,150 @@ function ShowDetail({ concert, onBack, going, setGoing, go, isVip, onUpgrade, rs
 }
 
 // ─── COLLECT ──────────────────────────────────────────────────────────────────
+// ─── SHARED CARD STATUS SYSTEM — one status vocabulary + style used by every
+// photocard surface (Binders, My Cards, Wishlist, Trades, Photocard Sets).
+// PhotocardSetsView's own pcSetData vocabulary (null/owned/wishlist/dupe/trade)
+// is normalized to this one for DISPLAY only — stored pcSetData values are
+// untouched to avoid a data migration.
+const CARD_STATUS_ORDER = ["owned","missing","iso","duplicate","for_trade"];
+const CARD_STATUS_META = {
+  owned:     { label:"✓",  badge:"Owned",     color:C.mint    },
+  missing:   { label:"—",  badge:"Missing",   color:C.textDim },
+  iso:       { label:"♡",  badge:"ISO",       color:C.accent  },
+  duplicate: { label:"×2", badge:"Dupe",      color:C.gold    },
+  for_trade: { label:"⇄",  badge:"For Trade", color:C.rose    },
+};
+const normalizeSetCardStatus = (v) => ({ owned:"owned", wishlist:"iso", dupe:"duplicate", trade:"for_trade" }[v] || "missing");
+const CARD_CONDITION_OPTIONS = [["mint","Mint"],["near_mint","Near Mint"],["good","Good"],["played","Played"]];
+
+// Lightweight client-side resize before upload — caps the longest edge at
+// 1280px and re-encodes as JPEG ~0.85 quality so uploads stay small. Falls
+// back to the original file untouched on any error or if the browser lacks
+// createImageBitmap — never blocks the existing upload-url flow.
+async function resizeImageForUpload(file, maxDim = 1280, quality = 0.85) {
+  try {
+    if (!file.type?.startsWith('image/') || typeof createImageBitmap !== 'function') return file;
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
+    if (scale >= 1) { bitmap.close?.(); return file; }
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close?.();
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality));
+    if (!blob) return file;
+    return new File([blob], file.name.replace(/\.\w+$/, '.jpg'), { type: 'image/jpeg' });
+  } catch { return file; }
+}
+
+// ─── CARD DETAIL SHEET — shared collector card editor, reused by Binders and
+// My Cards. Status changes only ever happen through this explicit selector;
+// tapping a tile never cycles status. `onPatch(partial)` is implemented by the
+// caller — it must both persist (api.patch) and update local list state, so
+// the `card` prop reflects the new value on the next render.
+function CardDetailSheet({ card, groupLabel, onClose, onPatch, onDelete, onListForTrade, onAiIdentify, aiIdentifying }) {
+  const [uploading, setUploading] = useState(false);
+  const [notesDraft, setNotesDraft] = useState(card.notes || "");
+  const photoInputRef = useRef(null);
+  useEffect(() => { setNotesDraft(card.notes || ""); }, [card.id]);
+
+  const meta = CARD_STATUS_META[card.status] || CARD_STATUS_META.missing;
+  const photo = card.image_url;
+
+  const uploadPhoto = async (e) => {
+    const raw = e.target.files[0]; if (!raw) return;
+    setUploading(true);
+    try {
+      const f = await resizeImageForUpload(raw);
+      const urlRes = await api.post('/api/cards/upload-url', { filename: f.name, content_type: f.type });
+      if (urlRes?.signed_url) {
+        await fetch(urlRes.signed_url, { method: 'PUT', body: f, headers: { 'Content-Type': f.type } });
+        onPatch({ image_url: urlRes.public_url });
+      }
+    } catch { /* keep placeholder on failure */ }
+    setUploading(false);
+  };
+
+  const adjustQuantity = (delta) => onPatch({ quantity: Math.max(1, (card.quantity || 1) + delta) });
+
+  return (
+    <div onClick={onClose} style={{ position:"fixed",inset:0,zIndex:420,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+      <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:"22px 20px 36px",width:"100%",maxHeight:"88vh",overflowY:"auto",animation:"slideUp .25s ease" }}>
+        <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 18px" }} />
+        <div style={{ display:"flex", gap:14, marginBottom:18 }}>
+          <div style={{ width:100,height:150,borderRadius:16,flexShrink:0,overflow:"hidden",position:"relative",background:photo?"transparent":`linear-gradient(160deg,${meta.color}40,${meta.color}14)`,border:`1.5px solid ${meta.color}66`,boxShadow:"0 8px 22px rgba(0,0,0,0.35)" }}>
+            {photo ? <img src={photo} alt={card.member} style={{ width:"100%",height:"100%",objectFit:"cover",objectPosition:"center" }} /> : (
+              <div style={{ position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center" }}>
+                <span style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:34,color:meta.color,opacity:0.35 }}>{(card.member||"?")[0]}</span>
+              </div>
+            )}
+            {photo && <div style={{ position:"absolute",inset:0,background:"linear-gradient(115deg,transparent 30%,rgba(255,255,255,0.10) 45%,transparent 60%)",pointerEvents:"none" }} />}
+          </div>
+          <div style={{ flex:1, minWidth:0, paddingTop:2 }}>
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:18,color:C.text,lineHeight:1.2,marginBottom:4 }}>{card.member}</p>
+            <p style={{ fontSize:12,color:C.textMid,marginBottom:2 }}>{groupLabel || card.group_name || ""}</p>
+            <p style={{ fontSize:11,color:C.textDim,marginBottom:8 }}>{[card.album||card.era, card.version].filter(Boolean).join(" · ")}</p>
+            <div style={{ display:"inline-block",fontSize:9.5,fontWeight:800,padding:"3px 9px",borderRadius:99,background:meta.color,color:card.status==="missing"?C.text:C.bg }}>{meta.badge}</div>
+          </div>
+        </div>
+
+        {card.status==="owned" && (
+          <div style={{ display:"flex", gap:8, marginBottom:14 }}>
+            <button onClick={()=>photoInputRef.current?.click()} disabled={uploading} style={{ flex:1,padding:"10px",borderRadius:12,background:`${C.accent}14`,border:`1.5px solid ${C.accent}44`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer" }}>{uploading?"⏳ Uploading...":photo?"📷 Replace photo":"📸 Add a photo"}</button>
+            {photo && onAiIdentify && (
+              <button onClick={()=>onAiIdentify(card.id)} disabled={aiIdentifying} style={{ flex:1,padding:"10px",borderRadius:12,background:`${C.mint}14`,border:`1.5px solid ${C.mint}44`,color:C.mint,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer" }}>{aiIdentifying?"🤖 Scanning...":"🤖 AI Identify"}</button>
+            )}
+            <input ref={photoInputRef} type="file" accept="image/*" onChange={uploadPhoto} style={{ display:"none" }} />
+          </div>
+        )}
+
+        <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8 }}>Status</p>
+        <div style={{ display:"flex",gap:6,flexWrap:"wrap",marginBottom:16 }}>
+          {CARD_STATUS_ORDER.map(s=>{
+            const m = CARD_STATUS_META[s];
+            const active = card.status===s;
+            return (
+              <button key={s} onClick={()=>onPatch({status:s})} style={{ padding:"8px 13px",borderRadius:99,fontSize:11,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:active?m.color:"transparent",color:active?(s==="missing"?C.text:C.bg):m.color,border:`1.5px solid ${m.color}${active?"":"55"}` }}>{m.badge}</button>
+            );
+          })}
+        </div>
+
+        {(card.status==="duplicate"||card.status==="for_trade") && (
+          <div style={{ marginBottom:16 }}>
+            <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8 }}>Quantity</p>
+            <div style={{ display:"flex",alignItems:"center",gap:12 }}>
+              <button onClick={()=>adjustQuantity(-1)} aria-label="Decrease quantity" style={{ width:34,height:34,borderRadius:10,background:C.surface,border:`1.5px solid ${C.border}`,color:C.text,fontSize:16,cursor:"pointer" }}>−</button>
+              <span style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,color:C.text,minWidth:20,textAlign:"center" }}>{card.quantity||1}</span>
+              <button onClick={()=>adjustQuantity(1)} aria-label="Increase quantity" style={{ width:34,height:34,borderRadius:10,background:C.surface,border:`1.5px solid ${C.border}`,color:C.text,fontSize:16,cursor:"pointer" }}>+</button>
+              <span style={{ fontSize:10.5,color:C.textDim }}>ready to trade</span>
+            </div>
+          </div>
+        )}
+
+        <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8 }}>Condition</p>
+        <div style={{ display:"flex",gap:6,flexWrap:"wrap",marginBottom:16 }}>
+          {CARD_CONDITION_OPTIONS.map(([v,label])=>{
+            const active = (card.condition||"mint")===v;
+            return (
+              <button key={v} onClick={()=>onPatch({condition:v})} style={{ padding:"7px 12px",borderRadius:10,fontSize:10.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:active?C.accent:"transparent",color:active?C.bg:C.textMid,border:`1.5px solid ${active?C.accent:C.border}` }}>{label}</button>
+            );
+          })}
+        </div>
+
+        <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8 }}>Notes</p>
+        <textarea value={notesDraft} onChange={e=>setNotesDraft(e.target.value)} onBlur={()=>{ if(notesDraft!==(card.notes||"")) onPatch({notes:notesDraft}); }} placeholder="e.g. Pulled from unsealed pack, concert freebie..." style={{ width:"100%",height:60,background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:10,color:C.text,fontSize:12,padding:"9px 12px",resize:"none",outline:"none",fontFamily:"'Instrument Sans',sans-serif",marginBottom:16,boxSizing:"border-box" }} />
+
+        {card.status==="for_trade" && onListForTrade && (
+          <button onClick={()=>onListForTrade(card)} className="tap" style={{ width:"100%",marginBottom:10,padding:"11px",borderRadius:12,background:C.rose,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,cursor:"pointer" }}>List for Trade →</button>
+        )}
+        <button onClick={()=>onDelete(card.id)} className="tap" style={{ width:"100%",padding:"11px",borderRadius:12,background:"transparent",border:`1.5px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer" }}>Remove card</button>
+      </div>
+    </div>
+  );
+}
+
 // ─── LIBRARY TAB — rich collection shell ─────────────────────────────────────
 // ─── PHOTOCARD SETS VIEW — set-based catalog browser ─────────────────────────
 function PhotocardSetsView({ pcSetData, setPcSetData, groupFilter, setGroupFilter }) {
@@ -7788,7 +7932,7 @@ function PhotocardSetsView({ pcSetData, setPcSetData, groupFilter, setGroupFilte
 }
 
 // ─── PHOTOCARD GRID — visual, photo-upload, AI-identify placeholder ───────────
-function PhotocardGrid({ cards, groups, groupFilter, setGroupFilter, go, onAddCard, rarityColors, rarityGlow, rarityBg, rarityBadge }) {
+function PhotocardGrid({ cards, groups, groupFilter, setGroupFilter, go, onAddCard, onOpenDetail, rarityColors, rarityGlow, rarityBg, rarityBadge }) {
   const CONDITION_TO_RAR = { mint:'UR', near_mint:'SR', good:'R', played:'N' };
   const [cardPhotos, setCardPhotos] = useState(()=>ls.get("backstage_card_photos",{}));
   const [aiResult, setAiResult]     = useState(null);
@@ -7814,9 +7958,10 @@ function PhotocardGrid({ cards, groups, groupFilter, setGroupFilter, go, onAddCa
     if (typeof card.id === 'string') {
       setUploading(card.id);
       try {
-        const urlRes = await api.post('/api/cards/upload-url', { filename: f.name, content_type: f.type });
+        const resized = await resizeImageForUpload(f);
+        const urlRes = await api.post('/api/cards/upload-url', { filename: resized.name, content_type: resized.type });
         if (urlRes?.signed_url) {
-          await fetch(urlRes.signed_url, { method:'PUT', body:f, headers:{'Content-Type':f.type} });
+          await fetch(urlRes.signed_url, { method:'PUT', body:resized, headers:{'Content-Type':resized.type} });
           await api.patch(`/api/cards/${card.id}`, { image_url: urlRes.public_url });
           savePhoto(card.id, urlRes.public_url);
         }
@@ -7863,30 +8008,27 @@ function PhotocardGrid({ cards, groups, groupFilter, setGroupFilter, go, onAddCa
         {cards.map(c=>{
           const cardName  = c.member || c.name;
           const cardGroup = c.group_name || c.group;
-          const isDupe    = c.status==='duplicate' || c.dupe;
-          const isForTrade= c.status==='for_trade'  || c.tradeable;
+          const cardStatus = c.status || (c.dupe ? 'duplicate' : c.tradeable ? 'for_trade' : 'owned');
+          const statusMeta = CARD_STATUS_META[cardStatus] || CARD_STATUS_META.owned;
           const rar  = c.rarity || CONDITION_TO_RAR[c.condition] || 'R';
           const rc   = (rarityColors||{})[rar]||C.accent;
           const photo = c.image_url || cardPhotos[c.id];
           const isExpanded  = expanded===c.id;
           const isUploading = uploading===c.id;
+          const isRealCard  = typeof c.id === 'string';
           return (
             <div key={c.id} style={{ position:"relative" }}>
-              {/* Status badges */}
-              <div style={{ position:"absolute",top:4,left:4,zIndex:3,display:"flex",flexDirection:"column",gap:2 }}>
-                {isDupe&&<div style={{ background:C.gold,borderRadius:4,padding:"1px 5px",fontSize:7,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.bg }}>DUPE</div>}
-                {isForTrade&&<div style={{ background:C.rose,borderRadius:4,padding:"1px 5px",fontSize:7,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.bg }}>TRADE</div>}
-              </div>
               {/* Rarity/condition badge */}
               <div style={{ position:"absolute",top:5,right:5,zIndex:3 }}>
                 <div style={{ background:rar==="UR"?`linear-gradient(135deg,${C.gold}ee,${C.coral}cc)`:rar==="SR"?`${C.berry}dd`:`${rc}cc`,borderRadius:4,padding:"2px 6px",fontSize:6.5,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:rar==="UR"?C.bg:C.white,letterSpacing:"0.04em" }}>{(rarityBadge||{})[rar]||rar}</div>
               </div>
               {/* Card body — collectible style */}
               <div onClick={()=>setExpanded(isExpanded?null:c.id)} className="tap card-lift" style={{ borderRadius:14,aspectRatio:"2/3",background:(rarityBg||{})[rar]||(photo?"transparent":`linear-gradient(160deg,${rc}44,${rc}18)`),border:`1.5px solid ${rc}55`,display:"flex",flexDirection:"column",justifyContent:"flex-end",padding:"6px 5px",overflow:"hidden",boxShadow:((rarityGlow||{})[rar]||"none")+", 0 4px 16px rgba(0,0,0,0.5)",position:"relative",cursor:"pointer" }}>
-                {/* Holo shimmer overlay for UR */}
+                {/* Holo shimmer overlay for UR, or a subtle foil sheen on any real photo */}
                 {rar==="UR"&&!photo&&<div style={{ position:"absolute",inset:0,background:"linear-gradient(135deg,transparent 0%,rgba(255,255,255,0.04) 40%,rgba(255,255,255,0.08) 50%,rgba(255,255,255,0.04) 60%,transparent 100%)",backgroundSize:"200% 200%",animation:"holoShift 4s ease infinite",borderRadius:12,zIndex:1,pointerEvents:"none" }} />}
+                {photo && <div style={{ position:"absolute",inset:0,background:"linear-gradient(115deg,transparent 35%,rgba(255,255,255,0.08) 48%,transparent 62%)",borderRadius:12,zIndex:1,pointerEvents:"none" }} />}
                 {photo ? (
-                  <img src={photo} alt={cardName} style={{ position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",borderRadius:12 }} />
+                  <img src={photo} alt={cardName} style={{ position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",objectPosition:"center",borderRadius:12 }} />
                 ) : (
                   <div style={{ position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,opacity:0.15 }}>
                     <span style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:36,color:rc,opacity:0.25 }}>{cardName?.[0]||"K"}</span>
@@ -7897,13 +8039,17 @@ function PhotocardGrid({ cards, groups, groupFilter, setGroupFilter, go, onAddCa
                 <div style={{ position:"relative",zIndex:2,background:photo?"rgba(6,6,15,0.7)":"transparent",borderRadius:"0 0 10px 10px",padding:"4px 5px" }}>
                   <p style={{ fontSize:7.5,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.white,lineHeight:1.2 }}>{cardName}</p>
                   <p style={{ fontSize:6.5,color:rc }}>{cardGroup||c.era}</p>
+                  <span style={{ display:"inline-block",marginTop:2,fontSize:6,fontWeight:800,padding:"1px 5px",borderRadius:99,background:statusMeta.color,color:cardStatus==="missing"?C.text:C.bg }}>{statusMeta.badge}</span>
                 </div>
               </div>
               {/* Expanded actions */}
               {isExpanded && (
-                <div style={{ position:"absolute",bottom:-82,left:0,right:0,zIndex:10,background:C.surfaceHi,border:`1.5px solid ${rc}44`,borderRadius:12,padding:8,animation:"up .15s ease",display:"flex",flexDirection:"column",gap:5 }}>
+                <div style={{ position:"absolute",bottom:isRealCard&&onOpenDetail?-108:-82,left:0,right:0,zIndex:10,background:C.surfaceHi,border:`1.5px solid ${rc}44`,borderRadius:12,padding:8,animation:"up .15s ease",display:"flex",flexDirection:"column",gap:5 }}>
                   <button onClick={()=>fileRefs.current[c.id]?.click()} disabled={isUploading} style={{ padding:"6px 8px",borderRadius:8,background:`${rc}18`,border:`1px solid ${rc}33`,color:rc,fontSize:9.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>{isUploading?"⏳ Uploading...":(photo?"📷 Replace Photo":"📷 Add Photo")}</button>
                   <button onClick={()=>handleAiIdentify(c.id)} disabled={!!aiLoading} style={{ padding:"6px 8px",borderRadius:8,background:`${C.mint}18`,border:`1px solid ${C.mint}33`,color:C.mint,fontSize:9.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>{aiLoading===c.id?"🤖 Scanning...":"🤖 AI Identify"}</button>
+                  {isRealCard && onOpenDetail && (
+                    <button onClick={()=>{ setExpanded(null); onOpenDetail(c); }} style={{ padding:"6px 8px",borderRadius:8,background:`${C.accent}18`,border:`1px solid ${C.accent}33`,color:C.accent,fontSize:9.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>✎ Edit Status / Notes</button>
+                  )}
                   <input ref={el=>fileRefs.current[c.id]=el} type="file" accept="image/*" onChange={e=>handleFileChange(e,c)} style={{ display:"none" }} />
                 </div>
               )}
@@ -7951,6 +8097,8 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
   const [addCardInitialStatus, setAddCardInitialStatus] = useState("owned");
   const [showStartBinder, setShowStartBinder] = useState(false);
   const [showStartCustomBinder, setShowStartCustomBinder] = useState(false);
+  const [pcDetailCard, setPcDetailCard] = useState(null);
+  const [pcTradingCard, setPcTradingCard] = useState(null);
   // Cross-concert Capsule Memories — aggregates backstage_concert_capsules
   // across every concert, unlike ConcertCapsule which only ever shows the
   // one current concert. Re-reads on section focus so a Pass saved to
@@ -7993,7 +8141,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
   const wishlist  = isoCards;
   const allCards  = cards || MOCK_CARDS;
   const dupes     = allCards.filter(c=>c.status==='duplicate'||c.dupe);
-  const tradeable = allCards.filter(c=>c.status==='for_trade'||c.tradeable);
+  const tradeable = allCards.filter(c=>c.status==='for_trade'||c.status==='duplicate'||c.tradeable||c.dupe);
   const setStats  = getSetStatsSummary(pcSetData);
   const totalOwned = allCards.length + setStats.owned;
   const wishlistTotal = wishlist.length + setStats.wishlist;
@@ -8108,6 +8256,24 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
         <div style={{ position:"absolute",inset:0,zIndex:50,background:C.bg,overflowY:"auto" }}>
           <TradeHub onBack={()=>setShowTradeHub(false)} user={user} />
         </div>
+      )}
+      {pcTradingCard && (
+        <div style={{ position:"absolute",inset:0,zIndex:55,background:C.bg,overflowY:"auto" }}>
+          <TradeListingForm card={pcTradingCard} onBack={()=>setPcTradingCard(null)} onSaved={()=>{ setCards(cs=>cs.map(c=>c.id===pcTradingCard.id?{...c,status:'for_trade'}:c)); setPcTradingCard(null); }} />
+        </div>
+      )}
+      {pcDetailCard && (
+        <CardDetailSheet
+          card={pcDetailCard}
+          onClose={()=>setPcDetailCard(null)}
+          onPatch={(patch)=>{
+            setCards(cs=>cs.map(c=>c.id===pcDetailCard.id?{...c,...patch}:c));
+            setPcDetailCard(d=>d?{...d,...patch}:d);
+            api.patch(`/api/cards/${pcDetailCard.id}`, patch);
+          }}
+          onDelete={(id)=>{ setCards(cs=>cs.filter(c=>c.id!==id)); api.del(`/api/cards/${id}`).catch(()=>{}); setPcDetailCard(null); }}
+          onListForTrade={(card)=>{ setPcTradingCard(card); setPcDetailCard(null); }}
+        />
       )}
       {/* Atmospheric bg */}
       <div style={{ position:"absolute",inset:0,background:`radial-gradient(ellipse at 80% 10%,${C.pink}06,transparent 45%),radial-gradient(ellipse at 10% 85%,${C.accent}05,transparent 50%)`,pointerEvents:"none",zIndex:0 }} />
@@ -8492,7 +8658,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                 </div>
                 {pcView==="sets"
                   ? <PhotocardSetsView pcSetData={pcSetData} setPcSetData={setPcSetData} groupFilter={groupFilter} setGroupFilter={setGroupFilter} />
-                  : <PhotocardGrid cards={filteredCards} groups={GROUPS} groupFilter={groupFilter} setGroupFilter={setGroupFilter} go={go} onAddCard={()=>setShowAddCard(true)} rarityColors={RARITY_COLORS} rarityGlow={RARITY_GLOW} rarityBg={RARITY_BG} rarityBadge={RARITY_BADGE} />
+                  : <PhotocardGrid cards={filteredCards} groups={GROUPS} groupFilter={groupFilter} setGroupFilter={setGroupFilter} go={go} onAddCard={()=>setShowAddCard(true)} onOpenDetail={setPcDetailCard} rarityColors={RARITY_COLORS} rarityGlow={RARITY_GLOW} rarityBg={RARITY_BG} rarityBadge={RARITY_BADGE} />
                 }
               </div>
             )}
@@ -8507,20 +8673,21 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
             {wishlistTotal===0 ? (
               <div style={{ textAlign:"center",padding:"32px 16px",background:`${C.gold}08`,border:`1.5px dashed ${C.gold}33`,borderRadius:20,marginBottom:14 }}>
                 <p style={{ fontSize:30,marginBottom:10 }}>♡</p>
-                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14,marginBottom:5 }}>No wishlist cards yet</p>
-                <p style={{ fontSize:12,color:C.textMid,lineHeight:1.6 }}>Open a binder and set cards to ISO, or mark set members as Wishlist to track what you're hunting.</p>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14,marginBottom:5 }}>Add your first ISO card</p>
+                <p style={{ fontSize:12,color:C.textMid,marginBottom:16,lineHeight:1.6 }}>Save a card you're hunting for, or open a binder and mark cards as ISO to track what you want.</p>
+                <Btn small onClick={()=>{ setAddCardInitialStatus("iso"); setShowAddCard(true); }}>+ Add Wishlist Card</Btn>
               </div>
             ) : wishlist.map((w,i)=>(
-              <div key={w.id||i} className="tap" style={{ ...VS.glowCard(C.gold), padding:14, marginBottom:10, cursor:"pointer", display:"flex", gap:12, alignItems:"center" }}>
+              <div key={w.id||i} onClick={()=>{ if(typeof w.id==="string") setPcDetailCard(w); }} className="tap" style={{ ...VS.glowCard(C.gold), padding:14, marginBottom:10, cursor:"pointer", display:"flex", gap:12, alignItems:"center" }}>
                 <div style={{ width:48,height:64,borderRadius:10,background:`linear-gradient(160deg,${C.gold}44,${C.gold}18)`,border:`1.5px solid ${C.gold}55`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0,boxShadow:`0 0 12px ${C.gold}33`,overflow:"hidden" }}>
-                  {w.image_url ? <img src={w.image_url} alt="" style={{ width:"100%",height:"100%",objectFit:"cover" }} /> : "🃏"}
+                  {w.image_url ? <img src={w.image_url} alt="" style={{ width:"100%",height:"100%",objectFit:"cover",objectPosition:"center" }} /> : "🃏"}
                 </div>
                 <div style={{ flex:1 }}>
                   <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:14, color:C.text, marginBottom:3 }}>{w.member||w.name}</p>
                   <p style={{ fontSize:11, color:C.textMid, marginBottom:6 }}>{w.group_name||w.group}{(w.album||w.era)&&` · ${w.album||w.era}`}</p>
                   <div style={{ ...VS.activePill(C.gold), fontSize:8.5 }}>♡ ISO</div>
                 </div>
-                <button onClick={()=>go("collect")} style={{ background:`${C.gold}18`, border:`1.5px solid ${C.gold}44`, borderRadius:10, padding:"7px 12px", color:C.gold, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10, cursor:"pointer" }}>Find →</button>
+                {typeof w.id==="string" && <span style={{ color:C.gold, fontSize:16, flexShrink:0 }}>→</span>}
               </div>
             ))}
             {/* Set ISO cards */}
@@ -8562,14 +8729,29 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
             <p style={VS.softSectionHeader()}>Your Tradeable Cards</p>
             {tradeable.length===0 && setStats.trade===0 && setStats.dupe===0 ? (
               <div style={{ textAlign:"center",padding:"28px 16px",background:`${softBlue}08`,border:`1.5px dashed ${softBlue}33`,borderRadius:18 }}>
-                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,marginBottom:5 }}>No tradeable cards yet</p>
-                <p style={{ fontSize:11,color:C.textMid,lineHeight:1.5 }}>Mark duplicates or cards for trade from your binders.</p>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,marginBottom:5 }}>Mark dupes For Trade</p>
+                <p style={{ fontSize:11,color:C.textMid,marginBottom:14,lineHeight:1.5 }}>Open a card in your binders or My Cards and set its status to Dupe or For Trade to see it here.</p>
+                <Btn small onClick={()=>{ setSection("albums"); setAlbumSubView("binders"); }}>Go to Binders →</Btn>
               </div>
             ) : (
               <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-                {tradeable.slice(0,8).map((card,i)=>(
-                  <div key={card.id || i} style={{ ...VS.glowCard(C.rose), padding:13, display:"flex", gap:10, alignItems:"center" }}><div style={{ width:38,height:50,borderRadius:9,background:`${C.rose}18`,border:`1px solid ${C.rose}44`,display:"flex",alignItems:"center",justifyContent:"center",color:C.rose,fontFamily:"'Epilogue',sans-serif",fontWeight:900 }}>FT</div><div style={{ flex:1 }}><p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,color:C.text }}>{card.member || card.name || "Tradeable card"}</p><p style={{ fontSize:10,color:C.textMid,marginTop:2 }}>{[card.group_name || card.group, card.album || card.era].filter(Boolean).join(" - ")}</p></div></div>
-                ))}
+                {tradeable.slice(0,8).map((card,i)=>{
+                  const meta = CARD_STATUS_META[card.status] || CARD_STATUS_META.for_trade;
+                  const clickable = typeof card.id === "string";
+                  return (
+                    <div key={card.id || i} onClick={()=>{ if(clickable) setPcDetailCard(card); }} className={clickable?"tap":undefined} style={{ ...VS.glowCard(C.rose), padding:13, display:"flex", gap:10, alignItems:"center", cursor:clickable?"pointer":"default" }}>
+                      <div style={{ width:38,height:50,borderRadius:9,background:`${C.rose}18`,border:`1px solid ${C.rose}44`,display:"flex",alignItems:"center",justifyContent:"center",color:C.rose,fontFamily:"'Epilogue',sans-serif",fontWeight:900,flexShrink:0,overflow:"hidden" }}>
+                        {card.image_url ? <img src={card.image_url} alt="" style={{ width:"100%",height:"100%",objectFit:"cover",objectPosition:"center" }} /> : "FT"}
+                      </div>
+                      <div style={{ flex:1 }}>
+                        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,color:C.text }}>{card.member || card.name || "Tradeable card"}</p>
+                        <p style={{ fontSize:10,color:C.textMid,marginTop:2 }}>{[card.group_name || card.group, card.album || card.era].filter(Boolean).join(" - ")}</p>
+                        <span style={{ display:"inline-block",marginTop:4,fontSize:8.5,fontWeight:800,padding:"2px 7px",borderRadius:99,background:meta.color,color:C.bg }}>{meta.badge}</span>
+                      </div>
+                      {clickable && <span style={{ color:C.rose, fontSize:16, flexShrink:0 }}>→</span>}
+                    </div>
+                  );
+                })}
                 {(setStats.trade>0 || setStats.dupe>0) && <div style={{ background:`${C.rose}10`,border:`1px solid ${C.rose}30`,borderRadius:14,padding:12,color:C.textMid,fontSize:11,lineHeight:1.5 }}>{setStats.trade + setStats.dupe} set card{setStats.trade + setStats.dupe === 1 ? "" : "s"} marked as duplicate or tradeable in Photocard Sets.</div>}
               </div>
             )}
@@ -9483,9 +9665,10 @@ function AddCardForm({ binder, initialStatus, onBack, onSaved }) {
     try {
       let image_url = null;
       if (photoFile) {
-        const urlRes = await api.post('/api/cards/upload-url', { filename: photoFile.name, content_type: photoFile.type });
+        const resized = await resizeImageForUpload(photoFile);
+        const urlRes = await api.post('/api/cards/upload-url', { filename: resized.name, content_type: resized.type });
         if (urlRes?.signed_url) {
-          await fetch(urlRes.signed_url, { method:'PUT', body:photoFile, headers:{'Content-Type':photoFile.type} });
+          await fetch(urlRes.signed_url, { method:'PUT', body:resized, headers:{'Content-Type':resized.type} });
           image_url = urlRes.public_url;
         }
       }
@@ -9507,11 +9690,11 @@ function AddCardForm({ binder, initialStatus, onBack, onSaved }) {
             <p style={{ fontSize:10,color:C.textMid,marginBottom:8,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em" }}>Photo (optional)</p>
             {photoPreview ? (
               <div style={{ display:"inline-block",position:"relative" }}>
-                <img src={photoPreview} alt="card" style={{ width:80,height:110,objectFit:"cover",borderRadius:12,border:`2px solid ${C.accent}66` }} />
+                <img src={photoPreview} alt="card" style={{ width:84,height:126,objectFit:"cover",objectPosition:"center",borderRadius:14,border:`2px solid ${C.accent}66`,boxShadow:"0 6px 18px rgba(0,0,0,0.35)" }} />
                 <button onClick={()=>{setPhotoFile(null);setPhotoPreview(null);}} style={{ position:"absolute",top:-8,right:-8,width:20,height:20,borderRadius:"50%",background:C.rose,border:"none",color:C.bg,fontSize:10,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800 }}>×</button>
               </div>
             ) : (
-              <button onClick={()=>photoRef.current?.click()} style={{ width:80,height:110,borderRadius:12,background:`${C.accent}10`,border:`2px dashed ${C.accent}44`,color:C.accent,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4 }}>
+              <button onClick={()=>photoRef.current?.click()} style={{ width:84,height:126,borderRadius:14,background:`${C.accent}10`,border:`2px dashed ${C.accent}44`,color:C.accent,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4 }}>
                 <span style={{ fontSize:22 }}>📸</span><span>Add Photo</span>
               </button>
             )}
@@ -9650,14 +9833,8 @@ function TradeListingForm({ card, onBack, onSaved }) {
 
 // ─── BINDER DETAIL ─────────────────────────────────────────────────────────────
 function BinderDetail({ binder, onBack }) {
-  const STATUS_ORDER = ["owned","missing","iso","duplicate","for_trade"];
-  const STATUS_META  = {
-    owned:     { label:"✓",  color:C.mint,    badge:"Owned"     },
-    missing:   { label:"—",  color:C.textDim, badge:"Missing"   },
-    iso:       { label:"♡",  color:C.accent,  badge:"ISO"       },
-    duplicate: { label:"×2", color:C.gold,    badge:"Dupe"      },
-    for_trade: { label:"⇄",  color:C.rose,    badge:"For Trade" },
-  };
+  const STATUS_ORDER = CARD_STATUS_ORDER;
+  const STATUS_META  = CARD_STATUS_META;
 
   // Detect linked Era Board — match by realBinderId first, then by name pattern
   const linkedEraBoard = (() => {
@@ -9685,34 +9862,19 @@ function BinderDetail({ binder, onBack }) {
   const [showAddCard, setShowAddCard]   = useState(false);
   const [tradingCard, setTradingCard]   = useState(null);
   const [detailCard, setDetailCard]     = useState(null);
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
-  const photoInputRef = useRef(null);
 
   useEffect(() => {
     api.get(`/api/cards?binder_id=${binder.id}`)
       .then(d => { setCards(d?.cards || []); setLoading(false); });
   }, [binder.id]);
 
-  // Explicit status change — no more tap-to-cycle. Called only from the Card Detail Sheet's status selector.
-  const setCardStatus = (card, next) => {
-    setCards(cs => cs.map(c => c.id===card.id ? {...c,status:next} : c));
-    setDetailCard(d => d && d.id===card.id ? {...d,status:next} : d);
-    api.patch(`/api/cards/${card.id}`, { status:next });
-  };
-
-  const uploadCardPhoto = async (e, card) => {
-    const f = e.target.files[0]; if (!f) return;
-    setUploadingPhoto(true);
-    try {
-      const urlRes = await api.post('/api/cards/upload-url', { filename: f.name, content_type: f.type });
-      if (urlRes?.signed_url) {
-        await fetch(urlRes.signed_url, { method:'PUT', body:f, headers:{'Content-Type':f.type} });
-        await api.patch(`/api/cards/${card.id}`, { image_url: urlRes.public_url });
-        setCards(cs => cs.map(c => c.id===card.id ? {...c,image_url:urlRes.public_url} : c));
-        setDetailCard(d => d && d.id===card.id ? {...d,image_url:urlRes.public_url} : d);
-      }
-    } catch { /* keep no-photo placeholder on failure */ }
-    setUploadingPhoto(false);
+  // Explicit, deliberate updates only — no tap-to-cycle. Used by the Card Detail Sheet
+  // for status/condition/notes/quantity/photo changes.
+  const patchDetailCard = (patch) => {
+    if (!detailCard) return;
+    setCards(cs => cs.map(c => c.id===detailCard.id ? {...c,...patch} : c));
+    setDetailCard(d => d ? {...d,...patch} : d);
+    api.patch(`/api/cards/${detailCard.id}`, patch);
   };
 
   const deleteCard = (cardId) => {
@@ -9854,15 +10016,20 @@ function BinderDetail({ binder, onBack }) {
                       boxShadow:`0 4px 16px rgba(0,0,0,0.4)`,display:"flex",flexDirection:"column",justifyContent:"flex-end",
                     }}>
                       {photo ? (
-                        <img src={photo} alt={card.member} style={{ position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover" }} />
+                        <img src={photo} alt={card.member} style={{ position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",objectPosition:"center" }} />
                       ) : (
                         <div style={{ position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center" }}>
                           <span style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:30,color:meta.color,opacity:0.32 }}>{(card.member||"?")[0]}</span>
                         </div>
                       )}
+                      {/* Subtle foil sheen on real photos — lightweight, no per-frame JS */}
+                      {photo && <div style={{ position:"absolute",inset:0,background:"linear-gradient(115deg,transparent 35%,rgba(255,255,255,0.09) 48%,transparent 62%)",pointerEvents:"none" }} />}
+                      {card.status==="duplicate" && (card.quantity||1)>1 && (
+                        <span style={{ position:"absolute",top:6,left:6,zIndex:3,fontSize:7,fontWeight:800,padding:"2px 6px",borderRadius:99,background:C.gold,color:C.bg }}>×{card.quantity}</span>
+                      )}
                       <div style={{ position:"relative",zIndex:2,background:photo?"rgba(6,6,15,0.72)":"transparent",padding:"6px 7px" }}>
                         <p style={{ fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:photo?C.white:C.text,lineHeight:1.2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{card.member}</p>
-                        <p style={{ fontSize:8,color:photo?"rgba(255,255,255,0.7)":C.textDim,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{binder.group_name||card.group_name||""}</p>
+                        <p style={{ fontSize:8,color:photo?"rgba(255,255,255,0.7)":C.textDim,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{[binder.group_name||card.group_name, card.album||card.era].filter(Boolean).join(" · ")}</p>
                         <span style={{ display:"inline-block",marginTop:4,fontSize:7,fontWeight:800,padding:"2px 6px",borderRadius:99,background:meta.color,color:card.status==="missing"?C.text:C.bg }}>{meta.badge}</span>
                       </div>
                     </div>
@@ -9895,57 +10062,18 @@ function BinderDetail({ binder, onBack }) {
         )}
       </Screen>
 
-      {/* Card Detail Sheet — replaces tap-to-cycle. Status changes only happen
-          through this explicit selector, never from tapping the tile itself. */}
-      {detailCard && (() => {
-        const meta = STATUS_META[detailCard.status]||STATUS_META.missing;
-        const photo = detailCard.image_url;
-        return (
-          <div onClick={()=>setDetailCard(null)} style={{ position:"fixed",inset:0,zIndex:420,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
-            <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:"22px 20px 36px",width:"100%",maxHeight:"85vh",overflowY:"auto",animation:"slideUp .25s ease" }}>
-              <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 18px" }} />
-              <div style={{ display:"flex",gap:14,alignItems:"flex-start",marginBottom:18 }}>
-                <div style={{ width:78,height:117,borderRadius:14,flexShrink:0,overflow:"hidden",position:"relative",background:photo?"transparent":`linear-gradient(160deg,${meta.color}38,${meta.color}14)`,border:`1.5px solid ${meta.color}55` }}>
-                  {photo ? <img src={photo} alt={detailCard.member} style={{ width:"100%",height:"100%",objectFit:"cover" }} /> : (
-                    <div style={{ position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center" }}>
-                      <span style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:26,color:meta.color,opacity:0.35 }}>{(detailCard.member||"?")[0]}</span>
-                    </div>
-                  )}
-                </div>
-                <div style={{ flex:1,minWidth:0 }}>
-                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:17,color:C.text,lineHeight:1.2,marginBottom:3 }}>{detailCard.member}</p>
-                  <p style={{ fontSize:11.5,color:C.textMid,marginBottom:2 }}>{binder.group_name||detailCard.group_name||""}</p>
-                  <p style={{ fontSize:11,color:C.textDim }}>{[detailCard.album||detailCard.era, detailCard.version].filter(Boolean).join(" · ")}</p>
-                  <div style={{ marginTop:8,display:"inline-block",fontSize:9.5,fontWeight:800,padding:"3px 9px",borderRadius:99,background:meta.color,color:detailCard.status==="missing"?C.text:C.bg }}>{meta.badge}</div>
-                </div>
-              </div>
-
-              {detailCard.status==="owned" && (
-                <>
-                  <button onClick={()=>photoInputRef.current?.click()} disabled={uploadingPhoto} style={{ width:"100%",marginBottom:14,padding:"10px",borderRadius:12,background:`${C.accent}14`,border:`1.5px solid ${C.accent}44`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer" }}>{uploadingPhoto?"⏳ Uploading...":photo?"📷 Replace photo":"📸 Add a photo"}</button>
-                  <input ref={photoInputRef} type="file" accept="image/*" onChange={e=>uploadCardPhoto(e,detailCard)} style={{ display:"none" }} />
-                </>
-              )}
-
-              <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8 }}>Status</p>
-              <div style={{ display:"flex",gap:6,flexWrap:"wrap",marginBottom:16 }}>
-                {STATUS_ORDER.map(s=>{
-                  const m = STATUS_META[s];
-                  const active = detailCard.status===s;
-                  return (
-                    <button key={s} onClick={()=>setCardStatus(detailCard,s)} style={{ padding:"8px 13px",borderRadius:99,fontSize:11,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:active?m.color:"transparent",color:active?(s==="missing"?C.text:C.bg):m.color,border:`1.5px solid ${m.color}${active?"":"55"}` }}>{m.badge}</button>
-                  );
-                })}
-              </div>
-
-              {detailCard.status==="for_trade" && (
-                <button onClick={()=>{ setTradingCard(detailCard); setDetailCard(null); }} className="tap" style={{ width:"100%",marginBottom:10,padding:"11px",borderRadius:12,background:C.rose,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,cursor:"pointer" }}>List for Trade →</button>
-              )}
-              <button onClick={()=>{ deleteCard(detailCard.id); setDetailCard(null); }} className="tap" style={{ width:"100%",padding:"11px",borderRadius:12,background:"transparent",border:`1.5px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer" }}>Remove card</button>
-            </div>
-          </div>
-        );
-      })()}
+      {/* Card Detail Sheet — shared component. Status changes only happen
+          through its explicit selector, never from tapping the tile itself. */}
+      {detailCard && (
+        <CardDetailSheet
+          card={detailCard}
+          groupLabel={binder.group_name}
+          onClose={()=>setDetailCard(null)}
+          onPatch={patchDetailCard}
+          onDelete={(id)=>{ deleteCard(id); setDetailCard(null); }}
+          onListForTrade={(card)=>{ setTradingCard(card); setDetailCard(null); }}
+        />
+      )}
     </div>
   );
 }
@@ -11011,31 +11139,56 @@ function CollectTab({ cards, setCards, isVip, onUpgrade, user, onAddMemory, hide
                 background:`radial-gradient(circle at 20% 0%, rgba(255,255,255,0.10), transparent 34%), linear-gradient(150deg, ${C.lavender}18, ${C.blush}0e, ${C.sky}0c)`,
                 border:"1px solid rgba(255,255,255,0.14)", backdropFilter:"blur(14px) saturate(1.3)" }}>
                 <div style={{ width:34,height:34,borderRadius:"50%",margin:"0 auto 12px",display:"flex",alignItems:"center",justifyContent:"center",background:`${C.accent}14`,border:`1px solid ${C.accent}30`,color:C.accent,fontSize:15 }}>✦</div>
-                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14,marginBottom:5 }}>No binders yet</p>
-                <p style={{ fontSize:12,color:C.textMid }}>Create your first binder to start tracking your collection.</p>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14,marginBottom:5 }}>Start your first binder</p>
+                <p style={{ fontSize:12,color:C.textMid,marginBottom:16,lineHeight:1.6 }}>Create a binder to track every card in an album or era, one member at a time.</p>
+                <Btn small onClick={()=>setShowBinderCreate(true)}>+ Start a Binder</Btn>
               </div>
             )}
 
-            {binders.map(b=>{
-              const col = b.cover_color || C.accent;
-              return (
-                <div key={b.id} onClick={()=>setSelectedBinder(b)} className="tap" style={{ marginBottom:12, ...VS.glowCard(col), padding:"16px 56px 16px 16px", cursor:"pointer" }}>
-                  <div style={VS.shimmerLine(col)} />
-                  <div style={VS.innerGlow(col)} />
-                  <div style={{ position:"relative" }}>
-                    <div style={{ display:"flex", gap:12, alignItems:"flex-start", marginBottom:10 }}>
-                      <div style={{ width:52,height:52,borderRadius:16,background:`${col}22`,border:`1.5px solid ${col}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,flexShrink:0,boxShadow:`0 0 16px ${col}18` }}>{b.emoji||"🃏"}</div>
-                      <div style={{ flex:1 }}>
-                        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14.5,color:C.text,marginBottom:3 }}>{b.name}</p>
+            {(() => {
+              // Per-binder counts derived from the already-fetched `cards` prop —
+              // zero extra network calls, no backend change needed.
+              const cardsByBinder = {};
+              (cards||[]).forEach(c => { if (c.binder_id) (cardsByBinder[c.binder_id] ||= []).push(c); });
+              return binders.map(b=>{
+                const col = b.cover_color || C.accent;
+                const binderCards = cardsByBinder[b.id] || [];
+                const total  = binderCards.length;
+                const owned  = binderCards.filter(c=>c.status==="owned").length;
+                const iso    = binderCards.filter(c=>c.status==="iso").length;
+                const trade  = binderCards.filter(c=>c.status==="duplicate"||c.status==="for_trade").length;
+                const pct    = total ? Math.round((owned/total)*100) : 0;
+                return (
+                  <div key={b.id} onClick={()=>setSelectedBinder(b)} className="tap" style={{ marginBottom:12, ...VS.glowCard(col), padding:"16px 56px 16px 16px", cursor:"pointer" }}>
+                    <div style={VS.shimmerLine(col)} />
+                    <div style={VS.innerGlow(col)} />
+                    <div style={{ position:"relative", display:"flex", gap:12, alignItems:"center" }}>
+                      {total>0 ? (
+                        <RingProgress value={pct} size={44} thickness={4} color={col} color2={col}>
+                          <span style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:10, color:C.text }}>{pct}%</span>
+                        </RingProgress>
+                      ) : (
+                        <div style={{ width:52,height:52,borderRadius:16,background:`${col}22`,border:`1.5px solid ${col}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,flexShrink:0,boxShadow:`0 0 16px ${col}18` }}>{b.emoji||"🃏"}</div>
+                      )}
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14.5,color:C.text,marginBottom:3,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{b.name}</p>
                         {b.group_name&&<div style={VS.activePill(col)}>{b.group_name}</div>}
+                        {total>0 ? (
+                          <div style={{ display:"flex", gap:8, marginTop:6, flexWrap:"wrap" }}>
+                            <span style={{ fontSize:10, color:C.textMid }}><b style={{ color:C.text }}>{owned}</b>/{total} owned</span>
+                            {iso>0 && <span style={{ fontSize:10, color:C.accent }}>♡ {iso} ISO</span>}
+                            {trade>0 && <span style={{ fontSize:10, color:C.rose }}>⇄ {trade} tradeable</span>}
+                          </div>
+                        ) : (
+                          <p style={{ fontSize:10.5,color:C.textMid,marginTop:6 }}>Tap to view cards</p>
+                        )}
                       </div>
-                      <span style={{ color:col,fontSize:18 }}>→</span>
+                      <span style={{ color:col,fontSize:18,flexShrink:0 }}>→</span>
                     </div>
-                    <p style={{ fontSize:10.5,color:C.textMid }}>Tap to view cards</p>
                   </div>
-                </div>
-              );
-            })}
+                );
+              });
+            })()}
           </div>
         )}
         {view==="trackers" && (
