@@ -14320,20 +14320,55 @@ function ExploreTab({ user, go, onViewProfile }) {
   const todayStart = new Date(); todayStart.setHours(0,0,0,0);
   const isUpcoming = (e) => { const d = e?.date ? new Date(e.date) : null; return !d || isNaN(d.getTime()) || d.getTime() >= todayStart.getTime(); };
   const futureEvents = rawEvents ? rawEvents.filter(isUpcoming) : null;
+  // Multiple shows now reach the feed (not just one) — this is the actual fix for
+  // the "same hero card sits there for hours" staleness complaint. Per-item source/
+  // freshness badges (below, badgeFor()) replace the old single aggregate flag.
   const upcomingShows = (futureEvents && futureEvents.length) ? futureEvents.slice(0,3) : MOCK_CONCERTS.slice(0,2);
-  const upcomingIsLive = !!(futureEvents && futureEvents.some(e => e.source==='ticketmaster' || e.sourceType==='ticketmaster'));
-  const upcomingPreviewLabel = upcomingIsLive ? null
-    : (futureEvents && futureEvents.length) ? "Preview · live Ticketmaster wiring pending for this tile"
-    : "Preview · using sample concert cards";
-  // Prefer whichever show actually has real Ticketmaster poster art.
+  // Prefer whichever show actually has real Ticketmaster poster art as the hero tile.
   const primaryShow = upcomingShows.find(c=>c.image_url) || upcomingShows[0];
+  const heroShowKey = primaryShow ? `show-${primaryShow.id}` : null;
 
   // ── One tapped-item overlay instead of five separate modal states ─────────
   const [openItem, setOpenItem] = useState(null); // { kind, data }
 
-  const PreviewTag = ({ label="Preview" }) => (
-    <span style={{ ...VS.mutedPill(), fontSize:8.5, padding:"3px 8px", position:"absolute", top:12, right:12, maxWidth:150, textAlign:"right", whiteSpace:"normal", lineHeight:1.3, zIndex:2 }}>{label}</span>
+  // ── Source/trust + freshness badge — every card gets one. The source half
+  // (Official · Ticketmaster / Official / Manual Admin / Fan Reported / Concert
+  // Capsule / Preview) is mandatory and never dropped; freshness (New / This Week /
+  // On Sale Soon) only ever appends to it, never replaces it. ──────────────────────
+  const SourceBadge = ({ label }) => (
+    <span style={{ ...VS.mutedPill(), fontSize:8.5, padding:"3px 8px", position:"absolute", top:12, right:12, maxWidth:160, textAlign:"right", whiteSpace:"normal", lineHeight:1.3, zIndex:2 }}>{label}</span>
   );
+  const parseTs = (v) => { if (!v) return null; const d = new Date(v); return isNaN(d.getTime()) ? null : d; };
+  const isNewTs = (v) => { const d = parseTs(v); return d ? (Date.now() - d.getTime()) <= 48*3600*1000 : false; };
+  const isThisWeek = (v) => { const d = parseTs(v); if (!d) return false; const diff = d.getTime() - Date.now(); return diff >= 0 && diff <= 7*86400000; };
+  const isOnSaleSoon = (s) => { const d = parseTs(s?.raw?.sales?.public?.startDateTime); if (!d) return false; const diff = d.getTime() - Date.now(); return diff >= 0 && diff <= 14*86400000; };
+  const badgeFor = (item) => {
+    let source = "Preview", freshness = null;
+    switch (item.kind) {
+      case "post": source = "Fan Reported"; freshness = isNewTs(item.data.created_at) ? "New" : null; break;
+      case "announcement": {
+        const a = item.data;
+        source = a.source === "ticketmaster" ? "Official · Ticketmaster" : "Manual Admin";
+        freshness = isNewTs(a.created_at) ? "New" : null;
+        break;
+      }
+      case "capsule": source = "Concert Capsule"; freshness = isNewTs(item.data.created_at) ? "New" : null; break;
+      case "trade": source = "Fan Reported"; freshness = isNewTs(item.data.created_at) ? "New" : null; break;
+      case "pass": source = "Preview"; break; // MOCK_PASSES — static demo content, Pass Studio has no live feed API yet
+      case "fan": source = "Fan Reported"; break;
+      case "show": {
+        const s = item.data;
+        if (s.source === "ticketmaster" || s.sourceType === "ticketmaster") source = "Official · Ticketmaster";
+        else if (s.sourceType === "official" || s.verificationStatus === "confirmed") source = "Official";
+        else source = "Preview";
+        if (isOnSaleSoon(s)) freshness = "On Sale Soon";
+        else if (isThisWeek(s.date || s.startDateISO)) freshness = "This Week";
+        break;
+      }
+      default: break;
+    }
+    return freshness ? `${source} · ${freshness}` : source;
+  };
   const CategoryChip = ({ label, color }) => (
     <span style={{ display:"inline-flex", alignSelf:"flex-start", fontSize:8.5, color, background:`${color}22`, border:`1px solid ${color}44`, borderRadius:99, padding:"3px 9px", fontFamily:"'Epilogue',sans-serif", fontWeight:800, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:8 }}>{label}</span>
   );
@@ -14356,9 +14391,10 @@ function ExploreTab({ user, go, onViewProfile }) {
   trades.slice(0,4).forEach(t => feedItems.push({ kind:"trade", key:`trade-${t.id}`, data:t }));
   MOCK_PASSES.slice(0,4).forEach(ps => feedItems.push({ kind:"pass", key:`pass-${ps.id}`, data:ps }));
   discoverFans.slice(0,4).forEach(f => feedItems.push({ kind:"fan", key:`fan-${f.id}`, data:f }));
-  if (primaryShow) feedItems.push({ kind:"show", key:`show-${primaryShow.id}`, data:primaryShow });
+  // Every upcoming show reaches the feed now, not just one — see heroShowKey above.
+  upcomingShows.forEach(s => feedItems.push({ kind:"show", key:`show-${s.id}`, data:s }));
 
-  const FILTER_KIND = { concerts:"show", trades:"trade", passes:"pass", capsules:"capsule", fans:"fan" };
+  const FILTER_KIND = { concerts:"show", announcements:"announcement", trades:"trade", passes:"pass", capsules:"capsule", fans:"fan" };
   const kindFiltered = filterType==="all" ? feedItems : feedItems.filter(i=>i.kind===FILTER_KIND[filterType]);
 
   // Best-effort group extraction per content kind, used only for trend-pill matching.
@@ -14373,20 +14409,48 @@ function ExploreTab({ user, go, onViewProfile }) {
       default: return "";
     }
   };
-  const trendMatches = trendFilter ? kindFiltered.filter(i => itemGroup(i).toLowerCase() === trendFilter.group.toLowerCase()) : null;
+  const trendMatches = trendFilter
+    ? (trendFilter.special === "onSaleSoon"
+        ? kindFiltered.filter(i => i.kind==="show" && isOnSaleSoon(i.data))
+        : kindFiltered.filter(i => itemGroup(i).toLowerCase() === trendFilter.group.toLowerCase()))
+    : null;
   const trendHasMatches = !trendFilter || (trendMatches && trendMatches.length > 0);
   const visibleItems = (trendFilter && trendHasMatches) ? trendMatches : kindFiltered;
 
+  // Recency per item, used only to order within/across kind buckets below.
+  const itemTs = (item) => {
+    const d = item.data;
+    switch (item.kind) {
+      case "post": case "announcement": case "capsule": case "trade": return d.created_at;
+      case "show": return d.date || d.startDateISO;
+      default: return null;
+    }
+  };
   // Interleave kinds instead of grouping them so the grid reads like a mixed
-  // curated feed rather than back-to-back runs of the same content type.
+  // curated feed rather than back-to-back runs of the same content type — and
+  // never place the same kind 3x in a row, even once smaller buckets run dry.
   const orderedItems = (() => {
     const buckets = {};
     visibleItems.forEach(i => { (buckets[i.kind] ||= []).push(i); });
+    Object.values(buckets).forEach(list => list.sort((a,b) => {
+      const ta = parseTs(itemTs(a))?.getTime() ?? -Infinity;
+      const tb = parseTs(itemTs(b))?.getTime() ?? -Infinity;
+      return tb - ta;
+    }));
     const out = [];
-    let added = true;
-    while (added) {
-      added = false;
-      for (const k of Object.keys(buckets)) { const b = buckets[k]; if (b.length) { out.push(b.shift()); added = true; } }
+    let guard = visibleItems.length * 4; // safety valve, not a real infinite-loop risk
+    while (out.length < visibleItems.length && guard-- > 0) {
+      const lastTwo = out.slice(-2).map(i => i.kind);
+      const blocked = lastTwo.length === 2 && lastTwo[0] === lastTwo[1] ? lastTwo[0] : null;
+      // Prefer the largest remaining bucket (not currently blocked) so buckets
+      // deplete evenly instead of leaving one stranded to run long at the tail —
+      // picking merely "any allowed kind" isn't enough (verified: it can still
+      // strand a bucket into a run of 3+ even when a fully alternating order exists).
+      let pool = Object.keys(buckets).filter(k => buckets[k].length && k !== blocked);
+      if (!pool.length) pool = Object.keys(buckets).filter(k => buckets[k].length); // only the blocked kind left — unavoidable
+      if (!pool.length) break;
+      pool.sort((a,b) => buckets[b].length - buckets[a].length);
+      out.push(buckets[pool[0]].shift());
     }
     return out;
   })();
@@ -14398,6 +14462,7 @@ function ExploreTab({ user, go, onViewProfile }) {
       const wide = (p.content||"").length > 70;
       return (
         <div key={item.key} onClick={()=>setOpenItem(item)} className="tap" style={{ ...VS.glowCard(C.accent), gridColumn: wide?"span 2":undefined, padding:14, cursor:"pointer" }}>
+          <SourceBadge label={badgeFor(item)} />
           <CategoryChip label={p.type||"Fan Post"} color={C.accent} />
           <p style={{ fontSize:11.5,color:C.text,lineHeight:1.4,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:3,WebkitBoxOrient:"vertical" }}>{p.content}</p>
           <p style={{ fontSize:9.5,color:C.textMid,marginTop:8 }}>@{p.user?.username||"fan"} · 💜 {p.likes||0}</p>
@@ -14408,6 +14473,7 @@ function ExploreTab({ user, go, onViewProfile }) {
       const a = item.data;
       return (
         <div key={item.key} onClick={()=>setOpenItem(item)} className="tap" style={{ ...VS.glowCard(C.gold), gridColumn:"span 2", padding:14, cursor:"pointer" }}>
+          <SourceBadge label={badgeFor(item)} />
           <CategoryChip label="Era Announcement" color={C.gold} />
           <p style={{ fontSize:13,fontWeight:800,color:C.text }}>{a.title}</p>
           <p style={{ fontSize:10.5,color:C.textMid,marginTop:4,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical" }}>{a.body}</p>
@@ -14419,6 +14485,7 @@ function ExploreTab({ user, go, onViewProfile }) {
       const isHero = item.key === firstCapsuleKey;
       return (
         <div key={item.key} onClick={()=>go("capsule")} className="tap" style={{ ...VS.neonGlassCard(C.berry), gridRow:isHero?"span 2":undefined, padding:14, cursor:"pointer", display:"flex", flexDirection:"column" }}>
+          <SourceBadge label={badgeFor(item)} />
           <CategoryChip label="Capsule Memory" color={C.berry} />
           <p style={{ fontSize:11.5,color:C.text,lineHeight:1.4,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:isHero?5:2,WebkitBoxOrient:"vertical" }}>{e.caption}</p>
           <p style={{ fontSize:9.5,color:C.blush||C.pink,marginTop:8,fontWeight:700 }}>{e.username} · 💜 {e.likes||0}</p>
@@ -14430,6 +14497,7 @@ function ExploreTab({ user, go, onViewProfile }) {
       const t = item.data;
       return (
         <div key={item.key} onClick={()=>setOpenItem(item)} className="tap" style={{ ...VS.glowCard(C.rose), padding:14, cursor:"pointer" }}>
+          <SourceBadge label={badgeFor(item)} />
           <CategoryChip label="Trade Listing" color={C.rose} />
           <div style={{ width:44,height:52,borderRadius:8,background:`linear-gradient(160deg,${C.rose}66,${C.cosmic})`,border:`1.5px solid ${C.rose}66`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:800,color:C.text,marginBottom:8 }}>{(t.user_cards?.member||"?").slice(0,1)}</div>
           <p style={{ fontSize:11,fontWeight:700,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{t.user_cards?.member||"Photocard"}</p>
@@ -14442,7 +14510,7 @@ function ExploreTab({ user, go, onViewProfile }) {
       const pt = PASS_TYPES.find(x=>x.id===ps.type);
       return (
         <div key={item.key} onClick={()=>setOpenItem(item)} className="tap" style={{ ...VS.glowCard(C.pink), padding:14, cursor:"pointer", position:"relative" }}>
-          <PreviewTag />
+          <SourceBadge label={badgeFor(item)} />
           <CategoryChip label="Live POV" color={C.pink} />
           <p style={{ fontSize:22,marginBottom:6 }}>{pt?.emoji||"🎫"}</p>
           <p style={{ fontSize:11,color:C.text,lineHeight:1.35,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical" }}>{ps.caption}</p>
@@ -14454,6 +14522,7 @@ function ExploreTab({ user, go, onViewProfile }) {
       const f = item.data;
       return (
         <div key={item.key} onClick={()=>onViewProfile&&onViewProfile({ id:f.id, username:f.handle, display_name:f.display_name, fandoms:f.fandoms })} className="tap" style={{ ...VS.glowCard(C.lavender), padding:14, cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", textAlign:"center" }}>
+          <SourceBadge label={badgeFor(item)} />
           <CategoryChip label="Fan Creator" color={C.lavender} />
           <div style={{ width:44,height:44,borderRadius:"50%",background:`linear-gradient(135deg,${C.lavender},${C.accent})`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,color:C.bg,fontSize:16,marginBottom:8 }}>{f.avatar}</div>
           <p style={{ fontSize:11,fontWeight:700,color:C.text }}>{f.display_name}</p>
@@ -14463,24 +14532,37 @@ function ExploreTab({ user, go, onViewProfile }) {
     }
     if (item.kind === "show") {
       const s = item.data;
-      return (
-        <div key={item.key} onClick={()=>setOpenItem(item)} className="tap" style={{ borderRadius:22, gridColumn:"span 2", cursor:"pointer", position:"relative", overflow:"hidden", border:"1.5px solid rgba(217,199,255,0.28)", boxShadow:"0 10px 32px rgba(0,0,0,0.4)" }}>
-          {upcomingPreviewLabel && <PreviewTag label={upcomingPreviewLabel} />}
-          <div style={{
-            minHeight:150, padding:16, display:"flex", flexDirection:"column", justifyContent:"flex-end",
-            backgroundImage: s.image_url
-              ? `linear-gradient(180deg,transparent 30%,rgba(6,4,12,0.92) 100%),url(${s.image_url})`
-              : `linear-gradient(145deg, rgba(185,150,255,0.18), rgba(240,168,204,0.12), ${C.cosmic})`,
-            backgroundSize:"cover", backgroundPosition:"center",
-            boxShadow: s.image_url ? "none" : "inset 0 0 0 1px rgba(217,199,255,0.22)",
-          }}>
-            <CategoryChip label="Upcoming Show" color={C.lavender} />
-            <p style={{ fontSize:s.image_url?14:17, fontWeight:800, color:"#fff", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", textShadow:"0 2px 8px rgba(0,0,0,0.6)" }}>{s.name||s.title}</p>
-            <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:4, flexWrap:"wrap" }}>
-              <p style={{ fontSize:10.5,color:"rgba(255,255,255,0.75)" }}>{s.city}{s.date?` · ${s.date}`:""}</p>
-              {s.venue && <span style={{ fontSize:8.5, padding:"2px 8px", borderRadius:99, background:"rgba(255,255,255,0.14)", border:"1px solid rgba(255,255,255,0.22)", color:"rgba(255,255,255,0.85)" }}>{s.venue}</span>}
+      const isHero = item.key === heroShowKey;
+      if (isHero) {
+        return (
+          <div key={item.key} onClick={()=>setOpenItem(item)} className="tap" style={{ borderRadius:22, gridColumn:"span 2", cursor:"pointer", position:"relative", overflow:"hidden", border:"1.5px solid rgba(217,199,255,0.28)", boxShadow:"0 10px 32px rgba(0,0,0,0.4)" }}>
+            <SourceBadge label={badgeFor(item)} />
+            <div style={{
+              minHeight:150, padding:16, display:"flex", flexDirection:"column", justifyContent:"flex-end",
+              backgroundImage: s.image_url
+                ? `linear-gradient(180deg,transparent 30%,rgba(6,4,12,0.92) 100%),url(${s.image_url})`
+                : `linear-gradient(145deg, rgba(185,150,255,0.18), rgba(240,168,204,0.12), ${C.cosmic})`,
+              backgroundSize:"cover", backgroundPosition:"center",
+              boxShadow: s.image_url ? "none" : "inset 0 0 0 1px rgba(217,199,255,0.22)",
+            }}>
+              <CategoryChip label="Upcoming Show" color={C.lavender} />
+              <p style={{ fontSize:s.image_url?14:17, fontWeight:800, color:"#fff", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", textShadow:"0 2px 8px rgba(0,0,0,0.6)" }}>{s.name||s.title}</p>
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:4, flexWrap:"wrap" }}>
+                <p style={{ fontSize:10.5,color:"rgba(255,255,255,0.75)" }}>{s.city}{s.date?` · ${s.date}`:""}</p>
+                {s.venue && <span style={{ fontSize:8.5, padding:"2px 8px", borderRadius:99, background:"rgba(255,255,255,0.14)", border:"1px solid rgba(255,255,255,0.22)", color:"rgba(255,255,255,0.85)" }}>{s.venue}</span>}
+              </div>
             </div>
           </div>
+        );
+      }
+      // Non-hero shows — compact card so extra events add variety instead of
+      // stacking more full-width hero tiles.
+      return (
+        <div key={item.key} onClick={()=>setOpenItem(item)} className="tap" style={{ ...VS.glowCard(C.lavender), padding:14, cursor:"pointer" }}>
+          <SourceBadge label={badgeFor(item)} />
+          <CategoryChip label="Concert Drop" color={C.lavender} />
+          <p style={{ fontSize:12,fontWeight:800,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{s.name||s.title}</p>
+          <p style={{ fontSize:10,color:C.textMid,marginTop:4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{s.city}{s.date?` · ${s.date}`:""}</p>
         </div>
       );
     }
@@ -14569,17 +14651,24 @@ function ExploreTab({ user, go, onViewProfile }) {
                 <span key={g.group} onClick={()=>setTrendFilter(active ? null : { group:g.group, era, color:g.color })} className="tap" style={{ flexShrink:0, fontSize:10.5, padding:"5px 11px", borderRadius:99, background: active ? g.color : `${g.color}1c`, border:`1px solid ${g.color}44`, color: active ? C.bg : g.color, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>{g.group} · {era}</span>
               );
             })}
+            {(() => {
+              const active = trendFilter?.special === "onSaleSoon";
+              const color = C.gold;
+              return (
+                <span onClick={()=>setTrendFilter(active ? null : { special:"onSaleSoon", color })} className="tap" style={{ flexShrink:0, fontSize:10.5, padding:"5px 11px", borderRadius:99, background: active ? color : `${color}1c`, border:`1px solid ${color}44`, color: active ? C.bg : color, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>⏰ On Sale Soon</span>
+              );
+            })()}
           </div>
           {/* Active trend filter indicator — subtle, dismissible, never a route away from Explore */}
           {trendFilter && (
             <div onClick={()=>setTrendFilter(null)} className="tap" style={{ display:"inline-flex", alignItems:"center", gap:6, fontSize:10.5, padding:"5px 6px 5px 11px", borderRadius:99, background:`${trendFilter.color}18`, border:`1px solid ${trendFilter.color}44`, color:trendFilter.color, fontWeight:700, cursor:"pointer", marginBottom:10 }}>
-              Showing {trendFilter.group} · {trendFilter.era}
+              {trendFilter.special === "onSaleSoon" ? "Showing On Sale Soon" : `Showing ${trendFilter.group} · ${trendFilter.era}`}
               <span style={{ width:16,height:16,borderRadius:"50%",background:"rgba(255,255,255,0.14)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9 }}>✕</span>
             </div>
           )}
           {/* Quick filter chips over the content feed */}
           <div style={{ display:"flex", gap:8, overflowX:"auto", paddingBottom:12 }}>
-            {[["all","For You"],["concerts","Concerts"],["trades","Trades"],["passes","Passes"],["capsules","Capsules"],["fans","Fans"]].map(([id,label])=>(
+            {[["all","For You"],["concerts","Concerts"],["announcements","Announcements"],["passes","Passes"],["capsules","Capsules"],["trades","Trades"],["fans","Fans"]].map(([id,label])=>(
               <button key={id} onClick={()=>setFilterType(id)} className="tap" style={{ ...getPillStyle({active:filterType===id}), flexShrink:0, fontSize:11, padding:"7px 14px" }}>{label}</button>
             ))}
           </div>
@@ -14659,7 +14748,11 @@ function ExploreTab({ user, go, onViewProfile }) {
               </div>
             )}
             {trendFilter && !trendHasMatches && (
-              <p style={{ fontSize:11,color:C.textDim,lineHeight:1.6,marginBottom:12 }}>No {trendFilter.group} · {trendFilter.era} posts yet. Showing related {trendFilter.group} content instead.</p>
+              <p style={{ fontSize:11,color:C.textDim,lineHeight:1.6,marginBottom:12 }}>
+                {trendFilter.special === "onSaleSoon"
+                  ? "No events going on sale soon right now — showing the full feed instead."
+                  : `No ${trendFilter.group} · ${trendFilter.era} posts yet. Showing related ${trendFilter.group} content instead.`}
+              </p>
             )}
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gridAutoFlow:"dense", gap:12, paddingTop:4 }}>
               {orderedItems.length>0 ? orderedItems.map(renderCard) : (
