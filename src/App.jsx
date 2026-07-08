@@ -15252,45 +15252,71 @@ function ChantVault() {
   const [active, setActive] = useState(null);
   const [lineIdx, setLineIdx] = useState(0);
   const [running, setRunning] = useState(false);
+  const [showAll, setShowAll] = useState(true);
+  const [repeatTick, setRepeatTick] = useState(0);
+  const [justSaved, setJustSaved] = useState(false);
+  const [justMarked, setJustMarked] = useState(false);
   const [search, setSearch] = useState("");
   const [aiQuery, setAiQuery] = useState("");
-  const [aiResult, setAiResult] = useState(null);
-  const [aiLoading, setAiLoading] = useState(false);
+  const [aiStatus, setAiStatus] = useState("idle"); // idle|loading|found|needs_song|not_found|error
+  const [aiData, setAiData] = useState(null);
+  const [pasteText, setPasteText] = useState("");
   const intRef = useRef(null);
-  const safeChantLookupFallback = () =>
-    `Chant lookup is unavailable right now. To find the fanchant for "${aiQuery}", check YouTube ("[song name] fanchant guide"), the group's official fan wiki, or trusted fansites.`;
 
   useEffect(()=>{
     if(running&&active){
       intRef.current=setInterval(()=>{
         setLineIdx(i=>{ if(i>=active.lines.length-1){clearInterval(intRef.current);setRunning(false);return i;} return i+1; });
-      },900);
+      },2500);
     }
     return ()=>clearInterval(intRef.current);
-  },[running,active]);
+  },[running,active,repeatTick]);
 
-  const handleAi = async()=>{
-    if(!aiQuery.trim())return;
-    setAiLoading(true); setAiResult(null);
-    try{
-      // POST /api/ai/chant-helper — proxied through backend (API key stays server-side)
-      const res = await fetch(`${API_URL}/api/ai/chant-helper`, {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ query: aiQuery })
-      });
-      if(res.ok){
-        const d = await res.json();
-        setAiResult(d.verified === true && typeof d.result === "string" && d.result.trim()
-          ? d.result
-          : safeChantLookupFallback()
-        );
-      }
-      else throw new Error();
-    } catch {
-      // Never show invented chant text — safe resource fallback only
-      setAiResult(safeChantLookupFallback());
-    }
-    setAiLoading(false);
+  const openChant = (chant)=>{ setActive(chant); setLineIdx(0); setRunning(false); setShowAll(true); setJustSaved(false); setJustMarked(false); };
+
+  const openFoundChant = (d)=>{
+    const localMatch = MOCK_CHANTS.find(c=>c.id===d.chant?.localId);
+    if(localMatch) openChant(localMatch);
+    else openChant({
+      id:`ai-${Date.now()}`, title:d.title, group:d.group||"Verified",
+      lines:(d.chant?.lines||[]).map(l=>l.text), color:C.accent, sourceType:d.chant?.sourceType,
+    });
+  };
+
+  const openPastedChant = ()=>{
+    const lines = pasteText.split("\n").map(l=>l.trim()).filter(Boolean);
+    if(!lines.length) return;
+    openChant({
+      id:`pasted-${Date.now()}`,
+      title: aiData?.song ? `${aiData.song}${aiData.group?` (${aiData.group})`:""}` : (aiQuery||"Pasted Chant"),
+      group: aiData?.group || "Custom", lines, color:C.textMid, sourceType:"user_pasted",
+    });
+    setPasteText("");
+  };
+
+  const stepLine = (delta)=>{ setRunning(false); setLineIdx(i=>Math.min(Math.max(i+delta,0), active.lines.length-1)); };
+
+  const saveToMyChants = ()=>{
+    const saved = ls.get("backstage_saved_chants", []);
+    ls.set("backstage_saved_chants", [...saved.filter(c=>c.id!==active.id), active]);
+    setJustSaved(true); setTimeout(()=>setJustSaved(false), 1600);
+  };
+
+  const markPracticed = ()=>{
+    const history = ls.get("backstage_chant_practice_history", []);
+    ls.set("backstage_chant_practice_history", [...history, { id:active.id, title:active.title, group:active.group, practicedAt:Date.now() }]);
+    setJustMarked(true); setTimeout(()=>setJustMarked(false), 1600);
+  };
+
+  const handleAi = async(queryOverride)=>{
+    const q = (queryOverride ?? aiQuery).trim();
+    if(!q) return;
+    if(queryOverride) setAiQuery(queryOverride);
+    setAiStatus("loading"); setAiData(null);
+    // POST /api/ai/chant-helper — proxied through backend, deterministic, no invented chant text
+    const d = await api.post('/api/ai/chant-helper', { query:q, mode:'lookup' });
+    if(d && d.ok && d.status){ setAiData(d); setAiStatus(d.status); }
+    else { setAiData(null); setAiStatus("error"); }
   };
 
   const filtered = MOCK_CHANTS.filter(c=>!search||c.title.toLowerCase().includes(search.toLowerCase())||c.group.toLowerCase().includes(search.toLowerCase()));
@@ -15304,38 +15330,57 @@ function ChantVault() {
         <div style={{ position:"relative" }}>
           <Pill color={active.color} active small>{active.group}</Pill>
           <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:19, marginTop:12, marginBottom:6, letterSpacing:"-0.01em" }}>{active.title}</p>
-          <p style={{ fontSize:11, color:C.textMid, marginBottom:16 }}>{active.lines.length} lines · {running?"Auto-scroll active":"Tap ▶ to practice"}</p>
+          <p style={{ fontSize:10.5, color: active.sourceType==="user_pasted" ? C.gold : C.mint, marginBottom:8, fontFamily:"'Epilogue',sans-serif", fontWeight:700 }}>
+            {active.sourceType==="user_pasted" ? "⚠ User pasted — not verified by Backstage" : "✓ Verified library"}
+          </p>
+          <p style={{ fontSize:11, color:C.textMid, marginBottom:16 }}>{active.lines.length} lines · {running?"Auto Practice active":"Ready to practice"}</p>
 
-          {/* Mode tabs */}
-          <div style={{ display:"flex", gap:6, justifyContent:"center", marginBottom:18 }}>
-            {[["▶ Practice","practice"],["📖 Read","read"],["💾 Save","save"]].map(([label,mode])=>(
-              <button key={mode} className="tap" style={{ padding:"6px 12px", borderRadius:99, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, background:`${active.color}18`, border:`1px solid ${active.color}38`, color:active.color, cursor:"pointer" }}
-                onClick={()=>{ if(mode==="practice"){setLineIdx(0);setRunning(true);} if(mode==="save"){ const saved=ls.get("backstage_saved_chants",[]); ls.set("backstage_saved_chants",[...saved.filter(c=>c.id!==active.id),active]); } }}>
+          <div style={{ display:"flex", gap:6, justifyContent:"center", marginBottom:14, flexWrap:"wrap" }}>
+            {[
+              [showAll?"📍 Focus Mode":"👁 Show All Lines", ()=>setShowAll(s=>!s)],
+              [justSaved?"✓ Saved!":"💾 Save to My Chants", saveToMyChants],
+              [justMarked?"✓ Marked!":"✓ Mark Practiced", markPracticed],
+            ].map(([label,fn])=>(
+              <button key={label} className="tap" style={{ padding:"6px 12px", borderRadius:99, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, background:`${active.color}18`, border:`1px solid ${active.color}38`, color:active.color, cursor:"pointer" }} onClick={fn}>
                 {label}
               </button>
             ))}
           </div>
 
-          <div style={{ display:"flex", flexDirection:"column", gap:7, marginBottom:18, textAlign:"left" }}>
-            {active.lines.map((line,i)=>(
-              <div key={i} style={{
-                padding:"12px 16px", borderRadius:16,
-                background:i===lineIdx&&running?`${active.color}22`:i<lineIdx&&running?`${active.color}0a`:C.surfaceHi,
-                border:`1.5px solid ${i===lineIdx&&running?active.color:i<lineIdx&&running?`${active.color}28`:C.border}`,
-                transition:"all .35s",
-                fontFamily:"'Epilogue',sans-serif",
-                fontWeight:i===lineIdx&&running?800:500,
-                fontSize:i===lineIdx&&running?17:13,
-                color:i===lineIdx&&running?active.color:i<lineIdx&&running?`${active.color}88`:C.text,
-                boxShadow:i===lineIdx&&running?`0 0 18px ${active.color}28`:"none",
-              }}>
-                <span style={{ marginRight:10, fontSize:10.5, color:i===lineIdx&&running?active.color:C.textDim, fontFamily:"'Epilogue',sans-serif", fontWeight:700 }}>#{i+1}</span>
-                {line}
-              </div>
-            ))}
+          {showAll ? (
+            <div style={{ display:"flex", flexDirection:"column", gap:7, marginBottom:14, textAlign:"left" }}>
+              {active.lines.map((line,i)=>(
+                <div key={i} style={{
+                  padding:"12px 16px", borderRadius:16,
+                  background:i===lineIdx&&running?`${active.color}22`:i<lineIdx&&running?`${active.color}0a`:C.surfaceHi,
+                  border:`1.5px solid ${i===lineIdx&&running?active.color:i<lineIdx&&running?`${active.color}28`:C.border}`,
+                  transition:"all .35s",
+                  fontFamily:"'Epilogue',sans-serif",
+                  fontWeight:i===lineIdx&&running?800:500,
+                  fontSize:i===lineIdx&&running?17:13,
+                  color:i===lineIdx&&running?active.color:i<lineIdx&&running?`${active.color}88`:C.text,
+                  boxShadow:i===lineIdx&&running?`0 0 18px ${active.color}28`:"none",
+                }}>
+                  <span style={{ marginRight:10, fontSize:10.5, color:i===lineIdx&&running?active.color:C.textDim, fontFamily:"'Epilogue',sans-serif", fontWeight:700 }}>#{i+1}</span>
+                  {line}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ padding:"28px 16px", borderRadius:16, background:`${active.color}18`, border:`1.5px solid ${active.color}44`, textAlign:"center", marginBottom:14 }}>
+              <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:22, color:active.color }}>{active.lines[lineIdx]}</p>
+            </div>
+          )}
+
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:10, marginBottom:14 }}>
+            <button onClick={()=>stepLine(-1)} disabled={lineIdx===0} className="tap" style={{ padding:"6px 12px", borderRadius:99, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, background:C.surfaceHi, border:`1px solid ${C.border}`, color:lineIdx===0?C.textDim:C.text, cursor:lineIdx===0?"not-allowed":"pointer" }}>◀ Prev</button>
+            <span style={{ fontSize:11, color:C.textMid, minWidth:44, textAlign:"center" }}>{lineIdx+1} / {active.lines.length}</span>
+            <button onClick={()=>stepLine(1)} disabled={lineIdx===active.lines.length-1} className="tap" style={{ padding:"6px 12px", borderRadius:99, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, background:C.surfaceHi, border:`1px solid ${C.border}`, color:lineIdx===active.lines.length-1?C.textDim:C.text, cursor:lineIdx===active.lines.length-1?"not-allowed":"pointer" }}>Next ▶</button>
+            <button onClick={()=>setRepeatTick(t=>t+1)} className="tap" style={{ padding:"6px 12px", borderRadius:99, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, background:C.surfaceHi, border:`1px solid ${C.border}`, color:C.text, cursor:"pointer" }}>🔁 Repeat</button>
           </div>
+
           <div style={{ display:"flex", gap:10 }}>
-            <Btn color={active.color} onClick={()=>{ setLineIdx(0); setRunning(!running); }} small style={{ flex:1 }}>{running?"⏸ Pause":"▶ Start Practice"}</Btn>
+            <Btn color={active.color} onClick={()=>setRunning(!running)} small style={{ flex:1 }}>{running?"⏸ Pause":"▶ Auto Practice"}</Btn>
             <Btn ghost color={C.textMid} onClick={()=>{ clearInterval(intRef.current); setRunning(false); setLineIdx(0); }} small style={{ width:76,flex:"none" }}>Reset</Btn>
           </div>
         </div>
@@ -15363,13 +15408,62 @@ function ChantVault() {
         <p style={{ fontSize:11.5, color:C.textMid, marginBottom:10 }}>Can't find your chant? Ask AI. Only verified chants provided — no guessing.</p>
         <div style={{ display:"flex", gap:8 }}>
           <input value={aiQuery} onChange={e=>setAiQuery(e.target.value)} placeholder="Song name + group..." style={{ flex:1, padding:"9px 12px", borderRadius:10, background:C.surface, border:`1.5px solid ${C.border}`, color:C.text, fontSize:12.5 }} onKeyDown={e=>e.key==="Enter"&&handleAi()} />
-          <button onClick={handleAi} disabled={aiLoading||!aiQuery.trim()} style={{ background:C.accent, border:"none", borderRadius:10, padding:"0 14px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer", opacity:aiLoading?0.6:1 }}>{aiLoading?"...":" Ask"}</button>
+          <button onClick={()=>handleAi()} disabled={aiStatus==="loading"||!aiQuery.trim()} style={{ background:C.accent, border:"none", borderRadius:10, padding:"0 14px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer", opacity:aiStatus==="loading"?0.6:1 }}>{aiStatus==="loading"?"...":" Ask"}</button>
         </div>
-        {aiResult&&<div style={{ marginTop:10, background:C.surface, borderRadius:11, padding:12, animation:"up .2s ease" }}><p style={{ fontSize:12.5, lineHeight:1.7, color:C.text, whiteSpace:"pre-line" }}>{aiResult}</p></div>}
+
+        {aiStatus==="loading" && (
+          <div style={{ marginTop:10 }}>
+            <p style={{ fontSize:12, color:C.textMid }}>Checking verified chant library…</p>
+          </div>
+        )}
+
+        {aiStatus==="found" && aiData?.chant && (
+          <div style={{ marginTop:10, background:C.surface, borderRadius:11, padding:12, animation:"up .2s ease" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:6, flexWrap:"wrap" }}>
+              <span style={{ fontSize:9, color:C.mint, fontWeight:700, background:`${C.mint}18`, padding:"2px 7px", borderRadius:99 }}>✓ VERIFIED</span>
+              <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13 }}>{aiData.title}</p>
+            </div>
+            <p style={{ fontSize:11.5, color:C.textMid, marginBottom:10 }}>{aiData.chant.lines.length} lines · {aiData.message}</p>
+            <Btn small color={C.accent} onClick={()=>openFoundChant(aiData)}>▶ Start Practice</Btn>
+          </div>
+        )}
+
+        {aiStatus==="needs_song" && aiData && (
+          <div style={{ marginTop:10, background:C.surface, borderRadius:11, padding:12, animation:"up .2s ease" }}>
+            <p style={{ fontSize:12.5, lineHeight:1.6, color:C.text, marginBottom:10 }}>{aiData.message}</p>
+            <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+              {(aiData.chant?.searchSuggestions||[]).map(s=>(
+                <button key={s} onClick={()=>handleAi(s)} className="tap" style={{ padding:"5px 10px", borderRadius:99, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, background:`${C.accent}14`, border:`1px solid ${C.accent}38`, color:C.accent, cursor:"pointer" }}>{s}</button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {aiStatus==="not_found" && aiData && (
+          <div style={{ marginTop:10, background:C.surface, borderRadius:11, padding:12, animation:"up .2s ease" }}>
+            <p style={{ fontSize:12.5, lineHeight:1.6, color:C.text, marginBottom:10 }}>{aiData.message}</p>
+            {aiData.chant?.searchSuggestions?.length>0 && (
+              <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:12 }}>
+                {aiData.chant.searchSuggestions.map(s=>(
+                  <span key={s} style={{ padding:"5px 10px", borderRadius:99, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, background:C.surfaceHi, border:`1px solid ${C.border}`, color:C.textMid }}>🔎 {s}</span>
+                ))}
+              </div>
+            )}
+            <p style={{ fontSize:10.5, color:C.textDim, marginBottom:6, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em" }}>Paste chant text to practice</p>
+            <textarea value={pasteText} onChange={e=>setPasteText(e.target.value)} placeholder={"Paste the official chant, one line per call —\ne.g.\nDynamite!\nJin!\nSuga!"} rows={4} style={{ width:"100%", boxSizing:"border-box", padding:"9px 12px", borderRadius:10, background:C.surfaceHi, border:`1.5px solid ${C.border}`, color:C.text, fontSize:12, fontFamily:"'Instrument Sans',sans-serif", resize:"vertical", marginBottom:8 }} />
+            <Btn small color={C.accent} disabled={!pasteText.trim()} onClick={openPastedChant}>Create Practice Session</Btn>
+          </div>
+        )}
+
+        {aiStatus==="error" && (
+          <div style={{ marginTop:10, background:C.surface, borderRadius:11, padding:12, animation:"up .2s ease" }}>
+            <p style={{ fontSize:12.5, lineHeight:1.6, color:C.textMid }}>Chant lookup is temporarily unavailable. Try again in a moment, or search YouTube for "{aiQuery} fanchant guide".</p>
+          </div>
+        )}
       </div>
       <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
         {filtered.map(c=>(
-          <div key={c.id} onClick={()=>{setActive(c);setLineIdx(0);setRunning(false);}} className="tap" style={{ background:C.surface, border:`1.5px solid ${c.color}33`, borderRadius:16, padding:14, cursor:"pointer", display:"flex", gap:12, alignItems:"center" }}>
+          <div key={c.id} onClick={()=>openChant(c)} className="tap" style={{ background:C.surface, border:`1.5px solid ${c.color}33`, borderRadius:16, padding:14, cursor:"pointer", display:"flex", gap:12, alignItems:"center" }}>
             <div style={{ width:44, height:44, borderRadius:13, background:`${c.color}18`, border:`1.5px solid ${c.color}44`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>🎵</div>
             <div style={{ flex:1 }}>
               <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13.5 }}>{c.title}</p>

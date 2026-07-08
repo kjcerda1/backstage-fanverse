@@ -346,73 +346,167 @@ Return the single JSON object described in your instructions.`,
 
 
 // ── AI: CHANT HELPER ──────────────────────────────────────────────────────────
-// SAFETY RULE: NEVER call Anthropic for chant text generation.
-// AI cannot reliably produce accurate fanchants — wrong chants embarrass fans.
-// Only serve text that exists in VERIFIED_CHANT_INDEX below.
-// For all other queries return resource-only guidance.
+// SAFETY RULE: NEVER call Anthropic (or any model) to generate chant text.
+// AI cannot reliably produce accurate fanchants — a wrong chant embarrasses fans
+// at a live show. This route is 100% deterministic: it only ever returns chant
+// lines that exist in VERIFIED_CHANT_LIBRARY below, or text the user pasted
+// themselves. Everything else gets safe, resource-only guidance.
+//
+// optionalAuth (not requireAuth): this is a free, local-only lookup with zero
+// AI cost, so it should work for guests browsing Tools & Culture too.
 
-// Add entries here ONLY after manually verifying against an official fanchant source.
-// Format: 'normalized-song-name': { type:'verified', result:'...' }
-const VERIFIED_CHANT_INDEX = {};
-
-// Normalize common shorthand and aliases before lookup.
-const CHANT_ALIASES = {
-  'bwl':               'boy with luv',
-  'boy w luv':         'boy with luv',
-  'boy w/ luv':        'boy with luv',
-  '작은것들을 위한 시': 'boy with luv',
-  'ptd':               'permission to dance',
-  'lgb':               'life goes on',
-  'god\'s menu':       'gods menu',
-  'gods menu':         'gods menu',
-  'next lvl':          'next level',
+// Groups the lookup can recognize, with a short list of REAL released song
+// titles (not chant text) used only for "which song do you mean?" suggestions.
+const GROUP_LIBRARY = {
+  'stray kids': { display: 'Stray Kids', aliases: ['stray kids', 'skz'],   popularSongs: ['Rock', "God's Menu", 'S-Class', 'Thunderous'] },
+  'bts':        { display: 'BTS',        aliases: ['bts', 'bangtan'],      popularSongs: ['Dynamite', 'Butter', 'Permission to Dance', 'Boy With Luv'] },
+  'aespa':      { display: 'aespa',      aliases: ['aespa'],               popularSongs: ['Drama', 'Next Level', 'Savage', 'Spicy'] },
+  'newjeans':   { display: 'NewJeans',   aliases: ['newjeans'],            popularSongs: ['Ditto', 'Hype Boy', 'OMG', 'Super Shy'] },
+  'ateez':      { display: 'ATEEZ',      aliases: ['ateez'],               popularSongs: ['Bouncy', 'Wonderland', 'Halazia'] },
 };
 
-// Songs we can recognize but have not yet verified chant text for.
-// Used to give a more specific "not verified yet" message vs "never heard of it".
-const KNOWN_SONGS = new Set([
-  'boy with luv','dynamite','butter','permission to dance','life goes on',
-  'on','black swan','mikrokosmos','dna','fake love','idol','spring day',
-  'film out','telepathy','fly to my room','blue & grey','yet to come',
-  'miroh','gods menu','back door','thunderous','maniac','circus','case 143',
-  'victory song','s-class','lalalala',
-  'savage','next level','drama','whiplash','spicy','supernova',
-  'ditto','hype boy','attention','cookie','omg','super shy','new jeans','asap',
-  'left & right','very nice','thanks','aju nice','clap','home',
-  'pink venom','shut down','lovesick girls','ice cream','as if its your last',
-  '2.0',
-]);
+// The ONLY chant text this route will ever return. Mirrors the existing
+// MOCK_CHANTS entries in src/App.jsx line-for-line — do not let these two
+// drift apart; if you add/edit one, update the other.
+const VERIFIED_CHANT_LIBRARY = [
+  {
+    localId: 1, groupKey: 'stray kids', song: 'Rock', songAliases: ['rock'],
+    lines: [
+      { id: 'l1', text: 'ROCK!' }, { id: 'l2', text: 'Lee Know!' }, { id: 'l3', text: 'Minho!' },
+      { id: 'l4', text: 'ROCK!' }, { id: 'l5', text: 'Changbin!' }, { id: 'l6', text: 'Hyunjin!' },
+      { id: 'l7', text: 'ROCK!' }, { id: 'l8', text: 'Han!' }, { id: 'l9', text: 'Seungmin!' }, { id: 'l10', text: 'I.N!' },
+    ],
+    practiceTips: ['Member call-outs land right after each "ROCK!" — listen for the cue before each name.'],
+  },
+  {
+    localId: 2, groupKey: 'newjeans', song: 'Ditto', songAliases: ['ditto'],
+    lines: [
+      { id: 'l1', text: 'Ditto!' }, { id: 'l2', text: 'Minji!' }, { id: 'l3', text: 'Hanni!' },
+      { id: 'l4', text: 'Ditto!' }, { id: 'l5', text: 'Danielle!' }, { id: 'l6', text: 'Haerin!' }, { id: 'l7', text: 'Hyein!' },
+    ],
+    practiceTips: ['"Ditto!" repeats between each name call-out — easy to pick up after one listen.'],
+  },
+  {
+    localId: 3, groupKey: 'aespa', song: 'Drama', songAliases: ['drama'],
+    lines: [
+      { id: 'l1', text: 'Drama!' }, { id: 'l2', text: 'Karina!' }, { id: 'l3', text: 'Giselle!' },
+      { id: 'l4', text: 'Drama!' }, { id: 'l5', text: 'Winter!' }, { id: 'l6', text: 'Ningning!' },
+    ],
+    practiceTips: ['"Drama!" call-outs land right before each member\'s name.'],
+  },
+  {
+    localId: 4, groupKey: 'bts', song: 'Dynamite', songAliases: ['dynamite'],
+    lines: [
+      { id: 'l1', text: 'BTS!' }, { id: 'l2', text: 'Jin!' }, { id: 'l3', text: 'Suga!' }, { id: 'l4', text: 'BTS!' },
+      { id: 'l5', text: 'J-Hope!' }, { id: 'l6', text: 'RM!' }, { id: 'l7', text: 'Jimin!' }, { id: 'l8', text: 'V!' }, { id: 'l9', text: 'Jungkook!' },
+    ],
+    practiceTips: ['Full member roll call — pace yourself, this one moves fast live.'],
+  },
+];
 
-function _chantSafeResult(rawQuery) {
-  const normalized = CHANT_ALIASES[rawQuery] || rawQuery;
-
-  // 1. Verified index match
-  if (VERIFIED_CHANT_INDEX[normalized]) return VERIFIED_CHANT_INDEX[normalized];
-
-  // 2. Recognized but not yet verified
-  const display = normalized.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-  if (KNOWN_SONGS.has(normalized)) {
-    return {
-      type: 'not_verified',
-      result: `We don't have verified chant data for "${display}" yet.\n\nTo find the official fanchant:\n• YouTube — search "${display} fanchant guide"\n• The group's official fandom wiki or fan cafe\n• Reddit (r/bangtan, r/StrayKids, r/aespa, etc.)\n• Trusted fansites with chant PDFs`,
-    };
-  }
-
-  // 3. Unrecognized — still safe resource guidance, no invented text
-  if (!rawQuery) {
-    return { type: 'not_verified', result: 'Please enter a song name to look up fanchant guidance.' };
-  }
-  return {
-    type: 'not_verified',
-    result: `We don't have verified chant data for "${display}" yet.\n\nTo find the official fanchant:\n• YouTube — search "${display} fanchant guide"\n• The group's official fandom wiki\n• Reddit fandom communities\n• Trusted fansites`,
-  };
+function normalizeChantQuery(q) {
+  return (q || '').toLowerCase().trim().replace(/[^\w\s&']/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-app.post('/api/ai/chant-helper', aiLimiter, requireAuth, async (req, res) => {
-  const { query, song } = req.body;
-  const rawQuery = (song || query || '').toLowerCase().trim();
-  // No Anthropic call — AI must not generate fanchant text.
-  res.json(_chantSafeResult(rawQuery));
+function titleCaseChant(s) {
+  return s.split(' ').filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}
+
+function detectChantGroup(normalized) {
+  for (const [key, g] of Object.entries(GROUP_LIBRARY)) {
+    for (const alias of g.aliases) {
+      const re = new RegExp(`\\b${alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+      if (re.test(normalized)) return key;
+    }
+  }
+  return null;
+}
+
+function stripChantGroupTokens(normalized, groupKey) {
+  if (!groupKey) return normalized;
+  let out = normalized;
+  for (const alias of GROUP_LIBRARY[groupKey].aliases) {
+    out = out.replace(new RegExp(`\\b${alias}\\b`, 'gi'), ' ');
+  }
+  return out.replace(/\s+/g, ' ').trim();
+}
+
+app.post('/api/ai/chant-helper', aiLimiter, optionalAuth, (req, res) => {
+  const { query, group: groupInput, song: songInput } = req.body || {};
+  const rawQuery = (query || `${groupInput || ''} ${songInput || ''}`).trim();
+  const normalized = normalizeChantQuery(rawQuery);
+
+  if (!normalized) {
+    return res.json({
+      ok: true, verified: false, status: 'error', group: null, song: null,
+      title: 'Enter a chant to search',
+      message: 'Type a group and song — like "BTS Dynamite" or "Stray Kids Rock".',
+    });
+  }
+
+  const groupKey = detectChantGroup(normalized) || (groupInput ? detectChantGroup(normalizeChantQuery(groupInput)) : null);
+  const remainder = stripChantGroupTokens(normalized, groupKey);
+  const groupMeta = groupKey ? GROUP_LIBRARY[groupKey] : null;
+  const searchText = remainder || normalized;
+
+  let match = VERIFIED_CHANT_LIBRARY.find(c => {
+    if (groupKey && c.groupKey !== groupKey) return false;
+    return c.songAliases.some(alias => searchText.includes(alias));
+  });
+  if (!match && !groupKey) {
+    match = VERIFIED_CHANT_LIBRARY.find(c => c.songAliases.some(alias => normalized.includes(alias)));
+  }
+
+  // 1. Found in the verified library — the only path that returns chant lines.
+  if (match) {
+    const g = GROUP_LIBRARY[match.groupKey];
+    return res.json({
+      ok: true, verified: true, status: 'found',
+      group: g.display, song: match.song, title: `${match.song} (${g.display})`,
+      message: 'Verified practice mode ready. No guessing — this chant comes from the Backstage verified library.',
+      chant: {
+        sourceType: 'local_verified', localId: match.localId,
+        lines: match.lines, practiceTips: match.practiceTips, searchSuggestions: [],
+      },
+    });
+  }
+
+  // 2. Group recognized, no song given — ask for a song instead of failing.
+  if (groupKey && !remainder) {
+    const suggestions = groupMeta.popularSongs.map(s => `${groupMeta.display} ${s}`);
+    return res.json({
+      ok: true, verified: false, status: 'needs_song',
+      group: groupMeta.display, song: null, title: `Which ${groupMeta.display} song?`,
+      message: `Which ${groupMeta.display} song do you want to practice? Try: ${suggestions.join(', ')}.`,
+      chant: {
+        sourceType: 'unverified_reference_only', lines: [],
+        practiceTips: ['Add a song title so we can check the verified chant library.'],
+        searchSuggestions: suggestions,
+      },
+    });
+  }
+
+  // 3. Recognized enough to search, but not in the verified library.
+  const displayGroup = groupMeta ? groupMeta.display : (groupInput ? titleCaseChant(normalizeChantQuery(groupInput)) : null);
+  const displaySong = remainder ? titleCaseChant(remainder) : (songInput ? titleCaseChant(normalizeChantQuery(songInput)) : null);
+  return res.json({
+    ok: true, verified: false, status: 'not_found',
+    group: displayGroup, song: displaySong,
+    title: displaySong ? `${displaySong}${displayGroup ? ` (${displayGroup})` : ''}` : 'No verified chant yet',
+    message: "We don't have a verified chant for this song yet. Backstage won't guess chant lines, but you can paste an official chant guide below and practice it here.",
+    chant: {
+      sourceType: 'unverified_reference_only', lines: [],
+      practiceTips: [
+        'Search YouTube for "[song name] fanchant guide"',
+        "Check the group's official fan wiki or fan cafe",
+        'Look for trusted fansite chant PDFs',
+      ],
+      searchSuggestions: [
+        displaySong ? `${displaySong} fanchant guide` : `${rawQuery} fanchant guide`,
+        displayGroup ? `${displayGroup} fanchant wiki` : 'K-pop fanchant wiki',
+      ],
+    },
+  });
 });
 
 
