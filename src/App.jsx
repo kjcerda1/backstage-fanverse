@@ -3024,12 +3024,26 @@ const MOCK_FEED = [
   { id:5, user:"@kpop_collector", avatar:"K", color:C.mint, type:"collect", text:"Finally completed the Stray Kids ATE full set 🎉 45 cards, 3 months, countless Mercari refreshes. Worth it.", likes:201, comments:41, time:"8h", tag:"Stray Kids", saved:false },
 ];
 
-const MOCK_CHANTS = [
-  { id:1, title:"Rock (Stray Kids)", group:"Stray Kids", lines:["ROCK!","Lee Know!","Minho!","ROCK!","Changbin!","Hyunjin!","ROCK!","Han!","Seungmin!","I.N!"], color:C.accent },
-  { id:2, title:"Ditto (NewJeans)", group:"NewJeans", lines:["Ditto!","Minji!","Hanni!","Ditto!","Danielle!","Haerin!","Hyein!"], color:C.silver },
-  { id:3, title:"Drama (aespa)", group:"aespa", lines:["Drama!","Karina!","Giselle!","Drama!","Winter!","Ningning!"], color:C.mint },
-  { id:4, title:"Dynamite (BTS)", group:"BTS", lines:["BTS!","Jin!","Suga!","BTS!","J-Hope!","RM!","Jimin!","V!","Jungkook!"], color:C.pink },
+const MOCK_GROUP_CHANTS = [
+  { id:"group-bts", title:"BTS Member Chant", group:"BTS", song:null, trustLabel:"Backstage preset", badgeLabel:"Member roll call", sourceType:"group_preset", practiceLabel:"Group chant practice", detail:"Preset member order for practice. Fan chants may vary by event.", members:["RM","Jin","SUGA","j-hope","Jimin","V","Jungkook","BTS"], lines:["RM","Jin","SUGA","j-hope","Jimin","V","Jungkook","BTS"], color:C.pink },
+  { id:"group-ateez", title:"ATEEZ Member Chant", group:"ATEEZ", song:null, trustLabel:"Backstage preset", badgeLabel:"Member roll call", sourceType:"group_preset", practiceLabel:"Group chant practice", detail:"Preset member order for practice. Fan chants may vary by event.", members:["Hongjoong","Seonghwa","Yunho","Yeosang","San","Mingi","Wooyoung","Jongho","ATEEZ"], lines:["Hongjoong","Seonghwa","Yunho","Yeosang","San","Mingi","Wooyoung","Jongho","ATEEZ"], color:C.gold },
+  { id:"group-skz", title:"Stray Kids Member Chant", group:"Stray Kids", song:null, trustLabel:"Backstage preset", badgeLabel:"Member roll call", sourceType:"group_preset", practiceLabel:"Group chant practice", detail:"Preset member order for practice. Fan chants may vary by event.", members:["Bang Chan","Lee Know","Changbin","Hyunjin","Han","Felix","Seungmin","I.N","Stray Kids"], lines:["Bang Chan","Lee Know","Changbin","Hyunjin","Han","Felix","Seungmin","I.N","Stray Kids"], color:C.accent },
+  { id:"group-nj", title:"NewJeans Member Chant", group:"NewJeans", song:null, trustLabel:"Backstage preset", badgeLabel:"Member roll call", sourceType:"group_preset", practiceLabel:"Group chant practice", detail:"Preset member order for practice. Fan chants may vary by event.", members:["Minji","Hanni","Danielle","Haerin","Hyein","NewJeans"], lines:["Minji","Hanni","Danielle","Haerin","Hyein","NewJeans"], color:C.silver },
 ];
+
+const MOCK_LIBRARY_CHANTS = [
+  { id:1, title:"Rock (Stray Kids)", group:"Stray Kids", sourceType:"verified_library", trustLabel:"Verified chant", badgeLabel:"Verified chant", lines:["ROCK!","Lee Know!","Minho!","ROCK!","Changbin!","Hyunjin!","ROCK!","Han!","Seungmin!","I.N!"], color:C.accent },
+  { id:2, title:"Ditto (NewJeans)", group:"NewJeans", sourceType:"verified_library", trustLabel:"Verified chant", badgeLabel:"Verified chant", lines:["Ditto!","Minji!","Hanni!","Ditto!","Danielle!","Haerin!","Hyein!"], color:C.silver },
+  { id:3, title:"Drama (aespa)", group:"aespa", sourceType:"verified_library", trustLabel:"Verified chant", badgeLabel:"Verified chant", lines:["Drama!","Karina!","Giselle!","Drama!","Winter!","Ningning!"], color:C.mint },
+  { id:4, title:"Dynamite (BTS)", group:"BTS", sourceType:"verified_library", trustLabel:"Verified chant", badgeLabel:"Verified chant", lines:["BTS!","Jin!","Suga!","BTS!","J-Hope!","RM!","Jimin!","V!","Jungkook!"], color:C.pink },
+];
+
+const MOCK_SONG_FANCHANTS = [
+  { id:"fanchant-ateez-bouncy", title:"Bouncy (ATEEZ)", group:"ATEEZ", song:"Bouncy", trustLabel:"User pasted", badgeLabel:"Unverified", sourceType:"user_pasted", detail:"Paste guide only — not a verified chant yet.", lines:["Hongjoong!","Seonghwa!","Yunho!","Yeosang!","San!","Mingi!","Wooyoung!","Jongho!"], color:C.gold },
+  { id:"fanchant-bts-dynamite", title:"Dynamite (BTS)", group:"BTS", song:"Dynamite", trustLabel:"User pasted", badgeLabel:"Unverified", sourceType:"user_pasted", detail:"Practice guide only — community preview.", lines:["BTS!","Jin!","Suga!","J-Hope!","RM!","Jimin!","V!","Jungkook!"], color:C.pink },
+];
+
+const MOCK_CHANTS = [...MOCK_GROUP_CHANTS, ...MOCK_LIBRARY_CHANTS, ...MOCK_SONG_FANCHANTS];
 
 const MOCK_HUBS = [
   { id:"dallas", name:"Dallas", fandom:"ARMY", members:1240, active:true, color:C.pink },
@@ -14822,7 +14836,7 @@ function ToolsTab({ user, weather, isVip, onUpgrade, go, onBack, cards, patchCar
 
   const TOOL_CARDS = [
     { id:"buildday", icon:"🗓️", label:"Build My Day",     sub:"AI-planned fan day with food, cafes & meetups",         color:C.pink,   wide:true, soon:false },
-    { id:"chants",   icon:"🎵", label:"Chant Practice",   sub:"Learn fanchants before the show",                        color:C.accent,            soon:false },
+    { id:"chants",   icon:"🎵", label:"Chant Finder",     sub:"Member roll calls, chant practice, and paste guides",   color:C.accent,            soon:false },
     { id:"eras",     icon:"🎭", label:"Eras Explorer",    sub:"Browse every album & comeback era",                      color:C.pink,              soon:false },
     { id:"prep",     icon:"📋", label:"Concert Prep",     sub:"Packing list & day-of checklist",                        color:C.mint,              soon:false },
     { id:"comebacks",icon:"🔔", label:"Comebacks & Drops",sub:"Announcements for your followed groups",                  color:C.rose,              soon:false },
@@ -15258,9 +15272,13 @@ function ChantVault() {
   const [justMarked, setJustMarked] = useState(false);
   const [search, setSearch] = useState("");
   const [aiQuery, setAiQuery] = useState("");
-  const [aiStatus, setAiStatus] = useState("idle"); // idle|loading|found|needs_song|not_found|error
+  const [aiStatus, setAiStatus] = useState("idle");
   const [aiData, setAiData] = useState(null);
   const [pasteText, setPasteText] = useState("");
+  const [draftGroup, setDraftGroup] = useState("");
+  const [draftSong, setDraftSong] = useState("");
+  const [draftText, setDraftText] = useState("");
+  const [submittedChants, setSubmittedChants] = useState(()=>ls.get("backstage_submitted_chants", []));
   const intRef = useRef(null);
 
   useEffect(()=>{
@@ -15272,14 +15290,23 @@ function ChantVault() {
     return ()=>clearInterval(intRef.current);
   },[running,active,repeatTick]);
 
+  useEffect(()=>{ ls.set("backstage_submitted_chants", submittedChants); }, [submittedChants]);
+
   const openChant = (chant)=>{ setActive(chant); setLineIdx(0); setRunning(false); setShowAll(true); setJustSaved(false); setJustMarked(false); };
 
   const openFoundChant = (d)=>{
-    const localMatch = MOCK_CHANTS.find(c=>c.id===d.chant?.localId);
+    const localMatch = MOCK_CHANTS.find(c=>c.id===d.chant?.localId || c.id===d.chant?.id);
     if(localMatch) openChant(localMatch);
     else openChant({
-      id:`ai-${Date.now()}`, title:d.title, group:d.group||"Verified",
-      lines:(d.chant?.lines||[]).map(l=>l.text), color:C.accent, sourceType:d.chant?.sourceType,
+      id:`ai-${Date.now()}`,
+      title:d.title || d.chant?.title || "Chant Finder",
+      group:d.group || "Backstage",
+      lines:(d.chant?.lines||[]).map(l=>typeof l==="string" ? l : l.text).filter(Boolean),
+      color:C.accent,
+      sourceType:"verified_library",
+      trustLabel:"Verified chant",
+      badgeLabel:"Verified chant",
+      detail:d.message || "Backstage matched a chant from the deterministic chant helper.",
     });
   };
 
@@ -15288,8 +15315,14 @@ function ChantVault() {
     if(!lines.length) return;
     openChant({
       id:`pasted-${Date.now()}`,
-      title: aiData?.song ? `${aiData.song}${aiData.group?` (${aiData.group})`:""}` : (aiQuery||"Pasted Chant"),
-      group: aiData?.group || "Custom", lines, color:C.textMid, sourceType:"user_pasted",
+      title: aiQuery || "Pasted chant guide",
+      group: aiData?.group || "Custom",
+      lines,
+      color:C.gold,
+      sourceType:"user_pasted",
+      trustLabel:"User pasted",
+      badgeLabel:"Unverified",
+      detail:"Pasted by you · still unverified until reviewed.",
     });
     setPasteText("");
   };
@@ -15308,18 +15341,46 @@ function ChantVault() {
     setJustMarked(true); setTimeout(()=>setJustMarked(false), 1600);
   };
 
+  const submitDraft = ()=>{
+    const lines = draftText.split("\n").map(l=>l.trim()).filter(Boolean);
+    if(!lines.length || !draftGroup.trim() || !draftSong.trim()) return;
+    const chant = {
+      id:`submitted-${Date.now()}`,
+      title:`${draftSong.trim()} · ${draftGroup.trim()}`,
+      group:draftGroup.trim(),
+      song:draftSong.trim(),
+      lines,
+      color:C.gold,
+      trustLabel:"User pasted",
+      badgeLabel:"Unverified",
+      sourceType:"user_submitted",
+      detail:"Local preview only · community submission and ratings coming soon.",
+    };
+    setSubmittedChants(prev=>[chant, ...prev]);
+    openChant(chant);
+    setDraftGroup("");
+    setDraftSong("");
+    setDraftText("");
+  };
+
   const handleAi = async(queryOverride)=>{
     const q = (queryOverride ?? aiQuery).trim();
     if(!q) return;
     if(queryOverride) setAiQuery(queryOverride);
     setAiStatus("loading"); setAiData(null);
-    // POST /api/ai/chant-helper — proxied through backend, deterministic, no invented chant text
     const d = await api.post('/api/ai/chant-helper', { query:q, mode:'lookup' });
     if(d && d.ok && d.status){ setAiData(d); setAiStatus(d.status); }
     else { setAiData(null); setAiStatus("error"); }
   };
 
-  const filtered = MOCK_CHANTS.filter(c=>!search||c.title.toLowerCase().includes(search.toLowerCase())||c.group.toLowerCase().includes(search.toLowerCase()));
+  const normalizedSearch = search.trim().toLowerCase();
+  const filteredGroupChants = MOCK_GROUP_CHANTS.filter(c=>!normalizedSearch || [c.title,c.group,c.practiceLabel,c.detail,...c.members].join(" ").toLowerCase().includes(normalizedSearch));
+  const filteredLibraryChants = MOCK_LIBRARY_CHANTS.filter(c=>!normalizedSearch || [c.title,c.group,c.lines.join(" ")].join(" ").toLowerCase().includes(normalizedSearch));
+  const filteredPreviewFanchants = [...submittedChants, ...MOCK_SONG_FANCHANTS].filter(c=>!normalizedSearch || [c.title,c.group,c.song,c.trustLabel,c.detail,c.lines.join(" ")].join(" ").toLowerCase().includes(normalizedSearch));
+  const savedChants = ls.get("backstage_saved_chants", []);
+  const featuredGroupChant = filteredGroupChants[0] || MOCK_GROUP_CHANTS[0];
+  const featuredLibraryChant = filteredLibraryChants[0] || MOCK_LIBRARY_CHANTS[0];
+  const featuredPreviewChant = filteredPreviewFanchants[0] || null;
 
   if(active) return (
     <div>
@@ -15330,9 +15391,10 @@ function ChantVault() {
         <div style={{ position:"relative" }}>
           <Pill color={active.color} active small>{active.group}</Pill>
           <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:19, marginTop:12, marginBottom:6, letterSpacing:"-0.01em" }}>{active.title}</p>
-          <p style={{ fontSize:10.5, color: active.sourceType==="user_pasted" ? C.gold : C.mint, marginBottom:8, fontFamily:"'Epilogue',sans-serif", fontWeight:700 }}>
-            {active.sourceType==="user_pasted" ? "⚠ User pasted — not verified by Backstage" : "✓ Verified library"}
+          <p style={{ fontSize:10.5, color: active.sourceType==="group_preset" ? C.mint : active.sourceType==="user_pasted" || active.sourceType==="user_submitted" ? C.gold : C.accent, marginBottom:8, fontFamily:"'Epilogue',sans-serif", fontWeight:700 }}>
+            {active.badgeLabel || active.trustLabel || (active.sourceType==="group_preset" ? "Backstage preset" : "Chant practice")}
           </p>
+          {active.detail && <p style={{ fontSize:11, color:C.textMid, marginBottom:10 }}>{active.detail}</p>}
           <p style={{ fontSize:11, color:C.textMid, marginBottom:16 }}>{active.lines.length} lines · {running?"Auto Practice active":"Ready to practice"}</p>
 
           <div style={{ display:"flex", gap:6, justifyContent:"center", marginBottom:14, flexWrap:"wrap" }}>
@@ -15386,7 +15448,6 @@ function ChantVault() {
         </div>
       </div>
 
-      {/* Concert mode checklist hint */}
       <div style={{ ...VS.elevatedCard(C.gold), padding:"12px 14px" }}>
         <div style={VS.innerGlow(C.gold)} />
         <div style={{ position:"relative", display:"flex", gap:10, alignItems:"center" }}>
@@ -15402,76 +15463,107 @@ function ChantVault() {
 
   return (
     <div>
-      <Input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search chants..." style={{ marginBottom:14 }} />
-      <div style={{ background:C.surfaceHi, border:`1.5px solid ${C.borderHi}`, borderRadius:16, padding:14, marginBottom:18 }}>
-        <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13, marginBottom:8 }}>🤖 AI Chant Lookup</p>
-        <p style={{ fontSize:11.5, color:C.textMid, marginBottom:10 }}>Can't find your chant? Ask AI. Only verified chants provided — no guessing.</p>
-        <div style={{ display:"flex", gap:8 }}>
-          <input value={aiQuery} onChange={e=>setAiQuery(e.target.value)} placeholder="Song name + group..." style={{ flex:1, padding:"9px 12px", borderRadius:10, background:C.surface, border:`1.5px solid ${C.border}`, color:C.text, fontSize:12.5 }} onKeyDown={e=>e.key==="Enter"&&handleAi()} />
-          <button onClick={()=>handleAi()} disabled={aiStatus==="loading"||!aiQuery.trim()} style={{ background:C.accent, border:"none", borderRadius:10, padding:"0 14px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer", opacity:aiStatus==="loading"?0.6:1 }}>{aiStatus==="loading"?"...":" Ask"}</button>
-        </div>
-
-        {aiStatus==="loading" && (
-          <div style={{ marginTop:10 }}>
-            <p style={{ fontSize:12, color:C.textMid }}>Checking verified chant library…</p>
-          </div>
-        )}
-
-        {aiStatus==="found" && aiData?.chant && (
-          <div style={{ marginTop:10, background:C.surface, borderRadius:11, padding:12, animation:"up .2s ease" }}>
-            <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:6, flexWrap:"wrap" }}>
-              <span style={{ fontSize:9, color:C.mint, fontWeight:700, background:`${C.mint}18`, padding:"2px 7px", borderRadius:99 }}>✓ VERIFIED</span>
-              <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13 }}>{aiData.title}</p>
-            </div>
-            <p style={{ fontSize:11.5, color:C.textMid, marginBottom:10 }}>{aiData.chant.lines.length} lines · {aiData.message}</p>
-            <Btn small color={C.accent} onClick={()=>openFoundChant(aiData)}>▶ Start Practice</Btn>
-          </div>
-        )}
-
-        {aiStatus==="needs_song" && aiData && (
-          <div style={{ marginTop:10, background:C.surface, borderRadius:11, padding:12, animation:"up .2s ease" }}>
-            <p style={{ fontSize:12.5, lineHeight:1.6, color:C.text, marginBottom:10 }}>{aiData.message}</p>
-            <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
-              {(aiData.chant?.searchSuggestions||[]).map(s=>(
-                <button key={s} onClick={()=>handleAi(s)} className="tap" style={{ padding:"5px 10px", borderRadius:99, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, background:`${C.accent}14`, border:`1px solid ${C.accent}38`, color:C.accent, cursor:"pointer" }}>{s}</button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {aiStatus==="not_found" && aiData && (
-          <div style={{ marginTop:10, background:C.surface, borderRadius:11, padding:12, animation:"up .2s ease" }}>
-            <p style={{ fontSize:12.5, lineHeight:1.6, color:C.text, marginBottom:10 }}>{aiData.message}</p>
-            {aiData.chant?.searchSuggestions?.length>0 && (
-              <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:12 }}>
-                {aiData.chant.searchSuggestions.map(s=>(
-                  <span key={s} style={{ padding:"5px 10px", borderRadius:99, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, background:C.surfaceHi, border:`1px solid ${C.border}`, color:C.textMid }}>🔎 {s}</span>
-                ))}
-              </div>
-            )}
-            <p style={{ fontSize:10.5, color:C.textDim, marginBottom:6, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em" }}>Paste chant text to practice</p>
-            <textarea value={pasteText} onChange={e=>setPasteText(e.target.value)} placeholder={"Paste the official chant, one line per call —\ne.g.\nDynamite!\nJin!\nSuga!"} rows={4} style={{ width:"100%", boxSizing:"border-box", padding:"9px 12px", borderRadius:10, background:C.surfaceHi, border:`1.5px solid ${C.border}`, color:C.text, fontSize:12, fontFamily:"'Instrument Sans',sans-serif", resize:"vertical", marginBottom:8 }} />
-            <Btn small color={C.accent} disabled={!pasteText.trim()} onClick={openPastedChant}>Create Practice Session</Btn>
-          </div>
-        )}
-
-        {aiStatus==="error" && (
-          <div style={{ marginTop:10, background:C.surface, borderRadius:11, padding:12, animation:"up .2s ease" }}>
-            <p style={{ fontSize:12.5, lineHeight:1.6, color:C.textMid }}>Chant lookup is temporarily unavailable. Try again in a moment, or search YouTube for "{aiQuery} fanchant guide".</p>
-          </div>
-        )}
+      <Input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search group or song..." style={{ marginBottom:14 }} />
+      <div style={{ background:C.surfaceHi, border:`1.5px solid ${C.borderHi}`, borderRadius:16, padding:14, marginBottom:16 }}>
+        <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13, marginBottom:6 }}>🎵 Chant Finder</p>
+        <p style={{ fontSize:11.5, color:C.textMid, marginBottom:0 }}>Verified chants only when Backstage has them. If nothing matches, you can paste a practice guide. Backstage will not guess chant lines.</p>
       </div>
-      <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-        {filtered.map(c=>(
-          <div key={c.id} onClick={()=>openChant(c)} className="tap" style={{ background:C.surface, border:`1.5px solid ${c.color}33`, borderRadius:16, padding:14, cursor:"pointer", display:"flex", gap:12, alignItems:"center" }}>
-            <div style={{ width:44, height:44, borderRadius:13, background:`${c.color}18`, border:`1.5px solid ${c.color}44`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>🎵</div>
-            <div style={{ flex:1 }}>
-              <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13.5 }}>{c.title}</p>
-              <p style={{ fontSize:11, color:C.textMid }}>{c.lines.length} lines · Tap to practice</p>
-            </div>
-            <Pill color={c.color} small>{c.group}</Pill>
+
+      <div style={{ background:C.surface, border:`1.5px solid ${C.accent}33`, borderRadius:16, padding:14, marginBottom:12 }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, marginBottom:8 }}>
+          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:13.5 }}>Group Chant Practice</p>
+          <Pill color={C.mint} small>Backstage preset</Pill>
+        </div>
+        <p style={{ fontSize:11.5, color:C.textMid, marginBottom:10 }}>{featuredGroupChant.practiceLabel}</p>
+        <div style={{ display:"flex", gap:10, alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+          <div>
+            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13 }}>{featuredGroupChant.title}</p>
+            <p style={{ fontSize:11, color:C.textMid }}>{featuredGroupChant.detail}</p>
           </div>
-        ))}
+          <button onClick={()=>openChant(featuredGroupChant)} className="tap" style={{ background:C.accent, border:"none", borderRadius:10, padding:"8px 12px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>Practice</button>
+        </div>
+        <div style={{ fontSize:10.5, color:C.textMid, display:"flex", flexWrap:"wrap", gap:6 }}>
+          {featuredGroupChant.members.slice(0,6).map(member=><span key={member} style={{ padding:"3px 7px", borderRadius:99, background:C.surfaceHi }}>{member}</span>)}
+        </div>
+      </div>
+
+      <div style={{ background:C.surface, border:`1.5px solid ${C.gold}33`, borderRadius:16, padding:14, marginBottom:12 }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, marginBottom:8 }}>
+          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:13.5 }}>Song Chant Finder</p>
+          <Pill color={C.gold} small>Verified or pasted</Pill>
+        </div>
+        <div style={{ display:"flex", gap:8, marginBottom:10 }}>
+          <input value={aiQuery} onChange={e=>setAiQuery(e.target.value)} placeholder="Try 'ATEEZ Bouncy' or 'BTS Dynamite'" style={{ flex:1, padding:"9px 12px", borderRadius:10, background:C.surfaceHi, border:`1.5px solid ${C.border}`, color:C.text, fontSize:12.5 }} onKeyDown={e=>e.key==="Enter"&&handleAi()} />
+          <button onClick={()=>handleAi()} disabled={aiStatus==="loading"||!aiQuery.trim()} style={{ background:C.accent, border:"none", borderRadius:10, padding:"0 14px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer", opacity:aiStatus==="loading"?0.6:1 }}>{aiStatus==="loading"?"...":"Search"}</button>
+        </div>
+        {aiStatus==="loading" && <p style={{ fontSize:11.5, color:C.textMid, marginBottom:8 }}>Looking for a verified chant match…</p>}
+        {aiStatus==="found" && aiData?.chant && (
+          <div style={{ background:C.surfaceHi, borderRadius:12, padding:12, marginBottom:8 }}>
+            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12.5 }}>{aiData.title}</p>
+            <p style={{ fontSize:11, color:C.textMid, marginTop:4 }}>{aiData.message}</p>
+            <button onClick={()=>openFoundChant(aiData)} className="tap" style={{ marginTop:8, background:C.accent, border:"none", borderRadius:10, padding:"8px 12px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>Open practice</button>
+          </div>
+        )}
+        {aiStatus==="needs_song" && aiData && (
+          <div style={{ background:C.surfaceHi, borderRadius:12, padding:12, marginBottom:8 }}>
+            <p style={{ fontSize:11.5, color:C.text, lineHeight:1.6 }}>{aiData.message}</p>
+            {(aiData.chant?.searchSuggestions||[]).map(s=>(<button key={s} onClick={()=>handleAi(s)} className="tap" style={{ marginTop:7, marginRight:6, padding:"5px 10px", borderRadius:99, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, background:`${C.accent}14`, border:`1px solid ${C.accent}38`, color:C.accent, cursor:"pointer" }}>{s}</button>))}
+          </div>
+        )}
+        {aiStatus==="not_found" && aiData && (
+          <div style={{ background:C.surfaceHi, borderRadius:12, padding:12, marginBottom:8 }}>
+            <p style={{ fontSize:11.5, color:C.text, lineHeight:1.6, marginBottom:8 }}>{aiData.message}</p>
+            <textarea value={pasteText} onChange={e=>setPasteText(e.target.value)} placeholder={"Paste chant lines to practice\nJin!\nSuga!"} rows={4} style={{ width:"100%", boxSizing:"border-box", padding:"9px 12px", borderRadius:10, background:C.surface, border:`1.5px solid ${C.border}`, color:C.text, fontSize:12, fontFamily:"'Instrument Sans',sans-serif", resize:"vertical", marginBottom:8 }} />
+            <Btn small color={C.gold} onClick={openPastedChant}>Create practice guide</Btn>
+          </div>
+        )}
+        {aiStatus==="error" && <p style={{ fontSize:11.5, color:C.textMid, marginBottom:8 }}>Chant lookup is temporarily unavailable. Try again in a moment.</p>}
+        <p style={{ fontSize:10.5, color:C.textMid, marginTop:4 }}>Group chant = preset member order · Song fanchant = song-specific, verified or user-pasted.</p>
+      </div>
+
+      <div style={{ background:C.surface, border:`1.5px solid ${C.border}`, borderRadius:16, padding:14, marginBottom:12 }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, marginBottom:8 }}>
+          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:13.5 }}>Verified chants in Backstage</p>
+          <Pill color={C.accent} small>Library</Pill>
+        </div>
+        {filteredLibraryChants.length > 0 ? filteredLibraryChants.map(c=>(
+          <div key={c.id} onClick={()=>openChant(c)} className="tap" style={{ background:C.surfaceHi, borderRadius:12, padding:10, marginBottom:8 }}>
+            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12.5 }}>{c.title}</p>
+            <p style={{ fontSize:10.5, color:C.textMid, marginTop:3 }}>{c.group}</p>
+          </div>
+        )) : <p style={{ fontSize:11.5, color:C.textMid }}>No verified chant matches right now.</p>}
+      </div>
+
+      <div style={{ background:C.surface, border:`1.5px solid ${C.border}`, borderRadius:16, padding:14, marginBottom:12 }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, marginBottom:8 }}>
+          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:13.5 }}>Preview community fanchants</p>
+          <Pill color={C.gold} small>Coming soon</Pill>
+        </div>
+        {filteredPreviewFanchants.length > 0 ? filteredPreviewFanchants.map(c=>(
+          <div key={c.id} onClick={()=>openChant(c)} className="tap" style={{ background:C.surfaceHi, borderRadius:12, padding:10, marginBottom:8 }}>
+            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12.5 }}>{c.title}</p>
+            <p style={{ fontSize:10.5, color:C.textMid, marginTop:3 }}>{c.detail}</p>
+          </div>
+        )) : <p style={{ fontSize:11.5, color:C.textMid }}>Community fanchants are a preview-only local placeholder right now.</p>}
+      </div>
+
+      <div style={{ background:C.surface, border:`1.5px solid ${C.border}`, borderRadius:16, padding:14, marginBottom:12 }}>
+        <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:13.5, marginBottom:8 }}>My Saved Chants</p>
+        {savedChants.length > 0 ? savedChants.slice(-3).reverse().map(c=>(
+          <div key={c.id} onClick={()=>openChant(c)} className="tap" style={{ background:C.surfaceHi, borderRadius:12, padding:10, marginBottom:8 }}>
+            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12.5 }}>{c.title}</p>
+            <p style={{ fontSize:10.5, color:C.textMid }}>{c.group}</p>
+          </div>
+        )) : <p style={{ fontSize:11.5, color:C.textMid }}>Save a chant to keep it handy for concert day.</p>}
+      </div>
+
+      <div style={{ background:C.surface, border:`1.5px solid ${C.border}`, borderRadius:16, padding:14 }}>
+        <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:13.5, marginBottom:8 }}>Paste your own practice guide</p>
+        <p style={{ fontSize:11.5, color:C.textMid, marginBottom:10 }}>Preview only — local practice guide for now. Submit + rate chant guides coming soon.</p>
+        <input value={draftGroup} onChange={e=>setDraftGroup(e.target.value)} placeholder="Group" style={{ width:"100%", boxSizing:"border-box", padding:"9px 12px", borderRadius:10, background:C.surfaceHi, border:`1.5px solid ${C.border}`, color:C.text, fontSize:12.5, marginBottom:8 }} />
+        <input value={draftSong} onChange={e=>setDraftSong(e.target.value)} placeholder="Song" style={{ width:"100%", boxSizing:"border-box", padding:"9px 12px", borderRadius:10, background:C.surfaceHi, border:`1.5px solid ${C.border}`, color:C.text, fontSize:12.5, marginBottom:8 }} />
+        <textarea value={draftText} onChange={e=>setDraftText(e.target.value)} placeholder={"Paste chant lines, one per line\nHongjoong!\nSeonghwa!\nYunho!"} rows={4} style={{ width:"100%", boxSizing:"border-box", padding:"9px 12px", borderRadius:10, background:C.surfaceHi, border:`1.5px solid ${C.border}`, color:C.text, fontSize:12, fontFamily:"'Instrument Sans',sans-serif", resize:"vertical", marginBottom:8 }} />
+        <Btn small color={C.gold} onClick={submitDraft}>Save local practice guide</Btn>
       </div>
     </div>
   );
