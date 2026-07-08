@@ -3153,6 +3153,36 @@ const getSetStatsSummary = (setData={}) => {
   return { owned, wishlist, dupe, trade };
 };
 
+// Phase 3b — content-based identity linking a PhotocardSetsView catalog slot
+// (group/album/version/member) to a real user_cards row. No template_id exists
+// for PC_CATALOG_SETS (it's a hardcoded frontend catalog, not the DB
+// card_templates table), so group_name+album+version+member is the stable key.
+const findRealCardForSlot = (cards, set, member) => (cards||[]).find(c =>
+  (c.group_name||"") === (set.group||"") &&
+  (c.album||"")      === (set.album||"") &&
+  (c.version||"")    === (set.version||"") &&
+  (c.member||"")     === member
+) || null;
+
+// Strips any pcSetData entry that already has a matching real user_cards row —
+// used by Collection Tracker/Wishlist/Trades math so a slot promoted to a real
+// card (Phase 3b write path) isn't also counted from the legacy blob.
+const getSanitizedSetData = (rawSetData={}, cards=[]) => {
+  const out = {};
+  PC_CATALOG_SETS.forEach(set => {
+    const slot = rawSetData[set.id];
+    if (!slot) return;
+    const cleaned = {};
+    set.members.forEach(member => {
+      if (slot[member] == null) return;
+      if (findRealCardForSlot(cards, set, member)) return; // promoted — real source owns it now
+      cleaned[member] = slot[member];
+    });
+    if (Object.keys(cleaned).length) out[set.id] = cleaned;
+  });
+  return out;
+};
+
 // localStorage: backstage_binders | backstage_card_slots
 // GET /api/collections/templates?group=
 // GET /api/collections/albums/:albumId/cards
@@ -7545,6 +7575,9 @@ const CARD_STATUS_META = {
   for_trade: { label:"⇄",  badge:"For Trade", color:C.rose    },
 };
 const normalizeSetCardStatus = (v) => ({ owned:"owned", wishlist:"iso", dupe:"duplicate", trade:"for_trade" }[v] || "missing");
+// Reverse of the above — a real user_cards status back into PhotocardSetsView's
+// own null/owned/wishlist/dupe/trade display vocabulary.
+const denormalizeCardStatus = (v) => ({ owned:"owned", iso:"wishlist", duplicate:"dupe", for_trade:"trade" }[v] || null);
 // Stored value stays "played" (existing rows / AddCardForm untouched) — only the
 // user-facing label changes, since "Played" reads as TCG jargon for photocards.
 const CARD_CONDITION_OPTIONS = [["mint","Mint"],["near_mint","Near Mint"],["good","Good"],["played","Worn"]];
@@ -7695,7 +7728,7 @@ function CardDetailSheet({ card, groupLabel, onClose, onPatch, onDelete, onListF
 
 // ─── LIBRARY TAB — rich collection shell ─────────────────────────────────────
 // ─── PHOTOCARD SETS VIEW — set-based catalog browser ─────────────────────────
-function PhotocardSetsView({ pcSetData, setPcSetData, groupFilter, setGroupFilter }) {
+function PhotocardSetsView({ pcSetData, groupFilter, setGroupFilter, cards, patchCard, addCard, binders }) {
   const [selectedSet, setSelectedSet] = useState(null);
   const [statusEditMember, setStatusEditMember] = useState(null);
   const [showExplore, setShowExplore] = useState(false);
@@ -7703,6 +7736,10 @@ function PhotocardSetsView({ pcSetData, setPcSetData, groupFilter, setGroupFilte
   const [trackedSets, setTrackedSets] = useState(()=>ls.get("backstage_tracked_photocard_sets",[]));
   const [customSets, setCustomSets] = useState(()=>ls.get("backstage_custom_photocard_sets",[]));
   const [customEraDraft, setCustomEraDraft] = useState("");
+  // Phase 3b — slots currently being promoted to a real user_cards row, keyed
+  // by `${setId}::${member}`, so a rapid re-toggle before the POST resolves
+  // patches nothing new instead of creating a second row for the same slot.
+  const pendingCreates = useRef(new Set());
 
   const _fanIdentity = ls.get("backstage_fan_identity",{});
   const myGroupNames = [...new Set([...(_fanIdentity.fandoms||[]),_fanIdentity.ult].filter(Boolean))];
@@ -7756,22 +7793,45 @@ function PhotocardSetsView({ pcSetData, setPcSetData, groupFilter, setGroupFilte
       ? sortedCatalog.filter(s=>myGroupNames.includes(s.group))
       : ALL_PC_SETS.filter(s=>s.group===groupFilter);
 
-  const getStats = (setId, members) => {
-    const d = pcSetData[setId]||{};
+  // Phase 3b — real user_cards row wins when one exists for this slot; falls
+  // back to the legacy pcSetData blob only for slots never promoted yet.
+  const getEffectiveStatus = (set, member) => {
+    const real = findRealCardForSlot(cards, set, member);
+    if (real) return denormalizeCardStatus(real.status);
+    return (pcSetData[set.id]||{})[member] || null;
+  };
+
+  const getStats = (set) => {
+    const members = set.members;
     return {
-      owned:    members.filter(m=>d[m]==="owned").length,
-      wishlist: members.filter(m=>d[m]==="wishlist").length,
-      dupe:     members.filter(m=>d[m]==="dupe").length,
-      trade:    members.filter(m=>d[m]==="trade").length,
+      owned:    members.filter(m=>getEffectiveStatus(set,m)==="owned").length,
+      wishlist: members.filter(m=>getEffectiveStatus(set,m)==="wishlist").length,
+      dupe:     members.filter(m=>getEffectiveStatus(set,m)==="dupe").length,
+      trade:    members.filter(m=>getEffectiveStatus(set,m)==="trade").length,
       total:    members.length,
     };
   };
 
-  const updateStatus = (setId, member, status) => {
-    const next = { ...pcSetData, [setId]:{ ...(pcSetData[setId]||{}), [member]:status } };
-    setPcSetData(next);
-    ls.set("backstage_photocard_sets", next);
-    syncMyWorldToServer();
+  // Writes through to the real user_cards system instead of pcSetData/localStorage.
+  // Patches an existing matching card if one exists; otherwise creates one (unless
+  // the new status is "missing" — that's the default absence state, not worth a row).
+  // The legacy pcSetData blob is left untouched on disk as a read-only fallback for
+  // slots that haven't been touched since this shipped (see getEffectiveStatus above).
+  const updateStatus = (set, member, status) => {
+    const mapped = normalizeSetCardStatus(status);
+    const existing = findRealCardForSlot(cards, set, member);
+    if (existing) { patchCard(existing.id, { status: mapped }); return; }
+    if (mapped === "missing") return;
+    const key = `${set.id}::${member}`;
+    if (pendingCreates.current.has(key)) return;
+    pendingCreates.current.add(key);
+    const matchingBinder = (binders||[]).find(b => b.group_name===set.group && b.name && b.name.includes(set.album));
+    api.post('/api/cards', {
+      group_name: set.group, album: set.album, era: set.era, member,
+      version: set.version, card_type: set.cardType || 'album', status: mapped,
+      ...(matchingBinder ? { binder_id: matchingBinder.id } : {}),
+    }).then(d => { if (d?.card) addCard(d.card); })
+      .finally(() => pendingCreates.current.delete(key));
   };
 
   // Colors match the shared CARD_STATUS_META (ISO=accent, Dupe=gold) so a card's
@@ -7801,7 +7861,7 @@ function PhotocardSetsView({ pcSetData, setPcSetData, groupFilter, setGroupFilte
 
       <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
         {filteredSets.map(set=>{
-          const s = getStats(set.id, set.members);
+          const s = getStats(set);
           const pct = s.total>0 ? Math.round((s.owned/s.total)*100) : 0;
           return (
             <div key={set.id} onClick={()=>setSelectedSet(set)} className="tap" style={{ background:`${set.color}0c`,border:`1.5px solid ${set.color}30`,borderRadius:18,padding:"14px 16px",cursor:"pointer",position:"relative",overflow:"hidden" }}>
@@ -7846,7 +7906,7 @@ function PhotocardSetsView({ pcSetData, setPcSetData, groupFilter, setGroupFilte
               <button onClick={()=>setSelectedSet(null)} style={{ background:"none",border:"none",color:C.textMid,fontSize:20,cursor:"pointer",flexShrink:0 }}>✕</button>
             </div>
             {(()=>{
-              const s = getStats(selectedSet.id, selectedSet.members);
+              const s = getStats(selectedSet);
               const pct = s.total>0 ? Math.round((s.owned/s.total)*100) : 0;
               return (
                 <div style={{ background:`${selectedSet.color}10`,border:`1px solid ${selectedSet.color}28`,borderRadius:14,padding:"12px 14px",marginBottom:18 }}>
@@ -7871,7 +7931,7 @@ function PhotocardSetsView({ pcSetData, setPcSetData, groupFilter, setGroupFilte
                 <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10 }}>Cards · tap for status</p>
                 <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14 }}>
                   {selectedSet.members.map(member=>{
-                    const status = (pcSetData[selectedSet.id]||{})[member]||null;
+                    const status = getEffectiveStatus(selectedSet, member);
                     const meta   = STATUS_META[status]||STATUS_META[null];
                     return (
                       <button key={member} onClick={()=>setStatusEditMember(member)} style={{ padding:"10px 10px",borderRadius:13,background:meta.bg,border:`1.5px solid ${meta.border}`,cursor:"pointer",textAlign:"left",transition:"all .15s" }}>
@@ -7904,9 +7964,9 @@ function PhotocardSetsView({ pcSetData, setPcSetData, groupFilter, setGroupFilte
             <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
               {STATUS_CYCLE.map(s=>{
                 const m = STATUS_META[s]||STATUS_META[null];
-                const active = ((pcSetData[selectedSet.id]||{})[statusEditMember]||null)===s;
+                const active = getEffectiveStatus(selectedSet, statusEditMember)===s;
                 return (
-                  <button key={String(s)} onClick={()=>{ updateStatus(selectedSet.id,statusEditMember,s); setStatusEditMember(null); }} style={{ padding:"11px 14px",borderRadius:12,textAlign:"left",cursor:"pointer",background:active?m.bg:"transparent",border:`1.5px solid ${active?m.border:C.border}`,color:m.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12.5 }}>{m.label}</button>
+                  <button key={String(s)} onClick={()=>{ updateStatus(selectedSet,statusEditMember,s); setStatusEditMember(null); }} style={{ padding:"11px 14px",borderRadius:12,textAlign:"left",cursor:"pointer",background:active?m.bg:"transparent",border:`1.5px solid ${active?m.border:C.border}`,color:m.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12.5 }}>{m.label}</button>
                 );
               })}
             </div>
@@ -8198,14 +8258,18 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
   const wishlist  = allCards.filter(c=>c.status==='iso');
   const dupes     = allCards.filter(c=>c.status==='duplicate'||c.dupe);
   const tradeable = allCards.filter(c=>c.status==='for_trade'||c.status==='duplicate'||c.tradeable||c.dupe);
-  const setStats  = getSetStatsSummary(pcSetData);
+  // Phase 3b — strips any pcSetData entry already promoted to a real user_cards
+  // row (Photocard Sets write path) so Collection Tracker/Wishlist/Trades don't
+  // count a slot twice once it exists in both places.
+  const sanitizedSetData = getSanitizedSetData(pcSetData, allCards);
+  const setStats  = getSetStatsSummary(sanitizedSetData);
   const totalOwned = allCards.length + setStats.owned;
   const wishlistTotal = wishlist.length + setStats.wishlist;
   const tradeableTotal = tradeable.length + setStats.dupe + setStats.trade;
   const completion = Math.round((totalOwned / Math.max(totalOwned + wishlistTotal, 1)) * 100);
-  const setWantedCards = PC_CATALOG_SETS.flatMap(s => s.members.filter(m => (pcSetData[s.id] || {})[m] === "wishlist").map(m => ({ setId:s.id, group:s.group, era:s.era, version:s.version, member:m, color:s.color, album:s.album })));
+  const setWantedCards = PC_CATALOG_SETS.flatMap(s => s.members.filter(m => (sanitizedSetData[s.id] || {})[m] === "wishlist").map(m => ({ setId:s.id, group:s.group, era:s.era, version:s.version, member:m, color:s.color, album:s.album })));
   const trackerGroups = Array.from(new Set([...allCards.map(c => c.group_name || c.group), ...PC_CATALOG_SETS.map(s => s.group)].filter(Boolean))).slice(0, 4).map(group => {
-    const owned = allCards.filter(c => (c.group_name || c.group) === group).length + PC_CATALOG_SETS.filter(s => s.group === group).reduce((sum, set) => sum + Object.values(pcSetData[set.id] || {}).filter(v => v === "owned").length, 0);
+    const owned = allCards.filter(c => (c.group_name || c.group) === group).length + PC_CATALOG_SETS.filter(s => s.group === group).reduce((sum, set) => sum + Object.values(sanitizedSetData[set.id] || {}).filter(v => v === "owned").length, 0);
     const total = Math.max(owned + PC_CATALOG_SETS.filter(s => s.group === group).reduce((sum, set) => sum + set.members.length, 0), owned || 1);
     return { group, owned, total, pct:Math.round((owned / Math.max(total, 1)) * 100) };
   });
@@ -8213,7 +8277,7 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
     const key = set.version || "Standard";
     const data = acc[key] || { version:key, owned:0, total:0 };
     data.total += set.members.length;
-    data.owned += Object.values(pcSetData[set.id] || {}).filter(v => v === "owned").length;
+    data.owned += Object.values(sanitizedSetData[set.id] || {}).filter(v => v === "owned").length;
     acc[key] = data;
     return acc;
   }, {});
@@ -8221,7 +8285,7 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
 
   // ── Full (unsliced) data for the Collection Tracker's focused sub-views ──
   const trackerGroupsFull = Array.from(new Set([...allCards.map(c => c.group_name || c.group), ...PC_CATALOG_SETS.map(s => s.group)].filter(Boolean))).map(group => {
-    const owned = allCards.filter(c => (c.group_name || c.group) === group).length + PC_CATALOG_SETS.filter(s => s.group === group).reduce((sum, set) => sum + Object.values(pcSetData[set.id] || {}).filter(v => v === "owned").length, 0);
+    const owned = allCards.filter(c => (c.group_name || c.group) === group).length + PC_CATALOG_SETS.filter(s => s.group === group).reduce((sum, set) => sum + Object.values(sanitizedSetData[set.id] || {}).filter(v => v === "owned").length, 0);
     const total = Math.max(owned + PC_CATALOG_SETS.filter(s => s.group === group).reduce((sum, set) => sum + set.members.length, 0), owned || 1);
     return { group, owned, total, pct:Math.round((owned / Math.max(total, 1)) * 100) };
   });
@@ -8230,14 +8294,14 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
     ...wishlist.map((w,i) => ({ id:w.id||`w-${i}`, label:w.member || w.name || "Wanted card", group:w.group_name||w.group||"", sub:[w.group_name||w.group, w.album||w.era].filter(Boolean).join(" · "), color:C.gold })),
     ...setWantedCards.map((w,i) => ({ id:`sw-${w.setId}-${w.member}-${i}`, label:w.member, group:w.group, sub:[w.group,w.era,w.version].filter(Boolean).join(" · "), color:w.color||softBlue })),
   ];
-  const setTradeableCards = PC_CATALOG_SETS.flatMap(s => s.members.filter(m => ["dupe","trade"].includes((pcSetData[s.id]||{})[m])).map(m => ({ setId:s.id, group:s.group, era:s.era, version:s.version, member:m, color:s.color, album:s.album })));
+  const setTradeableCards = PC_CATALOG_SETS.flatMap(s => s.members.filter(m => ["dupe","trade"].includes((sanitizedSetData[s.id]||{})[m])).map(m => ({ setId:s.id, group:s.group, era:s.era, version:s.version, member:m, color:s.color, album:s.album })));
   const tradeableItemsFull = [
     ...tradeable.map((c,i) => ({ id:c.id||`t-${i}`, label:c.member||c.name||"Photocard", group:c.group_name||c.group||"", sub:[c.group_name||c.group, c.era].filter(Boolean).join(" · "), color:C.rose })),
     ...setTradeableCards.map((w,i) => ({ id:`st-${w.setId}-${w.member}-${i}`, label:w.member, group:w.group, sub:[w.group,w.era,w.version].filter(Boolean).join(" · "), color:w.color||C.rose })),
   ];
   const groupFocusCards = trackerGroupFocus ? [
     ...allCards.filter(c=>(c.group_name||c.group)===trackerGroupFocus).map((c,i)=>({ id:c.id||`gc-${i}`, label:c.member||c.name||"Photocard", sub:c.era||"", status:c.status||(c.tradeable?"for_trade":"owned") })),
-    ...PC_CATALOG_SETS.filter(s=>s.group===trackerGroupFocus).flatMap(s=>s.members.map(m=>({ id:`gf-${s.id}-${m}`, label:m, sub:[s.era,s.version].filter(Boolean).join(" · "), status:(pcSetData[s.id]||{})[m]||"missing" }))),
+    ...PC_CATALOG_SETS.filter(s=>s.group===trackerGroupFocus).flatMap(s=>s.members.map(m=>({ id:`gf-${s.id}-${m}`, label:m, sub:[s.era,s.version].filter(Boolean).join(" · "), status:(sanitizedSetData[s.id]||{})[m]||"missing" }))),
   ] : [];
   const trackerSectionHeaderStyle = { fontSize:9,color:softBlue2,fontFamily:"'Epilogue',sans-serif",fontWeight:900,textTransform:"uppercase",letterSpacing:"0.13em",marginBottom:9 };
   const TRACKER_STATUS_META = { owned:{label:"✓ Owned",color:softBlue}, for_trade:{label:"⇄ Trade",color:C.rose}, dupe:{label:"×2 Dupe",color:C.gold}, trade:{label:"⇄ Trade",color:C.rose}, wishlist:{label:"♡ ISO",color:C.accent}, missing:{label:"—",color:C.textDim} };
@@ -8656,7 +8720,7 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
               ))}
             </div>
             {pcView==="sets"
-              ? <PhotocardSetsView pcSetData={pcSetData} setPcSetData={setPcSetData} groupFilter={groupFilter} setGroupFilter={setGroupFilter} />
+              ? <PhotocardSetsView pcSetData={pcSetData} groupFilter={groupFilter} setGroupFilter={setGroupFilter} cards={allCards} patchCard={patchCard} addCard={addCard} binders={binders} />
               : <PhotocardGrid cards={filteredCards} groups={GROUPS} groupFilter={groupFilter} setGroupFilter={setGroupFilter} go={go} onAddCard={()=>setShowAddCard(true)} rarityColors={RARITY_COLORS} rarityGlow={RARITY_GLOW} rarityBg={RARITY_BG} rarityBadge={RARITY_BADGE} />
             }
           </div>
@@ -8712,7 +8776,7 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
                   ))}
                 </div>
                 {pcView==="sets"
-                  ? <PhotocardSetsView pcSetData={pcSetData} setPcSetData={setPcSetData} groupFilter={groupFilter} setGroupFilter={setGroupFilter} />
+                  ? <PhotocardSetsView pcSetData={pcSetData} groupFilter={groupFilter} setGroupFilter={setGroupFilter} cards={allCards} patchCard={patchCard} addCard={addCard} binders={binders} />
                   : <PhotocardGrid cards={filteredCards} groups={GROUPS} groupFilter={groupFilter} setGroupFilter={setGroupFilter} go={go} onAddCard={()=>setShowAddCard(true)} onOpenDetail={setPcDetailCard} rarityColors={RARITY_COLORS} rarityGlow={RARITY_GLOW} rarityBg={RARITY_BG} rarityBadge={RARITY_BADGE} />
                 }
               </div>
@@ -8746,7 +8810,7 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
               </div>
             ))}
             {/* Set ISO cards */}
-            {PC_CATALOG_SETS.flatMap(s=>s.members.filter(m=>(pcSetData[s.id]||{})[m]==="wishlist").map(m=>({setId:s.id,group:s.group,era:s.era,version:s.version,emoji:s.emoji,color:s.color,member:m}))).map((w,i)=>(
+            {PC_CATALOG_SETS.flatMap(s=>s.members.filter(m=>(sanitizedSetData[s.id]||{})[m]==="wishlist").map(m=>({setId:s.id,group:s.group,era:s.era,version:s.version,emoji:s.emoji,color:s.color,member:m}))).map((w,i)=>(
               <div key={`set-iso-${w.setId}-${w.member}`} className="tap" style={{ ...VS.glowCard(w.color), padding:14, marginBottom:10, cursor:"pointer", display:"flex", gap:12, alignItems:"center" }}>
                 <div style={{ width:48,height:64,borderRadius:10,background:`linear-gradient(160deg,${w.color}44,${w.color}18)`,border:`1.5px solid ${w.color}55`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0 }}>{w.emoji}</div>
                 <div style={{ flex:1 }}>
