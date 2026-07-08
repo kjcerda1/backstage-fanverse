@@ -152,6 +152,44 @@ function useBinders() {
   return { binders, setBinders, loading, refresh };
 }
 
+// useUserCards — single shared fetch/cache for /api/cards (user_cards table).
+// Every collector surface (Binders, My Cards, Wishlist, Trades, Card Detail
+// Sheet, Collection Tracker) reads/writes through this instead of keeping its
+// own local copy, so a status/photo change made in one place is immediately
+// visible everywhere else without a remount or reload.
+function useUserCards({ enabled = true } = {}) {
+  const [cards, setCards] = useState(MOCK_CARDS);
+  const [loading, setLoading] = useState(true);
+  const { tokenReady } = useAuth();
+
+  const refresh = useCallback(async () => {
+    const d = await api.get('/api/cards').catch(() => null);
+    if (d?.cards?.length) setCards(d.cards);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (!enabled || !tokenReady) return;
+    refresh();
+  }, [enabled, tokenReady, refresh]);
+
+  const patchCard = useCallback((id, updates) => {
+    setCards(cs => cs.map(c => c.id === id ? { ...c, ...updates } : c));
+    api.patch(`/api/cards/${id}`, updates).catch(() => {});
+  }, []);
+
+  const deleteCard = useCallback((id) => {
+    setCards(cs => cs.filter(c => c.id !== id));
+    api.del(`/api/cards/${id}`).catch(() => {});
+  }, []);
+
+  const addCard = useCallback((card) => {
+    setCards(cs => [card, ...cs]);
+  }, []);
+
+  return { cards, setCards, loading, refresh, patchCard, deleteCard, addCard };
+}
+
 // Shared user search — returns users[] on success, null on auth/API failure, [] on no results.
 // null vs [] lets callers show "unavailable" vs "no results" without treating them the same.
 async function searchBackstageUsers(q) {
@@ -8088,7 +8126,7 @@ function PhotocardGrid({ cards, groups, groupFilter, setGroupFilter, go, onAddCa
   );
 }
 
-function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
+function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoading, refreshCards, isVip, onUpgrade, go, user, weather }) {
   const softBlue = '#78A8FF';
   const softBlue2 = '#A7C7FF';
   const softBlueGlow = 'rgba(120,168,255,0.28)';
@@ -8156,10 +8194,8 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
     window.addEventListener("backstage:openEraRoom", handler);
     return () => window.removeEventListener("backstage:openEraRoom", handler);
   }, []);
-  const [isoCards, setIsoCards] = useState([]);
-  useEffect(()=>{ api.get('/api/cards?status=iso').then(d=>{ if(d?.cards) setIsoCards(d.cards); }).catch(()=>{}); },[]);
-  const wishlist  = isoCards;
   const allCards  = cards || MOCK_CARDS;
+  const wishlist  = allCards.filter(c=>c.status==='iso');
   const dupes     = allCards.filter(c=>c.status==='duplicate'||c.dupe);
   const tradeable = allCards.filter(c=>c.status==='for_trade'||c.status==='duplicate'||c.tradeable||c.dupe);
   const setStats  = getSetStatsSummary(pcSetData);
@@ -8259,12 +8295,12 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
       {eraRoomDeep && <EraRoom group={eraRoomDeep.group} era={eraRoomDeep.era} color={eraRoomDeep.color} onBack={()=>setEraRoomDeep(null)} onBinderCreated={()=>{ refreshBinderCount(); setEraRoomDeep(null); setSection("albums"); }} onGoToTradeHub={()=>{ setEraRoomDeep(null); setSection("albums"); }} />}
       {showAddCard && (
         <div style={{ position:"absolute",inset:0,zIndex:50,background:C.bg,overflowY:"auto" }}>
-          <AddCardForm initialStatus={addCardInitialStatus} onBack={()=>{ setShowAddCard(false); setAddCardInitialStatus("owned"); }} onSaved={card=>{ setCards(cs=>[card,...cs]); setShowAddCard(false); setAddCardInitialStatus("owned"); setSection(card.status==="iso"?"wishlist":"albums"); if(card.status!=="iso"){ setAlbumSubView("photocards"); setPcView("cards"); } }} />
+          <AddCardForm initialStatus={addCardInitialStatus} onBack={()=>{ setShowAddCard(false); setAddCardInitialStatus("owned"); }} onSaved={card=>{ addCard(card); setShowAddCard(false); setAddCardInitialStatus("owned"); setSection(card.status==="iso"?"wishlist":"albums"); if(card.status!=="iso"){ setAlbumSubView("photocards"); setPcView("cards"); } }} />
         </div>
       )}
       {showStartBinder && (
         <div style={{ position:"absolute",inset:0,zIndex:50,background:C.bg,overflowY:"auto" }}>
-          <BinderCreate onBack={()=>setShowStartBinder(false)} onCustom={()=>{ setShowStartBinder(false); setShowStartCustomBinder(true); }} onCreatedBinder={()=>{ refreshBinderCount(); setShowStartBinder(false); setSection("albums"); setAlbumSubView("binders"); }} />
+          <BinderCreate onBack={()=>setShowStartBinder(false)} onCustom={()=>{ setShowStartBinder(false); setShowStartCustomBinder(true); }} onCreatedBinder={()=>{ refreshBinderCount(); refreshCards(); setShowStartBinder(false); setSection("albums"); setAlbumSubView("binders"); }} />
         </div>
       )}
       {showStartCustomBinder && (
@@ -8287,11 +8323,10 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
           card={pcDetailCard}
           onClose={()=>setPcDetailCard(null)}
           onPatch={(patch)=>{
-            setCards(cs=>cs.map(c=>c.id===pcDetailCard.id?{...c,...patch}:c));
+            patchCard(pcDetailCard.id, patch);
             setPcDetailCard(d=>d?{...d,...patch}:d);
-            api.patch(`/api/cards/${pcDetailCard.id}`, patch);
           }}
-          onDelete={(id)=>{ setCards(cs=>cs.filter(c=>c.id!==id)); api.del(`/api/cards/${id}`).catch(()=>{}); setPcDetailCard(null); }}
+          onDelete={(id)=>{ deleteCard(id); setPcDetailCard(null); }}
           onListForTrade={(card)=>{ setPcTradingCard(card); setPcDetailCard(null); }}
         />
       )}
@@ -8668,7 +8703,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
                 <span key={id} onClick={()=>setAlbumSubView(id)} style={{ flex:1,textAlign:"center",padding:"8px 4px",borderRadius:10,fontSize:11.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:albumSubView===id?softBlue:"transparent",color:albumSubView===id?C.bg:C.textMid,transition:"all .18s" }}>{label}</span>
               ))}
             </div>
-            {albumSubView==="binders" && <CollectTab cards={cards} setCards={setCards} isVip={isVip} onUpgrade={onUpgrade} user={user} onAddMemory={()=>setSection("scrapbook")} hideNav defaultView="binders" />}
+            {albumSubView==="binders" && <CollectTab cards={cards} setCards={setCards} patchCard={patchCard} deleteCard={deleteCard} addCard={addCard} cardsLoading={cardsLoading} refreshCards={refreshCards} isVip={isVip} onUpgrade={onUpgrade} user={user} onAddMemory={()=>setSection("scrapbook")} hideNav defaultView="binders" />}
             {albumSubView==="photocards" && (
               <div>
                 <div style={{ display:"flex",gap:0,background:C.surfaceHi,borderRadius:13,padding:3,marginBottom:14 }}>
@@ -8780,7 +8815,7 @@ function LibraryTab({ cards, setCards, isVip, onUpgrade, go, user, weather }) {
 
         {section==="scrapbook" && <ScrapbookTab isVip={isVip} onUpgrade={onUpgrade} />}
 
-        {section==="memories" && <CollectTab cards={cards} setCards={setCards} isVip={isVip} onUpgrade={onUpgrade} user={user} onAddMemory={()=>setSection("scrapbook")} hideNav defaultView="shelf" />}
+        {section==="memories" && <CollectTab cards={cards} setCards={setCards} patchCard={patchCard} deleteCard={deleteCard} addCard={addCard} cardsLoading={cardsLoading} refreshCards={refreshCards} isVip={isVip} onUpgrade={onUpgrade} user={user} onAddMemory={()=>setSection("scrapbook")} hideNav defaultView="shelf" />}
 
         {section==="capsule-memories" && (() => {
           // Group every saved-to-Capsule/Era-Memory entry by concert, across
@@ -9852,7 +9887,7 @@ function TradeListingForm({ card, onBack, onSaved }) {
 }
 
 // ─── BINDER DETAIL ─────────────────────────────────────────────────────────────
-function BinderDetail({ binder, onBack }) {
+function BinderDetail({ binder, onBack, cards: allCards, cardsLoading, setCards, patchCard, deleteCard, addCard }) {
   const STATUS_ORDER = CARD_STATUS_ORDER;
   const STATUS_META  = CARD_STATUS_META;
 
@@ -9877,32 +9912,24 @@ function BinderDetail({ binder, onBack }) {
     window.dispatchEvent(new CustomEvent("backstage:openEraRoom", { detail:{ group:linkedEraBoard.group, era:linkedEraBoard.era, color:pal[0]||C.accent } }));
   };
 
-  const [cards, setCards]               = useState([]);
-  const [loading, setLoading]           = useState(true);
+  // Derived from the shared cards cache, filtered to this binder — no
+  // independent fetch, so a status/photo change made anywhere else (Wishlist,
+  // Trades, My Cards) is reflected here immediately, and vice versa.
+  const cards   = (allCards||[]).filter(c => c.binder_id === binder.id);
+  const loading = !!cardsLoading && cards.length===0;
   const [showAddCard, setShowAddCard]   = useState(false);
   const [tradingCard, setTradingCard]   = useState(null);
   const [detailCard, setDetailCard]     = useState(null);
-
-  useEffect(() => {
-    api.get(`/api/cards?binder_id=${binder.id}`)
-      .then(d => { setCards(d?.cards || []); setLoading(false); });
-  }, [binder.id]);
 
   // Explicit, deliberate updates only — no tap-to-cycle. Used by the Card Detail Sheet
   // for status/condition/notes/quantity/photo changes.
   const patchDetailCard = (patch) => {
     if (!detailCard) return;
-    setCards(cs => cs.map(c => c.id===detailCard.id ? {...c,...patch} : c));
+    patchCard(detailCard.id, patch);
     setDetailCard(d => d ? {...d,...patch} : d);
-    api.patch(`/api/cards/${detailCard.id}`, patch);
   };
 
-  const deleteCard = (cardId) => {
-    setCards(cs => cs.filter(c => c.id !== cardId));
-    api.del(`/api/cards/${cardId}`).catch(()=>{});
-  };
-
-  if (showAddCard) return <AddCardForm binder={binder} onBack={()=>setShowAddCard(false)} onSaved={card=>{ setCards(cs=>[card,...cs]); setShowAddCard(false); }} />;
+  if (showAddCard) return <AddCardForm binder={binder} onBack={()=>setShowAddCard(false)} onSaved={card=>{ addCard(card); setShowAddCard(false); }} />;
   if (tradingCard) return <TradeListingForm card={tradingCard} onBack={()=>setTradingCard(null)} onSaved={()=>{ setTradingCard(null); setCards(cs=>cs.map(c=>c.id===tradingCard.id?{...c,status:'for_trade'}:c)); }} />;
 
   const owned    = cards.filter(c=>c.status==='owned').length;
@@ -11059,13 +11086,12 @@ function TradeHub({ onBack, onNotif, user }) {
   );
 }
 
-function CollectTab({ cards, setCards, isVip, onUpgrade, user, onAddMemory, hideNav=false, defaultView=null }) {
+function CollectTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoading, refreshCards, isVip, onUpgrade, user, onAddMemory, hideNav=false, defaultView=null }) {
   const [view, setView] = useState(defaultView || "shelf");
   const [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState(null);
-  const [wishlist, setWishlist] = useState([]);
-  useEffect(()=>{ api.get('/api/cards?status=iso').then(d=>{ if(d?.cards) setWishlist(d.cards); }).catch(()=>{}); },[]);
-  const [tradeable] = useState(MOCK_CARDS.filter(c=>c.tradeable));
+  const wishlist  = (cards||[]).filter(c=>c.status==='iso');
+  const tradeable = (cards||[]).filter(c=>c.status==='duplicate'||c.status==='for_trade');
   const [tracking, setTracking] = useState(null);
   const [trackNum, setTrackNum] = useState("");
   const [showBinderCreate, setShowBinderCreate] = useState(false);
@@ -11082,10 +11108,10 @@ function CollectTab({ cards, setCards, isVip, onUpgrade, user, onAddMemory, hide
     setTracking({ status:"In Transit", statusDetail:"Package departed sorting facility", location:"Memphis, TN", estimatedDelivery:"Apr 29" });
   };
 
-  if (showBinderCreate) return <BinderCreate onBack={()=>{ setShowBinderCreate(false); refreshBinders(); }} onCustom={()=>{ setShowBinderCreate(false); setShowCustomBinder(true); }} onCreatedBinder={b=>{ setShowBinderCreate(false); refreshBinders(); setSelectedBinder(b); }} />;
+  if (showBinderCreate) return <BinderCreate onBack={()=>{ setShowBinderCreate(false); refreshBinders(); }} onCustom={()=>{ setShowBinderCreate(false); setShowCustomBinder(true); }} onCreatedBinder={b=>{ setShowBinderCreate(false); refreshBinders(); refreshCards(); setSelectedBinder(b); }} />;
   if (showCustomBinder) return <CustomBinderForm onBack={()=>setShowCustomBinder(false)} onSaved={b=>{ setShowCustomBinder(false); refreshBinders(); setSelectedBinder(b); }} />;
   if (showTradeHub) return <TradeHub onBack={()=>setShowTradeHub(false)} user={user} />;
-  if (selectedBinder) return <BinderDetail binder={selectedBinder} onBack={()=>setSelectedBinder(null)} />;
+  if (selectedBinder) return <BinderDetail binder={selectedBinder} cards={cards} cardsLoading={cardsLoading} setCards={setCards} patchCard={patchCard} deleteCard={deleteCard} addCard={addCard} onBack={()=>setSelectedBinder(null)} />;
 
   return (
     <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
@@ -11299,21 +11325,23 @@ function CollectTab({ cards, setCards, isVip, onUpgrade, user, onAddMemory, hide
               <Empty emoji="🃏" title="No tradeable cards" sub="Mark cards as tradeable from your shelf." />
             ):(
               <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-                {tradeable.map(card=>(
-                  <div key={card.id} style={{ padding:12, ...VS.glowCard(card.color), display:"flex", gap:10, alignItems:"center" }}>
-                    <div style={VS.innerGlow(card.color)} />
-                    <div style={{ width:46,height:64,borderRadius:13,background:`${card.color}18`,border:`1.5px solid ${card.color}30`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0,boxShadow:`0 0 12px ${card.color}14` }}>🃏</div>
-                    <div style={{ flex:1, position:"relative" }}>
-                      <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13.5 }}>{card.name}</p>
-                      <p style={{ fontSize:11, color:C.textMid }}>{card.group} · {card.era}</p>
-                      <div style={{ marginTop:5, ...VS.activePill(card.color) }}>{card.rarity}</div>
+                {tradeable.map(card=>{
+                  const meta = CARD_STATUS_META[card.status] || CARD_STATUS_META.for_trade;
+                  return (
+                    <div key={card.id} style={{ padding:12, ...VS.glowCard(meta.color), display:"flex", gap:10, alignItems:"center" }}>
+                      <div style={VS.innerGlow(meta.color)} />
+                      <div style={{ width:46,height:64,borderRadius:13,background:`${meta.color}18`,border:`1.5px solid ${meta.color}30`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0,boxShadow:`0 0 12px ${meta.color}14`,overflow:"hidden" }}>
+                        {card.image_url ? <img src={card.image_url} alt="" style={{ width:"100%",height:"100%",objectFit:"cover" }} /> : "🃏"}
+                      </div>
+                      <div style={{ flex:1, position:"relative" }}>
+                        <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13.5 }}>{card.member}</p>
+                        <p style={{ fontSize:11, color:C.textMid }}>{card.group_name}{(card.album||card.era)&&` · ${card.album||card.era}`}</p>
+                        <div style={{ marginTop:5, ...VS.activePill(meta.color) }}>{meta.badge}</div>
+                      </div>
+                      {(card.quantity||1)>1 && <Pill color={C.gold} small>×{card.quantity}</Pill>}
                     </div>
-                    <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
-                      <Pill color={C.mint} small>Listed</Pill>
-                      <Pill color={C.accent} small>1 match</Pill>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -26285,7 +26313,7 @@ function AppInner() {
   const [showCapsuleLanding, setShowCapsuleLanding] = useState(()=>_IS_CAPSULE_PATH&&!ls.get("backstage_session")?.user);
   // Capsule preview: signed-out fan sees the capsule before being asked to sign up
   const [showCapsulePreview, setShowCapsulePreview] = useState(false);
-  const [cards, setCards] = useState(MOCK_CARDS);
+  const { cards, setCards, patchCard, deleteCard, addCard, loading: cardsLoading, refresh: refreshCards } = useUserCards();
   const [notif, setNotif] = useState(null);
   const [showNotifPrompt, setShowNotifPrompt] = useState(false);
   const [showSmartNotifs, setShowSmartNotifs] = useState(false);
@@ -26543,12 +26571,8 @@ function AppInner() {
     }
   };
 
-  // Boot: load photocard collection from user_cards table.
-  // Depends on auth.tokenReady so it only fires after api._token is set.
-  useEffect(()=>{
-    if(!user?.id || !auth.tokenReady || appState!=="main" || !API_URL) return;
-    api.get('/api/cards').then(d=>{ if(d?.cards?.length) setCards(d.cards); }).catch(()=>{});
-  },[user?.id, auth.tokenReady, appState]);
+  // Photocard collection now loads via the shared useUserCards() hook above
+  // (fetches once tokenReady, same cache every collector surface reads from).
 
   // Incomplete profile nudge — shown 24h after signup, max once per 72h, stops when fandoms set
   useEffect(()=>{
@@ -26940,7 +26964,7 @@ function AppInner() {
               {tab==="concerts"&&<ConcertsPage go={go} isVip={effectiveIsVip} onUpgrade={openUpgrade} user={user} />}
               {tab==="community"&&<FanverseTab go={go} user={user} isVip={effectiveIsVip} onUpgrade={openUpgrade} onViewProfile={setFullProfileFan} />}
               {tab==="explore"&&<ExploreTab user={user} go={go} onViewProfile={setFullProfileFan} />}
-              {tab==="collect"&&<LibraryTab cards={cards} setCards={setCards} isVip={effectiveIsVip} onUpgrade={openUpgrade} go={go} user={user} weather={weatherData} />}
+              {tab==="collect"&&<LibraryTab cards={cards} setCards={setCards} patchCard={patchCard} deleteCard={deleteCard} addCard={addCard} cardsLoading={cardsLoading} refreshCards={refreshCards} isVip={effectiveIsVip} onUpgrade={openUpgrade} go={go} user={user} weather={weatherData} />}
               {tab==="fanverse"&&<ToolsTab user={user} weather={weatherData} isVip={effectiveIsVip} onUpgrade={openUpgrade} go={go} />}
               {tab==="profile"&&<ProfileTab user={user} cards={cards} go={go} isVip={effectiveIsVip} onUpgrade={openUpgrade} onReplayTour={()=>setShowVipTour(true)} onAccountRefresh={handleAccountRefresh} onViewProfile={setFullProfileFan} />}
                   </>
