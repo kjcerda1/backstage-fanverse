@@ -3025,22 +3025,20 @@ const MOCK_FEED = [
 ];
 
 const MOCK_GROUP_CHANTS = [
-  { id:"group-bts", title:"BTS Member Chant", group:"BTS", song:null, trustLabel:"Backstage preset", badgeLabel:"Member roll call", sourceType:"group_preset", practiceLabel:"Group chant practice", detail:"Preset member order for practice. Fan chants may vary by event.", members:["RM","Jin","SUGA","j-hope","Jimin","V","Jungkook","BTS"], lines:["RM","Jin","SUGA","j-hope","Jimin","V","Jungkook","BTS"], color:C.pink },
-  { id:"group-ateez", title:"ATEEZ Member Chant", group:"ATEEZ", song:null, trustLabel:"Backstage preset", badgeLabel:"Member roll call", sourceType:"group_preset", practiceLabel:"Group chant practice", detail:"Preset member order for practice. Fan chants may vary by event.", members:["Hongjoong","Seonghwa","Yunho","Yeosang","San","Mingi","Wooyoung","Jongho","ATEEZ"], lines:["Hongjoong","Seonghwa","Yunho","Yeosang","San","Mingi","Wooyoung","Jongho","ATEEZ"], color:C.gold },
-  { id:"group-skz", title:"Stray Kids Member Chant", group:"Stray Kids", song:null, trustLabel:"Backstage preset", badgeLabel:"Member roll call", sourceType:"group_preset", practiceLabel:"Group chant practice", detail:"Preset member order for practice. Fan chants may vary by event.", members:["Bang Chan","Lee Know","Changbin","Hyunjin","Han","Felix","Seungmin","I.N","Stray Kids"], lines:["Bang Chan","Lee Know","Changbin","Hyunjin","Han","Felix","Seungmin","I.N","Stray Kids"], color:C.accent },
-  { id:"group-nj", title:"NewJeans Member Chant", group:"NewJeans", song:null, trustLabel:"Backstage preset", badgeLabel:"Member roll call", sourceType:"group_preset", practiceLabel:"Group chant practice", detail:"Preset member order for practice. Fan chants may vary by event.", members:["Minji","Hanni","Danielle","Haerin","Hyein","NewJeans"], lines:["Minji","Hanni","Danielle","Haerin","Hyein","NewJeans"], color:C.silver },
+  { id:"group-bts", title:"BTS Member Roll Call", group:"BTS", song:null, status:"preset", trustLabel:"Backstage preset", badgeLabel:"Backstage preset", sourceType:"group_preset", practiceLabel:"Group chant practice", detail:"Preset member order for practice. Fan chants may vary by event.", namingNote:"Full-name chant format used for practice.", sourceNote:"Backstage preset", members:["Kim Namjoon","Kim Seokjin","Min Yoongi","Jeong Hoseok","Park Jimin","Kim Taehyung","Jeon Jungkook","BTS"], lines:["Kim Namjoon","Kim Seokjin","Min Yoongi","Jeong Hoseok","Park Jimin","Kim Taehyung","Jeon Jungkook","BTS"], color:C.pink },
+  { id:"group-ateez", title:"ATEEZ Member Roll Call", group:"ATEEZ", song:null, status:"needs_verification", trustLabel:"Needs verification", badgeLabel:"Needs verification", sourceType:"group_preset", practiceLabel:"Member chant order being verified", detail:"Exact chant order is being verified before practice mode is enabled.", namingNote:"Member chant order pending verification.", sourceNote:"Needs confirmed source before shipping.", members:[], lines:[], color:C.gold },
 ];
 
 const MOCK_LIBRARY_CHANTS = [
-  { id:1, title:"Rock (Stray Kids)", group:"Stray Kids", sourceType:"verified_library", trustLabel:"Verified chant", badgeLabel:"Verified chant", lines:["ROCK!","Lee Know!","Minho!","ROCK!","Changbin!","Hyunjin!","ROCK!","Han!","Seungmin!","I.N!"], color:C.accent },
-  { id:2, title:"Ditto (NewJeans)", group:"NewJeans", sourceType:"verified_library", trustLabel:"Verified chant", badgeLabel:"Verified chant", lines:["Ditto!","Minji!","Hanni!","Ditto!","Danielle!","Haerin!","Hyein!"], color:C.silver },
-  { id:3, title:"Drama (aespa)", group:"aespa", sourceType:"verified_library", trustLabel:"Verified chant", badgeLabel:"Verified chant", lines:["Drama!","Karina!","Giselle!","Drama!","Winter!","Ningning!"], color:C.mint },
-  { id:4, title:"Dynamite (BTS)", group:"BTS", sourceType:"verified_library", trustLabel:"Verified chant", badgeLabel:"Verified chant", lines:["BTS!","Jin!","Suga!","BTS!","J-Hope!","RM!","Jimin!","V!","Jungkook!"], color:C.pink },
+  { id:1, title:"Rock (Stray Kids)", group:"Stray Kids", sourceType:"verified_library", trustLabel:"Verified library", badgeLabel:"Verified library", lines:["ROCK!","Lee Know!","Minho!","ROCK!","Changbin!","Hyunjin!","ROCK!","Han!","Seungmin!","I.N!"], color:C.accent },
+  { id:2, title:"Ditto (NewJeans)", group:"NewJeans", sourceType:"verified_library", trustLabel:"Verified library", badgeLabel:"Verified library", lines:["Ditto!","Minji!","Hanni!","Ditto!","Danielle!","Haerin!","Hyein!"], color:C.silver },
+  { id:3, title:"Drama (aespa)", group:"aespa", sourceType:"verified_library", trustLabel:"Verified library", badgeLabel:"Verified library", lines:["Drama!","Karina!","Giselle!","Drama!","Winter!","Ningning!"], color:C.mint },
+  { id:4, title:"Dynamite (BTS)", group:"BTS", sourceType:"verified_library", trustLabel:"Verified library", badgeLabel:"Verified library", lines:["BTS!","Jin!","Suga!","BTS!","J-Hope!","RM!","Jimin!","V!","Jungkook!"], color:C.pink },
 ];
 
 const MOCK_SONG_FANCHANTS = [
   { id:"fanchant-ateez-bouncy", title:"Bouncy (ATEEZ)", group:"ATEEZ", song:"Bouncy", trustLabel:"User pasted", badgeLabel:"Unverified", sourceType:"user_pasted", detail:"Paste guide only — not a verified chant yet.", lines:["Hongjoong!","Seonghwa!","Yunho!","Yeosang!","San!","Mingi!","Wooyoung!","Jongho!"], color:C.gold },
-  { id:"fanchant-bts-dynamite", title:"Dynamite (BTS)", group:"BTS", song:"Dynamite", trustLabel:"User pasted", badgeLabel:"Unverified", sourceType:"user_pasted", detail:"Practice guide only — community preview.", lines:["BTS!","Jin!","Suga!","J-Hope!","RM!","Jimin!","V!","Jungkook!"], color:C.pink },
+  { id:"fanchant-bts-dynamite", title:"Dynamite (BTS)", group:"BTS", song:"Dynamite", trustLabel:"User pasted", badgeLabel:"Unverified", sourceType:"user_pasted", detail:"Practice guide only — unverified local guide.", lines:["BTS!","Jin!","Suga!","J-Hope!","RM!","Jimin!","V!","Jungkook!"], color:C.pink },
 ];
 
 const MOCK_CHANTS = [...MOCK_GROUP_CHANTS, ...MOCK_LIBRARY_CHANTS, ...MOCK_SONG_FANCHANTS];
@@ -15270,191 +15268,195 @@ function ChantVault() {
   const [repeatTick, setRepeatTick] = useState(0);
   const [justSaved, setJustSaved] = useState(false);
   const [justMarked, setJustMarked] = useState(false);
+  const [tab, setTab] = useState("group");
   const [search, setSearch] = useState("");
-  const [aiQuery, setAiQuery] = useState("");
-  const [aiStatus, setAiStatus] = useState("idle");
-  const [aiData, setAiData] = useState(null);
+  const [pasteGroup, setPasteGroup] = useState("");
+  const [pasteSong, setPasteSong] = useState("");
   const [pasteText, setPasteText] = useState("");
-  const [draftGroup, setDraftGroup] = useState("");
-  const [draftSong, setDraftSong] = useState("");
-  const [draftText, setDraftText] = useState("");
-  const [submittedChants, setSubmittedChants] = useState(()=>ls.get("backstage_submitted_chants", []));
+  const [showPastePanel, setShowPastePanel] = useState(false);
   const intRef = useRef(null);
 
-  useEffect(()=>{
-    if(running&&active){
-      intRef.current=setInterval(()=>{
-        setLineIdx(i=>{ if(i>=active.lines.length-1){clearInterval(intRef.current);setRunning(false);return i;} return i+1; });
-      },2500);
+  useEffect(() => {
+    if (running && active) {
+      intRef.current = setInterval(() => {
+        setLineIdx((i) => {
+          if (i >= active.lines.length - 1) {
+            clearInterval(intRef.current);
+            setRunning(false);
+            return i;
+          }
+          return i + 1;
+        });
+      }, 2500);
     }
-    return ()=>clearInterval(intRef.current);
-  },[running,active,repeatTick]);
+    return () => clearInterval(intRef.current);
+  }, [running, active, repeatTick]);
 
-  useEffect(()=>{ ls.set("backstage_submitted_chants", submittedChants); }, [submittedChants]);
-
-  const openChant = (chant)=>{ setActive(chant); setLineIdx(0); setRunning(false); setShowAll(true); setJustSaved(false); setJustMarked(false); };
-
-  const openFoundChant = (d)=>{
-    const localMatch = MOCK_CHANTS.find(c=>c.id===d.chant?.localId || c.id===d.chant?.id);
-    if(localMatch) openChant(localMatch);
-    else openChant({
-      id:`ai-${Date.now()}`,
-      title:d.title || d.chant?.title || "Chant Finder",
-      group:d.group || "Backstage",
-      lines:(d.chant?.lines||[]).map(l=>typeof l==="string" ? l : l.text).filter(Boolean),
-      color:C.accent,
-      sourceType:"verified_library",
-      trustLabel:"Verified chant",
-      badgeLabel:"Verified chant",
-      detail:d.message || "Backstage matched a chant from the deterministic chant helper.",
-    });
+  const openChant = (chant) => {
+    setActive(chant);
+    setLineIdx(0);
+    setRunning(false);
+    setShowAll(true);
+    setJustSaved(false);
+    setJustMarked(false);
   };
 
-  const openPastedChant = ()=>{
-    const lines = pasteText.split("\n").map(l=>l.trim()).filter(Boolean);
-    if(!lines.length) return;
+  const openPastedChant = () => {
+    const lines = pasteText.split("\n").map((l) => l.trim()).filter(Boolean);
+    if (!lines.length || !pasteGroup.trim() || !pasteSong.trim()) return;
     openChant({
-      id:`pasted-${Date.now()}`,
-      title: aiQuery || "Pasted chant guide",
-      group: aiData?.group || "Custom",
+      id: `pasted-${Date.now()}`,
+      title: `${pasteSong.trim()} · ${pasteGroup.trim()}`,
+      group: pasteGroup.trim(),
+      song: pasteSong.trim(),
       lines,
-      color:C.gold,
-      sourceType:"user_pasted",
-      trustLabel:"User pasted",
-      badgeLabel:"Unverified",
-      detail:"Pasted by you · still unverified until reviewed.",
+      color: C.gold,
+      sourceType: "user_pasted",
+      trustLabel: "User pasted",
+      badgeLabel: "Unverified",
+      detail: "Local practice guide only — still unverified.",
     });
     setPasteText("");
+    setPasteGroup("");
+    setPasteSong("");
+    setShowPastePanel(false);
   };
 
-  const stepLine = (delta)=>{ setRunning(false); setLineIdx(i=>Math.min(Math.max(i+delta,0), active.lines.length-1)); };
+  const stepLine = (delta) => {
+    setRunning(false);
+    setLineIdx((i) => Math.min(Math.max(i + delta, 0), active.lines.length - 1));
+  };
 
-  const saveToMyChants = ()=>{
+  const saveToMyChants = () => {
     const saved = ls.get("backstage_saved_chants", []);
-    ls.set("backstage_saved_chants", [...saved.filter(c=>c.id!==active.id), active]);
-    setJustSaved(true); setTimeout(()=>setJustSaved(false), 1600);
+    ls.set("backstage_saved_chants", [...saved.filter((c) => c.id !== active.id), active]);
+    setJustSaved(true);
+    setTimeout(() => setJustSaved(false), 1600);
   };
 
-  const markPracticed = ()=>{
+  const markPracticed = () => {
     const history = ls.get("backstage_chant_practice_history", []);
-    ls.set("backstage_chant_practice_history", [...history, { id:active.id, title:active.title, group:active.group, practicedAt:Date.now() }]);
-    setJustMarked(true); setTimeout(()=>setJustMarked(false), 1600);
-  };
-
-  const submitDraft = ()=>{
-    const lines = draftText.split("\n").map(l=>l.trim()).filter(Boolean);
-    if(!lines.length || !draftGroup.trim() || !draftSong.trim()) return;
-    const chant = {
-      id:`submitted-${Date.now()}`,
-      title:`${draftSong.trim()} · ${draftGroup.trim()}`,
-      group:draftGroup.trim(),
-      song:draftSong.trim(),
-      lines,
-      color:C.gold,
-      trustLabel:"User pasted",
-      badgeLabel:"Unverified",
-      sourceType:"user_submitted",
-      detail:"Local preview only · community submission and ratings coming soon.",
-    };
-    setSubmittedChants(prev=>[chant, ...prev]);
-    openChant(chant);
-    setDraftGroup("");
-    setDraftSong("");
-    setDraftText("");
-  };
-
-  const handleAi = async(queryOverride)=>{
-    const q = (queryOverride ?? aiQuery).trim();
-    if(!q) return;
-    if(queryOverride) setAiQuery(queryOverride);
-    setAiStatus("loading"); setAiData(null);
-    const d = await api.post('/api/ai/chant-helper', { query:q, mode:'lookup' });
-    if(d && d.ok && d.status){ setAiData(d); setAiStatus(d.status); }
-    else { setAiData(null); setAiStatus("error"); }
+    ls.set("backstage_chant_practice_history", [
+      ...history,
+      { id: active.id, title: active.title, group: active.group, practicedAt: Date.now() },
+    ]);
+    setJustMarked(true);
+    setTimeout(() => setJustMarked(false), 1600);
   };
 
   const normalizedSearch = search.trim().toLowerCase();
-  const filteredGroupChants = MOCK_GROUP_CHANTS.filter(c=>!normalizedSearch || [c.title,c.group,c.practiceLabel,c.detail,...c.members].join(" ").toLowerCase().includes(normalizedSearch));
-  const filteredLibraryChants = MOCK_LIBRARY_CHANTS.filter(c=>!normalizedSearch || [c.title,c.group,c.lines.join(" ")].join(" ").toLowerCase().includes(normalizedSearch));
-  const filteredPreviewFanchants = [...submittedChants, ...MOCK_SONG_FANCHANTS].filter(c=>!normalizedSearch || [c.title,c.group,c.song,c.trustLabel,c.detail,c.lines.join(" ")].join(" ").toLowerCase().includes(normalizedSearch));
+  const filteredGroupChants = MOCK_GROUP_CHANTS.filter((c) =>
+    !normalizedSearch ||
+    [c.title, c.group, c.detail, c.practiceLabel, c.sourceNote, (c.members || []).join(" ")]
+      .join(" ")
+      .toLowerCase()
+      .includes(normalizedSearch)
+  );
+  const filteredLibraryChants = MOCK_LIBRARY_CHANTS.filter((c) =>
+    !normalizedSearch || [c.title, c.group, c.lines.join(" ")].join(" ").toLowerCase().includes(normalizedSearch)
+  );
   const savedChants = ls.get("backstage_saved_chants", []);
-  const featuredGroupChant = filteredGroupChants[0] || MOCK_GROUP_CHANTS[0];
-  const featuredLibraryChant = filteredLibraryChants[0] || MOCK_LIBRARY_CHANTS[0];
-  const featuredPreviewChant = filteredPreviewFanchants[0] || null;
+  const practiceHistory = ls.get("backstage_chant_practice_history", []);
+  const recentPractice = practiceHistory.slice(-4).reverse();
+  const selectedGroup = filteredGroupChants[0] || MOCK_GROUP_CHANTS[0];
+  const tabs = [
+    { id: "group", label: "Group Roll Call" },
+    { id: "song", label: "Song Fanchants" },
+    { id: "practice", label: "My Practice" },
+  ];
+  const hasLibraryMatch = filteredLibraryChants.length > 0;
 
-  if(active) return (
+  if (active) return (
     <div>
-      <button onClick={()=>{setActive(null);setRunning(false);clearInterval(intRef.current);}} style={{ background:"none",border:"none",color:C.textMid,fontSize:13,cursor:"pointer",marginBottom:14,display:"flex",alignItems:"center",gap:6 }}>← Back to Chants</button>
-      <div style={{ ...VS.glowCard(active.color), padding:22, textAlign:"center", marginBottom:14 }}>
-        <div style={VS.shimmerLine(active.color)} />
-        <div style={{ position:"absolute",top:-20,right:-20,width:100,height:100,borderRadius:"50%",background:`radial-gradient(circle,${active.color}22,transparent 65%)`,pointerEvents:"none" }} />
-        <div style={{ position:"relative" }}>
+      <button
+        onClick={() => {
+          setActive(null);
+          setRunning(false);
+          clearInterval(intRef.current);
+        }}
+        style={{
+          background: "none",
+          border: "none",
+          color: C.textMid,
+          fontSize: 13,
+          cursor: "pointer",
+          marginBottom: 18,
+          padding: 0,
+        }}
+      >
+        Back to Chant Vault
+      </button>
+      <div style={{ ...VS.glowCard(active.color), padding: 24, marginBottom: 18, position: "relative", overflow: "hidden" }}>
+        <div style={{ position: "absolute", top: -32, right: -32, width: 180, height: 180, borderRadius: "50%", background: `radial-gradient(circle, ${active.color}22, transparent 55%)`, pointerEvents: "none" }} />
+        <div style={{ position: "relative" }}>
           <Pill color={active.color} active small>{active.group}</Pill>
-          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:19, marginTop:12, marginBottom:6, letterSpacing:"-0.01em" }}>{active.title}</p>
-          <p style={{ fontSize:10.5, color: active.sourceType==="group_preset" ? C.mint : active.sourceType==="user_pasted" || active.sourceType==="user_submitted" ? C.gold : C.accent, marginBottom:8, fontFamily:"'Epilogue',sans-serif", fontWeight:700 }}>
-            {active.badgeLabel || active.trustLabel || (active.sourceType==="group_preset" ? "Backstage preset" : "Chant practice")}
+          <p style={{ fontFamily: "'Epilogue',sans-serif", fontWeight: 900, fontSize: 22, marginTop: 16, marginBottom: 8, letterSpacing: "-0.02em" }}>{active.title}</p>
+          <p style={{ fontSize: 11.5, color: active.sourceType === "group_preset" ? C.mint : active.sourceType === "user_pasted" || active.sourceType === "user_submitted" ? C.gold : C.accent, marginBottom: 10, fontFamily: "'Epilogue',sans-serif", fontWeight: 700 }}>
+            {active.badgeLabel || active.trustLabel || (active.sourceType === "group_preset" ? "Backstage preset" : "Chant practice")}
           </p>
-          {active.detail && <p style={{ fontSize:11, color:C.textMid, marginBottom:10 }}>{active.detail}</p>}
-          <p style={{ fontSize:11, color:C.textMid, marginBottom:16 }}>{active.lines.length} lines · {running?"Auto Practice active":"Ready to practice"}</p>
-
-          <div style={{ display:"flex", gap:6, justifyContent:"center", marginBottom:14, flexWrap:"wrap" }}>
-            {[
-              [showAll?"📍 Focus Mode":"👁 Show All Lines", ()=>setShowAll(s=>!s)],
-              [justSaved?"✓ Saved!":"💾 Save to My Chants", saveToMyChants],
-              [justMarked?"✓ Marked!":"✓ Mark Practiced", markPracticed],
-            ].map(([label,fn])=>(
-              <button key={label} className="tap" style={{ padding:"6px 12px", borderRadius:99, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, background:`${active.color}18`, border:`1px solid ${active.color}38`, color:active.color, cursor:"pointer" }} onClick={fn}>
-                {label}
-              </button>
-            ))}
+          {active.detail && <p style={{ fontSize: 11.5, color: C.textMid, marginBottom: 16 }}>{active.detail}</p>}
+          <p style={{ fontSize: 11.5, color: C.textMid, marginBottom: 20 }}>{active.lines.length} lines · {running ? "Auto practice active" : "Ready to practice"}</p>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18 }}>
+            <button
+              onClick={() => setShowAll((s) => !s)}
+              className="tap"
+              style={{ padding: "8px 14px", borderRadius: 99, fontSize: 11, fontFamily: "'Epilogue',sans-serif", fontWeight: 700, background: `${active.color}18`, border: `1px solid ${active.color}38`, color: active.color, cursor: "pointer" }}
+            >
+              {showAll ? "Focus mode" : "Show all lines"}
+            </button>
+            <button
+              onClick={saveToMyChants}
+              className="tap"
+              style={{ padding: "8px 14px", borderRadius: 99, fontSize: 11, fontFamily: "'Epilogue',sans-serif", fontWeight: 700, background: `${active.color}18`, border: `1px solid ${active.color}38`, color: active.color, cursor: "pointer" }}
+            >
+              {justSaved ? "Saved" : "Save to My Practice"}
+            </button>
+            <button
+              onClick={markPracticed}
+              className="tap"
+              style={{ padding: "8px 14px", borderRadius: 99, fontSize: 11, fontFamily: "'Epilogue',sans-serif", fontWeight: 700, background: `${active.color}18`, border: `1px solid ${active.color}38`, color: active.color, cursor: "pointer" }}
+            >
+              {justMarked ? "Marked" : "Mark practiced"}
+            </button>
           </div>
-
           {showAll ? (
-            <div style={{ display:"flex", flexDirection:"column", gap:7, marginBottom:14, textAlign:"left" }}>
-              {active.lines.map((line,i)=>(
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20, textAlign: "left" }}>
+              {active.lines.map((line, i) => (
                 <div key={i} style={{
-                  padding:"12px 16px", borderRadius:16,
-                  background:i===lineIdx&&running?`${active.color}22`:i<lineIdx&&running?`${active.color}0a`:C.surfaceHi,
-                  border:`1.5px solid ${i===lineIdx&&running?active.color:i<lineIdx&&running?`${active.color}28`:C.border}`,
-                  transition:"all .35s",
-                  fontFamily:"'Epilogue',sans-serif",
-                  fontWeight:i===lineIdx&&running?800:500,
-                  fontSize:i===lineIdx&&running?17:13,
-                  color:i===lineIdx&&running?active.color:i<lineIdx&&running?`${active.color}88`:C.text,
-                  boxShadow:i===lineIdx&&running?`0 0 18px ${active.color}28`:"none",
+                  padding: "14px 16px",
+                  borderRadius: 18,
+                  background: i === lineIdx && running ? `${active.color}22` : i < lineIdx && running ? `${active.color}0a` : C.surfaceHi,
+                  border: `1.5px solid ${i === lineIdx && running ? active.color : i < lineIdx && running ? `${active.color}28` : C.border}`,
+                  transition: "all .3s",
                 }}>
-                  <span style={{ marginRight:10, fontSize:10.5, color:i===lineIdx&&running?active.color:C.textDim, fontFamily:"'Epilogue',sans-serif", fontWeight:700 }}>#{i+1}</span>
-                  {line}
+                  <p style={{ margin: 0, fontFamily: "'Epilogue',sans-serif", fontWeight: i === lineIdx && running ? 800 : 600, fontSize: i === lineIdx && running ? 15 : 13, color: i === lineIdx && running ? active.color : C.text }}>{line}</p>
+                  <p style={{ margin: 0, marginTop: 6, fontSize: 10.5, color: i === lineIdx && running ? active.color : C.textDim }}>{`Line ${i + 1}`}</p>
                 </div>
               ))}
             </div>
           ) : (
-            <div style={{ padding:"28px 16px", borderRadius:16, background:`${active.color}18`, border:`1.5px solid ${active.color}44`, textAlign:"center", marginBottom:14 }}>
-              <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:22, color:active.color }}>{active.lines[lineIdx]}</p>
+            <div style={{ padding: "26px 18px", borderRadius: 18, background: `${active.color}18`, border: `1.5px solid ${active.color}44`, textAlign: "center", marginBottom: 20 }}>
+              <p style={{ margin: 0, fontFamily: "'Epilogue',sans-serif", fontWeight: 800, fontSize: 20, color: active.color }}>{active.lines[lineIdx]}</p>
             </div>
           )}
-
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:10, marginBottom:14 }}>
-            <button onClick={()=>stepLine(-1)} disabled={lineIdx===0} className="tap" style={{ padding:"6px 12px", borderRadius:99, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, background:C.surfaceHi, border:`1px solid ${C.border}`, color:lineIdx===0?C.textDim:C.text, cursor:lineIdx===0?"not-allowed":"pointer" }}>◀ Prev</button>
-            <span style={{ fontSize:11, color:C.textMid, minWidth:44, textAlign:"center" }}>{lineIdx+1} / {active.lines.length}</span>
-            <button onClick={()=>stepLine(1)} disabled={lineIdx===active.lines.length-1} className="tap" style={{ padding:"6px 12px", borderRadius:99, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, background:C.surfaceHi, border:`1px solid ${C.border}`, color:lineIdx===active.lines.length-1?C.textDim:C.text, cursor:lineIdx===active.lines.length-1?"not-allowed":"pointer" }}>Next ▶</button>
-            <button onClick={()=>setRepeatTick(t=>t+1)} className="tap" style={{ padding:"6px 12px", borderRadius:99, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, background:C.surfaceHi, border:`1px solid ${C.border}`, color:C.text, cursor:"pointer" }}>🔁 Repeat</button>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center", marginBottom: 18 }}>
+            <Btn small color={active.color} onClick={() => stepLine(-1)} disabled={lineIdx === 0}>Prev</Btn>
+            <span style={{ fontSize: 11.5, color: C.textMid, minWidth: 52, textAlign: "center" }}>{`${lineIdx + 1} / ${active.lines.length}`}</span>
+            <Btn small color={active.color} onClick={() => stepLine(1)} disabled={lineIdx === active.lines.length - 1}>Next</Btn>
+            <Btn small color={active.color} onClick={() => setRepeatTick((t) => t + 1)}>Repeat</Btn>
           </div>
-
-          <div style={{ display:"flex", gap:10 }}>
-            <Btn color={active.color} onClick={()=>setRunning(!running)} small style={{ flex:1 }}>{running?"⏸ Pause":"▶ Auto Practice"}</Btn>
-            <Btn ghost color={C.textMid} onClick={()=>{ clearInterval(intRef.current); setRunning(false); setLineIdx(0); }} small style={{ width:76,flex:"none" }}>Reset</Btn>
+          <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr auto", alignItems: "center" }}>
+            <Btn color={active.color} onClick={() => setRunning(!running)} small style={{ width: "100%" }}>{running ? "Pause practice" : "Auto practice"}</Btn>
+            <Btn ghost color={C.textMid} onClick={() => { clearInterval(intRef.current); setRunning(false); setLineIdx(0); }} small>Reset</Btn>
           </div>
         </div>
       </div>
-
-      <div style={{ ...VS.elevatedCard(C.gold), padding:"12px 14px" }}>
+      <div style={{ ...VS.elevatedCard(C.gold), padding: 16 }}>
         <div style={VS.innerGlow(C.gold)} />
-        <div style={{ position:"relative", display:"flex", gap:10, alignItems:"center" }}>
-          <span style={{ fontSize:20 }}>🎤</span>
+        <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 10 }}>
           <div>
-            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12.5, marginBottom:2 }}>Concert Mode</p>
-            <p style={{ fontSize:11, color:C.textMid }}>Save this chant to your concert prep — works offline on show day.</p>
+            <p style={{ margin: 0, fontFamily: "'Epilogue',sans-serif", fontWeight: 700, fontSize: 12.5 }}>Concert Mode</p>
+            <p style={{ margin: 0, marginTop: 4, fontSize: 11.5, color: C.textMid }}>Save this chant for offline concert prep and practice confidently.</p>
           </div>
         </div>
       </div>
@@ -15463,112 +15465,258 @@ function ChantVault() {
 
   return (
     <div>
-      <Input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search group or song..." style={{ marginBottom:14 }} />
-      <div style={{ background:C.surfaceHi, border:`1.5px solid ${C.borderHi}`, borderRadius:16, padding:14, marginBottom:16 }}>
-        <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13, marginBottom:6 }}>🎵 Chant Finder</p>
-        <p style={{ fontSize:11.5, color:C.textMid, marginBottom:0 }}>Verified chants only when Backstage has them. If nothing matches, you can paste a practice guide. Backstage will not guess chant lines.</p>
-      </div>
-
-      <div style={{ background:C.surface, border:`1.5px solid ${C.accent}33`, borderRadius:16, padding:14, marginBottom:12 }}>
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, marginBottom:8 }}>
-          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:13.5 }}>Group Chant Practice</p>
-          <Pill color={C.mint} small>Backstage preset</Pill>
-        </div>
-        <p style={{ fontSize:11.5, color:C.textMid, marginBottom:10 }}>{featuredGroupChant.practiceLabel}</p>
-        <div style={{ display:"flex", gap:10, alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
-          <div>
-            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13 }}>{featuredGroupChant.title}</p>
-            <p style={{ fontSize:11, color:C.textMid }}>{featuredGroupChant.detail}</p>
+      <div style={{ display: "grid", gap: 16, marginBottom: 20 }}>
+        <div style={{ background: C.surface, border: `1.5px solid ${C.borderHi}`, borderRadius: 24, padding: 24, position: "relative", overflow: "hidden" }}>
+          <div style={{ position: "absolute", top: -36, right: -36, width: 180, height: 180, borderRadius: "50%", background: `radial-gradient(circle, ${C.accent}18, transparent 55%)`, pointerEvents: "none" }} />
+          <p style={{ margin: 0, fontFamily: "'Epilogue',sans-serif", fontWeight: 900, fontSize: 24 }}>Chant Vault</p>
+          <p style={{ margin: 0, fontSize: 13.5, color: C.textMid, maxWidth: 560, lineHeight: 1.6, marginTop: 10 }}>
+            Practice group roll calls, verified song fanchants, and your own concert guides. Backstage will not guess chant lines.
+          </p>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 18 }}>
+            <Pill color={C.mint} small>Group Roll Call</Pill>
+            <Pill color={C.accent} small>Song Fanchants</Pill>
+            <Pill color={C.gold} small>My Practice</Pill>
           </div>
-          <button onClick={()=>openChant(featuredGroupChant)} className="tap" style={{ background:C.accent, border:"none", borderRadius:10, padding:"8px 12px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>Practice</button>
         </div>
-        <div style={{ fontSize:10.5, color:C.textMid, display:"flex", flexWrap:"wrap", gap:6 }}>
-          {featuredGroupChant.members.slice(0,6).map(member=><span key={member} style={{ padding:"3px 7px", borderRadius:99, background:C.surfaceHi }}>{member}</span>)}
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search group or song chant..."
+            style={{ flex: 1, minWidth: 0, marginBottom: 0 }}
+          />
+          {tabs.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => setTab(item.id)}
+              className="tap"
+              style={{
+                borderRadius: 999,
+                border: `1.5px solid ${tab === item.id ? C.accent : C.border}`,
+                background: tab === item.id ? C.accent : C.surface,
+                color: tab === item.id ? C.bg : C.text,
+                padding: "10px 14px",
+                fontSize: 12.5,
+                fontFamily: "'Epilogue',sans-serif",
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
         </div>
       </div>
-
-      <div style={{ background:C.surface, border:`1.5px solid ${C.gold}33`, borderRadius:16, padding:14, marginBottom:12 }}>
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, marginBottom:8 }}>
-          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:13.5 }}>Song Chant Finder</p>
-          <Pill color={C.gold} small>Verified or pasted</Pill>
-        </div>
-        <div style={{ display:"flex", gap:8, marginBottom:10 }}>
-          <input value={aiQuery} onChange={e=>setAiQuery(e.target.value)} placeholder="Try 'ATEEZ Bouncy' or 'BTS Dynamite'" style={{ flex:1, padding:"9px 12px", borderRadius:10, background:C.surfaceHi, border:`1.5px solid ${C.border}`, color:C.text, fontSize:12.5 }} onKeyDown={e=>e.key==="Enter"&&handleAi()} />
-          <button onClick={()=>handleAi()} disabled={aiStatus==="loading"||!aiQuery.trim()} style={{ background:C.accent, border:"none", borderRadius:10, padding:"0 14px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer", opacity:aiStatus==="loading"?0.6:1 }}>{aiStatus==="loading"?"...":"Search"}</button>
-        </div>
-        {aiStatus==="loading" && <p style={{ fontSize:11.5, color:C.textMid, marginBottom:8 }}>Looking for a verified chant match…</p>}
-        {aiStatus==="found" && aiData?.chant && (
-          <div style={{ background:C.surfaceHi, borderRadius:12, padding:12, marginBottom:8 }}>
-            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12.5 }}>{aiData.title}</p>
-            <p style={{ fontSize:11, color:C.textMid, marginTop:4 }}>{aiData.message}</p>
-            <button onClick={()=>openFoundChant(aiData)} className="tap" style={{ marginTop:8, background:C.accent, border:"none", borderRadius:10, padding:"8px 12px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>Open practice</button>
+      <div style={{ display: "grid", gap: 16 }}>
+        {tab === "group" && (
+          <div style={{ display: "grid", gap: 14 }}>
+            <div style={{ background: C.surface, border: `1.5px solid ${C.accent}33`, borderRadius: 20, padding: 20 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                <div>
+                  <p style={{ margin: 0, fontSize: 12.5, color: C.textMid }}>Backstage preset</p>
+                  <p style={{ margin: "8px 0 0", fontFamily: "'Epilogue',sans-serif", fontWeight: 800, fontSize: 16 }}>Group Roll Call</p>
+                </div>
+                <Pill color={selectedGroup.status === "preset" ? C.mint : C.gold} small>{selectedGroup.trustLabel}</Pill>
+              </div>
+              <p style={{ margin: "12px 0 0", fontSize: 11.5, color: C.textMid, lineHeight: 1.6 }}>{selectedGroup.detail}</p>
+              {selectedGroup.status === "preset" ? (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 16 }}>
+                  {selectedGroup.lines.slice(0, 4).map((line, index) => (
+                    <span key={index} style={{ padding: "8px 12px", borderRadius: 12, background: C.surfaceHi, fontSize: 11.5, color: C.text }}>{line}</span>
+                  ))}
+                </div>
+              ) : (
+                <p style={{ margin: "16px 0 0", fontSize: 11.5, color: C.textMid }}>{selectedGroup.practiceLabel}</p>
+              )}
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginTop: 18 }}>
+                <Btn
+                  color={selectedGroup.status === "preset" ? C.accent : C.textMid}
+                  onClick={() => selectedGroup.status === "preset" && openChant(selectedGroup)}
+                  small
+                  disabled={selectedGroup.status !== "preset"}
+                >
+                  Practice
+                </Btn>
+                <p style={{ margin: 0, fontSize: 11, color: C.textMid }}>Full-name chant format</p>
+              </div>
+            </div>
+            <div style={{ display: "grid", gap: 12 }}>
+              {filteredGroupChants.map((chant) => (
+                <div key={chant.id} style={{ background: C.surface, border: `1.5px solid ${C.border}`, borderRadius: 20, padding: 18 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                    <div style={{ minWidth: 0 }}>
+                      <p style={{ margin: 0, fontFamily: "'Epilogue',sans-serif", fontWeight: 700, fontSize: 14 }}>{chant.title}</p>
+                      <p style={{ margin: "8px 0 0", fontSize: 11.5, color: C.textMid, lineHeight: 1.6 }}>{chant.detail}</p>
+                    </div>
+                    <Pill color={chant.status === "preset" ? C.mint : C.gold} small>{chant.trustLabel}</Pill>
+                  </div>
+                  {chant.status === "preset" ? (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 14 }}>
+                      {chant.lines.slice(0, 3).map((line, index) => (
+                        <span key={index} style={{ padding: "7px 11px", borderRadius: 99, background: C.surfaceHi, fontSize: 11, color: C.text }}>{line}</span>
+                      ))}
+                    </div>
+                  ) : null}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginTop: 16 }}>
+                    <Btn
+                      color={chant.status === "preset" ? C.accent : C.textMid}
+                      onClick={() => chant.status === "preset" && openChant(chant)}
+                      small
+                      disabled={chant.status !== "preset"}
+                    >
+                      {chant.status === "preset" ? "Practice" : "Request this chant"}
+                    </Btn>
+                    <p style={{ margin: 0, fontSize: 10.5, color: C.textMid }}>{chant.namingNote}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
-        {aiStatus==="needs_song" && aiData && (
-          <div style={{ background:C.surfaceHi, borderRadius:12, padding:12, marginBottom:8 }}>
-            <p style={{ fontSize:11.5, color:C.text, lineHeight:1.6 }}>{aiData.message}</p>
-            {(aiData.chant?.searchSuggestions||[]).map(s=>(<button key={s} onClick={()=>handleAi(s)} className="tap" style={{ marginTop:7, marginRight:6, padding:"5px 10px", borderRadius:99, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, background:`${C.accent}14`, border:`1px solid ${C.accent}38`, color:C.accent, cursor:"pointer" }}>{s}</button>))}
+        {tab === "song" && (
+          <div style={{ display: "grid", gap: 14 }}>
+            <div style={{ background: C.surface, border: `1.5px solid ${C.borderHi}`, borderRadius: 20, padding: 20 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                <div style={{ minWidth: 0 }}>
+                  <p style={{ margin: 0, fontFamily: "'Epilogue',sans-serif", fontWeight: 800, fontSize: 16 }}>Song Fanchant Finder</p>
+                  <p style={{ margin: "8px 0 0", fontSize: 11.5, color: C.textMid, lineHeight: 1.6 }}>
+                    Search verified Backstage chants. If we do not have one yet, paste a guide to practice locally.
+                  </p>
+                </div>
+                <Pill color={C.accent} small>Verified library</Pill>
+              </div>
+            </div>
+            <div style={{ display: "grid", gap: 12 }}>
+              {hasLibraryMatch ? (
+                filteredLibraryChants.map((chant) => (
+                  <div key={chant.id} style={{ background: C.surface, border: `1.5px solid ${C.border}`, borderRadius: 20, padding: 18 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
+                      <div style={{ minWidth: 0 }}>
+                        <p style={{ margin: 0, fontFamily: "'Epilogue',sans-serif", fontWeight: 700, fontSize: 14 }}>{chant.title}</p>
+                        <p style={{ margin: "8px 0 0", fontSize: 11.5, color: C.textMid }}>{chant.group}</p>
+                      </div>
+                      <Pill color={C.accent} small>{chant.trustLabel}</Pill>
+                    </div>
+                    <div style={{ marginTop: 14, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+                      <button
+                        onClick={() => openChant(chant)}
+                        className="tap"
+                        style={{ background: C.accent, border: "none", borderRadius: 10, padding: "9px 14px", color: C.bg, fontFamily: "'Epilogue',sans-serif", fontWeight: 700, fontSize: 11, cursor: "pointer" }}
+                      >
+                        Open practice
+                      </button>
+                      <p style={{ margin: 0, fontSize: 10.5, color: C.textMid }}>{chant.lines.length} lines</p>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div style={{ background: C.surface, border: `1.5px solid ${C.border}`, borderRadius: 20, padding: 18 }}>
+                  <p style={{ margin: 0, fontFamily: "'Epilogue',sans-serif", fontWeight: 700, fontSize: 14 }}>No verified chant matches right now.</p>
+                  <p style={{ margin: "8px 0 0", fontSize: 11.5, color: C.textMid, lineHeight: 1.6 }}>
+                    Paste your own guide to keep practicing until Backstage adds the chant to the library.
+                  </p>
+                </div>
+              )}
+            </div>
+            <div style={{ background: C.surface, border: `1.5px solid ${C.border}`, borderRadius: 20, padding: 18 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <div style={{ minWidth: 0 }}>
+                  <p style={{ margin: 0, fontFamily: "'Epilogue',sans-serif", fontWeight: 800, fontSize: 14 }}>Paste your own guide</p>
+                  <p style={{ margin: "8px 0 0", fontSize: 11.5, color: C.textMid, lineHeight: 1.6 }}>
+                    User-pasted chants are stored locally and labeled as unverified.
+                  </p>
+                </div>
+                <Btn ghost color={C.accent} small onClick={() => setShowPastePanel((s) => !s)}>
+                  {showPastePanel ? "Hide guide" : "Show paste panel"}
+                </Btn>
+              </div>
+              {showPastePanel && (
+                <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
+                  <input
+                    value={pasteGroup}
+                    onChange={(e) => setPasteGroup(e.target.value)}
+                    placeholder="Group"
+                    style={{ width: "100%", boxSizing: "border-box", padding: "11px 14px", borderRadius: 14, background: C.surfaceHi, border: `1.5px solid ${C.border}`, color: C.text, fontSize: 13 }}
+                  />
+                  <input
+                    value={pasteSong}
+                    onChange={(e) => setPasteSong(e.target.value)}
+                    placeholder="Song"
+                    style={{ width: "100%", boxSizing: "border-box", padding: "11px 14px", borderRadius: 14, background: C.surfaceHi, border: `1.5px solid ${C.border}`, color: C.text, fontSize: 13 }}
+                  />
+                  <textarea
+                    value={pasteText}
+                    onChange={(e) => setPasteText(e.target.value)}
+                    placeholder={"Paste chant lines, one per line\nKim Namjoon\nKim Seokjin\nMin Yoongi"}
+                    rows={4}
+                    style={{ width: "100%", boxSizing: "border-box", padding: "11px 14px", borderRadius: 14, background: C.surfaceHi, border: `1.5px solid ${C.border}`, color: C.text, fontSize: 13, fontFamily: "'Instrument Sans',sans-serif", resize: "vertical" }}
+                  />
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    <Btn
+                      small
+                      color={C.gold}
+                      onClick={openPastedChant}
+                      disabled={!pasteGroup.trim() || !pasteSong.trim() || !pasteText.trim()}
+                    >
+                      Create practice guide
+                    </Btn>
+                    <button
+                      onClick={() => setShowPastePanel(false)}
+                      className="tap"
+                      style={{ padding: "9px 14px", borderRadius: 14, border: `1.5px solid ${C.border}`, background: C.surface, color: C.text, cursor: "pointer", fontSize: 12, fontWeight: 700 }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
-        {aiStatus==="not_found" && aiData && (
-          <div style={{ background:C.surfaceHi, borderRadius:12, padding:12, marginBottom:8 }}>
-            <p style={{ fontSize:11.5, color:C.text, lineHeight:1.6, marginBottom:8 }}>{aiData.message}</p>
-            <textarea value={pasteText} onChange={e=>setPasteText(e.target.value)} placeholder={"Paste chant lines to practice\nJin!\nSuga!"} rows={4} style={{ width:"100%", boxSizing:"border-box", padding:"9px 12px", borderRadius:10, background:C.surface, border:`1.5px solid ${C.border}`, color:C.text, fontSize:12, fontFamily:"'Instrument Sans',sans-serif", resize:"vertical", marginBottom:8 }} />
-            <Btn small color={C.gold} onClick={openPastedChant}>Create practice guide</Btn>
+        {tab === "practice" && (
+          <div style={{ display: "grid", gap: 14 }}>
+            <div style={{ background: C.surface, border: `1.5px solid ${C.borderHi}`, borderRadius: 20, padding: 20 }}>
+              <p style={{ margin: 0, fontFamily: "'Epilogue',sans-serif", fontWeight: 800, fontSize: 16 }}>My Practice</p>
+              <p style={{ margin: "8px 0 0", fontSize: 11.5, color: C.textMid, lineHeight: 1.6 }}>
+                Saved chants and recent practice sessions are stored locally for quick concert preparation.
+              </p>
+            </div>
+            <div style={{ background: C.surface, border: `1.5px solid ${C.border}`, borderRadius: 20, padding: 18 }}>
+              <p style={{ margin: 0, fontFamily: "'Epilogue',sans-serif", fontWeight: 700, fontSize: 14 }}>Saved chants</p>
+              {savedChants.length > 0 ? (
+                <div style={{ display: "grid", gap: 10, marginTop: 14 }}>
+                  {savedChants.slice(-4).reverse().map((chant) => (
+                    <div key={chant.id} onClick={() => openChant(chant)} className="tap" style={{ background: C.surfaceHi, borderRadius: 18, padding: 14, cursor: "pointer" }}>
+                      <p style={{ margin: 0, fontFamily: "'Epilogue',sans-serif", fontWeight: 700, fontSize: 13 }}>{chant.title}</p>
+                      <p style={{ margin: "8px 0 0", fontSize: 11, color: C.textMid }}>{chant.group}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p style={{ marginTop: 12, fontSize: 11.5, color: C.textMid }}>Save a chant from Group Roll Call or Song Fanchants to keep it handy for concert day.</p>
+              )}
+            </div>
+            <div style={{ background: C.surface, border: `1.5px solid ${C.border}`, borderRadius: 20, padding: 18 }}>
+              <p style={{ margin: 0, fontFamily: "'Epilogue',sans-serif", fontWeight: 700, fontSize: 14 }}>Recent practice</p>
+              {recentPractice.length > 0 ? (
+                <div style={{ display: "grid", gap: 10, marginTop: 14 }}>
+                  {recentPractice.map((entry) => (
+                    <div key={entry.id} style={{ background: C.surfaceHi, borderRadius: 18, padding: 14 }}>
+                      <p style={{ margin: 0, fontFamily: "'Epilogue',sans-serif", fontWeight: 700, fontSize: 13 }}>{entry.title}</p>
+                      <p style={{ margin: "8px 0 0", fontSize: 11, color: C.textMid }}>{entry.group}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p style={{ marginTop: 12, fontSize: 11.5, color: C.textMid }}>Mark chants practiced while reviewing them to build a local history.</p>
+              )}
+            </div>
           </div>
         )}
-        {aiStatus==="error" && <p style={{ fontSize:11.5, color:C.textMid, marginBottom:8 }}>Chant lookup is temporarily unavailable. Try again in a moment.</p>}
-        <p style={{ fontSize:10.5, color:C.textMid, marginTop:4 }}>Group chant = preset member order · Song fanchant = song-specific, verified or user-pasted.</p>
-      </div>
-
-      <div style={{ background:C.surface, border:`1.5px solid ${C.border}`, borderRadius:16, padding:14, marginBottom:12 }}>
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, marginBottom:8 }}>
-          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:13.5 }}>Verified chants in Backstage</p>
-          <Pill color={C.accent} small>Library</Pill>
-        </div>
-        {filteredLibraryChants.length > 0 ? filteredLibraryChants.map(c=>(
-          <div key={c.id} onClick={()=>openChant(c)} className="tap" style={{ background:C.surfaceHi, borderRadius:12, padding:10, marginBottom:8 }}>
-            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12.5 }}>{c.title}</p>
-            <p style={{ fontSize:10.5, color:C.textMid, marginTop:3 }}>{c.group}</p>
-          </div>
-        )) : <p style={{ fontSize:11.5, color:C.textMid }}>No verified chant matches right now.</p>}
-      </div>
-
-      <div style={{ background:C.surface, border:`1.5px solid ${C.border}`, borderRadius:16, padding:14, marginBottom:12 }}>
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, marginBottom:8 }}>
-          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:13.5 }}>Preview community fanchants</p>
-          <Pill color={C.gold} small>Coming soon</Pill>
-        </div>
-        {filteredPreviewFanchants.length > 0 ? filteredPreviewFanchants.map(c=>(
-          <div key={c.id} onClick={()=>openChant(c)} className="tap" style={{ background:C.surfaceHi, borderRadius:12, padding:10, marginBottom:8 }}>
-            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12.5 }}>{c.title}</p>
-            <p style={{ fontSize:10.5, color:C.textMid, marginTop:3 }}>{c.detail}</p>
-          </div>
-        )) : <p style={{ fontSize:11.5, color:C.textMid }}>Community fanchants are a preview-only local placeholder right now.</p>}
-      </div>
-
-      <div style={{ background:C.surface, border:`1.5px solid ${C.border}`, borderRadius:16, padding:14, marginBottom:12 }}>
-        <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:13.5, marginBottom:8 }}>My Saved Chants</p>
-        {savedChants.length > 0 ? savedChants.slice(-3).reverse().map(c=>(
-          <div key={c.id} onClick={()=>openChant(c)} className="tap" style={{ background:C.surfaceHi, borderRadius:12, padding:10, marginBottom:8 }}>
-            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12.5 }}>{c.title}</p>
-            <p style={{ fontSize:10.5, color:C.textMid }}>{c.group}</p>
-          </div>
-        )) : <p style={{ fontSize:11.5, color:C.textMid }}>Save a chant to keep it handy for concert day.</p>}
-      </div>
-
-      <div style={{ background:C.surface, border:`1.5px solid ${C.border}`, borderRadius:16, padding:14 }}>
-        <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:13.5, marginBottom:8 }}>Paste your own practice guide</p>
-        <p style={{ fontSize:11.5, color:C.textMid, marginBottom:10 }}>Preview only — local practice guide for now. Submit + rate chant guides coming soon.</p>
-        <input value={draftGroup} onChange={e=>setDraftGroup(e.target.value)} placeholder="Group" style={{ width:"100%", boxSizing:"border-box", padding:"9px 12px", borderRadius:10, background:C.surfaceHi, border:`1.5px solid ${C.border}`, color:C.text, fontSize:12.5, marginBottom:8 }} />
-        <input value={draftSong} onChange={e=>setDraftSong(e.target.value)} placeholder="Song" style={{ width:"100%", boxSizing:"border-box", padding:"9px 12px", borderRadius:10, background:C.surfaceHi, border:`1.5px solid ${C.border}`, color:C.text, fontSize:12.5, marginBottom:8 }} />
-        <textarea value={draftText} onChange={e=>setDraftText(e.target.value)} placeholder={"Paste chant lines, one per line\nHongjoong!\nSeonghwa!\nYunho!"} rows={4} style={{ width:"100%", boxSizing:"border-box", padding:"9px 12px", borderRadius:10, background:C.surfaceHi, border:`1.5px solid ${C.border}`, color:C.text, fontSize:12, fontFamily:"'Instrument Sans',sans-serif", resize:"vertical", marginBottom:8 }} />
-        <Btn small color={C.gold} onClick={submitDraft}>Save local practice guide</Btn>
       </div>
     </div>
   );
 }
-
 function EraBoard() {
   const ERAS = [
     { group:"BTS", eras:["BE","Map of the Soul","MOTS:7","Love Yourself","Wings","HYYH","GOLDEN"] },
