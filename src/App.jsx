@@ -13254,7 +13254,10 @@ function ExploreTab({ user, go, onViewProfile }) {
   (announcements||[]).slice(0,3).forEach(a => feedItems.push({ kind:"announcement", key:`ann-${a.id}`, data:a }));
   capsuleEntries.slice(0,4).forEach(e => feedItems.push({ kind:"capsule", key:`cap-${e.id}`, data:e }));
   trades.slice(0,4).forEach(t => feedItems.push({ kind:"trade", key:`trade-${t.id}`, data:t }));
-  MOCK_PASSES.slice(0,4).forEach(ps => feedItems.push({ kind:"pass", key:`pass-${ps.id}`, data:ps }));
+  // Real user-created passes surface first; mock/preview passes only fill in
+  // when there aren't enough real ones yet — same "backstage_passes" key the
+  // full Backstage Passes page reads/writes.
+  ls.get("backstage_passes", MOCK_PASSES).slice(0,4).forEach(ps => feedItems.push({ kind:"pass", key:`pass-${ps.id}`, data:ps }));
   discoverFans.slice(0,4).forEach(f => feedItems.push({ kind:"fan", key:`fan-${f.id}`, data:f }));
   // Every upcoming show reaches the feed now, not just one — see heroShowKey above.
   upcomingShows.forEach(s => feedItems.push({ kind:"show", key:`show-${s.id}`, data:s }));
@@ -15049,7 +15052,8 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
         </div>
 
         {/* Posts — translucent glass panels over the cosmic backdrop */}
-        {sortedPosts.map(p=>(
+        {(() => {
+          const renderPost = (p) => (
           <div key={p.id} style={{ position:"relative", overflow:"hidden", background:C.feedCard, border:`1px solid ${C.feedCardBorder}`, borderRadius:18, padding:"12px 14px", marginBottom:10, boxShadow:C.feedCardShadow, backdropFilter:"blur(14px)", animation:"up .3s ease" }}>
             {/* Inner top highlight — the "polished edge" */}
             <div style={{ position:"absolute", top:0, left:14, right:14, height:1, background:"linear-gradient(90deg,transparent,rgba(214,189,255,0.35),transparent)", pointerEvents:"none" }} />
@@ -15111,7 +15115,25 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
               </div>
             )}
           </div>
-        ))}
+          );
+          // Real Backstage Passes surface as 1-2 lightweight story-style cards
+          // interlaced a few posts into the feed — never at the very top.
+          const feedPasses = ls.get("backstage_passes", MOCK_PASSES).slice(0, 2);
+          const splitAt = Math.min(3, sortedPosts.length);
+          return (
+            <>
+              {sortedPosts.slice(0, splitAt).map(renderPost)}
+              {feedPasses.length > 0 && sortedPosts.length > 0 && (
+                <div style={{ marginBottom:10 }}>
+                  {feedPasses.map(ps=>(
+                    <PassPreviewCard key={`pass-${ps.id}`} pass={ps} variant="feed" onOpen={()=>go?.("passes")} />
+                  ))}
+                </div>
+              )}
+              {sortedPosts.slice(splitAt).map(renderPost)}
+            </>
+          );
+        })()}
 
         {sortedPosts.length===0&&<Empty emoji="📱" title="Nothing posted yet" sub="Be the first to share something with the Fanverse." action="+ Post Now" onAction={()=>setComposing(true)} />}
       </Screen>
