@@ -1,0 +1,7 @@
+export const MOCK_INVENTORY = [
+  { id:"inv1", type:"photocard", group:"Stray Kids", member:"Felix", era:"MAXIDENT", rarity:"UR", condition:"mint", source:"album pull", purchasePrice:0, estimatedValue:45, duplicateCount:2, tradeable:true, status:"have", tags:["ult","duplicate"], acquiredDate:"2023-10-01", notes:"From sealed album, pulled twice!" },
+  { id:"inv2", type:"album", group:"BTS", member:null, era:"GOLDEN", rarity:null, condition:"sealed", source:"Target", purchasePrice:22, estimatedValue:28, duplicateCount:1, tradeable:false, status:"have", tags:["sealed"], acquiredDate:"2023-11-03", notes:"Still sealed, keeping it" },
+  { id:"inv3", type:"lightstick", group:"BTS", member:null, era:"Map of the Soul", rarity:null, condition:"good", source:"concert merch", purchasePrice:55, estimatedValue:40, duplicateCount:1, tradeable:false, status:"have", tags:["used at shows"], acquiredDate:"2021-11-27", notes:"BTS PTD Tour purchase" },
+  { id:"inv4", type:"photocard", group:"aespa", member:"Karina", era:"MY WORLD", rarity:"UR", condition:"mint", source:"trade", purchasePrice:0, estimatedValue:60, duplicateCount:1, tradeable:false, status:"have", tags:["ult","special"], acquiredDate:"2023-07-10", notes:"Got from @mia_stays trade — so happy" },
+  { id:"inv5", type:"merch", group:"Stray Kids", member:null, era:"5-STAR", rarity:null, condition:"opened", source:"concert merch", purchasePrice:35, estimatedValue:35, duplicateCount:1, tradeable:false, status:"have", tags:["hoodie"], acquiredDate:"2023-07-30", notes:"Official concert hoodie" },
+];

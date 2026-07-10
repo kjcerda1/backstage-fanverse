@@ -9,6 +9,12 @@ import {
   cosmicCard, vipCard, emptyStateStyle, SectionHeader, ProgressBar, RingProgress, Toggle,
   BackstageBIcon, BackstageBNavIcon, Empty, NotifBanner, WeatherChip,
 } from "./components/primitives.jsx";
+import { ALL_GROUPS, KPOP_BIAS_CATALOG, searchBiasCatalog } from "./data/mockGroups.js";
+import { CITY_LIST, makeCityKey, makeCityDisplay, makeCityFull } from "./data/cityList.js";
+import { MOCK_VENUE_TIPS_DEFAULT } from "./data/mockVenues.js";
+import { MOCK_SETLISTS } from "./data/mockConcerts.js";
+import { MOCK_BADGES } from "./data/mockBadges.js";
+import { MOCK_INVENTORY } from "./data/mockCollections.js";
 
 // ─── PRODUCTION IMPORTS ───────────────────────────────────────────────────────
 // Supabase client — see lib/supabase.js
@@ -1815,276 +1821,6 @@ function VipTutorialModal({ onDone, onNavigate }) {
 }
 
 // ─── MOCK DATA ─────────────────────────────────────────────────────────────────
-const ALL_GROUPS = ["BTS","Stray Kids","NewJeans","aespa","BLACKPINK","TXT","ENHYPEN","IVE","LE SSERAFIM","ITZY","NCT Dream","NCT 127","EXO","SHINee","GOT7","SEVENTEEN","ATEEZ","Red Velvet","TWICE","Kep1er","NMIXX","RIIZE","ZEROBASEONE","BABYMONSTER","BOYNEXTDOOR"];
-
-// ─── CITY LIST — global-ready normalized location data ────────────────────────
-// Each entry: city, region (full), region_code (short/empty), country (full),
-//   country_code (ISO-2), continent, lat, lng, timezone (IANA)
-// Used for: autocomplete, Fan Hubs, local discovery, future continent/country drill-down.
-// NEVER store or expose exact GPS — city-level only.
-const CITY_LIST = [
-  // ── North America › United States ───────────────────────────────────────────
-  {city:"New York",       region:"New York",      region_code:"NY", country:"United States", country_code:"US", continent:"North America", lat:40.71,  lng:-74.01,  timezone:"America/New_York"},
-  {city:"Los Angeles",    region:"California",    region_code:"CA", country:"United States", country_code:"US", continent:"North America", lat:34.05,  lng:-118.24, timezone:"America/Los_Angeles"},
-  {city:"Chicago",        region:"Illinois",      region_code:"IL", country:"United States", country_code:"US", continent:"North America", lat:41.88,  lng:-87.63,  timezone:"America/Chicago"},
-  {city:"Houston",        region:"Texas",         region_code:"TX", country:"United States", country_code:"US", continent:"North America", lat:29.76,  lng:-95.37,  timezone:"America/Chicago"},
-  {city:"Dallas",         region:"Texas",         region_code:"TX", country:"United States", country_code:"US", continent:"North America", lat:32.78,  lng:-96.80,  timezone:"America/Chicago"},
-  {city:"San Antonio",    region:"Texas",         region_code:"TX", country:"United States", country_code:"US", continent:"North America", lat:29.42,  lng:-98.49,  timezone:"America/Chicago"},
-  {city:"Austin",         region:"Texas",         region_code:"TX", country:"United States", country_code:"US", continent:"North America", lat:30.27,  lng:-97.74,  timezone:"America/Chicago"},
-  {city:"Atlanta",        region:"Georgia",       region_code:"GA", country:"United States", country_code:"US", continent:"North America", lat:33.75,  lng:-84.39,  timezone:"America/New_York"},
-  {city:"Miami",          region:"Florida",       region_code:"FL", country:"United States", country_code:"US", continent:"North America", lat:25.77,  lng:-80.19,  timezone:"America/New_York"},
-  {city:"Orlando",        region:"Florida",       region_code:"FL", country:"United States", country_code:"US", continent:"North America", lat:28.54,  lng:-81.38,  timezone:"America/New_York"},
-  {city:"Tampa",          region:"Florida",       region_code:"FL", country:"United States", country_code:"US", continent:"North America", lat:27.95,  lng:-82.46,  timezone:"America/New_York"},
-  {city:"Washington",     region:"District of Columbia", region_code:"DC", country:"United States", country_code:"US", continent:"North America", lat:38.91, lng:-77.04, timezone:"America/New_York"},
-  {city:"Philadelphia",   region:"Pennsylvania",  region_code:"PA", country:"United States", country_code:"US", continent:"North America", lat:39.95,  lng:-75.17,  timezone:"America/New_York"},
-  {city:"Boston",         region:"Massachusetts", region_code:"MA", country:"United States", country_code:"US", continent:"North America", lat:42.36,  lng:-71.06,  timezone:"America/New_York"},
-  {city:"Seattle",        region:"Washington",    region_code:"WA", country:"United States", country_code:"US", continent:"North America", lat:47.61,  lng:-122.33, timezone:"America/Los_Angeles"},
-  {city:"San Francisco",  region:"California",    region_code:"CA", country:"United States", country_code:"US", continent:"North America", lat:37.77,  lng:-122.42, timezone:"America/Los_Angeles"},
-  {city:"San Jose",       region:"California",    region_code:"CA", country:"United States", country_code:"US", continent:"North America", lat:37.34,  lng:-121.89, timezone:"America/Los_Angeles"},
-  {city:"San Diego",      region:"California",    region_code:"CA", country:"United States", country_code:"US", continent:"North America", lat:32.72,  lng:-117.16, timezone:"America/Los_Angeles"},
-  {city:"Sacramento",     region:"California",    region_code:"CA", country:"United States", country_code:"US", continent:"North America", lat:38.58,  lng:-121.49, timezone:"America/Los_Angeles"},
-  {city:"Las Vegas",      region:"Nevada",        region_code:"NV", country:"United States", country_code:"US", continent:"North America", lat:36.17,  lng:-115.14, timezone:"America/Los_Angeles"},
-  {city:"Phoenix",        region:"Arizona",       region_code:"AZ", country:"United States", country_code:"US", continent:"North America", lat:33.45,  lng:-112.07, timezone:"America/Phoenix"},
-  {city:"Tucson",         region:"Arizona",       region_code:"AZ", country:"United States", country_code:"US", continent:"North America", lat:32.22,  lng:-110.93, timezone:"America/Phoenix"},
-  {city:"Denver",         region:"Colorado",      region_code:"CO", country:"United States", country_code:"US", continent:"North America", lat:39.74,  lng:-104.99, timezone:"America/Denver"},
-  {city:"Salt Lake City", region:"Utah",          region_code:"UT", country:"United States", country_code:"US", continent:"North America", lat:40.76,  lng:-111.89, timezone:"America/Denver"},
-  {city:"Portland",       region:"Oregon",        region_code:"OR", country:"United States", country_code:"US", continent:"North America", lat:45.52,  lng:-122.68, timezone:"America/Los_Angeles"},
-  {city:"Minneapolis",    region:"Minnesota",     region_code:"MN", country:"United States", country_code:"US", continent:"North America", lat:44.98,  lng:-93.27,  timezone:"America/Chicago"},
-  {city:"Kansas City",    region:"Missouri",      region_code:"MO", country:"United States", country_code:"US", continent:"North America", lat:39.10,  lng:-94.58,  timezone:"America/Chicago"},
-  {city:"St. Louis",      region:"Missouri",      region_code:"MO", country:"United States", country_code:"US", continent:"North America", lat:38.63,  lng:-90.20,  timezone:"America/Chicago"},
-  {city:"Nashville",      region:"Tennessee",     region_code:"TN", country:"United States", country_code:"US", continent:"North America", lat:36.17,  lng:-86.78,  timezone:"America/Chicago"},
-  {city:"Memphis",        region:"Tennessee",     region_code:"TN", country:"United States", country_code:"US", continent:"North America", lat:35.15,  lng:-90.05,  timezone:"America/Chicago"},
-  {city:"New Orleans",    region:"Louisiana",     region_code:"LA", country:"United States", country_code:"US", continent:"North America", lat:29.95,  lng:-90.07,  timezone:"America/Chicago"},
-  {city:"Indianapolis",   region:"Indiana",       region_code:"IN", country:"United States", country_code:"US", continent:"North America", lat:39.77,  lng:-86.16,  timezone:"America/Indiana/Indianapolis"},
-  {city:"Columbus",       region:"Ohio",          region_code:"OH", country:"United States", country_code:"US", continent:"North America", lat:39.96,  lng:-82.99,  timezone:"America/New_York"},
-  {city:"Detroit",        region:"Michigan",      region_code:"MI", country:"United States", country_code:"US", continent:"North America", lat:42.33,  lng:-83.05,  timezone:"America/Detroit"},
-  {city:"Pittsburgh",     region:"Pennsylvania",  region_code:"PA", country:"United States", country_code:"US", continent:"North America", lat:40.44,  lng:-79.99,  timezone:"America/New_York"},
-  {city:"Baltimore",      region:"Maryland",      region_code:"MD", country:"United States", country_code:"US", continent:"North America", lat:39.29,  lng:-76.61,  timezone:"America/New_York"},
-  {city:"Charlotte",      region:"North Carolina",region_code:"NC", country:"United States", country_code:"US", continent:"North America", lat:35.23,  lng:-80.84,  timezone:"America/New_York"},
-  {city:"Raleigh",        region:"North Carolina",region_code:"NC", country:"United States", country_code:"US", continent:"North America", lat:35.78,  lng:-78.64,  timezone:"America/New_York"},
-  {city:"Richmond",       region:"Virginia",      region_code:"VA", country:"United States", country_code:"US", continent:"North America", lat:37.54,  lng:-77.43,  timezone:"America/New_York"},
-  {city:"Honolulu",       region:"Hawaii",        region_code:"HI", country:"United States", country_code:"US", continent:"North America", lat:21.31,  lng:-157.86, timezone:"Pacific/Honolulu"},
-  // ── North America › Canada ───────────────────────────────────────────────────
-  {city:"Toronto",        region:"Ontario",       region_code:"ON", country:"Canada",         country_code:"CA", continent:"North America", lat:43.65,  lng:-79.38,  timezone:"America/Toronto"},
-  {city:"Vancouver",      region:"British Columbia", region_code:"BC", country:"Canada",      country_code:"CA", continent:"North America", lat:49.28,  lng:-123.12, timezone:"America/Vancouver"},
-  {city:"Montreal",       region:"Quebec",        region_code:"QC", country:"Canada",         country_code:"CA", continent:"North America", lat:45.51,  lng:-73.56,  timezone:"America/Toronto"},
-  // ── North America › Mexico ───────────────────────────────────────────────────
-  {city:"Mexico City",    region:"",              region_code:"",   country:"Mexico",          country_code:"MX", continent:"North America", lat:19.43,  lng:-99.13,  timezone:"America/Mexico_City"},
-  {city:"Monterrey",      region:"",              region_code:"",   country:"Mexico",          country_code:"MX", continent:"North America", lat:25.67,  lng:-100.31, timezone:"America/Monterrey"},
-  {city:"Guadalajara",    region:"",              region_code:"",   country:"Mexico",          country_code:"MX", continent:"North America", lat:20.66,  lng:-103.35, timezone:"America/Mexico_City"},
-  // ── Asia › South Korea ───────────────────────────────────────────────────────
-  {city:"Seoul",          region:"",              region_code:"",   country:"South Korea",     country_code:"KR", continent:"Asia",          lat:37.57,  lng:126.98,  timezone:"Asia/Seoul"},
-  {city:"Busan",          region:"",              region_code:"",   country:"South Korea",     country_code:"KR", continent:"Asia",          lat:35.18,  lng:129.08,  timezone:"Asia/Seoul"},
-  {city:"Incheon",        region:"",              region_code:"",   country:"South Korea",     country_code:"KR", continent:"Asia",          lat:37.46,  lng:126.71,  timezone:"Asia/Seoul"},
-  // ── Asia › Japan ─────────────────────────────────────────────────────────────
-  {city:"Tokyo",          region:"",              region_code:"",   country:"Japan",           country_code:"JP", continent:"Asia",          lat:35.68,  lng:139.69,  timezone:"Asia/Tokyo"},
-  {city:"Osaka",          region:"",              region_code:"",   country:"Japan",           country_code:"JP", continent:"Asia",          lat:34.69,  lng:135.50,  timezone:"Asia/Tokyo"},
-  {city:"Yokohama",       region:"",              region_code:"",   country:"Japan",           country_code:"JP", continent:"Asia",          lat:35.44,  lng:139.64,  timezone:"Asia/Tokyo"},
-  {city:"Nagoya",         region:"",              region_code:"",   country:"Japan",           country_code:"JP", continent:"Asia",          lat:35.18,  lng:136.91,  timezone:"Asia/Tokyo"},
-  {city:"Fukuoka",        region:"",              region_code:"",   country:"Japan",           country_code:"JP", continent:"Asia",          lat:33.59,  lng:130.40,  timezone:"Asia/Tokyo"},
-  // ── Asia › Southeast Asia ────────────────────────────────────────────────────
-  {city:"Manila",         region:"",              region_code:"",   country:"Philippines",     country_code:"PH", continent:"Asia",          lat:14.60,  lng:120.98,  timezone:"Asia/Manila"},
-  {city:"Bangkok",        region:"",              region_code:"",   country:"Thailand",        country_code:"TH", continent:"Asia",          lat:13.75,  lng:100.50,  timezone:"Asia/Bangkok"},
-  {city:"Singapore",      region:"",              region_code:"",   country:"Singapore",       country_code:"SG", continent:"Asia",          lat:1.35,   lng:103.82,  timezone:"Asia/Singapore"},
-  {city:"Jakarta",        region:"",              region_code:"",   country:"Indonesia",       country_code:"ID", continent:"Asia",          lat:-6.21,  lng:106.85,  timezone:"Asia/Jakarta"},
-  {city:"Taipei",         region:"",              region_code:"",   country:"Taiwan",          country_code:"TW", continent:"Asia",          lat:25.05,  lng:121.53,  timezone:"Asia/Taipei"},
-  {city:"Hong Kong",      region:"",              region_code:"",   country:"Hong Kong",       country_code:"HK", continent:"Asia",          lat:22.32,  lng:114.17,  timezone:"Asia/Hong_Kong"},
-  // ── Europe ────────────────────────────────────────────────────────────────────
-  {city:"London",         region:"",              region_code:"",   country:"United Kingdom",  country_code:"GB", continent:"Europe",        lat:51.51,  lng:-0.13,   timezone:"Europe/London"},
-  {city:"Paris",          region:"",              region_code:"",   country:"France",          country_code:"FR", continent:"Europe",        lat:48.86,  lng:2.35,    timezone:"Europe/Paris"},
-  {city:"Berlin",         region:"",              region_code:"",   country:"Germany",         country_code:"DE", continent:"Europe",        lat:52.52,  lng:13.41,   timezone:"Europe/Berlin"},
-  {city:"Madrid",         region:"",              region_code:"",   country:"Spain",           country_code:"ES", continent:"Europe",        lat:40.42,  lng:-3.70,   timezone:"Europe/Madrid"},
-  {city:"Amsterdam",      region:"",              region_code:"",   country:"Netherlands",     country_code:"NL", continent:"Europe",        lat:52.37,  lng:4.90,    timezone:"Europe/Amsterdam"},
-  {city:"Milan",          region:"",              region_code:"",   country:"Italy",           country_code:"IT", continent:"Europe",        lat:45.46,  lng:9.19,    timezone:"Europe/Rome"},
-  // ── Oceania ───────────────────────────────────────────────────────────────────
-  {city:"Sydney",         region:"New South Wales", region_code:"NSW", country:"Australia",   country_code:"AU", continent:"Oceania",       lat:-33.87, lng:151.21,  timezone:"Australia/Sydney"},
-  {city:"Melbourne",      region:"Victoria",      region_code:"VIC", country:"Australia",     country_code:"AU", continent:"Oceania",       lat:-37.81, lng:144.96,  timezone:"Australia/Melbourne"},
-  // ── South America ────────────────────────────────────────────────────────────
-  {city:"São Paulo",      region:"São Paulo",     region_code:"SP", country:"Brazil",          country_code:"BR", continent:"South America", lat:-23.55, lng:-46.63,  timezone:"America/Sao_Paulo"},
-  {city:"Rio de Janeiro", region:"Rio de Janeiro",region_code:"RJ", country:"Brazil",          country_code:"BR", continent:"South America", lat:-22.91, lng:-43.17,  timezone:"America/Sao_Paulo"},
-  {city:"Buenos Aires",   region:"",              region_code:"",   country:"Argentina",       country_code:"AR", continent:"South America", lat:-34.61, lng:-58.38,  timezone:"America/Argentina/Buenos_Aires"},
-  {city:"Santiago",       region:"",              region_code:"",   country:"Chile",           country_code:"CL", continent:"South America", lat:-33.46, lng:-70.65,  timezone:"America/Santiago"},
-  {city:"Bogotá",         region:"",              region_code:"",   country:"Colombia",        country_code:"CO", continent:"South America", lat:4.71,   lng:-74.07,  timezone:"America/Bogota"},
-  {city:"Lima",           region:"",              region_code:"",   country:"Peru",            country_code:"PE", continent:"South America", lat:-12.05, lng:-77.04,  timezone:"America/Lima"},
-];
-
-// Stable slug: "san_antonio_tx_us", "seoul_kr", "toronto_on_ca"
-// Includes country_code so keys are globally unique even if city names collide.
-const makeCityKey = (c) =>
-  [c.city, c.region_code, c.country_code]
-    .filter(Boolean)
-    .join('_')
-    .toLowerCase()
-    .replace(/[\s.]+/g,'_')
-    .replace(/[^a-z0-9_]/g,'');
-
-// Short UI display: "San Antonio, TX" / "Toronto, ON" / "Seoul, South Korea"
-const makeCityDisplay = (c) => {
-  if (c.region_code) return `${c.city}, ${c.region_code}`;
-  return `${c.city}, ${c.country}`;
-};
-
-// Canonical full string stored in city_display meta field:
-// "San Antonio, TX, USA" / "Toronto, ON, Canada" / "Seoul, South Korea"
-const makeCityFull = (c) => {
-  if (c.country_code === 'US' && c.region_code) return `${c.city}, ${c.region_code}, USA`;
-  if (c.country_code === 'CA' && c.region_code) return `${c.city}, ${c.region_code}, Canada`;
-  if (c.region_code) return `${c.city}, ${c.region_code}, ${c.country}`;
-  return `${c.city}, ${c.country}`;
-};
-
-// ─── KPOP BIAS CATALOG ─────────────────────────────────────────────────────────
-// Separate from RESERVED_USERNAMES — username protection ≠ bias discovery.
-const KPOP_BIAS_CATALOG = [
-  // Groups
-  {id:"g-bts",displayName:"BTS",searchTerms:["bts","bangtan"],group:"BTS",type:"group"},
-  {id:"g-skz",displayName:"Stray Kids",searchTerms:["stray kids","straykids","skz"],group:"Stray Kids",type:"group"},
-  {id:"g-ateez",displayName:"ATEEZ",searchTerms:["ateez"],group:"ATEEZ",type:"group"},
-  {id:"g-blackpink",displayName:"BLACKPINK",searchTerms:["blackpink","bp"],group:"BLACKPINK",type:"group"},
-  {id:"g-aespa",displayName:"aespa",searchTerms:["aespa"],group:"aespa",type:"group"},
-  {id:"g-newjeans",displayName:"NewJeans",searchTerms:["newjeans","new jeans","nj"],group:"NewJeans",type:"group"},
-  {id:"g-txt",displayName:"TXT",searchTerms:["txt","tomorrow x together"],group:"TXT",type:"group"},
-  {id:"g-enhypen",displayName:"ENHYPEN",searchTerms:["enhypen","enha"],group:"ENHYPEN",type:"group"},
-  {id:"g-seventeen",displayName:"SEVENTEEN",searchTerms:["seventeen","svt"],group:"SEVENTEEN",type:"group"},
-  {id:"g-twice",displayName:"TWICE",searchTerms:["twice"],group:"TWICE",type:"group"},
-  {id:"g-ive",displayName:"IVE",searchTerms:["ive"],group:"IVE",type:"group"},
-  {id:"g-lsf",displayName:"LE SSERAFIM",searchTerms:["le sserafim","lesserafim","lsf"],group:"LE SSERAFIM",type:"group"},
-  {id:"g-itzy",displayName:"ITZY",searchTerms:["itzy"],group:"ITZY",type:"group"},
-  {id:"g-nct",displayName:"NCT",searchTerms:["nct","nct127","nct dream"],group:"NCT",type:"group"},
-  {id:"g-exo",displayName:"EXO",searchTerms:["exo"],group:"EXO",type:"group"},
-  {id:"g-shinee",displayName:"SHINee",searchTerms:["shinee","shawol"],group:"SHINee",type:"group"},
-  {id:"g-rv",displayName:"Red Velvet",searchTerms:["red velvet","rv","redvelvet"],group:"Red Velvet",type:"group"},
-  {id:"g-riize",displayName:"RIIZE",searchTerms:["riize"],group:"RIIZE",type:"group"},
-  {id:"g-zb1",displayName:"ZEROBASEONE",searchTerms:["zerobaseone","zb1","zero base one"],group:"ZEROBASEONE",type:"group"},
-  {id:"g-bm",displayName:"BABYMONSTER",searchTerms:["babymonster","baby monster"],group:"BABYMONSTER",type:"group"},
-  {id:"g-nmixx",displayName:"NMIXX",searchTerms:["nmixx"],group:"NMIXX",type:"group"},
-  {id:"g-kep1er",displayName:"Kep1er",searchTerms:["kep1er","kepler"],group:"Kep1er",type:"group"},
-  {id:"g-bnd",displayName:"BOYNEXTDOOR",searchTerms:["boynextdoor","boy next door","bnd"],group:"BOYNEXTDOOR",type:"group"},
-  // BTS
-  {id:"bts-rm",displayName:"RM",searchTerms:["rm","namjoon","kim namjoon","rapmonster"],group:"BTS",type:"idol"},
-  {id:"bts-jin",displayName:"Jin",searchTerms:["jin","seokjin","kim seokjin"],group:"BTS",type:"idol"},
-  {id:"bts-suga",displayName:"SUGA",searchTerms:["suga","yoongi","min yoongi","agust d","agustd"],group:"BTS",type:"idol"},
-  {id:"bts-jhope",displayName:"j-hope",searchTerms:["jhope","j-hope","hoseok","jung hoseok"],group:"BTS",type:"idol"},
-  {id:"bts-jimin",displayName:"Jimin",searchTerms:["jimin","park jimin"],group:"BTS",type:"idol"},
-  {id:"bts-v",displayName:"V",searchTerms:["v","taehyung","kim taehyung"],group:"BTS",type:"idol"},
-  {id:"bts-jk",displayName:"Jungkook",searchTerms:["jungkook","jk","jeon jungkook"],group:"BTS",type:"idol"},
-  // ATEEZ
-  {id:"atz-hj",displayName:"Hongjoong",searchTerms:["hongjoong","kim hongjoong","hongjoon","hongjong"],group:"ATEEZ",type:"idol"},
-  {id:"atz-sh",displayName:"Seonghwa",searchTerms:["seonghwa","park seonghwa","sunghwa"],group:"ATEEZ",type:"idol"},
-  {id:"atz-yh",displayName:"Yunho",searchTerms:["yunho","jeong yunho"],group:"ATEEZ",type:"idol"},
-  {id:"atz-ys",displayName:"Yeosang",searchTerms:["yeosang","kang yeosang"],group:"ATEEZ",type:"idol"},
-  {id:"atz-san",displayName:"San",searchTerms:["san","choi san"],group:"ATEEZ",type:"idol"},
-  {id:"atz-mg",displayName:"Mingi",searchTerms:["mingi","song mingi"],group:"ATEEZ",type:"idol"},
-  {id:"atz-wy",displayName:"Wooyoung",searchTerms:["wooyoung","jung wooyoung"],group:"ATEEZ",type:"idol"},
-  {id:"atz-jh2",displayName:"Jongho",searchTerms:["jongho","choi jongho"],group:"ATEEZ",type:"idol"},
-  // Stray Kids
-  {id:"skz-bc",displayName:"Bang Chan",searchTerms:["bang chan","bangchan","chan","christopher bang"],group:"Stray Kids",type:"idol"},
-  {id:"skz-lk",displayName:"Lee Know",searchTerms:["lee know","leeknow","minho","lee minho"],group:"Stray Kids",type:"idol"},
-  {id:"skz-cb",displayName:"Changbin",searchTerms:["changbin","seo changbin"],group:"Stray Kids",type:"idol"},
-  {id:"skz-hj",displayName:"Hyunjin",searchTerms:["hyunjin","hwang hyunjin"],group:"Stray Kids",type:"idol"},
-  {id:"skz-han",displayName:"Han",searchTerms:["han","jisung","han jisung"],group:"Stray Kids",type:"idol"},
-  {id:"skz-fl",displayName:"Felix",searchTerms:["felix","lee felix"],group:"Stray Kids",type:"idol"},
-  {id:"skz-sm",displayName:"Seungmin",searchTerms:["seungmin","kim seungmin"],group:"Stray Kids",type:"idol"},
-  {id:"skz-in",displayName:"I.N",searchTerms:["in","i.n","jeongin","yang jeongin"],group:"Stray Kids",type:"idol"},
-  // BLACKPINK
-  {id:"bp-js",displayName:"Jisoo",searchTerms:["jisoo","kim jisoo"],group:"BLACKPINK",type:"idol"},
-  {id:"bp-je",displayName:"Jennie",searchTerms:["jennie","jennie kim"],group:"BLACKPINK",type:"idol"},
-  {id:"bp-ro",displayName:"Rosé",searchTerms:["rose","rosé","roseanne","chaeyoung","park chaeyoung"],group:"BLACKPINK",type:"idol"},
-  {id:"bp-li",displayName:"Lisa",searchTerms:["lisa","lalisa","lalisa manoban"],group:"BLACKPINK",type:"idol"},
-  // aespa
-  {id:"ae-ka",displayName:"Karina",searchTerms:["karina","yoo jimin","yu jimin"],group:"aespa",type:"idol"},
-  {id:"ae-wi",displayName:"Winter",searchTerms:["winter","kim minjeong"],group:"aespa",type:"idol"},
-  {id:"ae-gi",displayName:"Giselle",searchTerms:["giselle","aeri uchinaga"],group:"aespa",type:"idol"},
-  {id:"ae-nn",displayName:"Ningning",searchTerms:["ningning","ning yizhuo"],group:"aespa",type:"idol"},
-  // NewJeans
-  {id:"nj-mj",displayName:"Minji",searchTerms:["minji","kim minji"],group:"NewJeans",type:"idol"},
-  {id:"nj-ha",displayName:"Hanni",searchTerms:["hanni","pham ngoc han"],group:"NewJeans",type:"idol"},
-  {id:"nj-da",displayName:"Danielle",searchTerms:["danielle","danielle marsh"],group:"NewJeans",type:"idol"},
-  {id:"nj-hr",displayName:"Haerin",searchTerms:["haerin","kang haerin"],group:"NewJeans",type:"idol"},
-  {id:"nj-hy",displayName:"Hyein",searchTerms:["hyein","lee hyein"],group:"NewJeans",type:"idol"},
-  // TXT
-  {id:"txt-sb",displayName:"Soobin",searchTerms:["soobin","choi soobin"],group:"TXT",type:"idol"},
-  {id:"txt-yj",displayName:"Yeonjun",searchTerms:["yeonjun","choi yeonjun"],group:"TXT",type:"idol"},
-  {id:"txt-bg",displayName:"Beomgyu",searchTerms:["beomgyu","choi beomgyu"],group:"TXT",type:"idol"},
-  {id:"txt-th",displayName:"Taehyun",searchTerms:["taehyun","kang taehyun"],group:"TXT",type:"idol"},
-  {id:"txt-hk",displayName:"Huening Kai",searchTerms:["huening kai","hueningkai"],group:"TXT",type:"idol"},
-  // ENHYPEN
-  {id:"en-jw",displayName:"Jungwon",searchTerms:["jungwon","yang jungwon"],group:"ENHYPEN",type:"idol"},
-  {id:"en-hs",displayName:"Heeseung",searchTerms:["heeseung","lee heeseung"],group:"ENHYPEN",type:"idol"},
-  {id:"en-jay",displayName:"Jay",searchTerms:["jay","park jongseong"],group:"ENHYPEN",type:"idol"},
-  {id:"en-jk",displayName:"Jake",searchTerms:["jake","jake sim","sim jaeyun"],group:"ENHYPEN",type:"idol"},
-  {id:"en-sh",displayName:"Sunghoon",searchTerms:["sunghoon","park sunghoon"],group:"ENHYPEN",type:"idol"},
-  {id:"en-so",displayName:"Sunoo",searchTerms:["sunoo","kim sunoo"],group:"ENHYPEN",type:"idol"},
-  {id:"en-ni",displayName:"Ni-ki",searchTerms:["niki","ni-ki","nishimura riki"],group:"ENHYPEN",type:"idol"},
-  // SEVENTEEN
-  {id:"svt-sc",displayName:"S.Coups",searchTerms:["scoups","s.coups","seungcheol","choi seungcheol"],group:"SEVENTEEN",type:"idol"},
-  {id:"svt-jh",displayName:"Jeonghan",searchTerms:["jeonghan","yoon jeonghan"],group:"SEVENTEEN",type:"idol"},
-  {id:"svt-jo",displayName:"Joshua",searchTerms:["joshua","hong jisoo","hong joshua"],group:"SEVENTEEN",type:"idol"},
-  {id:"svt-jun",displayName:"Jun",searchTerms:["jun","wen junhui"],group:"SEVENTEEN",type:"idol"},
-  {id:"svt-ho",displayName:"Hoshi",searchTerms:["hoshi","kwon soonyoung","soonyoung"],group:"SEVENTEEN",type:"idol"},
-  {id:"svt-ww",displayName:"Wonwoo",searchTerms:["wonwoo","jeon wonwoo"],group:"SEVENTEEN",type:"idol"},
-  {id:"svt-wz",displayName:"Woozi",searchTerms:["woozi","lee jihoon","jihoon"],group:"SEVENTEEN",type:"idol"},
-  {id:"svt-dk",displayName:"DK",searchTerms:["dk","dokyeom","lee seokmin","seokmin"],group:"SEVENTEEN",type:"idol"},
-  {id:"svt-mg",displayName:"Mingyu",searchTerms:["mingyu","kim mingyu"],group:"SEVENTEEN",type:"idol"},
-  {id:"svt-t8",displayName:"The8",searchTerms:["the8","minghao","xu minghao"],group:"SEVENTEEN",type:"idol"},
-  {id:"svt-sk",displayName:"Seungkwan",searchTerms:["seungkwan","boo seungkwan"],group:"SEVENTEEN",type:"idol"},
-  {id:"svt-ve",displayName:"Vernon",searchTerms:["vernon","chwe hansol","hansol"],group:"SEVENTEEN",type:"idol"},
-  {id:"svt-di",displayName:"Dino",searchTerms:["dino","lee chan"],group:"SEVENTEEN",type:"idol"},
-  // TWICE
-  {id:"tw-ny",displayName:"Nayeon",searchTerms:["nayeon","im nayeon"],group:"TWICE",type:"idol"},
-  {id:"tw-jy",displayName:"Jeongyeon",searchTerms:["jeongyeon","yoo jeongyeon"],group:"TWICE",type:"idol"},
-  {id:"tw-mo",displayName:"Momo",searchTerms:["momo","hirai momo"],group:"TWICE",type:"idol"},
-  {id:"tw-sa",displayName:"Sana",searchTerms:["sana","minatozaki sana"],group:"TWICE",type:"idol"},
-  {id:"tw-ji",displayName:"Jihyo",searchTerms:["jihyo","park jihyo"],group:"TWICE",type:"idol"},
-  {id:"tw-mi",displayName:"Mina",searchTerms:["mina","myoui mina"],group:"TWICE",type:"idol"},
-  {id:"tw-da",displayName:"Dahyun",searchTerms:["dahyun","kim dahyun"],group:"TWICE",type:"idol"},
-  {id:"tw-cy",displayName:"Chaeyoung",searchTerms:["chaeyoung","son chaeyoung"],group:"TWICE",type:"idol"},
-  {id:"tw-tz",displayName:"Tzuyu",searchTerms:["tzuyu","chou tzuyu"],group:"TWICE",type:"idol"},
-  // IVE
-  {id:"ive-yj",displayName:"Yujin",searchTerms:["yujin","ahn yujin"],group:"IVE",type:"idol"},
-  {id:"ive-ge",displayName:"Gaeul",searchTerms:["gaeul","kim gaeul"],group:"IVE",type:"idol"},
-  {id:"ive-re",displayName:"Rei",searchTerms:["rei","naoi rei"],group:"IVE",type:"idol"},
-  {id:"ive-wy",displayName:"Wonyoung",searchTerms:["wonyoung","jang wonyoung"],group:"IVE",type:"idol"},
-  {id:"ive-li",displayName:"Liz",searchTerms:["liz","kim jiwon"],group:"IVE",type:"idol"},
-  {id:"ive-ls",displayName:"Leeseo",searchTerms:["leeseo","lee hyewon"],group:"IVE",type:"idol"},
-  // LE SSERAFIM
-  {id:"lsf-sa",displayName:"Sakura",searchTerms:["sakura","miyawaki sakura"],group:"LE SSERAFIM",type:"idol"},
-  {id:"lsf-cw",displayName:"Chaewon",searchTerms:["chaewon","kim chaewon"],group:"LE SSERAFIM",type:"idol"},
-  {id:"lsf-yj",displayName:"Yunjin",searchTerms:["yunjin","huh yunjin"],group:"LE SSERAFIM",type:"idol"},
-  {id:"lsf-kz",displayName:"Kazuha",searchTerms:["kazuha","nakamura kazuha"],group:"LE SSERAFIM",type:"idol"},
-  {id:"lsf-ec",displayName:"Eunchae",searchTerms:["eunchae","hong eunchae"],group:"LE SSERAFIM",type:"idol"},
-  // ITZY
-  {id:"itzy-yj",displayName:"Yeji",searchTerms:["yeji","hwang yeji"],group:"ITZY",type:"idol"},
-  {id:"itzy-li",displayName:"Lia",searchTerms:["lia","choi jisu"],group:"ITZY",type:"idol"},
-  {id:"itzy-rj",displayName:"Ryujin",searchTerms:["ryujin","shin ryujin"],group:"ITZY",type:"idol"},
-  {id:"itzy-cr",displayName:"Chaeryeong",searchTerms:["chaeryeong","lee chaeryeong"],group:"ITZY",type:"idol"},
-  {id:"itzy-yn",displayName:"Yuna",searchTerms:["yuna","shin yuna"],group:"ITZY",type:"idol"},
-  // NCT
-  {id:"nct-ty",displayName:"Taeyong",searchTerms:["taeyong","lee taeyong"],group:"NCT",type:"idol"},
-  {id:"nct-ta",displayName:"Taeil",searchTerms:["taeil","moon taeil"],group:"NCT",type:"idol"},
-  {id:"nct-jn",displayName:"Johnny",searchTerms:["johnny","seo youngho"],group:"NCT",type:"idol"},
-  {id:"nct-yt",displayName:"Yuta",searchTerms:["yuta","nakamoto yuta"],group:"NCT",type:"idol"},
-  {id:"nct-dy",displayName:"Doyoung",searchTerms:["doyoung","kim dongyoung"],group:"NCT",type:"idol"},
-  {id:"nct-te",displayName:"Ten",searchTerms:["ten","chittaphon"],group:"NCT",type:"idol"},
-  {id:"nct-jh",displayName:"Jaehyun",searchTerms:["jaehyun","jung jaehyun"],group:"NCT",type:"idol"},
-  {id:"nct-mk",displayName:"Mark",searchTerms:["mark","mark lee"],group:"NCT",type:"idol"},
-  {id:"nct-jw",displayName:"Jungwoo",searchTerms:["jungwoo","kim jungwoo"],group:"NCT",type:"idol"},
-  {id:"nct-rj",displayName:"Renjun",searchTerms:["renjun","huang renjun"],group:"NCT",type:"idol"},
-  {id:"nct-je",displayName:"Jeno",searchTerms:["jeno","lee jeno"],group:"NCT",type:"idol"},
-  {id:"nct-hc",displayName:"Haechan",searchTerms:["haechan","donghyuck","lee donghyuck"],group:"NCT",type:"idol"},
-  {id:"nct-jm",displayName:"Jaemin",searchTerms:["jaemin","na jaemin"],group:"NCT",type:"idol"},
-  {id:"nct-cl",displayName:"Chenle",searchTerms:["chenle","zhong chenle"],group:"NCT",type:"idol"},
-  {id:"nct-js",displayName:"Jisung",searchTerms:["jisung","park jisung"],group:"NCT",type:"idol"},
-];
-
-const searchBiasCatalog = (query) => {
-  if (!query || !query.trim()) return [];
-  const q = query.toLowerCase().trim();
-  return KPOP_BIAS_CATALOG.filter(e =>
-    e.displayName.toLowerCase().includes(q) ||
-    e.searchTerms.some(t => t.includes(q))
-  ).slice(0, 12);
-};
 
 // ─── Concert data shape (API-ready) ──────────────────────────────────────────
 // verificationStatus: "confirmed" | "official" | "preview" | "fan_reported"
@@ -2161,44 +1897,6 @@ const MOCK_CONCERTS = [
     verificationStatus:"preview", sourceType:"preview", sourceName:"Sample concert card",
   },
 ];
-
-// ─── MOCK SETLISTS ─────────────────────────────────────────────────────────────
-// TODO: Replace with setlist.fm API — GET https://api.setlist.fm/rest/1.0/search/setlists?artistName=BTS
-const MOCK_SETLISTS = {
-  "bts-dallas": {
-    songs:[
-      {order:1, title:"Dynamite", note:"Opening · fan chant heavy"},
-      {order:2, title:"Butter", note:"Crowd goes wild"},
-      {order:3, title:"Boy With Luv", note:"Pink confetti drop"},
-      {order:4, title:"DNA"},
-      {order:5, title:"Fake Love", note:"Emotional peak"},
-      {order:6, title:"MIC Drop"},
-      {order:7, title:"ON", note:"Full choreo · breathtaking"},
-      {order:8, title:"Spring Day", note:"Everyone cries here"},
-      {order:9, title:"Life Goes On"},
-      {order:10, title:"Black Swan", note:"Solo spotlight set"},
-      {order:11, title:"Idol", note:"Encore opener"},
-      {order:12, title:"Permission to Dance", note:"Closing · light sticks out"},
-    ],
-    source:"fan-reported", verified:true, lastShow:"Dallas Night 1",
-  },
-  "skz-chicago": {
-    songs:[
-      {order:1, title:"MIROH", note:"Hype opener"},
-      {order:2, title:"MANIAC"},
-      {order:3, title:"Thunderous"},
-      {order:4, title:"Rock", note:"Mosh energy"},
-      {order:5, title:"Social Path"},
-      {order:6, title:"God's Menu"},
-      {order:7, title:"District 9"},
-      {order:8, title:"Back Door"},
-      {order:9, title:"Levanter", note:"Emotional ballad set"},
-      {order:10, title:"Christmas EveL"},
-      {order:11, title:"S-Class", note:"Encore"},
-    ],
-    source:"fan-reported", verified:false, lastShow:"Chicago Night 1",
-  },
-};
 
 // ─── MOCK ACTIVE TRADES ────────────────────────────────────────────────────────
 const MOCK_ACTIVE_TRADES_DEFAULT = [
@@ -2330,16 +2028,6 @@ const MOCK_NEARBY = [
   { id:"f5", name:"@winterbear_e",avatar:"E", color:C.sky,    groups:["aespa","Stray Kids"],  city:"Plano, TX",    tags:["photocards","Kpop fashion"],    trust:4.7, concerts:5,  travelStatus:"nearby",   experience:"intermediate",section:"105",bias:"Winter",lookingFor:"friend",solo:false },
 ];
 
-// ─── MOCK VENUE TIPS ─────────────────────────────────────────────────────────
-// TODO: Replace with GET /api/venues/:id/tips — fan-submitted crowd-sourced tips
-const MOCK_VENUE_TIPS_DEFAULT = [
-  { id:"vt1", category:"merch",   text:"Merch at Gate C is shorter than main entrance. Get there 2h before doors.", helpful:47, reported:false, author:"@armyvibes_mia",   time:"2h ago" },
-  { id:"vt2", category:"parking", text:"Lot B on Commerce fills fast. Deck 3 on Main St is cheaper and 5 min walk.", helpful:33, reported:false, author:"@starlightB",       time:"3h ago" },
-  { id:"vt3", category:"gates",   text:"Gate B security line is way shorter. Use it if you have floor tickets.", helpful:61, reported:false, author:"@kpopkween",         time:"1h ago" },
-  { id:"vt4", category:"food",    text:"Korean BBQ spot 2 blocks away — perfect pre-show dinner. 30 min wait max.", helpful:28, reported:false, author:"@jisunglvr",         time:"5h ago" },
-  { id:"vt5", category:"other",   text:"Bag policy is strict — clear bags only! No large totes. Check AT&T website.", helpful:89, reported:false, author:"@winterbear_e",     time:"6h ago" },
-];
-
 // ─── SCRAPBOOK TEMPLATES ──────────────────────────────────────────────────────
 const SCRAPBOOK_TEMPLATES = [
   { id:"tpl-myworld",   label:"MY WORLD era",    emoji:"🌌", color:C.mint,   bg:"linear-gradient(140deg,#080e20,#0d1a3a,#0a1228)", accent:C.mint   },
@@ -2363,16 +2051,6 @@ const MOCK_SPOTIFY_SONGS = [
   { song:"After LIKE",       artist:"IVE",          album:"After LIKE",    duration:"2:59" },
   { song:"S-Class",          artist:"Stray Kids",   album:"5-STAR",        duration:"3:17" },
   { song:"Drama",            artist:"aespa",        album:"Drama",         duration:"3:22" },
-];
-
-const MOCK_BADGES = [
-  { id:"b1", label:"Concert Veteran", icon:"🎤", unlocked:true, desc:"Attended 2+ shows" },
-  { id:"b2", label:"Collector", icon:"🃏", unlocked:true, desc:"Owns 50+ cards" },
-  { id:"b3", label:"Trader", icon:"⇄", unlocked:true, desc:"Completed 5+ trades" },
-  { id:"b4", label:"Traveling Fan", icon:"✈️", unlocked:false, desc:"Concerts in 3+ cities" },
-  { id:"b5", label:"Freebie Maker", icon:"🎁", unlocked:false, desc:"Hosted a giveaway" },
-  { id:"b6", label:"After Party Regular", icon:"🎉", unlocked:false, desc:"RSVPed to 3+ parties" },
-  { id:"b7", label:"Chant Master", icon:"🎵", unlocked:true, desc:"Practiced 10+ chants" },
 ];
 
 const MOCK_PREP = [
@@ -2569,15 +2247,6 @@ const MOCK_AFTERGLOW_MOODS = [
   { id:"inspired", label:"Inspired 💜", emoji:"💜" },
   { id:"lonely", label:"Post-Show Lonely 🌙", emoji:"🌙" },
   { id:"ready", label:"Ready for Next One 🎤", emoji:"🎤" },
-];
-
-// INVENTORY MOCK DATA
-const MOCK_INVENTORY = [
-  { id:"inv1", type:"photocard", group:"Stray Kids", member:"Felix", era:"MAXIDENT", rarity:"UR", condition:"mint", source:"album pull", purchasePrice:0, estimatedValue:45, duplicateCount:2, tradeable:true, status:"have", tags:["ult","duplicate"], acquiredDate:"2023-10-01", notes:"From sealed album, pulled twice!" },
-  { id:"inv2", type:"album", group:"BTS", member:null, era:"GOLDEN", rarity:null, condition:"sealed", source:"Target", purchasePrice:22, estimatedValue:28, duplicateCount:1, tradeable:false, status:"have", tags:["sealed"], acquiredDate:"2023-11-03", notes:"Still sealed, keeping it" },
-  { id:"inv3", type:"lightstick", group:"BTS", member:null, era:"Map of the Soul", rarity:null, condition:"good", source:"concert merch", purchasePrice:55, estimatedValue:40, duplicateCount:1, tradeable:false, status:"have", tags:["used at shows"], acquiredDate:"2021-11-27", notes:"BTS PTD Tour purchase" },
-  { id:"inv4", type:"photocard", group:"aespa", member:"Karina", era:"MY WORLD", rarity:"UR", condition:"mint", source:"trade", purchasePrice:0, estimatedValue:60, duplicateCount:1, tradeable:false, status:"have", tags:["ult","special"], acquiredDate:"2023-07-10", notes:"Got from @mia_stays trade — so happy" },
-  { id:"inv5", type:"merch", group:"Stray Kids", member:null, era:"5-STAR", rarity:null, condition:"opened", source:"concert merch", purchasePrice:35, estimatedValue:35, duplicateCount:1, tradeable:false, status:"have", tags:["hoodie"], acquiredDate:"2023-07-30", notes:"Official concert hoodie" },
 ];
 
 // NOTIFICATION SETTINGS
