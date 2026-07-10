@@ -13372,14 +13372,10 @@ function ExploreTab({ user, go, onViewProfile }) {
     }
     if (item.kind === "pass") {
       const ps = item.data;
-      const pt = PASS_TYPES.find(x=>x.id===ps.type);
       return (
-        <div key={item.key} onClick={()=>setOpenItem(item)} className="tap" style={{ ...VS.glowCard(C.pink), padding:14, cursor:"pointer", position:"relative" }}>
+        <div key={item.key} style={{ position:"relative" }}>
           <SourceBadge label={badgeFor(item)} />
-          <CategoryChip label="Live POV" color={C.pink} />
-          <p style={{ fontSize:22,marginBottom:6 }}>{pt?.emoji||"🎫"}</p>
-          <p style={{ fontSize:11,color:C.text,lineHeight:1.35,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical" }}>{ps.caption}</p>
-          <p style={{ fontSize:9,color:C.textMid,marginTop:6 }}>{ps.username}</p>
+          <PassPreviewCard pass={ps} onOpen={()=>setOpenItem(item)} variant="grid" />
         </div>
       );
     }
