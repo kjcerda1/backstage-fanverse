@@ -15,6 +15,12 @@ import { MOCK_VENUE_TIPS_DEFAULT } from "./data/mockVenues.js";
 import { MOCK_SETLISTS } from "./data/mockConcerts.js";
 import { MOCK_BADGES } from "./data/mockBadges.js";
 import { MOCK_INVENTORY } from "./data/mockCollections.js";
+import {
+  normalizeProfile, isVipActive, hasVipEntitlement, isFounderVip, FREE_LIMITS,
+  onboardingCompleteKey, vipCacheKey, hasCompletedOnboarding, markOnboardingComplete,
+  getCachedVip, setCachedVip, isProfileComplete, canEnterApp, mergeStoredProfile,
+} from "./lib/profileHelpers.js";
+import { formatRelativeOrDate, computeDaysLeft, parseConcertShowTime, getConcertStatus } from "./lib/dateHelpers.js";
 
 // ─── PRODUCTION IMPORTS ───────────────────────────────────────────────────────
 // Supabase client — see lib/supabase.js
@@ -222,154 +228,6 @@ async function searchBackstageUsers(q) {
     return null;
   }
   return d.users;
-}
-
-function normalizeProfile(user) {
-  if (!user) return null;
-  const groups = Array.isArray(user.favorite_groups) ? user.favorite_groups : Array.isArray(user.fandoms) ? user.fandoms : [];
-  const handle = user.handle || user.username || user.name || user.stanName || "";
-  const backstageName = user.backstage_name || user.display_name || user.displayName || user.name || user.stanName || user.username || "";
-  const complete = Boolean((backstageName || user.display_name) && handle);
-  return {
-    ...user,
-    handle,
-    username:user.username || handle,
-    backstage_name:backstageName,
-    display_name:user.display_name || backstageName,
-    favorite_groups:groups,
-    fandoms:groups,
-    bias:user.bias || "",
-    bias_wrecker:user.bias_wrecker || user.biasWrecker || "",
-    onboarding_complete:user.onboarding_complete === true || complete,
-    profile_complete:user.profile_complete === true || complete,
-    showCity: user.show_city ?? user.showCity ?? true,
-  };
-}
-
-// ─── VIP HELPER ──────────────────────────────────────────────────────────────
-// Single source of truth for VIP access. Handles two sources:
-//   1. Paid VIP — set by Stripe webhook (user.is_vip === true)
-//   2. Comped VIP — admin-granted (user.vip_source === "comped")
-//      vip_expires_at: null = permanent, ISO string = time-limited
-// Both sources unlock identical VIP features. Stripe is not bypassed for paid.
-function isVipActive(user) {
-  if (!user) return false;
-  if (user.vip_active === true) return true;
-  if (user.is_vip === true) return true;
-  if (user.vip_source === "founder" || user.vip_source === "stripe") return true;
-  if (user.vip_source === "comped") {
-    if (!user.vip_expires_at) return true;
-    return new Date(user.vip_expires_at) > new Date();
-  }
-  return false;
-}
-
-function hasVipEntitlement(user) {
-  return isVipActive(user) || user?.vip_source === "founder" || user?.vip_source === "stripe";
-}
-
-function isFounderVip(user) {
-  return user?.vip_source === "founder" || user?.plan === "founder";
-}
-
-// ─── FREE TIER LIMITS ────────────────────────────────────────────────────────
-// Central source of truth for free vs VIP feature limits.
-// VIP users bypass all limits. Reference FREE_LIMITS.* in components.
-const FREE_LIMITS = {
-  stageFonts: 3,                 // first 3 font moods free (classic, softpop, poster)
-  stageEffects: 3,               // none + sparkles + hearts free
-  savedCapsules: 2,              // capsules saved to My World
-  capsulePostsPerConcert: 3,     // enforced in ConcertCapsule via FREE_CAP
-  fanCirclesCreated: 1,          // user-created circles (id starts "uc-")
-  scrapbookMemories: 5,          // per scrapbook book (enforced in ScrapbookTab)
-  activeTradeListings: 3,        // active listings at once
-};
-
-const onboardingCompleteKey = userId => `backstage_onboarding_complete_${userId}`;
-const vipCacheKey = userId => `backstage_is_vip_${userId}`;
-
-function hasCompletedOnboarding(user) {
-  if (!user) return false;
-  if (user.onboarding_complete === true || user.profile_complete === true || user.onboarding_skipped === true) return true;
-  if (!user.id) return false;
-  if (ls.get(onboardingCompleteKey(user.id), false)) return true;
-  const cachedUserId = ls.get("backstage_session")?.user?.id;
-  return cachedUserId === user.id && ls.get("backstage_onboarding_complete", false) === true;
-}
-
-function markOnboardingComplete(user) {
-  if (user?.id) ls.set(onboardingCompleteKey(user.id), true);
-  ls.set("backstage_onboarding_complete", true);
-}
-
-function getCachedVip(user) {
-  if (!user?.id) return false;
-  if (ls.get(vipCacheKey(user.id), false) === true) return true;
-  const cachedUserId = ls.get("backstage_session")?.user?.id;
-  return cachedUserId === user.id && ls.get("backstage_is_vip", false) === true;
-}
-
-function setCachedVip(user, active) {
-  if (user?.id) ls.set(vipCacheKey(user.id), active);
-  ls.set("backstage_is_vip", active);
-}
-
-function isProfileComplete(user) {
-  const profile = normalizeProfile(user);
-  return Boolean(
-    hasCompletedOnboarding(profile) ||
-    ((profile?.display_name || profile?.backstage_name || profile?.username) &&
-      (profile?.handle || profile?.username))
-  );
-}
-
-function canEnterApp(user) {
-  return hasCompletedOnboarding(user) || isProfileComplete(user);
-}
-
-function mergeStoredProfile(localProfile, remoteProfile, fallbackProfile = null) {
-  const local = normalizeProfile(localProfile);
-  const remote = normalizeProfile(remoteProfile);
-  const fallback = normalizeProfile(fallbackProfile);
-  if (canEnterApp(local) && !canEnterApp(remote)) {
-    // Local profile has richer onboarding data (fandoms, handle) — prefer it.
-    // BUT: VIP/payment fields are backend-authoritative. Always take them from
-    // the remote (public.users SELECT *) so stale localStorage never hides
-    // a paid VIP status. Only patch when remote is available.
-    if (remote) {
-      return normalizeProfile({
-        ...local,
-        is_vip:            remote.is_vip,
-        vip_source:        remote.vip_source,
-        vip_expires_at:    remote.vip_expires_at,
-        vip_since:         remote.vip_since,
-        stripe_customer_id: remote.stripe_customer_id,
-      });
-    }
-    return local;
-  }
-  const merged = normalizeProfile({ ...(fallback || {}), ...(local || {}), ...(remote || {}) });
-  // Fandoms rescue: remote spread wins on all fields, but an empty DB fandoms array
-  // must not erase real local fandoms. This happens when the onboarding PATCH fires
-  // without a session token (email confirmation pending) — the 401 is silently
-  // discarded by fetch(), local keeps the selection, DB stays at default [].
-  if (!merged.fandoms?.length && local?.fandoms?.length > 0) {
-    merged.fandoms = [...local.fandoms];
-    merged.favorite_groups = [...local.fandoms];
-  }
-  // Bias rescue: normalizeProfile converts undefined bias to "", so remote's empty
-  // string would erase a real local bias if the onboarding PATCH didn't reach the DB.
-  if (!merged.bias && local?.bias) {
-    merged.bias = local.bias;
-  }
-  // City rescue: don't let null/empty DB location fields erase values the user
-  // already set locally. Covers the window between saveCity() and the next DB sync.
-  if (!merged.city       && local?.city)       merged.city       = local.city;
-  if (!merged.city_key   && local?.city_key)   merged.city_key   = local.city_key;
-  if (!merged.country_code && local?.country_code) merged.country_code = local.country_code;
-  if (!merged.continent  && local?.continent)  merged.continent  = local.continent;
-  if (canEnterApp(local) && !canEnterApp(merged)) return local;
-  return merged;
 }
 
 // ─── SUPABASE CONFIG (inline — replace with lib/supabase.js import in production) ──
@@ -816,22 +674,6 @@ function reconcileCircleStatuses(acceptedIds = [], pendingOutgoingIds = []) {
   ls.set("backstage_circle_statuses", next);
   return next;
 }
-
-// Renders a timestamp relative to now — computed at render time, never baked into
-// stored state, so it stays accurate instead of freezing at whatever it read on write.
-function formatRelativeOrDate(date) {
-  if (!date) return "";
-  const d = new Date(date);
-  if (isNaN(d.getTime())) return "";
-  const secs = Math.floor((Date.now() - d.getTime()) / 1000);
-  if (secs < 45) return "Just now";
-  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
-  if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
-  if (secs < 172800) return "Yesterday";
-  if (secs < 604800) return `${Math.floor(secs / 86400)}d ago`;
-  return d.toLocaleDateString("en-US", { month:"short", day:"numeric", year: d.getFullYear()===new Date().getFullYear() ? undefined : "numeric" });
-}
-
 
 // ─── SKIN SYSTEM — shared between ProfileStudio and the main Profile page ─────
 const SKIN_GRADIENTS = {
@@ -1832,16 +1674,6 @@ function VipTutorialModal({ onDone, onNavigate }) {
 //   - Fan-reported supplement layer
 // See: https://developer.ticketmaster.com/products-and-docs/apis/discovery-api/v2/
 // ─────────────────────────────────────────────────────────────────────────────
-
-// Helper: compute live daysLeft from actual date string
-const computeDaysLeft = (dateStr) => {
-  try {
-    const d = new Date(dateStr.replace(/(\w+ \d+),?\s*(\d{4})?/, (_, md, yr) => `${md}, ${yr||2026}`));
-    const today = new Date(); today.setHours(0,0,0,0);
-    const diff = Math.round((d - today) / 86400000);
-    return diff >= 0 ? diff : null;
-  } catch { return null; }
-};
 
 const MOCK_CONCERTS = [
   // ── LAUNCH FOCUS — CONFIRMED from official sources ───────────────────────────
@@ -16785,50 +16617,6 @@ function EventDiscovery({ onBack, go }) {
 }
 
 // ─── 20. CONCERT DAY MODE ────────────────────────────────────────────────────
-// ─── CONCERT LIFECYCLE HELPERS ───────────────────────────────────────────────
-// Returns: 'future' | 'upcoming' | 'soon' | 'today' | 'afterglow' | 'expired' | 'no_date'
-// Callers gate their UI on this — never render fake countdowns.
-function parseConcertShowTime(dateISO, showTime) {
-  if (!dateISO) return new Date(NaN);
-  try {
-    const t = (showTime || '20:00').trim();
-    // Try direct parse first ("2026-05-23 8:00 PM" works in Chrome but not Safari)
-    const direct = new Date(`${dateISO}T${t}`);
-    if (!isNaN(direct.getTime())) return direct;
-    // Parse "8:00 PM" / "7:30 PM" / "20:00" manually
-    const m = t.match(/(\d+):(\d+)\s*(AM|PM)?/i);
-    if (!m) return new Date(`${dateISO}T20:00:00`);
-    let h = parseInt(m[1], 10);
-    const min = parseInt(m[2], 10);
-    const period = (m[3] || '').toUpperCase();
-    if (period === 'PM' && h !== 12) h += 12;
-    if (period === 'AM' && h === 12) h = 0;
-    return new Date(`${dateISO}T${h.toString().padStart(2,'0')}:${min.toString().padStart(2,'0')}:00`);
-  } catch { return new Date(NaN); }
-}
-
-function getConcertStatus(concert) {
-  if (!concert) return 'no_date';
-  const startISO = concert.startDateISO;
-  const endISO   = concert.endDateISO || startISO;
-  if (!startISO) return 'no_date';
-
-  const now      = Date.now();
-  const showEnd  = parseConcertShowTime(endISO,   concert.showEndTime || '23:00');
-  const showStart= parseConcertShowTime(startISO,  concert.showTime   || '20:00');
-  if (isNaN(showEnd.getTime()) || isNaN(showStart.getTime())) return 'no_date';
-
-  const msAfterEnd  = now - showEnd.getTime();
-  const msToStart   = showStart.getTime() - now;
-  const HOUR = 3600_000;
-
-  if (msAfterEnd  > 72 * HOUR) return 'expired';   // >72 h after last night → hide
-  if (msAfterEnd  >  0       ) return 'afterglow';  // 0–72 h post-show
-  if (msToStart   <= 0       ) return 'today';      // show in progress
-  if (msToStart   <= 24*HOUR ) return 'soon';       // <24 h to first night
-  if (msToStart   <= 7*24*HOUR) return 'upcoming';  // 1–7 days out
-  return 'future';                                  // >7 days → no Home banner
-}
 // ─── CONCERT DAY UTILS ────────────────────────────────────────────────────────
 function useConcertCountdown(showTime, concertDate) {
   const [timeLeft, setTimeLeft] = useState("");
