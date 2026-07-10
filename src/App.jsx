@@ -22330,6 +22330,39 @@ const MOCK_PASSES = [
   {id:"p8",type:"travel",     caption:"flight lands in 2h. the era has started.",           username:"@travelfan",   expires:"Tonight",   color:C.mint,    grad:PASS_TYPES[9].grad,  viewed:false,likes:5, reactions:{"⚡":3,"💜":2}},
 ];
 
+// ── PASS PREVIEW CARD — shared, lightweight rendering of a single Backstage
+// Pass, used anywhere passes surface outside the full-screen composer/viewer
+// (Explore's content grid, the Fanverse feed rail). Two variants: "grid" (a
+// square tile) and "feed" (a wide horizontal card matching feed post rows).
+// Tapping always hands off to the caller via onOpen — callers decide whether
+// that opens the full BackstagePasses page or a lighter detail sheet, so this
+// component stays a pure preview and never owns navigation.
+function PassPreviewCard({ pass, onOpen, variant = "grid" }) {
+  const pt = PASS_TYPES.find(x => x.id === pass.type);
+  const color = pt?.color || C.lavender;
+  if (variant === "feed") {
+    return (
+      <div onClick={onOpen} className="tap" style={{ ...VS.glowCard(color), display:"flex", gap:11, alignItems:"center", padding:13, marginBottom:10, cursor:"pointer" }}>
+        <div style={{ width:38,height:38,borderRadius:12,flexShrink:0,background:`linear-gradient(150deg,${color}33,${color}14)`,border:`1px solid ${color}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16 }}>{pt?.emoji || "🎫"}</div>
+        <div style={{ flex:1, minWidth:0 }}>
+          <p style={{ fontSize:8.5,color,fontFamily:"'Epilogue',sans-serif",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2 }}>{pt?.label || "Pass"} · {pass.expires}</p>
+          <p style={{ fontSize:12,color:C.text,lineHeight:1.35,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis" }}>{pass.caption}</p>
+          <p style={{ fontSize:9.5,color:C.textMid,marginTop:2 }}>{pass.username}</p>
+        </div>
+        <span style={{ fontSize:11,color:C.textDim,flexShrink:0 }}>›</span>
+      </div>
+    );
+  }
+  return (
+    <div onClick={onOpen} className="tap" style={{ ...VS.glowCard(color), padding:14, cursor:"pointer", position:"relative" }}>
+      <div style={{ width:30,height:30,borderRadius:9,background:`linear-gradient(150deg,${color}33,${color}14)`,border:`1px solid ${color}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,marginBottom:8 }}>{pt?.emoji || "🎫"}</div>
+      <p style={{ fontSize:8.5,color,fontFamily:"'Epilogue',sans-serif",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:5 }}>{pt?.label || "Pass"}</p>
+      <p style={{ fontSize:11,color:C.text,lineHeight:1.35,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical" }}>{pass.caption}</p>
+      <p style={{ fontSize:9,color:C.textMid,marginTop:6 }}>{pass.username}</p>
+    </div>
+  );
+}
+
 // ── PASS STUDIO — creative layer tools (text/mentions/stickers/location) ─────
 // Hoisted to module scope like PASS_TYPES above, since both the composer and
 // the full-screen viewer render layers using these same definitions.
