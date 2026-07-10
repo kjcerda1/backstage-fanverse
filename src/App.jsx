@@ -889,8 +889,8 @@ const ls = {
 };
 // Apply the persisted theme preference immediately at module load so the very
 // first render (and getCSS()) already reflects it — no flash of the wrong theme.
-applyThemeMode(ls.get("backstage_light_mode", false) ? "light" : "dark");
-const ThemeContext = createContext({ themeMode: "dark", setThemeMode: () => {} });
+applyThemeMode(ls.get("backstage_light_mode", true) ? "light" : "dark");
+const ThemeContext = createContext({ themeMode: "light", setThemeMode: () => {} });
 
 // ─── MY WORLD SERVER SYNC ─────────────────────────────────────────────────────
 // Debounced push of the My World collection stores → users.my_world (jsonb).
@@ -12191,7 +12191,7 @@ function FanversePulse({ go }) {
 }
 
 // ─── HUB STATUS HELPERS (shared by CityHubDetail + FanverseTab) ───────────────
-const HUB_STATUS_COLOR = { seed:C.border, forming:C.accent, official:C.mint, featured:C.gold };
+const getHubStatusColor = (status) => ({ seed:C.border, forming:C.accent, official:C.mint, featured:C.gold }[status]);
 const HUB_STATUS_LABEL = { seed:"🌱 Seed", forming:"⚡ Forming", official:"🌟 Official", featured:"✨ Featured" };
 
 // ─── CITY HUB DETAIL ──────────────────────────────────────────────────────────
@@ -12218,7 +12218,7 @@ function CityHubDetail({ city, user, onBack, onViewProfile }) {
     });
   }, [city.city_key, city.isMock, loaded]);
 
-  const color = HUB_STATUS_COLOR[city.hub_status] || C.accent;
+  const color = getHubStatusColor(city.hub_status) || C.accent;
   const isMyCity = !!user?.city_key && user.city_key === city.city_key;
   const hasNoCity = !user?.city_key;
 
@@ -22293,8 +22293,8 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
         {/* My Stage label */}
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"18px 20px 0" }}>
           <div>
-            <p style={{ fontSize:9, color:"rgba(255,255,255,0.25)", fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.18em" }}>✦ My Stage</p>
-            <p style={{ fontSize:8.5, color:"rgba(255,255,255,0.15)", fontFamily:"'Epilogue',sans-serif", fontWeight:500, marginTop:2 }}>Your fandom. Your memories. Your stage.</p>
+            <p style={{ fontSize:9, color:"rgba(255,255,255,0.7)", fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.18em" }}>✦ My Stage</p>
+            <p style={{ fontSize:8.5, color:"rgba(255,255,255,0.65)", fontFamily:"'Epilogue',sans-serif", fontWeight:500, marginTop:2 }}>Your fandom. Your memories. Your stage.</p>
           </div>
         </div>
         {/* STATUS BANNER — uses stageWorld gradient */}
@@ -22369,10 +22369,10 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
             <p style={{ fontSize:10.5,color:C.textMid }}>Multi-fan · she/her · Seoul → LA</p>
             {/* Era tags — like the design reference */}
             <div style={{ display:"flex",gap:5,marginTop:8,flexWrap:"wrap" }}>
-              <div style={{ background:`${C.lavender}1c`,border:`1px solid ${C.lavender}33`,borderRadius:99,padding:"3px 9px",fontSize:8.5,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>★ CURRENT ERA</div>
-              <div style={{ background:`${C.berry}18`,border:`1px solid ${C.berry}33`,borderRadius:99,padding:"3px 9px",fontSize:8.5,color:C.berry,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>BIAS: {user?.bias||"KARINA"}</div>
-              {soloMode&&<div style={{ background:`${C.gold}18`,border:`1px solid ${C.gold}33`,borderRadius:99,padding:"3px 9px",fontSize:8.5,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>SOLO MODE</div>}
-              <div style={{ background:`${C.mint}14`,border:`1px solid ${C.mint}28`,borderRadius:99,padding:"3px 9px",fontSize:8.5,color:C.mint,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>● glow up</div>
+              <div style={{ background:"rgba(255,250,255,0.88)",border:"1px solid rgba(255,255,255,0.9)",borderRadius:99,padding:"3px 9px",fontSize:8.5,color:"#5b3fa6",fontFamily:"'Epilogue',sans-serif",fontWeight:700,boxShadow:"0 1px 4px rgba(20,10,40,0.18)" }}>★ CURRENT ERA</div>
+              <div style={{ background:"rgba(255,250,255,0.88)",border:"1px solid rgba(255,255,255,0.9)",borderRadius:99,padding:"3px 9px",fontSize:8.5,color:"#9c2f5e",fontFamily:"'Epilogue',sans-serif",fontWeight:700,boxShadow:"0 1px 4px rgba(20,10,40,0.18)" }}>BIAS: {user?.bias||"KARINA"}</div>
+              {soloMode&&<div style={{ background:"rgba(255,250,255,0.88)",border:"1px solid rgba(255,255,255,0.9)",borderRadius:99,padding:"3px 9px",fontSize:8.5,color:"#8a6212",fontFamily:"'Epilogue',sans-serif",fontWeight:700,boxShadow:"0 1px 4px rgba(20,10,40,0.18)" }}>SOLO MODE</div>}
+              <div style={{ background:"rgba(255,250,255,0.88)",border:"1px solid rgba(255,255,255,0.9)",borderRadius:99,padding:"3px 9px",fontSize:8.5,color:"#1f6e7a",fontFamily:"'Epilogue',sans-serif",fontWeight:700,boxShadow:"0 1px 4px rgba(20,10,40,0.18)" }}>● glow up</div>
             </div>
           </div>
         </div>
@@ -22505,7 +22505,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
         </div>
 
         {profileVip && (
-          <div style={{ background:`linear-gradient(140deg,#221000,#150a00)`, border:`1.5px solid ${C.gold}55`, borderRadius:20, padding:"16px 18px", marginBottom:18, position:"relative", overflow:"hidden", boxShadow:`0 8px 28px ${C.gold}14` }}>
+          <div style={{ background:`linear-gradient(140deg,${C.surfaceHi},${C.cosmic})`, border:`1.5px solid ${C.gold}55`, borderRadius:20, padding:"16px 18px", marginBottom:18, position:"relative", overflow:"hidden", boxShadow:`0 8px 28px ${C.gold}14` }}>
             <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.gold}88,transparent)` }} />
             {[{t:"10%",l:"76%",s:11,d:"0s"},{t:"68%",l:"84%",s:8,d:"1.1s"},{t:"42%",l:"5%",s:7,d:"0.6s"}].map((sp,i)=>(
               <div key={i} style={{ position:"absolute",top:sp.t,left:sp.l,fontSize:sp.s,opacity:0.4,animation:`sparkleFloat 3.5s ease-in-out infinite`,animationDelay:sp.d,pointerEvents:"none",color:C.gold }}>✦</div>
@@ -22515,7 +22515,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
             ) : (
               <div style={{ position:"relative" }}>
                 <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:15,color:C.gold,marginBottom:4 }}>Backstage VIP Active ✦</p>
-                <p style={{ fontSize:11,color:"rgba(240,204,136,0.7)",lineHeight:1.55 }}>Full fan era unlocked. Every feature. Every concert — yours.</p>
+                <p style={{ fontSize:11,color:C.textMid,lineHeight:1.55 }}>Full fan era unlocked. Every feature. Every concert — yours.</p>
               </div>
             )}
           </div>
@@ -22523,7 +22523,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
 
         {/* VIP upsell banner — non-VIP users */}
         {!profileVip && (
-          <div onClick={onUpgrade} className="tap" style={{ background:`linear-gradient(140deg,#221000,#150a00)`, border:`1.5px solid ${C.gold}55`, borderRadius:20, padding:"16px 18px", marginBottom:18, cursor:"pointer", position:"relative", overflow:"hidden", boxShadow:`0 8px 28px ${C.gold}14` }}>
+          <div onClick={onUpgrade} className="tap" style={{ background:`linear-gradient(140deg,${C.surfaceHi},${C.cosmic})`, border:`1.5px solid ${C.gold}55`, borderRadius:20, padding:"16px 18px", marginBottom:18, cursor:"pointer", position:"relative", overflow:"hidden", boxShadow:`0 8px 28px ${C.gold}14` }}>
             <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.gold}88,transparent)` }} />
             {[{t:"12%",l:"78%",s:13,d:"0s"},{t:"65%",l:"85%",s:9,d:"1s"},{t:"40%",l:"8%",s:7,d:"0.5s"}].map((sp,i)=>(
               <div key={i} style={{ position:"absolute",top:sp.t,left:sp.l,fontSize:sp.s,opacity:0.5,animation:`sparkleFloat 3.5s ease-in-out infinite`,animationDelay:sp.d,pointerEvents:"none",color:C.gold }}>✦</div>
@@ -22532,7 +22532,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
               <div style={{ fontSize:32 }}>✦</div>
               <div style={{ flex:1 }}>
                 <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:16,color:C.gold,marginBottom:4,letterSpacing:"-0.01em" }}>Unlock your full fan era</p>
-                <p style={{ fontSize:11,color:"rgba(240,204,136,0.7)",lineHeight:1.55 }}>Unlimited memories · Premium My Stage · Priority trade matching · Advanced fan discovery</p>
+                <p style={{ fontSize:11,color:C.textMid,lineHeight:1.55 }}>Unlimited memories · Premium My Stage · Priority trade matching · Advanced fan discovery</p>
               </div>
             </div>
             <button onClick={onUpgrade} style={{ marginTop:12,width:"100%",padding:"11px",borderRadius:13,background:`linear-gradient(140deg,${C.gold}dd,${C.goldDim})`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer",position:"relative" }}>Unlock VIP Experience →</button>
@@ -22600,7 +22600,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
           <SectionHeader title="My Content" />
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:9 }}>
             {[["📸 My Shows","myshows"],["💬 Messages","chats"],["💸 Budget Tracker","budget"],["🎁 Invite Crew","invite"],["✦ Stage Studio","studio"]].map(([label,dest])=>(
-              <button key={label} onClick={()=>["myshows","studio","kdramas"].includes(dest)?setSection(dest):go(dest)} className="tap" style={{ padding:"13px", borderRadius:16, background:dest==="studio"?`linear-gradient(140deg,${C.gold}14,${C.gold}06)`:C.surfaceHi, border:`1.5px solid ${dest==="studio"?C.gold:C.border}`, color:dest==="studio"?C.gold:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:600, fontSize:12, cursor:"pointer", textAlign:"center", boxShadow:dest==="studio"?`0 4px 14px ${C.gold}14`:"none" }}>{label}</button>
+              <button key={label} onClick={()=>["myshows","studio","kdramas"].includes(dest)?setSection(dest):go(dest)} className="tap" style={{ padding:"13px", borderRadius:16, background:dest==="studio"?`linear-gradient(140deg,${C.gold}26,${C.gold}0e)`:C.surfaceHi, border:`1.5px solid ${dest==="studio"?C.gold+"70":C.border}`, color:dest==="studio"?C.gold:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:600, fontSize:12, cursor:"pointer", textAlign:"center", boxShadow:dest==="studio"?`0 4px 14px ${C.gold}22`:"none" }}>{label}</button>
             ))}
             <button onClick={()=>go("signout")} className="tap" style={{ padding:"13px", borderRadius:16, background:"transparent", border:`1.5px solid ${C.rose}28`, color:C.rose, fontFamily:"'Epilogue',sans-serif", fontWeight:600, fontSize:12, cursor:"pointer", textAlign:"center" }}>🚪 Sign Out</button>
           </div>
@@ -22614,7 +22614,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
               {label:"🔔 Push Notifications",sub:"Concert alerts, trade updates",val:notifOn,set:notifOn?()=>{ setNotifOn(false); setNotifSettings(prev=>({...prev,phonePush:false})); ls.set(`backstage_push_enabled_${pushUserKey}`,false); }:requestNotif,color:C.accent,action:()=>setSection("notifications")},
               {label:"🔍 Fan Discovery",sub:"Show me in fan suggestions & concert discovery",val:discoverable,set:setDiscoverable,color:C.mint,action:null},
               {label:"🎯 Solo Mode",sub:"Prioritize solo fans & safer meetups",val:soloMode,set:setSoloMode,color:C.gold,action:null},
-              {label:"☀️ Light Mode",sub:"Airy lavender light theme",val:themeMode==="light",set:(v)=>setThemeMode(v?"light":"dark"),color:C.silver,action:null},
+              {label:"🤍 Pearl Mode",sub:themeMode==="light"?"Soft everyday theme — on":"Switch from Concert Mode to soft everyday theme",val:themeMode==="light",set:(v)=>setThemeMode(v?"light":"dark"),color:C.silver,action:null},
             ].map((s,i)=>(
               <div key={s.label}>
                 {i>0&&<div style={{ height:1,background:C.border,margin:"14px 0" }} />}
@@ -22638,7 +22638,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
 
           {/* VIP tour replay — only shown to VIP members */}
           {isVip && (
-            <button onClick={onReplayTour} className="tap" style={{ width:"100%",marginTop:14,padding:"12px",borderRadius:14,background:`${C.gold}0c`,border:`1.5px solid ${C.gold}33`,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8 }}>
+            <button onClick={onReplayTour} className="tap" style={{ width:"100%",marginTop:14,padding:"12px",borderRadius:14,background:`linear-gradient(140deg,${C.gold}22,${C.gold}0e)`,border:`1.5px solid ${C.gold}70`,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8 }}>
               ✦ Replay VIP Tour
             </button>
           )}
@@ -26858,7 +26858,7 @@ function ModalWrapper({ children }) {
 
 function AppInner() {
   const auth = useAuth();
-  const [themeMode, setThemeModeState] = useState(()=>ls.get("backstage_light_mode",false)?"light":"dark");
+  const [themeMode, setThemeModeState] = useState(()=>ls.get("backstage_light_mode",true)?"light":"dark");
   // Mutate the shared C palette in place before rendering anything below — every
   // child function component reads C.xxx live during its own render, so this is
   // the one place a theme switch has to happen for the whole tree to reflect it.
