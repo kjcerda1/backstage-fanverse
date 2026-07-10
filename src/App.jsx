@@ -14092,6 +14092,12 @@ function EraRoom({ group, era, color, onBack, onBinderCreated, onGoToTradeHub, c
               ) : data.members.map(memberName => {
                 const mb = memberBinders[memberName];
                 const started = mb?.started;
+                // Phase 3d-2 — the old ownedCount/wishlistCount/dupeCount stats here
+                // were always 0 (no code path ever incremented them). Replaced with
+                // the one thing we can honestly show: whether this member has a real
+                // ISO card (Phase 3c) and, if the era has a real binder, a way there.
+                const realCard = findRealCardForEraMember(cards, group, era, memberName);
+                const wished = realCard?.status === 'iso';
                 return (
                   <div key={memberName} style={{ background:started?C.glassBgHi:C.glassBg,backdropFilter:"blur(14px)",border:`1px solid ${started?color+"55":C.glassBorder}`,borderRadius:16,padding:"13px 14px",display:"flex",alignItems:"center",gap:12,boxShadow:started?`0 0 12px ${color}18`:"none",transition:"all .2s" }}>
                     {/* Avatar circle */}
@@ -14101,6 +14107,15 @@ function EraRoom({ group, era, color, onBack, onBinderCreated, onGoToTradeHub, c
                     <div style={{ flex:1,minWidth:0 }}>
                       <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13.5,color:C.text,lineHeight:1.2 }}>{memberName}</p>
                       <p style={{ fontSize:10,color:C.textMid,marginTop:2 }}>{started ? `${era} · Member archive` : `${era} · No binder yet`}</p>
+                      <div style={{ marginTop:5 }}>
+                        {wished ? (
+                          <span style={{ fontSize:9,color:C.gold,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>♡ ISO saved</span>
+                        ) : hasRealBinder ? (
+                          <span onClick={()=>onBinderCreated?.()} className="tap" style={{ fontSize:9,color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>📁 Open Binder →</span>
+                        ) : (
+                          <span onClick={()=>setTab("templates")} className="tap" style={{ fontSize:9,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>+ Add ISO from templates</span>
+                        )}
+                      </div>
                     </div>
                     <button onClick={()=>toggleMemberBinder(memberName)} className="tap" style={{ padding:"7px 12px",borderRadius:11,background:started?`${color}22`:`${color}14`,border:`1.5px solid ${started?color:color+"44"}`,color:started?color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:10,cursor:"pointer",flexShrink:0,transition:"all .15s" }}>
                       {started ? "✓ Started" : "+ Start"}
