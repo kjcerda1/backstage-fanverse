@@ -4551,12 +4551,18 @@ function AskBackstageButton({ go }) {
         style={{
           width:40,height:40,
           borderRadius:"50%",
-          background:`linear-gradient(150deg,rgba(28,18,52,0.92),rgba(14,9,28,0.92))`,
-          border:`1px solid rgba(214,189,255,0.32)`,
-          color:C.gold,
+          // Pearl Mode: soft lavender/blush glass to match light-mode cards/pills.
+          // Concert/Dark Mode: unchanged refined deep-plum glass.
+          background: C.mode==="light"
+            ? `linear-gradient(150deg,rgba(255,255,255,0.88),rgba(233,217,255,0.72))`
+            : `linear-gradient(150deg,rgba(28,18,52,0.92),rgba(14,9,28,0.92))`,
+          border: C.mode==="light" ? `1px solid rgba(158,127,224,0.34)` : `1px solid rgba(214,189,255,0.32)`,
+          color: C.mode==="light" ? C.accent : C.gold,
           fontSize:16,
           cursor:"pointer",
-          boxShadow:`0 6px 18px rgba(0,0,0,0.5), 0 0 14px ${C.accent}22, inset 0 1px 0 rgba(255,255,255,0.16)`,
+          boxShadow: C.mode==="light"
+            ? `0 6px 16px rgba(142,104,232,0.16), 0 0 12px ${C.accent}1c, inset 0 1px 0 rgba(255,255,255,0.7)`
+            : `0 6px 18px rgba(0,0,0,0.5), 0 0 14px ${C.accent}22, inset 0 1px 0 rgba(255,255,255,0.16)`,
           display:"flex",alignItems:"center",justifyContent:"center",
           backdropFilter:"blur(10px)",
           position:"relative",
@@ -4667,16 +4673,20 @@ function FanverseFloatingDock({ go }) {
         </div>
       )}
 
-      {/* Resting orb */}
+      {/* Resting orb — Pearl Mode: soft lavender/blush glass; Concert/Dark Mode: deep-plum glass. */}
       <button onClick={()=>{ showInbox ? setShowInbox(false) : setExpanded(v=>!v); }} className="tap" title="Messages & Ask AI" style={{
         width:44,height:44,
         borderRadius:"50%",
-        background:`linear-gradient(150deg,rgba(28,18,52,0.92),rgba(14,9,28,0.92))`,
-        border:`1px solid rgba(214,189,255,0.32)`,
-        color:C.gold,
+        background: C.mode==="light"
+          ? `linear-gradient(150deg,rgba(255,255,255,0.88),rgba(233,217,255,0.72))`
+          : `linear-gradient(150deg,rgba(28,18,52,0.92),rgba(14,9,28,0.92))`,
+        border: C.mode==="light" ? `1px solid rgba(158,127,224,0.34)` : `1px solid rgba(214,189,255,0.32)`,
+        color: C.mode==="light" ? C.accent : C.gold,
         fontSize:16,
         cursor:"pointer",
-        boxShadow:`0 6px 18px rgba(0,0,0,0.5), 0 0 14px ${C.accent}22, inset 0 1px 0 rgba(255,255,255,0.16)`,
+        boxShadow: C.mode==="light"
+          ? `0 6px 16px rgba(142,104,232,0.16), 0 0 12px ${C.accent}1c, inset 0 1px 0 rgba(255,255,255,0.7)`
+          : `0 6px 18px rgba(0,0,0,0.5), 0 0 14px ${C.accent}22, inset 0 1px 0 rgba(255,255,255,0.16)`,
         display:"flex",alignItems:"center",justifyContent:"center",
         backdropFilter:"blur(10px)",
         position:"relative",
@@ -7204,10 +7214,6 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
           mode to stay readable on pale pages — a dark hero band would put
           that darkened text on an equally-dark backdrop and wash it out. */}
       <div style={{ padding:"22px 20px 16px", flexShrink:0, position:"relative", zIndex:1, overflow:"hidden", background:C.mode==="light" ? `linear-gradient(165deg,${C.cosmic} 0%,${C.surfaceMid} 55%,transparent 100%)` : `linear-gradient(165deg,${C.plum}c8 0%,${C.cosmic}f0 55%,transparent 100%)`, borderBottom:`1px solid ${C.glassBorder}` }}>
-        {/* Backstage B watermark — subtle orb identity, not a literal logo render */}
-        <div aria-hidden style={{ position:"absolute", top:-44, right:-34, width:170, height:170, borderRadius:"50%", border:`1px solid ${C.accent}16`, background:`radial-gradient(circle at 38% 38%,${C.accent}12,transparent 70%)`, pointerEvents:"none" }} />
-        <p aria-hidden style={{ position:"absolute", top:2, right:20, fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:58, lineHeight:1, color:"transparent", WebkitTextStroke:`1px ${C.accent}1a`, pointerEvents:"none", userSelect:"none" }}>B</p>
-
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", position:"relative" }}>
           <div>
             <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.16em",marginBottom:4 }}>My World</p>
@@ -7244,7 +7250,12 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
         {section==="albums" && (<>
         <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em",marginBottom:3 }}>Photocard Binders</p>
         <p style={{ fontSize:11,color:C.textDim,marginBottom:12,lineHeight:1.5 }}>Track what you own, what you want, and what you're ready to trade.</p>
-        <div onClick={()=>{ setTrackerView("overview"); setTrackerGroupFocus(null); setShowCollectionTracker(true); }} role="button" tabIndex={0} onKeyDown={e=>{ if(e.key==="Enter"||e.key===" "){ setTrackerView("overview"); setTrackerGroupFocus(null); setShowCollectionTracker(true); } }} className="tap" style={{ ...VS.premiumHeroCard(C.accent, C.pink), padding:"16px 16px", marginBottom:12, display:"flex", gap:14, alignItems:"center", cursor:"pointer", borderRadius:18, border:`1px solid ${softBlueGlow}` }}>
+        <div onClick={()=>{ setTrackerView("overview"); setTrackerGroupFocus(null); setShowCollectionTracker(true); }} role="button" tabIndex={0} onKeyDown={e=>{ if(e.key==="Enter"||e.key===" "){ setTrackerView("overview"); setTrackerGroupFocus(null); setShowCollectionTracker(true); } }} className="tap" style={{ ...VS.premiumHeroCard(C.accent, C.pink), padding:"16px 16px", marginBottom:12, display:"flex", gap:14, alignItems:"center", cursor:"pointer", borderRadius:18, border:`1px solid ${softBlueGlow}`,
+          // Pearl Mode override — premiumHeroCard's plum/cosmic blend reads too
+          // dark/heavy on a pale page; swap in soft lavender/blush/pearl glass.
+          // Dark mode keeps the shared VS.premiumHeroCard look untouched.
+          ...(C.mode==="light" ? { background:`linear-gradient(150deg,${C.lavender}26 0%,${C.blush}16 45%,${C.surfaceHi} 100%)` } : {}),
+        }}>
           <div style={VS.orbitAccent(C.accent, 120)} />
           <div style={VS.shimmerLine(C.accent)} />
           <RingProgress value={completion} size={76} color={C.accent} color2={C.pink}>
@@ -7260,7 +7271,7 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
                 { val:tradeableTotal, label:"Tradeable", color:C.rose },
                 { val:binders.length, label:"Binders", color:C.accent },
               ].map(s=>(
-                <div key={s.label} style={{ flexShrink:0, background:"rgba(255,255,255,0.045)", border:"1px solid rgba(255,255,255,0.07)", borderRadius:99, padding:"5px 11px", whiteSpace:"nowrap" }}>
+                <div key={s.label} style={{ flexShrink:0, background:C.mode==="light"?"rgba(33,17,52,0.05)":"rgba(255,255,255,0.045)", border:C.mode==="light"?"1px solid rgba(33,17,52,0.09)":"1px solid rgba(255,255,255,0.07)", borderRadius:99, padding:"5px 11px", whiteSpace:"nowrap" }}>
                   <span style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:12, color:s.color }}>{s.val}</span>
                   <span style={{ fontSize:8.5, color:C.textMid, marginLeft:4 }}>{s.label}</span>
                 </div>
@@ -7529,10 +7540,17 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
           <div style={{ paddingTop:4 }}>
             {/* Albums hero banner — dismissible, no folder emoji */}
             {!bindersNoticeDismissed && (
-              <div style={{ background:`linear-gradient(140deg,${C.plum},${C.cosmic})`,border:`1.5px solid ${C.accent}28`,borderRadius:20,padding:"16px 18px",marginBottom:12,position:"relative",overflow:"hidden" }}>
+              <div style={{
+                // Pearl Mode: soft lavender/blush/pearl glass instead of the
+                // plum→cosmic blend, which reads too dark/heavy on a pale page.
+                // Concert/Dark Mode keeps the original deep-plum hero look.
+                background: C.mode==="light"
+                  ? `linear-gradient(140deg,${C.lavender}20,${C.blush}12,${C.surfaceHi})`
+                  : `linear-gradient(140deg,${C.plum},${C.cosmic})`,
+                border:`1.5px solid ${C.accent}28`,borderRadius:20,padding:"16px 18px",marginBottom:12,position:"relative",overflow:"hidden" }}>
                 <div style={{ position:"absolute",inset:0,background:`radial-gradient(ellipse at 80% 20%,${C.lavender}12,transparent 55%)`,pointerEvents:"none" }} />
                 <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.accent}44,transparent)` }} />
-                <button onClick={()=>{ setBindersNoticeDismissed(true); ls.set("backstage_my_binders_notice_dismissed", true); }} aria-label="Dismiss" style={{ position:"absolute", top:10, right:10, width:22, height:22, borderRadius:"50%", background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,255,255,0.14)", color:C.textMid, fontSize:12, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>✕</button>
+                <button onClick={()=>{ setBindersNoticeDismissed(true); ls.set("backstage_my_binders_notice_dismissed", true); }} aria-label="Dismiss" style={{ position:"absolute", top:10, right:10, width:22, height:22, borderRadius:"50%", background:C.mode==="light"?"rgba(33,17,52,0.06)":"rgba(255,255,255,0.06)", border:C.mode==="light"?"1px solid rgba(33,17,52,0.14)":"1px solid rgba(255,255,255,0.14)", color:C.textMid, fontSize:12, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>✕</button>
                 <div style={{ position:"relative", paddingRight:20 }}>
                   <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:C.text,marginBottom:3 }}>My Binders</p>
                   <p style={{ fontSize:11,color:C.textMid,lineHeight:1.55,marginBottom:isVip?0:12 }}>Track your complete photocard sets, era by era. Every version, every member, every pull.</p>

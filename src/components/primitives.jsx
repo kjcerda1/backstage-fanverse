@@ -213,7 +213,7 @@ export function BackstageBNavIcon({ active }) {
       background: "transparent",
       boxShadow: active
         ? "0 0 10px rgba(247,37,133,0.44), 0 0 18px rgba(155,93,229,0.30)"
-        : "none",
+        : "0 0 6px rgba(155,93,229,0.16)",
       transform: active ? "translateY(-2px)" : "none",
       transition: "all 160ms ease",
     }}>
@@ -226,9 +226,11 @@ export function BackstageBNavIcon({ active }) {
           height: "100%",
           objectFit: "cover",
           display: "block",
+          // Inactive dimming softened slightly so the real logo still reads as
+          // a glowing badge at rest, not a flat dark blob.
           filter: active
             ? "saturate(1.08) brightness(1.08)"
-            : "brightness(0.62) saturate(0.7) opacity(0.78)",
+            : "brightness(0.8) saturate(0.85) opacity(0.9)",
         }}
       />
     </span>
