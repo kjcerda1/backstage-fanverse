@@ -22305,15 +22305,15 @@ function ConcertCapsule({ concert, onBack, user, isVip=false, onUpgrade, isSigne
 // pass data instead of keeping a second, driftable copy.
 const PASS_TYPES = [
   {id:"fitcheck",  label:"Fit Check",        emoji:"👗", color:C.pink,     grad:`linear-gradient(135deg,#3d0030,#8b1a5c,${C.pink}88)`,     hint:"Concert fit unlocked"},
-  {id:"merch",     label:"Merch Line",        emoji:"🛍️", color:C.gold,    grad:`linear-gradient(135deg,#2d1a00,#7a4a00,${C.gold}88)`,     hint:"Merch haul or line update"},
-  {id:"freebie",   label:"Freebie Drop",      emoji:"🎁", color:C.mint,    grad:`linear-gradient(135deg,#003d2a,#006644,${C.mint}88)`,     hint:"Sharing or spotting freebies"},
+  {id:"merch",     label:"Merch Line",        emoji:"🛍️", color:C.gold,    grad:`linear-gradient(135deg,#2d1f08,#6b4a1a,${C.gold}88)`,     hint:"Merch haul or line update"},
+  {id:"freebie",   label:"Freebie Drop",      emoji:"🎁", color:C.mint,    grad:`linear-gradient(135deg,#0a1a3d,#1a3d66,${C.mint}88)`,     hint:"Sharing or spotting freebies"},
   {id:"seat",      label:"Concert POV",       emoji:"📍", color:C.accent,  grad:`linear-gradient(135deg,#1a0044,#3d0090,${C.accent}88)`,   hint:"View from your section"},
   {id:"lightstick",label:"Lightstick Ocean",  emoji:"💜", color:C.lavender,grad:`linear-gradient(135deg,#1a004d,#4d0099,${C.lavender}88)`, hint:"The lightstick ocean"},
   {id:"afterglow", label:"Afterglow",         emoji:"✨", color:C.blush,   grad:`linear-gradient(135deg,#3d001a,#7a1a3d,${C.blush}88)`,    hint:"Post-concert floating feeling"},
   {id:"moot",      label:"Fan Buddy",         emoji:"🤝", color:C.silver,  grad:`linear-gradient(135deg,#1a1a2e,#2e2e5a,${C.silver}88)`,   hint:"Found your moots?"},
-  {id:"biasmoment",label:"Bias Moment",       emoji:"⭐", color:C.gold,    grad:`linear-gradient(135deg,#2d1a00,#665500,${C.gold}88)`,     hint:"That member-coded moment"},
+  {id:"biasmoment",label:"Bias Moment",       emoji:"⭐", color:C.gold,    grad:`linear-gradient(135deg,#2d1f08,#6b4a1a,${C.gold}88)`,     hint:"That member-coded moment"},
   {id:"foodrun",   label:"Food Run",          emoji:"🍱", color:C.rose,    grad:`linear-gradient(135deg,#3d0010,#7a1a2a,${C.rose}88)`,     hint:"Pre or post-show meal"},
-  {id:"travel",    label:"Travel Day",        emoji:"✈️", color:C.mint,   grad:`linear-gradient(135deg,#003d44,#006655,${C.teal}88)`,     hint:"On the way to the show"},
+  {id:"travel",    label:"Travel Day",        emoji:"✈️", color:C.sky,    grad:`linear-gradient(135deg,#0a1830,#153a5c,${C.sky}88)`,      hint:"On the way to the show"},
 ];
 const MOCK_PASSES = [
   {id:"p1",type:"fitcheck",   caption:"arrived in full concert era 💜",                     username:"@armywrld",    expires:"Tonight",   color:C.pink,    grad:PASS_TYPES[0].grad,  viewed:false,likes:12,reactions:{"💜":8,"✨":3,"🫶":1}, venue:"Allegiant Stadium", city:"Las Vegas, NV", checkedIn:true},
@@ -22323,7 +22323,7 @@ const MOCK_PASSES = [
   {id:"p5",type:"afterglow",  caption:"crying driving home. best night of my life",         username:"@concertcry",  expires:"24 Hours",  color:C.blush,   grad:PASS_TYPES[5].grad,  viewed:true, likes:28,reactions:{"😭":14,"💜":10,"🫶":4}},
   {id:"p6",type:"lightstick", caption:"ocean was PURPLE from pit to nosebleeds",            username:"@lightstkk",   expires:"Tonight",   color:C.lavender,grad:PASS_TYPES[4].grad,  viewed:false,likes:63,reactions:{"💜":35,"✨":18,"🎤":10}},
   {id:"p7",type:"moot",       caption:"finally met my twitter moots AT THE SHOW",           username:"@mootmeet",    expires:"24 Hours",  color:C.silver,  grad:PASS_TYPES[6].grad,  viewed:false,likes:19,reactions:{"🫶":11,"💜":7,"✨":1}},
-  {id:"p8",type:"travel",     caption:"flight lands in 2h. the era has started.",           username:"@travelfan",   expires:"Tonight",   color:C.mint,    grad:PASS_TYPES[9].grad,  viewed:false,likes:5, reactions:{"⚡":3,"💜":2}},
+  {id:"p8",type:"travel",     caption:"flight lands in 2h. the era has started.",           username:"@travelfan",   expires:"Tonight",   color:C.sky,     grad:PASS_TYPES[9].grad,  viewed:false,likes:5, reactions:{"⚡":3,"💜":2}},
 ];
 
 // ── PASS PREVIEW CARD — shared, lightweight rendering of a single Backstage
