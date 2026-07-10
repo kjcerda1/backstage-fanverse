@@ -13503,6 +13503,13 @@ const ERA_MEMBERS = {
   "SHINee":      ["Onew","Jonghyun","Key","Minho","Taemin"],
 };
 
+// Cosmic decorative-accent rotation — Eras Explorer + Era Room only. Replaces the old
+// mint/rose/gold/pink/sky/berry/teal rainbow with restrained variation inside the
+// purple → periwinkle → lilac → pink brand family. Used only for non-functional,
+// per-item decoration (group identity, template-type labels, avatar rings) — never for
+// functional status colors (Owned/ISO/Dupe/For Trade), which stay untouched this pass.
+const COSMIC_ACCENTS = [C.accent, C.iris, C.lavender, C.pink];
+
 function getEraData(group, era, color) {
   const key = `${group}::${era}`;
   const vibe = ERA_VIBES[key] || { subtitle:`${era} comeback era`, palette:[color,"#1a1a2e","#2d3436"], mood:"K-pop · Fandom · Fan culture", outfitVibe:`Concert-ready fan fit inspired by the ${era} era` };
@@ -13628,14 +13635,19 @@ function EraRoom({ group, era, color, onBack, onBinderCreated, onGoToTradeHub, c
   };
 
   const addToBinder = async () => {
-    if (hasBinder || binderLoading || hasRealBinder) { showToast("Binder already started"); return; }
+    // Only block on a real binder already existing or a request in flight — a local-only
+    // binder (hasBinder && !hasRealBinder, the old dead-end state) may retry the API call.
+    if (hasRealBinder || binderLoading) return;
     setBinderLoading(true);
-    // Write to legacy localStorage immediately for backward compat
-    const entry = { key:eraKey, group, era, binderStartedAt:new Date().toISOString() };
-    const u = [...binders, entry];
-    setBinders(u);
-    localStorage.setItem("backstage_era_boards", JSON.stringify(u));
-    syncToEraBoard({ binderStarted:true });
+    if (!hasBinder) {
+      // Write to legacy localStorage immediately for backward compat (first attempt only —
+      // skip on retry so we don't push a duplicate entry into `binders`).
+      const entry = { key:eraKey, group, era, binderStartedAt:new Date().toISOString() };
+      const u = [...binders, entry];
+      setBinders(u);
+      localStorage.setItem("backstage_era_boards", JSON.stringify(u));
+      syncToEraBoard({ binderStarted:true });
+    }
     // Create real binder in backend
     try {
       const res = await api.post('/api/binders', { name:`${group} — ${era}`, group_name:group, cover_color:color, emoji:"📁" });
@@ -13721,24 +13733,28 @@ function EraRoom({ group, era, color, onBack, onBinderCreated, onGoToTradeHub, c
     { id:"trades",    label:"🔁 Trades"    },
   ];
 
-  const typeColors = { checklist:C.mint, wishlist:C.pink, pob:C.gold, member:color, dupe:C.sky, fansign:C.rose };
-  const urgColors  = { ISO:C.rose, LF:C.gold, FT:C.mint };
+  // Cosmic family only — see COSMIC_ACCENTS. `member` keeps the passed-in `color` (already
+  // a cosmic accent from the Eras Explorer / Era Boards entry point) as a restrained identity touch.
+  const typeColors = { checklist:C.accent, wishlist:C.pink, pob:C.iris, member:color, dupe:C.lavender, fansign:C.grape };
+  // Trades tab urgency badges — tightened functional set (not decorative): ISO/wishlist reads
+  // pink-lilac, LF neutral blue-violet, FT sparing champagne-gold, per the approved status palette.
+  const urgColors  = { ISO:C.pink, LF:C.iris, FT:C.gold };
 
   return (
     <div style={{ position:"absolute",inset:0,zIndex:401,background:"rgba(6,6,15,0.99)",display:"flex",flexDirection:"column",animation:"in .2s ease" }}>
 
       {/* ── Toast ── */}
       {toast && (
-        <div style={{ position:"absolute",bottom:130,left:"50%",transform:"translateX(-50%)",background:C.surface,border:`1px solid ${color}66`,borderRadius:14,padding:"10px 18px",fontSize:12.5,color:C.text,zIndex:502,whiteSpace:"nowrap",boxShadow:`0 8px 30px ${color}40`,fontFamily:"'Epilogue',sans-serif",fontWeight:800,pointerEvents:"none",letterSpacing:"-0.01em" }}>
+        <div style={{ position:"absolute",bottom:130,left:"50%",transform:"translateX(-50%)",background:C.glassBgHi,backdropFilter:"blur(14px)",border:`1px solid ${C.glassBorder}`,borderRadius:14,padding:"10px 18px",fontSize:12.5,color:C.text,zIndex:502,whiteSpace:"nowrap",boxShadow:`0 8px 30px rgba(0,0,0,0.4)`,fontFamily:"'Epilogue',sans-serif",fontWeight:800,pointerEvents:"none",letterSpacing:"-0.01em" }}>
           ✦ {toast}
         </div>
       )}
 
       {/* ── Hero header ── */}
       <div style={{ flexShrink:0,position:"relative",overflow:"hidden" }}>
-        {/* Gradient bg */}
-        <div style={{ position:"absolute",inset:0,background:`linear-gradient(160deg,${palette[0]}28 0%,${palette[1]||"#1a1a2e"}44 50%,rgba(6,6,15,0) 100%)`,pointerEvents:"none" }} />
-        <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${color}66,transparent)` }} />
+        {/* Gradient bg — fixed cosmic (plum/grape), not the per-era ERA_VIBES raw-hex palette */}
+        <div style={{ position:"absolute",inset:0,background:`linear-gradient(160deg,${C.plum}40 0%,${C.grape}22 50%,rgba(6,6,15,0) 100%)`,pointerEvents:"none" }} />
+        <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.accent}66,transparent)` }} />
 
         <div style={{ padding:"14px 20px 0",position:"relative" }}>
           {/* Back + group label */}
@@ -13761,25 +13777,25 @@ function EraRoom({ group, era, color, onBack, onBinderCreated, onGoToTradeHub, c
           <div style={{ overflow:"hidden", maxHeight:scrolled?0:230, opacity:scrolled?0:1, transition:"max-height .28s ease, opacity .2s ease" }}>
             <p style={{ fontSize:12,color:C.textMid,lineHeight:1.5,marginBottom:10 }}>Build this era from templates to trades. Start a binder, track every member, save your wants, and keep it all in My World.</p>
 
-            {/* Palette strip + mood */}
+            {/* Palette strip + mood — cosmic accents, not the raw-hex ERA_VIBES palette */}
             <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:14 }}>
               <div style={{ display:"flex",gap:3 }}>
-                {palette.map((p,i)=>(
+                {COSMIC_ACCENTS.map((p,i)=>(
                   <div key={i} style={{ width:18,height:6,borderRadius:3,background:p,boxShadow:`0 0 8px ${p}66` }} />
                 ))}
               </div>
               <p style={{ fontSize:9.5,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:600,letterSpacing:"0.03em" }}>{data.mood}</p>
             </div>
 
-            {/* Progress stats */}
+            {/* Progress stats — structural (Saved/Binder) on accent/iris, functional (Wishlist/ISO) on pink-lilac/lavender */}
             <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6 }}>
               {[
-                { label:"Saved",     value:savedCount,   color:color,   icon:"💾" },
-                { label:"Wishlist",  value:wishCount,    color:C.gold,  icon:"⭐" },
-                { label:"Binder",    value:hasBinder?1:0,color:C.mint,  icon:"📁" },
-                { label:"ISO",       value:isoCount,     color:C.rose,  icon:"🔁" },
+                { label:"Saved",     value:savedCount,   color:C.accent,   icon:"💾" },
+                { label:"Wishlist",  value:wishCount,    color:C.pink,     icon:"⭐" },
+                { label:"Binder",    value:hasBinder?1:0,color:C.iris,     icon:"📁" },
+                { label:"ISO",       value:isoCount,     color:C.lavender, icon:"🔁" },
               ].map(s=>(
-                <div key={s.label} style={{ background:C.surface,border:`1px solid ${s.color}25`,borderRadius:12,padding:"7px 6px",textAlign:"center" }}>
+                <div key={s.label} style={{ background:C.glassBg,border:`1px solid ${C.glassBorder}`,backdropFilter:"blur(10px)",borderRadius:12,padding:"7px 6px",textAlign:"center" }}>
                   <p style={{ fontSize:16,marginBottom:2 }}>{s.icon}</p>
                   <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:15,color:s.value>0?s.color:C.textDim,lineHeight:1 }}>{s.value}</p>
                   <p style={{ fontSize:8.5,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:600,marginTop:2,textTransform:"uppercase",letterSpacing:"0.06em" }}>{s.label}</p>
@@ -13788,29 +13804,37 @@ function EraRoom({ group, era, color, onBack, onBinderCreated, onGoToTradeHub, c
             </div>
           </div>
 
-          {/* Binder CTA */}
+          {/* Binder CTA — always actionable, never a dead-end toast state.
+              • no binder            → Start
+              • binderLoading        → Creating…
+              • hasRealBinder        → single tap opens the real binder in My World
+              • hasBinder, not real  → tap retries the sync (addToBinder no longer blocks on hasBinder alone) */}
           <div style={{ marginBottom:12 }}>
-            <button onClick={addToBinder} disabled={binderLoading} className="tap" style={{ width:"100%",padding:"11px 16px",borderRadius:14,background:(hasBinder||hasRealBinder)?`${color}22`:`${color}18`,border:`2px solid ${(hasBinder||hasRealBinder)?color:color+"50"}`,color:(hasBinder||hasRealBinder)?color:C.text,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:(hasBinder||hasRealBinder||binderLoading)?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8,transition:"all .15s",opacity:binderLoading?0.6:1 }}>
+            <button
+              onClick={hasRealBinder ? ()=>onBinderCreated?.() : addToBinder}
+              disabled={binderLoading}
+              className="tap"
+              style={{ width:"100%",padding:"11px 16px",borderRadius:14,background:(hasBinder||hasRealBinder)?`${C.accent}22`:`${C.accent}18`,border:`2px solid ${(hasBinder||hasRealBinder)?C.accent:C.accent+"50"}`,color:(hasBinder||hasRealBinder)?C.accent:C.text,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:binderLoading?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8,transition:"all .15s",opacity:binderLoading?0.6:1 }}>
               {binderLoading
                 ? <><span style={{ fontSize:16 }}>⏳</span> Creating binder…</>
                 : hasRealBinder
-                  ? <><span style={{ fontSize:16 }}>✓</span> Binder created in My World</>
+                  ? <><span style={{ fontSize:16 }}>📁</span> Open {era} Binder in My World →</>
                   : hasBinder
-                    ? <><span style={{ fontSize:16 }}>✓</span> Binder started locally</>
+                    ? <><span style={{ fontSize:16 }}>↻</span> Sync {era} Binder to My World</>
                     : <><span style={{ fontSize:16 }}>＋</span> Start {era} Era Binder</>
               }
             </button>
-            {hasRealBinder && (
-              <button onClick={()=>onBinderCreated?.()} className="tap" style={{ width:"100%",padding:"9px 16px",borderRadius:12,background:`${C.mint}18`,border:`1.5px solid ${C.mint}44`,color:C.mint,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginTop:6,transition:"all .15s" }}>
-                <span>📁</span> Open Albums in My World →
-              </button>
+            {(hasBinder || hasRealBinder) && (
+              <p style={{ fontSize:9.5,color:C.textDim,textAlign:"center",marginTop:6,fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>
+                {hasRealBinder ? "Saved to My World → Binders" : "Saved locally — tap to finish syncing"}
+              </p>
             )}
           </div>
 
           {/* Tabs */}
           <div style={{ display:"flex",gap:5,overflowX:"auto",scrollbarWidth:"none",paddingBottom:12 }}>
             {TABS.map(t=>(
-              <button key={t.id} onClick={()=>setTab(t.id)} className="tap" style={{ flexShrink:0,padding:"7px 13px",borderRadius:99,border:`1.5px solid ${tab===t.id?color:C.border}`,background:tab===t.id?`${color}22`:C.surfaceHi,color:tab===t.id?color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer",transition:"all .15s" }}>
+              <button key={t.id} onClick={()=>setTab(t.id)} className="tap" style={{ flexShrink:0,padding:"7px 13px",borderRadius:99,border:`1.5px solid ${tab===t.id?C.accent:C.glassBorder}`,background:tab===t.id?`${C.accent}22`:C.glassBg,backdropFilter:"blur(10px)",color:tab===t.id?C.accent:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer",transition:"all .15s" }}>
                 {t.label}
               </button>
             ))}
@@ -13825,7 +13849,7 @@ function EraRoom({ group, era, color, onBack, onBinderCreated, onGoToTradeHub, c
         {tab==="templates" && (
           <div>
             {savedCount === 0 && (
-              <div style={{ background:`${color}08`,border:`1px dashed ${color}30`,borderRadius:14,padding:"12px 14px",marginBottom:14,display:"flex",gap:10,alignItems:"flex-start" }}>
+              <div style={{ background:C.glassBg,border:`1px dashed ${C.glassBorder}`,backdropFilter:"blur(10px)",borderRadius:14,padding:"12px 14px",marginBottom:14,display:"flex",gap:10,alignItems:"flex-start" }}>
                 <span style={{ fontSize:20,flexShrink:0 }}>🎴</span>
                 <div>
                   <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,marginBottom:3 }}>Start collecting this era</p>
@@ -13843,9 +13867,9 @@ function EraRoom({ group, era, color, onBack, onBinderCreated, onGoToTradeHub, c
                 const slotCount = Math.min(tmpl.totalCards, 12);
                 const filledSlots = saved ? Math.floor(slotCount * 0.35) : 0;
                 return (
-                  <div key={tmpl.id} style={{ breakInside:"avoid",marginBottom:10,background:C.surface,border:`1.5px solid ${saved?tc:tc+"30"}`,borderRadius:16,overflow:"hidden",transition:"border-color .2s",boxShadow:saved?`0 0 12px ${tc}22`:"none" }}>
+                  <div key={tmpl.id} style={{ breakInside:"avoid",marginBottom:10,background:saved?C.glassBgHi:C.glassBg,backdropFilter:"blur(14px)",border:`1px solid ${saved?tc+"55":C.glassBorder}`,borderRadius:16,overflow:"hidden",transition:"border-color .2s",boxShadow:saved?`0 0 12px ${tc}18`:"none" }}>
                     {/* Card visual area — photocard checklist board */}
-                    <div style={{ background:`linear-gradient(145deg,${tc}20,${palette[1]||"#1a1a2e"}55,${tc}10)`,padding:"10px 10px 7px",position:"relative" }}>
+                    <div style={{ background:`linear-gradient(145deg,${tc}20,${C.plum}55,${tc}10)`,padding:"10px 10px 7px",position:"relative" }}>
                       {/* Holo shimmer overlay */}
                       <div style={{ position:"absolute",inset:0,background:"linear-gradient(135deg,rgba(255,255,255,0.06) 0%,transparent 40%,rgba(255,255,255,0.04) 70%,transparent 100%)",pointerEvents:"none" }} />
                       {/* Saved badge */}
@@ -13883,10 +13907,10 @@ function EraRoom({ group, era, color, onBack, onBinderCreated, onGoToTradeHub, c
                         <button onClick={()=>saveItem(tmpl.id,tmpl.label,"template",tmpl.type)} className="tap" style={{ padding:"4px 9px",borderRadius:8,background:saved?`${tc}22`:`${tc}18`,border:`1px solid ${saved?tc:tc+"44"}`,color:saved?tc:C.textMid,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>
                           {saved?"✓ Saved":"Save"}
                         </button>
-                        <button onClick={()=>addToWishlist(tmpl.id,tmpl.label,tmpl.type,tmpl.memberName)} className="tap" style={{ padding:"4px 9px",borderRadius:8,background:`${C.gold}14`,border:`1px solid ${wished?C.gold:C.gold+"33"}`,color:wished?C.gold:C.textMid,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>
+                        <button onClick={()=>addToWishlist(tmpl.id,tmpl.label,tmpl.type,tmpl.memberName)} className="tap" style={{ padding:"4px 9px",borderRadius:8,background:`${tc}14`,border:`1px solid ${wished?tc:tc+"33"}`,color:wished?tc:C.textMid,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>
                           {wished?"⭐ Wishlisted":"Wishlist"}
                         </button>
-                        <button onClick={addToBinder} className="tap" style={{ padding:"4px 9px",borderRadius:8,background:`${C.mint}14`,border:`1px solid ${C.mint}33`,color:C.mint,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>
+                        <button onClick={addToBinder} className="tap" style={{ padding:"4px 9px",borderRadius:8,background:`${tc}14`,border:`1px solid ${tc}33`,color:tc,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>
                           + Binder
                         </button>
                       </div>
@@ -13902,24 +13926,25 @@ function EraRoom({ group, era, color, onBack, onBinderCreated, onGoToTradeHub, c
         {tab==="outfits" && (
           <div>
             {/* Era vibe summary */}
-            <div style={{ background:`linear-gradient(135deg,${palette[0]}18,${palette[1]||"#1a1a2e"}30)`,border:`1px solid ${color}28`,borderRadius:14,padding:"12px 14px",marginBottom:14 }}>
-              <p style={{ fontSize:9,color,fontFamily:"'Epilogue',sans-serif",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:4 }}>Era Aesthetic</p>
+            <div style={{ background:`linear-gradient(135deg,${C.plum}30,${C.grape}18)`,border:`1px solid ${C.glassBorder}`,backdropFilter:"blur(10px)",borderRadius:14,padding:"12px 14px",marginBottom:14 }}>
+              <p style={{ fontSize:9,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:4 }}>Era Aesthetic</p>
               <p style={{ fontSize:12,color:C.text,lineHeight:1.7 }}>{data.outfitVibe}</p>
             </div>
             <div style={{ columns:2,gap:10 }}>
               {data.outfits.map((out,i)=>{
                 const saved = saves[out.id];
+                const oc = COSMIC_ACCENTS[i % COSMIC_ACCENTS.length];
                 const grad = [
-                  `linear-gradient(145deg,${palette[0]}66,${palette[1]||"#1a1a2e"}99)`,
-                  `linear-gradient(145deg,${palette[1]||color}55,${palette[2]||"#2d3436"}77)`,
-                  `linear-gradient(145deg,${color}44,${palette[0]}66)`,
-                  `linear-gradient(145deg,${palette[2]||"#2d3436"}66,${color}44)`,
+                  `linear-gradient(145deg,${C.accent}66,${C.plum}99)`,
+                  `linear-gradient(145deg,${C.iris}55,${C.midnight}77)`,
+                  `linear-gradient(145deg,${C.lavender}44,${C.grape}66)`,
+                  `linear-gradient(145deg,${C.pink}44,${C.plum}66)`,
                 ][i%4];
                 return (
-                  <div key={out.id} style={{ breakInside:"avoid",marginBottom:10,background:C.surface,border:`1.5px solid ${color}${saved?"55":"22"}`,borderRadius:16,overflow:"hidden",boxShadow:saved?`0 0 12px ${color}20`:"none" }}>
+                  <div key={out.id} style={{ breakInside:"avoid",marginBottom:10,background:saved?C.glassBgHi:C.glassBg,backdropFilter:"blur(14px)",border:`1px solid ${saved?oc+"55":C.glassBorder}`,borderRadius:16,overflow:"hidden",boxShadow:saved?`0 0 12px ${oc}18`:"none" }}>
                     {/* Palette strip at top */}
                     <div style={{ display:"flex",height:5 }}>
-                      {palette.map((p,pi)=><div key={pi} style={{ flex:1,background:p }} />)}
+                      {COSMIC_ACCENTS.map((p,pi)=><div key={pi} style={{ flex:1,background:p }} />)}
                     </div>
                     {/* Moodboard image area */}
                     <div style={{ height:i%2===0?96:76,background:grad,position:"relative",display:"flex",alignItems:"center",justifyContent:"center" }}>
@@ -13929,19 +13954,19 @@ function EraRoom({ group, era, color, onBack, onBinderCreated, onGoToTradeHub, c
                         <span style={{ fontSize:7.5,color:"rgba(255,255,255,0.7)",fontFamily:"'Epilogue',sans-serif",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.08em" }}>CONCERT FIT IDEA</span>
                       </div>
                       {saved && (
-                        <div style={{ position:"absolute",top:6,right:6,background:color,borderRadius:8,padding:"2px 7px",fontSize:8,fontFamily:"'Epilogue',sans-serif",fontWeight:900,color:"#fff" }}>✓ MY WORLD</div>
+                        <div style={{ position:"absolute",top:6,right:6,background:oc,borderRadius:8,padding:"2px 7px",fontSize:8,fontFamily:"'Epilogue',sans-serif",fontWeight:900,color:"#fff" }}>✓ MY WORLD</div>
                       )}
                     </div>
                     <div style={{ padding:"9px 10px 9px" }}>
-                      <p style={{ fontSize:7.5,color,fontFamily:"'Epilogue',sans-serif",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:3 }}>{out.fitType}</p>
+                      <p style={{ fontSize:7.5,color:oc,fontFamily:"'Epilogue',sans-serif",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:3 }}>{out.fitType}</p>
                       <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:11,color:C.text,marginBottom:4,lineHeight:1.3 }}>{out.label}</p>
                       <p style={{ fontSize:10,color:C.textMid,lineHeight:1.4,marginBottom:7 }}>{out.vibe}</p>
                       <div style={{ display:"flex",gap:4,flexWrap:"wrap",marginBottom:7 }}>
                         {out.tags.map(tag=>(
-                          <span key={tag} style={{ padding:"2px 7px",borderRadius:6,background:`${color}18`,border:`1px solid ${color}30`,color,fontSize:8.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{tag}</span>
+                          <span key={tag} style={{ padding:"2px 7px",borderRadius:6,background:`${oc}18`,border:`1px solid ${oc}30`,color:oc,fontSize:8.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{tag}</span>
                         ))}
                       </div>
-                      <button onClick={()=>saveItem(out.id,out.label,"outfit","outfit")} className="tap" style={{ padding:"4px 10px",borderRadius:8,background:saved?`${color}22`:`${color}18`,border:`1px solid ${saved?color:color+"44"}`,color:saved?color:C.textMid,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>
+                      <button onClick={()=>saveItem(out.id,out.label,"outfit","outfit")} className="tap" style={{ padding:"4px 10px",borderRadius:8,background:saved?`${oc}22`:`${oc}18`,border:`1px solid ${saved?oc:oc+"44"}`,color:saved?oc:C.textMid,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>
                         {saved?"✓ Saved to My World":"Save"}
                       </button>
                     </div>
@@ -13955,20 +13980,19 @@ function EraRoom({ group, era, color, onBack, onBinderCreated, onGoToTradeHub, c
         {/* ──── FAN POSTS ──── */}
         {tab==="posts" && (
           <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
-            <div style={{ background:`${color}08`,border:`1px solid ${color}22`,borderRadius:12,padding:"10px 12px",marginBottom:4,display:"flex",gap:8,alignItems:"center" }}>
+            <div style={{ background:C.glassBg,border:`1px solid ${C.glassBorder}`,backdropFilter:"blur(10px)",borderRadius:12,padding:"10px 12px",marginBottom:4,display:"flex",gap:8,alignItems:"center" }}>
               <span style={{ fontSize:16 }}>💬</span>
-              <p style={{ fontSize:11,color:C.textMid,lineHeight:1.5 }}>Fan posts filtered to <span style={{ color,fontWeight:700 }}>{era}</span> — live community content coming soon.</p>
+              <p style={{ fontSize:11,color:C.textMid,lineHeight:1.5 }}>Fan posts filtered to <span style={{ color:C.accent,fontWeight:700 }}>{era}</span> — live community content coming soon.</p>
             </div>
             {data.fanPosts.map(post=>{
               const saved = !!saves[post.id];
               const liked = likedPosts[post.id];
-              // Seeded avatar color from username
-              const avatarColors = [C.mint,C.pink,C.gold,C.sky,C.rose,C.accent];
-              const avatarColor = avatarColors[post.user.charCodeAt(0)%avatarColors.length];
+              // Seeded avatar color from username — cosmic family only
+              const avatarColor = COSMIC_ACCENTS[post.user.charCodeAt(0)%COSMIC_ACCENTS.length];
               return (
-                <div key={post.id} style={{ background:C.surface,border:`1.5px solid ${saved?color+"44":color+"18"}`,borderRadius:16,overflow:"hidden",boxShadow:saved?`0 0 10px ${color}18`:"none" }}>
+                <div key={post.id} style={{ background:saved?C.glassBgHi:C.glassBg,backdropFilter:"blur(14px)",border:`1px solid ${saved?C.accent+"44":C.glassBorder}`,borderRadius:16,overflow:"hidden",boxShadow:saved?`0 0 10px ${C.accent}18`:"none" }}>
                   {/* Era tag strip */}
-                  <div style={{ height:3,background:`linear-gradient(90deg,${color}66,${palette[0]}44,transparent)` }} />
+                  <div style={{ height:3,background:`linear-gradient(90deg,${C.accent}66,${C.iris}44,transparent)` }} />
                   <div style={{ padding:"11px 13px 11px" }}>
                     <div style={{ display:"flex",alignItems:"center",gap:9,marginBottom:8 }}>
                       {/* Avatar */}
@@ -13980,14 +14004,14 @@ function EraRoom({ group, era, color, onBack, onBinderCreated, onGoToTradeHub, c
                         <p style={{ fontSize:9.5,color:C.textDim }}>{post.timeAgo} ago</p>
                       </div>
                       {/* Era tag */}
-                      <span style={{ padding:"3px 8px",borderRadius:7,background:`${color}18`,border:`1px solid ${color}33`,color,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,flexShrink:0 }}>{post.tag}</span>
+                      <span style={{ padding:"3px 8px",borderRadius:7,background:`${C.accent}18`,border:`1px solid ${C.accent}33`,color:C.accent,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,flexShrink:0 }}>{post.tag}</span>
                     </div>
                     <p style={{ fontSize:13,color:C.text,lineHeight:1.65,marginBottom:10 }}>{post.text}</p>
                     <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-                      <button onClick={()=>toggleLike(post.id)} className="tap" style={{ display:"flex",alignItems:"center",gap:4,padding:"4px 9px",borderRadius:9,background:liked?`${C.rose}20`:"transparent",border:`1px solid ${liked?C.rose+"55":C.border}`,color:liked?C.rose:C.textMid,fontSize:11,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>
+                      <button onClick={()=>toggleLike(post.id)} className="tap" style={{ display:"flex",alignItems:"center",gap:4,padding:"4px 9px",borderRadius:9,background:liked?`${C.pink}20`:"transparent",border:`1px solid ${liked?C.pink+"55":C.border}`,color:liked?C.pink:C.textMid,fontSize:11,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>
                         {liked?"♥":"♡"} {post.likes + (liked?1:0)}
                       </button>
-                      <button onClick={()=>saveItem(post.id,post.text.slice(0,40),"post","fanpost")} className="tap" style={{ padding:"4px 9px",borderRadius:9,background:saved?`${color}20`:`${color}10`,border:`1px solid ${saved?color+"55":color+"22"}`,color:saved?color:C.textMid,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>
+                      <button onClick={()=>saveItem(post.id,post.text.slice(0,40),"post","fanpost")} className="tap" style={{ padding:"4px 9px",borderRadius:9,background:saved?`${C.accent}20`:`${C.accent}10`,border:`1px solid ${saved?C.accent+"55":C.accent+"22"}`,color:saved?C.accent:C.textMid,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>
                         {saved?"✓ Saved":"Save"}
                       </button>
                     </div>
@@ -14004,15 +14028,15 @@ function EraRoom({ group, era, color, onBack, onBinderCreated, onGoToTradeHub, c
         {/* ──── TRADES ──── */}
         {tab==="trades" && (
           <div>
-            <div style={{ background:`${color}08`,border:`1px solid ${color}22`,borderRadius:12,padding:"10px 12px",marginBottom:14,display:"flex",gap:8,alignItems:"center" }}>
+            <div style={{ background:C.glassBg,border:`1px solid ${C.glassBorder}`,backdropFilter:"blur(10px)",borderRadius:12,padding:"10px 12px",marginBottom:14,display:"flex",gap:8,alignItems:"center" }}>
               <span style={{ fontSize:16 }}>🔁</span>
-              <p style={{ fontSize:11,color:C.textMid,lineHeight:1.5 }}><span style={{ color,fontWeight:700 }}>{era}</span> trade listings — live matching coming soon.</p>
+              <p style={{ fontSize:11,color:C.textMid,lineHeight:1.5 }}><span style={{ color:C.accent,fontWeight:700 }}>{era}</span> trade listings — live matching coming soon.</p>
             </div>
             <div style={{ display:"flex",flexDirection:"column",gap:10,marginBottom:18 }}>
               {data.trades.map(t=>{
-                const uc = urgColors[t.urgency]||color;
+                const uc = urgColors[t.urgency]||C.accent;
                 return (
-                  <div key={t.id} style={{ background:C.surface,border:`1.5px solid ${uc}28`,borderRadius:16,overflow:"hidden" }}>
+                  <div key={t.id} style={{ background:C.glassBg,backdropFilter:"blur(14px)",border:`1px solid ${C.glassBorder}`,borderRadius:16,overflow:"hidden" }}>
                     {/* Top accent line */}
                     <div style={{ height:3,background:`linear-gradient(90deg,${uc}88,${uc}22,transparent)` }} />
                     <div style={{ padding:"11px 13px 12px" }}>
@@ -14026,13 +14050,13 @@ function EraRoom({ group, era, color, onBack, onBinderCreated, onGoToTradeHub, c
                       </div>
                       {/* Have / Want */}
                       <div style={{ display:"grid",gridTemplateColumns:"1fr 28px 1fr",gap:6,alignItems:"stretch",marginBottom:11 }}>
-                        <div style={{ background:`${C.mint}12`,border:`1px solid ${C.mint}30`,borderRadius:11,padding:"9px 10px" }}>
-                          <p style={{ fontSize:8.5,color:C.mint,fontFamily:"'Epilogue',sans-serif",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:4 }}>🃏 Have</p>
+                        <div style={{ background:`${C.iris}12`,border:`1px solid ${C.iris}30`,borderRadius:11,padding:"9px 10px" }}>
+                          <p style={{ fontSize:8.5,color:C.iris,fontFamily:"'Epilogue',sans-serif",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:4 }}>🃏 Have</p>
                           <p style={{ fontSize:12,color:C.text,lineHeight:1.4,fontWeight:600 }}>{t.have}</p>
                         </div>
                         <div style={{ display:"flex",alignItems:"center",justifyContent:"center",color:C.textDim,fontSize:16 }}>⇄</div>
-                        <div style={{ background:`${C.rose}12`,border:`1px solid ${C.rose}30`,borderRadius:11,padding:"9px 10px" }}>
-                          <p style={{ fontSize:8.5,color:C.rose,fontFamily:"'Epilogue',sans-serif",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:4 }}>🎯 Want</p>
+                        <div style={{ background:`${C.pink}12`,border:`1px solid ${C.pink}30`,borderRadius:11,padding:"9px 10px" }}>
+                          <p style={{ fontSize:8.5,color:C.pink,fontFamily:"'Epilogue',sans-serif",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:4 }}>🎯 Want</p>
                           <p style={{ fontSize:12,color:C.text,lineHeight:1.4,fontWeight:600 }}>{t.want}</p>
                         </div>
                       </div>
@@ -14045,7 +14069,7 @@ function EraRoom({ group, era, color, onBack, onBinderCreated, onGoToTradeHub, c
               })}
             </div>
             {/* Coming soon notice */}
-            <div style={{ background:`${C.gold}08`,border:`1px solid ${C.gold}22`,borderRadius:14,padding:"13px 15px" }}>
+            <div style={{ background:C.glassBg,border:`1px solid ${C.glassBorder}`,backdropFilter:"blur(10px)",borderRadius:14,padding:"13px 15px" }}>
               <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,marginBottom:4 }}>Live trade matching is coming</p>
               <p style={{ fontSize:11,color:C.textMid,lineHeight:1.7 }}>When it's live, you'll see real ISO / FT / LF posts from fans hunting the same {era} cards as you. Matches based on your collection and wishlist.</p>
             </div>
@@ -14055,13 +14079,13 @@ function EraRoom({ group, era, color, onBack, onBinderCreated, onGoToTradeHub, c
         {/* ──── MEMBERS ──── */}
         {tab==="members" && (
           <div>
-            <div style={{ background:`${color}08`,border:`1px solid ${color}22`,borderRadius:12,padding:"10px 14px",marginBottom:14,display:"flex",gap:8,alignItems:"flex-start" }}>
+            <div style={{ background:C.glassBg,border:`1px solid ${C.glassBorder}`,backdropFilter:"blur(10px)",borderRadius:12,padding:"10px 14px",marginBottom:14,display:"flex",gap:8,alignItems:"flex-start" }}>
               <span style={{ fontSize:16,flexShrink:0 }}>👥</span>
               <p style={{ fontSize:11,color:C.textMid,lineHeight:1.5 }}>Start a member binder for your bias or the whole group. Tracks their cards separately from the era binder.</p>
             </div>
             <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
               {data.members.length === 0 ? (
-                <div style={{ textAlign:"center",padding:"32px 16px",background:`${color}08`,border:`1.5px dashed ${color}30`,borderRadius:16 }}>
+                <div style={{ textAlign:"center",padding:"32px 16px",background:C.glassBg,border:`1.5px dashed ${C.glassBorder}`,borderRadius:16 }}>
                   <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,color:C.text,marginBottom:6 }}>Member data coming soon</p>
                   <p style={{ fontSize:11,color:C.textMid,lineHeight:1.6 }}>We're working on completing this era.<br/>Check back in a future update.</p>
                 </div>
@@ -14069,7 +14093,7 @@ function EraRoom({ group, era, color, onBack, onBinderCreated, onGoToTradeHub, c
                 const mb = memberBinders[memberName];
                 const started = mb?.started;
                 return (
-                  <div key={memberName} style={{ background:C.surface,border:`1.5px solid ${started?color:color+"28"}`,borderRadius:16,padding:"13px 14px",display:"flex",alignItems:"center",gap:12,boxShadow:started?`0 0 12px ${color}18`:"none",transition:"all .2s" }}>
+                  <div key={memberName} style={{ background:started?C.glassBgHi:C.glassBg,backdropFilter:"blur(14px)",border:`1px solid ${started?color+"55":C.glassBorder}`,borderRadius:16,padding:"13px 14px",display:"flex",alignItems:"center",gap:12,boxShadow:started?`0 0 12px ${color}18`:"none",transition:"all .2s" }}>
                     {/* Avatar circle */}
                     <div style={{ width:44,height:44,borderRadius:"50%",background:`${color}22`,border:`2px solid ${started?color:color+"44"}`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:started?`0 0 10px ${color}33`:"none" }}>
                       <span style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:15,color:started?color:C.textMid }}>{memberName[0]}</span>
@@ -14849,11 +14873,12 @@ function ToolsTab({ user, weather, isVip, onUpgrade, go, onBack, cards, patchCar
   return (
     <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden", position:"relative" }}>
       <AmbientStarfield />
-      {/* Era search modal */}
+      {/* Era search modal — cosmic gradient base so the whole screen reads as one continuous
+          surface rather than a flat dark background with colored pills scattered on it */}
       {eraModal && (
-        <div style={{ position:"absolute",inset:0,zIndex:400,background:"rgba(6,6,15,0.96)",display:"flex",flexDirection:"column",animation:"in .2s ease" }}>
+        <div style={{ position:"absolute",inset:0,zIndex:400,background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 45%,${C.plum}22 100%)`,display:"flex",flexDirection:"column",animation:"in .2s ease" }}>
           {/* Header */}
-          <div style={{ padding:"16px 20px 12px",flexShrink:0,borderBottom:`1px solid ${C.border}` }}>
+          <div style={{ padding:"16px 20px 12px",flexShrink:0,borderBottom:`1px solid ${C.glassBorder}` }}>
             <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:12 }}>
               <button onClick={()=>{ setEraModal(null); setEraSearch(""); }} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer",flexShrink:0 }}>←</button>
               <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18 }}>🎭 Eras Explorer</h2>
@@ -14864,7 +14889,7 @@ function ToolsTab({ user, weather, isVip, onUpgrade, go, onBack, cards, patchCar
                 value={eraSearch}
                 onChange={e=>setEraSearch(e.target.value)}
                 placeholder="Search group, idol, era, album, or photocard…"
-                style={{ width:"100%",boxSizing:"border-box",padding:"11px 36px 11px 14px",borderRadius:13,background:C.surfaceHi,border:`1.5px solid ${eraSearch?C.accent:C.border}`,color:C.text,fontSize:13,fontFamily:"'Instrument Sans',sans-serif",outline:"none" }}
+                style={{ width:"100%",boxSizing:"border-box",padding:"11px 36px 11px 14px",borderRadius:13,background:C.glassBg,backdropFilter:"blur(14px)",border:`1.5px solid ${eraSearch?C.accent:C.glassBorder}`,color:C.text,fontSize:13,fontFamily:"'Instrument Sans',sans-serif",outline:"none" }}
               />
               {eraSearch
                 ? <button onClick={()=>setEraSearch("")} style={{ position:"absolute",top:"50%",right:12,transform:"translateY(-50%)",background:"none",border:"none",color:C.textMid,cursor:"pointer",fontSize:15,lineHeight:1 }}>✕</button>
@@ -14904,16 +14929,17 @@ function ToolsTab({ user, weather, isVip, onUpgrade, go, onBack, cards, patchCar
               );
               return (
                 <div>
-                  {/* Smart cross-reference */}
+                  {/* Smart cross-reference — cosmic accents indexed by position, not the raw
+                      per-group rainbow color the underlying match objects carry */}
                   {xMatches.length > 0 && (
-                    <div style={{ marginBottom:20,padding:"12px 14px",borderRadius:14,background:`${xMatches[0].color}10`,border:`1.5px solid ${xMatches[0].color}30` }}>
-                      <p style={{ fontSize:9,color:xMatches[0].color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8 }}>✦ Best Match</p>
+                    <div style={{ marginBottom:20,padding:"12px 14px",borderRadius:14,background:C.glassBg,backdropFilter:"blur(10px)",border:`1.5px solid ${C.accent}30` }}>
+                      <p style={{ fontSize:9,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8 }}>✦ Best Match</p>
                       <div style={{ display:"flex",flexWrap:"wrap",gap:7 }}>
-                        {xMatches.map(r=>(
-                          <button key={`x-${r.group}-${r.era}`} onClick={()=>setEraRoom({group:r.group,era:r.era,color:r.color})} className="tap" style={{ padding:"8px 14px",borderRadius:99,background:`${r.color}20`,border:`1.5px solid ${r.color}55`,color:r.color,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,cursor:"pointer" }}>
+                        {xMatches.map((r,i)=>{ const rc = COSMIC_ACCENTS[i%COSMIC_ACCENTS.length]; return (
+                          <button key={`x-${r.group}-${r.era}`} onClick={()=>setEraRoom({group:r.group,era:r.era,color:rc})} className="tap" style={{ padding:"8px 14px",borderRadius:99,background:`${rc}20`,border:`1.5px solid ${rc}55`,color:rc,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,cursor:"pointer" }}>
                             {r.era} <span style={{ opacity:0.6,fontSize:9.5 }}>· {r.group}</span>
                           </button>
-                        ))}
+                        );})}
                       </div>
                     </div>
                   )}
@@ -14921,11 +14947,11 @@ function ToolsTab({ user, weather, isVip, onUpgrade, go, onBack, cards, patchCar
                     <div style={{ marginBottom:20 }}>
                       <p style={{ fontSize:9,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8 }}>GROUP</p>
                       <div style={{ display:"flex",flexWrap:"wrap",gap:7 }}>
-                        {gMatches.map(g=>(
-                          <button key={g.group} onClick={()=>setEraRoom({group:g.group,era:g.eras[0],color:g.color})} className="tap" style={{ padding:"8px 14px",borderRadius:99,background:`${g.color}18`,border:`1.5px solid ${g.color}44`,color:g.color,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,cursor:"pointer" }}>
+                        {gMatches.map((g,i)=>{ const gc = COSMIC_ACCENTS[i%COSMIC_ACCENTS.length]; return (
+                          <button key={g.group} onClick={()=>setEraRoom({group:g.group,era:g.eras[0],color:gc})} className="tap" style={{ padding:"8px 14px",borderRadius:99,background:`${gc}18`,border:`1.5px solid ${gc}44`,color:gc,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,cursor:"pointer" }}>
                             {g.group}
                           </button>
-                        ))}
+                        );})}
                       </div>
                     </div>
                   )}
@@ -14933,11 +14959,11 @@ function ToolsTab({ user, weather, isVip, onUpgrade, go, onBack, cards, patchCar
                     <div style={{ marginBottom:20 }}>
                       <p style={{ fontSize:9,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8 }}>IDOL</p>
                       <div style={{ display:"flex",flexWrap:"wrap",gap:7 }}>
-                        {iMatches.slice(0,12).map(r=>(
-                          <button key={`${r.group}-${r.idol}`} onClick={()=>setEraRoom({group:r.group,era:r.eras[0],color:r.color})} className="tap" style={{ padding:"7px 12px",borderRadius:99,background:`${r.color}14`,border:`1.5px solid ${r.color}38`,color:r.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>
+                        {iMatches.slice(0,12).map((r,i)=>{ const rc = COSMIC_ACCENTS[i%COSMIC_ACCENTS.length]; return (
+                          <button key={`${r.group}-${r.idol}`} onClick={()=>setEraRoom({group:r.group,era:r.eras[0],color:rc})} className="tap" style={{ padding:"7px 12px",borderRadius:99,background:`${rc}14`,border:`1.5px solid ${rc}38`,color:rc,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>
                             {r.idol} <span style={{ opacity:0.6,fontSize:9.5 }}>· {r.group}</span>
                           </button>
-                        ))}
+                        );})}
                       </div>
                     </div>
                   )}
@@ -14945,11 +14971,11 @@ function ToolsTab({ user, weather, isVip, onUpgrade, go, onBack, cards, patchCar
                     <div style={{ marginBottom:20 }}>
                       <p style={{ fontSize:9,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8 }}>ERA / ALBUM</p>
                       <div style={{ display:"flex",flexWrap:"wrap",gap:7 }}>
-                        {eMatches.slice(0,12).map(r=>(
-                          <button key={`${r.group}-${r.era}`} onClick={()=>setEraRoom({group:r.group,era:r.era,color:r.color})} className="tap" style={{ padding:"7px 12px",borderRadius:99,background:`${r.color}14`,border:`1.5px solid ${r.color}38`,color:r.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>
+                        {eMatches.slice(0,12).map((r,i)=>{ const rc = COSMIC_ACCENTS[i%COSMIC_ACCENTS.length]; return (
+                          <button key={`${r.group}-${r.era}`} onClick={()=>setEraRoom({group:r.group,era:r.era,color:rc})} className="tap" style={{ padding:"7px 12px",borderRadius:99,background:`${rc}14`,border:`1.5px solid ${rc}38`,color:rc,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>
                             {r.era} <span style={{ opacity:0.6,fontSize:9.5 }}>· {r.group}</span>
                           </button>
-                        ))}
+                        );})}
                       </div>
                     </div>
                   )}
@@ -14960,24 +14986,25 @@ function ToolsTab({ user, weather, isVip, onUpgrade, go, onBack, cards, patchCar
                         {gMatches.length||iMatches.length||eMatches.length ? "ALSO IN FANVERSE" : "ARTIST FOUND"}
                       </p>
                       <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
-                        {dirMatches.slice(0,6).map(a => {
+                        {dirMatches.slice(0,6).map((a,i) => {
                           const isWatched = followedArtists.includes(a.name);
+                          const ac = COSMIC_ACCENTS[i%COSMIC_ACCENTS.length];
                           const typeLabel = a.type==="soloist"?"Soloist":a.type==="band"?"Band":a.type==="global"?"J-pop/Global":a.region==="japan"?"J-pop":a.region==="thailand"?"Thai Pop":a.region==="philippines"?"P-pop":"Group";
                           return (
-                            <div key={a.id} style={{ background:C.surfaceHi,border:`1.5px solid ${a.color}28`,borderRadius:14,padding:"11px 13px",display:"flex",alignItems:"center",gap:12 }}>
-                              <div style={{ width:36,height:36,borderRadius:10,background:`${a.color}18`,border:`1px solid ${a.color}33`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
-                                <span style={{ fontSize:16,color:a.color,fontFamily:"'Epilogue',sans-serif",fontWeight:900 }}>{a.name[0]}</span>
+                            <div key={a.id} style={{ background:C.glassBg,backdropFilter:"blur(10px)",border:`1px solid ${C.glassBorder}`,borderRadius:14,padding:"11px 13px",display:"flex",alignItems:"center",gap:12 }}>
+                              <div style={{ width:36,height:36,borderRadius:10,background:`${ac}18`,border:`1px solid ${ac}33`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
+                                <span style={{ fontSize:16,color:ac,fontFamily:"'Epilogue',sans-serif",fontWeight:900 }}>{a.name[0]}</span>
                               </div>
                               <div style={{ flex:1,minWidth:0 }}>
                                 <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,color:C.text,marginBottom:2 }}>{a.name}</p>
                                 <div style={{ display:"flex",alignItems:"center",gap:5,flexWrap:"wrap" }}>
-                                  <span style={{ fontSize:9,color:a.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",background:`${a.color}14`,padding:"1px 6px",borderRadius:99 }}>{typeLabel}</span>
+                                  <span style={{ fontSize:9,color:ac,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",background:`${ac}14`,padding:"1px 6px",borderRadius:99 }}>{typeLabel}</span>
                                   {a.members?.length>0 && <span style={{ fontSize:9.5,color:C.textDim }}>{a.members.length} member{a.members.length!==1?"s":""}</span>}
                                   <span style={{ fontSize:9,color:C.textDim,fontStyle:"italic" }}>Era data coming soon</span>
                                 </div>
                               </div>
                               <div style={{ display:"flex",flexDirection:"column",gap:5,flexShrink:0 }}>
-                                <button onClick={()=>handleToggleFollow(a.name)} className="tap" style={{ padding:"5px 11px",borderRadius:99,background:isWatched?`${a.color}22`:"transparent",border:`1.5px solid ${a.color}${isWatched?"66":"33"}`,color:isWatched?a.color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10,cursor:"pointer",whiteSpace:"nowrap" }}>
+                                <button onClick={()=>handleToggleFollow(a.name)} className="tap" style={{ padding:"5px 11px",borderRadius:99,background:isWatched?`${ac}22`:"transparent",border:`1.5px solid ${ac}${isWatched?"66":"33"}`,color:isWatched?ac:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10,cursor:"pointer",whiteSpace:"nowrap" }}>
                                   {isWatched?"Watching ✓":"+ Watch"}
                                 </button>
                                 {isVip ? (
@@ -15003,30 +15030,31 @@ function ToolsTab({ user, weather, isVip, onUpgrade, go, onBack, cards, patchCar
                 {/* Popular shortcuts */}
                 <p style={{ fontSize:9.5,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10 }}>Popular Groups</p>
                 <div style={{ display:"flex",flexWrap:"wrap",gap:7,marginBottom:20 }}>
-                  {ERA_SEARCH_GROUPS.slice(0,8).map(g=>(
-                    <button key={g.group} onClick={()=>{ setEraSearch(g.group); }} className="tap" style={{ padding:"7px 13px",borderRadius:99,background:`${g.color}14`,border:`1.5px solid ${g.color}38`,color:g.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>
+                  {ERA_SEARCH_GROUPS.slice(0,8).map((g,i)=>{ const gc = COSMIC_ACCENTS[i%COSMIC_ACCENTS.length]; return (
+                    <button key={g.group} onClick={()=>{ setEraSearch(g.group); }} className="tap" style={{ padding:"7px 13px",borderRadius:99,background:C.glassBg,backdropFilter:"blur(10px)",border:`1.5px solid ${gc}44`,color:gc,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>
                       {g.group}
                     </button>
-                  ))}
-                  <button onClick={()=>setEraSearch(" ")} className="tap" style={{ padding:"7px 13px",borderRadius:99,background:C.surfaceHi,border:`1px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>
+                  );})}
+                  <button onClick={()=>setEraSearch(" ")} className="tap" style={{ padding:"7px 13px",borderRadius:99,background:C.glassBg,backdropFilter:"blur(10px)",border:`1px solid ${C.glassBorder}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>
                     All →
                   </button>
                 </div>
-                {/* Full group list */}
-                {ERA_SEARCH_GROUPS.map(g=>(
+                {/* Full group list — cosmic accent indexed by position, ERA_SEARCH_GROUPS.color
+                    left untouched (still drives Era Boards cards elsewhere) */}
+                {ERA_SEARCH_GROUPS.map((g,gi)=>{ const gc = COSMIC_ACCENTS[gi%COSMIC_ACCENTS.length]; return (
                   <div key={g.group} style={{ marginBottom:22 }}>
-                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:g.color,marginBottom:10,letterSpacing:"-0.01em" }}>{g.group}</p>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:gc,marginBottom:10,letterSpacing:"-0.01em" }}>{g.group}</p>
                     <div style={{ display:"flex",flexWrap:"wrap",gap:7 }}>
                       {g.eras.map(era=>(
-                        <button key={era} onClick={()=>setEraRoom({group:g.group,era,color:g.color})} className="tap" style={{ padding:"7px 13px",borderRadius:99,background:`${g.color}14`,border:`1.5px solid ${g.color}38`,color:g.color,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,cursor:"pointer",boxShadow:`0 2px 8px ${g.color}10` }}>{era}</button>
+                        <button key={era} onClick={()=>setEraRoom({group:g.group,era,color:gc})} className="tap" style={{ padding:"7px 13px",borderRadius:99,background:C.glassBg,backdropFilter:"blur(10px)",border:`1.5px solid ${gc}44`,color:gc,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,cursor:"pointer",boxShadow:`0 2px 8px ${gc}10` }}>{era}</button>
                       ))}
                     </div>
                   </div>
-                ))}
+                );})}
               </div>
             )}
           </div>
-          {eraRoom && <EraRoom group={eraRoom.group} era={eraRoom.era} color={eraRoom.color} cards={cards} patchCard={patchCard} addCard={addCard} onBack={()=>setEraRoom(null)} />}
+          {eraRoom && <EraRoom group={eraRoom.group} era={eraRoom.era} color={eraRoom.color} cards={cards} patchCard={patchCard} addCard={addCard} onBack={()=>setEraRoom(null)} onBinderCreated={()=>{ setEraRoom(null); setEraModal(null); go("collect"); }} />}
         </div>
       )}
 
