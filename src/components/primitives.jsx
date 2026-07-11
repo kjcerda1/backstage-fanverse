@@ -205,16 +205,32 @@ export const BackstageBIcon = ({ active }) => (
 // not a generic circle/badge. Transparent background — sits directly on the
 // nav bar in both Pearl and Concert/Dark Mode without its own frame.
 // Active: bright/glowing via filters. Inactive: dimmed via brightness/opacity.
+// Native aspect ratio of public/backstage-b-glyph.png (182x198, tightly
+// cropped to the glyph's own bounding box). Used to compute explicit pixel
+// dimensions below instead of relying on % / auto sizing inside a
+// placeItems:"center" grid span — that combination disables grid "stretch",
+// so a percentage-sized child has no definite size to resolve against and
+// silently falls back to the image's tiny intrinsic size. Explicit px
+// dimensions sidestep that entirely.
+const B_GLYPH_ASPECT = 182 / 198;
+
 export function BackstageBNavIcon({ active }) {
+  // Sized up from the original 34/28 box — the source crop was tightened
+  // (glyph now fills ~92% of its own frame instead of ~40%), so this size
+  // now reads as an actual center brand mark at nav scale, not a speck,
+  // while staying comfortably inside the nav column.
+  const h = active ? 42 : 34;
+  const w = Math.round(h * B_GLYPH_ASPECT);
   return (
     <span style={{
-      width: active ? 34 : 28,
-      height: active ? 34 : 28,
-      display: "grid",
-      placeItems: "center",
+      width: w,
+      height: h,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
       background: "transparent",
       filter: active
-        ? "drop-shadow(0 0 6px rgba(247,37,133,0.44)) drop-shadow(0 0 10px rgba(155,93,229,0.30))"
+        ? "drop-shadow(0 0 7px rgba(247,37,133,0.46)) drop-shadow(0 0 12px rgba(155,93,229,0.32))"
         : "drop-shadow(0 0 3px rgba(155,93,229,0.16))",
       transform: active ? "translateY(-2px)" : "none",
       transition: "all 160ms ease",
@@ -223,10 +239,9 @@ export function BackstageBNavIcon({ active }) {
         src="/backstage-b-glyph.png"
         alt=""
         aria-hidden="true"
+        width={w}
+        height={h}
         style={{
-          width: "100%",
-          height: "100%",
-          objectFit: "contain",
           display: "block",
           // Inactive dimming softened slightly so the real logo still reads as
           // a glowing badge at rest, not a flat dark blob.
