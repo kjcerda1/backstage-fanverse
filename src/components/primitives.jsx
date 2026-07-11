@@ -199,32 +199,34 @@ export const BackstageBIcon = ({ active }) => (
   </div>
 );
 
-// Backstage "B4" nav icon — image-based My World bottom-nav icon (replaces BackstageBIcon at the nav call site).
-// Active: bright/glowing via drop-shadow filters. Inactive: dimmed via brightness/saturate/opacity, same asset.
+// Backstage "B" nav icon — the official brand glyph (open rounded B, purple→pink
+// gradient stroke), cropped straight from the same source as the app's full
+// logo lockup (public/logo-orb.png) so the nav mark actually matches the brand,
+// not a generic circle/badge. Transparent background — sits directly on the
+// nav bar in both Pearl and Concert/Dark Mode without its own frame.
+// Active: bright/glowing via filters. Inactive: dimmed via brightness/opacity.
 export function BackstageBNavIcon({ active }) {
   return (
     <span style={{
       width: active ? 34 : 28,
       height: active ? 34 : 28,
-      borderRadius: "50%",
-      overflow: "hidden",
       display: "grid",
       placeItems: "center",
       background: "transparent",
-      boxShadow: active
-        ? "0 0 10px rgba(247,37,133,0.44), 0 0 18px rgba(155,93,229,0.30)"
-        : "0 0 6px rgba(155,93,229,0.16)",
+      filter: active
+        ? "drop-shadow(0 0 6px rgba(247,37,133,0.44)) drop-shadow(0 0 10px rgba(155,93,229,0.30))"
+        : "drop-shadow(0 0 3px rgba(155,93,229,0.16))",
       transform: active ? "translateY(-2px)" : "none",
       transition: "all 160ms ease",
     }}>
       <img
-        src="/backstage-b-nav-transparent.png"
+        src="/backstage-b-glyph.png"
         alt=""
         aria-hidden="true"
         style={{
           width: "100%",
           height: "100%",
-          objectFit: "cover",
+          objectFit: "contain",
           display: "block",
           // Inactive dimming softened slightly so the real logo still reads as
           // a glowing badge at rest, not a flat dark blob.

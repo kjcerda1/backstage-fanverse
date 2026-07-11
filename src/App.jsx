@@ -13087,6 +13087,16 @@ const ERA_SEARCH_GROUPS = [
   { group:"SHINee",      color:C.teal||C.sky,eras:["Replay","Ring Ding Dong","Lucifer","Sherlock","Married to the Music","View","Don't Call Me"],             members:["Onew","Jonghyun","Key","Minho","Taemin"] },
 ];
 
+// Fallback content for the Announcements filter tab when /api/announcements
+// returns nothing yet (new account, empty backend) — keeps the tab from
+// dead-ending into an empty "warming up" state. Explicitly tagged `preview`
+// so badgeFor() labels these "Preview", never mistaken for real admin posts.
+const EXPLORE_PREVIEW_ANNOUNCEMENTS = [
+  { id:"prev-ann-1", preview:true, group_name:"BTS", title:"World Tour dates expanding", body:"New North American stops are rolling out city by city — turn on notifications so you don't miss your city's on-sale window.", created_at:new Date().toISOString() },
+  { id:"prev-ann-2", preview:true, group_name:"aespa", title:"Comeback era teasers incoming", body:"Concept photos and teaser schedule are landing this week. Fan Circles will get first look before general socials.", created_at:new Date().toISOString() },
+  { id:"prev-ann-3", preview:true, group_name:"SEVENTEEN", title:"Fan meet lottery opens soon", body:"Applications for the next fan meet lottery open shortly. Verified fandom accounts get early access.", created_at:new Date().toISOString() },
+];
+
 // Instagram-Explore-style discovery grid — real data where it exists
 // (Discover Fans, Capsule Moments, Trending Trades, City Pulse), a small
 // "Preview" tag where it's still mock (Backstage Passes, Upcoming Shows —
@@ -13231,7 +13241,7 @@ function ExploreTab({ user, go, onViewProfile }) {
       case "post": source = "Fan Reported"; freshness = isNewTs(item.data.created_at) ? "New" : null; break;
       case "announcement": {
         const a = item.data;
-        source = a.source === "ticketmaster" ? "Official · Ticketmaster" : "Manual Admin";
+        source = a.preview ? "Preview" : (a.source === "ticketmaster" ? "Official · Ticketmaster" : "Manual Admin");
         freshness = isNewTs(a.created_at) ? "New" : null;
         break;
       }
@@ -13257,8 +13267,10 @@ function ExploreTab({ user, go, onViewProfile }) {
   );
   // Shared full-screen read-only detail sheet for content types that don't
   // already have a real detail screen (trade listings reuse the real one below).
+  // Uses the live theme bg (not a hardcoded near-black) so Pearl Mode gets a
+  // pale pearl surface instead of a Concert-Mode-style black screen.
   const DetailSheet = ({ onClose, children }) => (
-    <div style={{ position:"absolute", inset:0, zIndex:500, background:"rgba(6,6,15,0.96)", display:"flex", flexDirection:"column", animation:"in .2s ease" }}>
+    <div style={{ position:"absolute", inset:0, zIndex:500, background:C.bg, display:"flex", flexDirection:"column", animation:"in .2s ease" }}>
       <div style={{ padding:"calc(env(safe-area-inset-top,0px) + 16px) 20px 4px", flexShrink:0, display:"flex", justifyContent:"flex-end" }}>
         <button onClick={onClose} className="tap" style={{ width:32,height:32,borderRadius:"50%",background:C.surfaceHi,border:`1px solid ${C.border}`,color:C.textMid,fontSize:16,cursor:"pointer" }}>✕</button>
       </div>
@@ -13269,7 +13281,11 @@ function ExploreTab({ user, go, onViewProfile }) {
   // ── Unified content feed — individual real items, not aggregate feature tiles ──
   const feedItems = [];
   feedPosts.forEach(p => feedItems.push({ kind:"post", key:`post-${p.id}`, data:p }));
-  (announcements||[]).slice(0,3).forEach(a => feedItems.push({ kind:"announcement", key:`ann-${a.id}`, data:a }));
+  // Real announcements first; tasteful preview content fills the Announcements
+  // tab when /api/announcements has nothing yet, so it never dead-ends into
+  // "Explore is warming up" — same fallback pattern as upcomingShows below.
+  const announcementsForExplore = (announcements||[]).length ? announcements : EXPLORE_PREVIEW_ANNOUNCEMENTS;
+  announcementsForExplore.slice(0,3).forEach(a => feedItems.push({ kind:"announcement", key:`ann-${a.id}`, data:a }));
   capsuleEntries.slice(0,4).forEach(e => feedItems.push({ kind:"capsule", key:`cap-${e.id}`, data:e }));
   trades.slice(0,4).forEach(t => feedItems.push({ kind:"trade", key:`trade-${t.id}`, data:t }));
   // Real user-created passes surface first; mock/preview passes only fill in
@@ -13548,9 +13564,18 @@ function ExploreTab({ user, go, onViewProfile }) {
               <span style={{ width:16,height:16,borderRadius:"50%",background:"rgba(255,255,255,0.14)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9 }}>✕</span>
             </div>
           )}
-          {/* Quick filter chips over the content feed */}
+          {/* Quick filter chips over the content feed — Capsules/Trades/Fans only
+              show once there's real content behind them, same "hide instead of
+              dead-ending" rule the Near You rail already follows above, since
+              those three surface real user data (trade offers, capsule saves,
+              profile taps) that shouldn't be faked with mock backend records. */}
           <div style={{ display:"flex", gap:8, overflowX:"auto", paddingBottom:12 }}>
-            {[["all","For You"],["concerts","Concerts"],["announcements","Announcements"],["passes","Passes"],["capsules","Capsules"],["trades","Trades"],["fans","Fans"]].map(([id,label])=>(
+            {[
+              ["all","For You"],["concerts","Concerts"],["announcements","Announcements"],["passes","Passes"],
+              ...(capsuleEntries.length ? [["capsules","Capsules"]] : []),
+              ...(trades.length ? [["trades","Trades"]] : []),
+              ...(discoverFans.length ? [["fans","Fans"]] : []),
+            ].map(([id,label])=>(
               <button key={id} onClick={()=>setFilterType(id)} className="tap" style={{ ...getPillStyle({active:filterType===id}), flexShrink:0, fontSize:11, padding:"7px 14px" }}>{label}</button>
             ))}
           </div>
