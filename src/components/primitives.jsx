@@ -215,11 +215,16 @@ export const BackstageBIcon = ({ active }) => (
 const B_GLYPH_ASPECT = 182 / 198;
 
 export function BackstageBNavIcon({ active }) {
-  // Sized up from the original 34/28 box — the source crop was tightened
-  // (glyph now fills ~92% of its own frame instead of ~40%), so this size
-  // now reads as an actual center brand mark at nav scale, not a speck,
-  // while staying comfortably inside the nav column.
-  const h = active ? 42 : 34;
+  // Box stays fixed at 28 for both states — the icon's own wrapper slot in
+  // the nav (App.jsx) is a fixed 22x22, and any active/inactive size *change*
+  // here risks the box overflowing enough to collide with the "My World"
+  // label below or neighboring tab icons (confirmed: both 42/34 and a 30/28
+  // split did exactly that). Sibling SVG nav icons don't resize on active
+  // either — only recolor/glow — so this now matches that pattern exactly.
+  // The crop tightening (glyph now fills ~92% of its own frame instead of
+  // ~40%) is what actually fixes the "tiny speck" problem — at a fixed 28px
+  // box this alone renders a visibly much larger, properly prominent glyph.
+  const h = 28;
   const w = Math.round(h * B_GLYPH_ASPECT);
   return (
     <span style={{
@@ -230,9 +235,8 @@ export function BackstageBNavIcon({ active }) {
       justifyContent: "center",
       background: "transparent",
       filter: active
-        ? "drop-shadow(0 0 7px rgba(247,37,133,0.46)) drop-shadow(0 0 12px rgba(155,93,229,0.32))"
+        ? "drop-shadow(0 0 6px rgba(247,37,133,0.44)) drop-shadow(0 0 10px rgba(155,93,229,0.30))"
         : "drop-shadow(0 0 3px rgba(155,93,229,0.16))",
-      transform: active ? "translateY(-2px)" : "none",
       transition: "all 160ms ease",
     }}>
       <img
