@@ -607,27 +607,112 @@ Include: morning, K-pop shopping, sightseeing, lunch, pre-show, showtime.`,
 
 
 // ── AI: GENERAL ASSISTANT ─────────────────────────────────────────────────────
+const ASK_BACKSTAGE_FREE_DAILY_LIMIT = Math.max(1, parseInt(process.env.ASK_BACKSTAGE_FREE_DAILY_LIMIT) || 5);
+
+async function getAskBackstageAccess(userId) {
+  if (MOCK_MODE) return { isVip: false, used: 0, limit: ASK_BACKSTAGE_FREE_DAILY_LIMIT, remaining: ASK_BACKSTAGE_FREE_DAILY_LIMIT };
+  const today = new Date().toISOString().slice(0, 10);
+  const [{ data: profile, error: profileError }, { data: usage, error: usageError }] = await Promise.all([
+    supabase.from('users').select('is_vip, vip_source, vip_expires_at').eq('id', userId).single(),
+    supabase.from('ask_backstage_usage').select('request_count').eq('user_id', userId).eq('usage_date', today).maybeSingle(),
+  ]);
+  if (profileError) throw profileError;
+  // A missing-table error means the production migration has not been applied.
+  // Fail closed for free users so a deployment mistake cannot create unlimited AI spend.
+  if (usageError) throw usageError;
+  const isVip = computeVipStatus(profile).active;
+  const used = Math.max(0, usage?.request_count || 0);
+  return { isVip, used, limit: isVip ? null : ASK_BACKSTAGE_FREE_DAILY_LIMIT, remaining: isVip ? null : Math.max(0, ASK_BACKSTAGE_FREE_DAILY_LIMIT - used), today };
+}
+
+async function recordAskBackstageUsage(userId, access) {
+  if (MOCK_MODE || access.isVip) return access;
+  const nextCount = access.used + 1;
+  const { error } = await supabase.from('ask_backstage_usage').upsert({
+    user_id: userId,
+    usage_date: access.today,
+    request_count: nextCount,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'user_id,usage_date' });
+  if (error) throw error;
+  return { ...access, used: nextCount, remaining: Math.max(0, ASK_BACKSTAGE_FREE_DAILY_LIMIT - nextCount) };
+}
+
+app.get('/api/ai/assistant/status', requireAuth, async (req, res) => {
+  try {
+    const access = await getAskBackstageAccess(req.userId);
+    res.json({ is_vip: access.isVip, used: access.used, limit: access.limit, remaining: access.remaining });
+  } catch (err) {
+    console.error('[Ask Backstage Status] Error:', err.message);
+    res.status(503).json({ error: 'Ask Backstage access is temporarily unavailable.' });
+  }
+});
+
 app.post('/api/ai/assistant', aiLimiter, requireAuth, async (req, res) => {
-  const { message, context } = req.body;
+  const { message, context = {}, history = [] } = req.body || {};
+
+  if (typeof message !== 'string' || !message.trim()) {
+    return res.status(400).json({ error: 'Please enter a question.' });
+  }
+  if (message.trim().length > 2000) {
+    return res.status(400).json({ error: 'Please keep your question under 2,000 characters.' });
+  }
 
   if (!HAS_AI) {
-    return res.json({
-      response: `Hey! I'm Backstage AI 💜 I help with outfit ideas, fanchant guides, trip planning, and fan meetups. What do you need?`,
-      mock: true,
-    });
+    return res.status(503).json({ error: 'Ask Backstage is not configured yet.' });
   }
 
   try {
+    const access = await getAskBackstageAccess(req.userId);
+    if (!access.isVip && access.remaining <= 0) {
+      return res.status(429).json({
+        error: 'daily_limit_reached',
+        message: `You have used today's ${ASK_BACKSTAGE_FREE_DAILY_LIMIT} free questions. Your questions reset tomorrow.`,
+        used: access.used, limit: access.limit, remaining: 0,
+      });
+    }
+
+    const safeHistory = Array.isArray(history) ? history.slice(-10)
+      .filter(item => item && ['user', 'assistant'].includes(item.role) && typeof item.text === 'string')
+      .map(item => ({ role: item.role, content: item.text.slice(0, 2000) })) : [];
+    const safeContext = {
+      fandoms: Array.isArray(context.fandoms) ? context.fandoms.slice(0, 12).map(v => String(v).slice(0, 80)) : [],
+      bias: typeof context.bias === 'string' ? context.bias.slice(0, 80) : '',
+      city: typeof context.city === 'string' ? context.city.slice(0, 100) : '',
+      upcomingShow: context.upcomingShow && typeof context.upcomingShow === 'object' ? {
+        artist: String(context.upcomingShow.artist || context.upcomingShow.name || '').slice(0, 100),
+        date: String(context.upcomingShow.date || '').slice(0, 40),
+        city: String(context.upcomingShow.city || '').slice(0, 100),
+      } : null,
+    };
     const response = await anthropic.messages.create({
       model:      'claude-sonnet-4-20250514',
-      max_tokens: 600,
-      system: `You are Backstage AI — the built-in assistant for the Backstage K-pop fandom app. You help fans with: outfit ideas, fanchant guides (only verified — never invent text), trip planning, photocard collecting, fan meetup advice, and general K-pop lifestyle questions. Speak warmly, like a fellow fan. Keep responses concise (2-4 sentences max unless asked for more). Context about this user: ${JSON.stringify(context || {})}`,
-      messages: [{ role: 'user', content: message }],
+      max_tokens: 900,
+      system: `You are Ask Backstage, the practical in-app fandom and concert assistant for Backstage × Fanverse.
+Help with concert-day planning, packing, venue preparation, accessibility, solo-concert safety, travel planning, fan meetups, outfits, verified fanchant resources, photocards, trading, collections, scrapbooks, and using Backstage.
+
+Rules:
+- Answer the user's actual question directly. Never fall back to a generic checklist unless it is relevant.
+- Use supplied context only to personalize. Never claim to know information that is not present.
+- Never invent venue rules, dates, prices, ticket policies, transit details, official fanchants, or real-time facts. Clearly identify anything the fan must verify with an official artist, venue, ticketing, or transit source.
+- Never reveal private account data or infer a precise location.
+- Be warm, capable, and fan-aware without excessive emoji.
+- Use short paragraphs or bullets when they improve readability.
+- When an existing Backstage tool is useful, end with one tag on its own line: [[ACTION:route|Button label]]. Allowed routes: concertday, fanmap, tools, concertprep, scrapbook, collect, trip, outfits. Otherwise omit the tag.
+
+User context: ${JSON.stringify(safeContext)}`,
+      messages: [...safeHistory, { role: 'user', content: message.trim() }],
     });
-    res.json({ response: response.content[0].text });
+    const reply = response.content?.find(block => block.type === 'text')?.text?.trim();
+    if (!reply) throw new Error('AI provider returned an empty response');
+    const updatedAccess = await recordAskBackstageUsage(req.userId, access);
+    res.json({
+      reply,
+      usage: { is_vip: updatedAccess.isVip, used: updatedAccess.used, limit: updatedAccess.limit, remaining: updatedAccess.remaining },
+    });
   } catch (err) {
     console.error('[AI Assistant] Error:', err.message);
-    res.status(500).json({ response: 'AI temporarily unavailable. Try again in a moment! 💜' });
+    res.status(503).json({ error: 'Ask Backstage is temporarily unavailable. Please try again.' });
   }
 });
 

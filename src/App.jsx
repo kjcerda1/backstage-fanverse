@@ -17448,13 +17448,22 @@ function SmartNotifs({ onClose }) {
 }
 
 // ─── 28. AI ASSISTANT ────────────────────────────────────────────────────────
-function AIAssistant({ onBack, user, go }) {
+function AIAssistant({ onBack, user, go, isVip=false, onUpgrade=()=>{} }) {
   const [view, setView]       = useState("home"); // home | chat
   const [messages, setMessages] = useState([{role:"assistant",text:"Hey! I'm your Backstage fan assistant 💜 Ask me about concert prep, outfits, chants, or trip planning."}]);
   const [input, setInput]   = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [usage, setUsage] = useState({ is_vip:isVip, used:0, limit:FREE_LIMITS.askBackstageDaily, remaining:FREE_LIMITS.askBackstageDaily });
   const bottomRef = useRef(null);
   useEffect(()=>{ bottomRef.current?.scrollIntoView({behavior:"smooth"}); },[messages]);
+  useEffect(()=>{
+    let active=true;
+    api.get('/api/ai/assistant/status').then(d=>{
+      if(active&&!d?.error) setUsage({ is_vip:!!d.is_vip, used:d.used||0, limit:d.limit, remaining:d.remaining });
+    });
+    return()=>{active=false;};
+  },[]);
 
   // Smart action cards — each has a route OR opens chat with a pre-fill
   const ACTIONS = [
@@ -17480,20 +17489,31 @@ function AIAssistant({ onBack, user, go }) {
 
   const send = async (text) => {
     const q = text||input.trim(); if(!q) return;
+    if(!usage.is_vip&&usage.remaining===0){ setError(`You've used today's ${usage.limit||FREE_LIMITS.askBackstageDaily} free questions. They reset tomorrow.`); return; }
     setView("chat");
-    setMessages(m=>[...m,{role:"user",text:q}]); setInput(""); setLoading(true);
+    const priorMessages=messages.slice(-10);
+    setMessages(m=>[...m,{role:"user",text:q}]); setInput(""); setLoading(true); setError("");
     try {
-      const res = await fetch("/api/ai/assistant",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message:q,userGroups:user?.groups||[]})});
-      if(res.ok){ const d=await res.json(); setMessages(m=>[...m,{role:"assistant",text:d.reply}]); } else throw new Error();
-    } catch {
-      const lq=q.toLowerCase(); let r="Great question! ";
-      if(lq.includes("bring")||lq.includes("pack")) r+="Must-haves: charged phone + powerbank, lightstick, photocards for trading, ID, cash. Comfy shoes — you'll stand for hours!";
-      else if(lq.includes("outfit")) r+="Think your group's color palette, comfy but cute, layers for AC, platform sneakers. Always check the venue bag policy first.";
-      else if(lq.includes("plan")||lq.includes("day")) r+="Arrive 2–3h early for merch. Join the pre-show meetup. Locate your gate early. Have your ticket offline. Enjoy every second!";
-      else if(lq.includes("chant")) r+="Check the Chant Vault in Tools! Every song has a practice mode. Focus on your bias's lines — that's the one that hits hardest.";
-      else if(lq.includes("trip")) r+="Book hotels near the venue 3–6 months out. Check for fan meetup buses. Download the venue map offline. Eat before doors — lines are long!";
-      else r+="Ask me about concert prep, outfits, chants, finding fans, or trip planning!";
-      setMessages(m=>[...m,{role:"assistant",text:r}]);
+      const d=await api.post('/api/ai/assistant',{
+        message:q,
+        history:priorMessages,
+        context:{ fandoms:user?.fandoms||user?.groups||[], bias:user?.bias||"", city:user?.city||"", upcomingShow:ls.get('backstage_myshows',[])?.[0]||null },
+      });
+      if(d?.error) {
+        if(d.error==='429') {
+          const status=await api.get('/api/ai/assistant/status');
+          if(!status?.error) setUsage(status);
+          throw new Error(`You've used today's free questions. They reset tomorrow.`);
+        }
+        throw new Error(d.error==='401'?'Please sign in again to use Ask Backstage.':'Ask Backstage could not connect. Please try again.');
+      }
+      if(!d?.reply) throw new Error('Ask Backstage returned an empty answer. Please try again.');
+      const actionMatch=d.reply.match(/\[\[ACTION:([a-z]+)\|([^\]]+)\]\]/);
+      const cleanText=d.reply.replace(/\n?\[\[ACTION:[a-z]+\|[^\]]+\]\]/g,'').trim();
+      setMessages(m=>[...m,{role:'assistant',text:cleanText,action:actionMatch?{route:actionMatch[1],label:actionMatch[2]}:null}]);
+      if(d.usage) setUsage(d.usage);
+    } catch(err) {
+      setError(err?.message||'Ask Backstage could not connect. Please try again.');
     }
     setLoading(false);
   };
@@ -17507,10 +17527,7 @@ function AIAssistant({ onBack, user, go }) {
           <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,background:`linear-gradient(135deg,${C.accent},${C.pink})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent" }}>✨ Ask Backstage</p>
           <p style={{ fontSize:10,color:C.textMid }}>Your personal fan AI — concert-brained 💜</p>
         </div>
-        <div style={{ display:"flex",alignItems:"center",gap:5 }}>
-          <div style={{ width:7,height:7,borderRadius:"50%",background:C.mint,animation:"pulse 2s infinite" }} />
-          <p style={{ fontSize:9,color:C.mint,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>LIVE</p>
-        </div>
+        <p style={{ fontSize:9,color:loading?C.pink:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{loading?'THINKING…':'READY'}</p>
       </div>
 
       {/* HOME VIEW — action grid */}
@@ -17521,6 +17538,10 @@ function AIAssistant({ onBack, user, go }) {
 
           <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:20,marginBottom:6,position:"relative" }}>What can I help with?</p>
           <p style={{ fontSize:11.5,color:C.textMid,marginBottom:20,position:"relative" }}>Tap an action to go directly, or ask me anything below.</p>
+          <div style={{ marginBottom:14,padding:"9px 12px",borderRadius:12,background:usage.is_vip?`${C.gold}12`:`${C.accent}0c`,border:`1px solid ${usage.is_vip?`${C.gold}33`:`${C.accent}25`}`,position:'relative',display:'flex',justifyContent:'space-between',alignItems:'center',gap:10 }}>
+            <p style={{ fontSize:10.5,color:usage.is_vip?C.gold:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{usage.is_vip?'✦ VIP · Generous access':`${usage.remaining ?? FREE_LIMITS.askBackstageDaily} free questions left today`}</p>
+            {!usage.is_vip&&<button onClick={onUpgrade} style={{ background:'none',border:'none',color:C.gold,fontSize:9.5,fontWeight:800,cursor:'pointer' }}>Go VIP →</button>}
+          </div>
 
           {/* Action grid — 2 columns */}
           <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:20,position:"relative" }}>
@@ -17558,7 +17579,8 @@ function AIAssistant({ onBack, user, go }) {
                   <div style={{ width:32,height:32,borderRadius:9,background:`linear-gradient(135deg,${C.accent}44,${C.pink}22)`,border:`1px solid ${C.accent}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0 }}>✨</div>
                 )}
                 <div style={{ maxWidth:"80%",background:msg.role==="user"?`linear-gradient(140deg,${C.accent},${C.accentDim})`:C.surfaceHi,borderRadius:msg.role==="user"?"18px 18px 4px 18px":"18px 18px 18px 4px",padding:"10px 14px",border:msg.role==="user"?"none":`1px solid ${C.border}`,boxShadow:msg.role==="user"?`0 4px 14px ${C.accent}28`:"none" }}>
-                  <p style={{ fontSize:13,lineHeight:1.65,color:msg.role==="user"?C.white:C.text }}>{msg.text}</p>
+                  <p style={{ fontSize:13,lineHeight:1.65,color:msg.role==="user"?C.white:C.text,whiteSpace:'pre-wrap' }}>{msg.text}</p>
+                  {msg.action&&<button onClick={()=>{onBack();if(go)go(msg.action.route);}} style={{ marginTop:10,padding:'8px 12px',borderRadius:10,border:`1px solid ${C.accent}55`,background:`${C.accent}18`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontSize:11,fontWeight:700,cursor:'pointer' }}>{msg.action.label} →</button>}
                 </div>
               </div>
             ))}
@@ -17570,6 +17592,7 @@ function AIAssistant({ onBack, user, go }) {
                 </div>
               </div>
             )}
+            {error&&<div role="alert" style={{ marginLeft:42,background:`${C.rose}12`,border:`1px solid ${C.rose}44`,borderRadius:14,padding:'10px 12px' }}><p style={{ fontSize:12,lineHeight:1.5,color:C.rose }}>{error}</p>{!usage.is_vip&&usage.remaining===0?<button onClick={onUpgrade} style={{ marginTop:7,background:'none',border:'none',padding:0,color:C.gold,fontSize:11,fontWeight:800,cursor:'pointer' }}>Unlock VIP access →</button>:<button onClick={()=>send(messages.filter(m=>m.role==='user').at(-1)?.text)} style={{ marginTop:7,background:'none',border:'none',padding:0,color:C.pink,fontSize:11,fontWeight:700,cursor:'pointer' }}>Try again</button>}</div>}
             <div ref={bottomRef} />
           </div>
           <div style={{ padding:"12px 16px",display:"flex",gap:8,borderTop:`1px solid ${C.border}`,flexShrink:0,background:C.bg }}>
@@ -26304,7 +26327,7 @@ function AppInner() {
         {modal==="valuetracks"&&<ModalWrapper><ValueTracker onBack={()=>setModal(null)} isVip={isVip} onUpgrade={openUpgrade} /></ModalWrapper>}
         {modal==="budget"&&<ModalWrapper><BudgetTracker onBack={()=>setModal(null)} /></ModalWrapper>}
         {modal==="fanprojects"&&<ModalWrapper><FanProjects onBack={()=>setModal(null)} /></ModalWrapper>}
-        {modal==="assistant"&&<ModalWrapper><AIAssistant onBack={()=>setModal(null)} user={user} go={go} /></ModalWrapper>}
+        {modal==="assistant"&&<ModalWrapper><AIAssistant onBack={()=>setModal(null)} user={user} go={go} isVip={isVip} onUpgrade={openUpgrade} /></ModalWrapper>}
         {modal==="livefeed"&&<ModalWrapper><LiveFeedTab user={user} go={go} onBack={()=>setModal(null)} /></ModalWrapper>}
         {/* PHASE 5 MODALS */}
         {modal==="notifications"&&<ModalWrapper><StandaloneNotifCenter

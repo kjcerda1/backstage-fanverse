@@ -52,6 +52,7 @@ export function isFounderVip(user) {
 // Central source of truth for free vs VIP feature limits.
 // VIP users bypass all limits. Reference FREE_LIMITS.* in components.
 export const FREE_LIMITS = {
+  askBackstageDaily: 5,          // successful AI answers per UTC day
   stageFonts: 3,                 // first 3 font moods free (classic, softpop, poster)
   stageEffects: 3,               // none + sparkles + hearts free
   savedCapsules: 2,              // capsules saved to My World
