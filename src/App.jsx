@@ -14130,7 +14130,16 @@ function ChantVault() {
   const [pasteSong, setPasteSong] = useState("");
   const [pasteText, setPasteText] = useState("");
   const [showPastePanel, setShowPastePanel] = useState(false);
+  const [speedIdx, setSpeedIdx] = useState(1);
   const intRef = useRef(null);
+
+  const SPEED_PRESETS = [
+    { label: "Slow", mult: 1, ms: 2500 },
+    { label: "Practice", mult: 1.5, ms: 1667 },
+    { label: "Concert", mult: 2, ms: 1250 },
+    { label: "Concert+", mult: 2.5, ms: 1000 },
+    { label: "Race", mult: 3, ms: 833 },
+  ];
 
   useEffect(() => {
     if (running && active) {
@@ -14143,10 +14152,10 @@ function ChantVault() {
           }
           return i + 1;
         });
-      }, 2500);
+      }, SPEED_PRESETS[speedIdx].ms);
     }
     return () => clearInterval(intRef.current);
-  }, [running, active, repeatTick]);
+  }, [running, active, repeatTick, speedIdx]);
 
   const openChant = (chant) => {
     setActive(chant);
@@ -14230,17 +14239,25 @@ function ChantVault() {
           setRunning(false);
           clearInterval(intRef.current);
         }}
+        className="tap"
         style={{
-          background: "none",
-          border: "none",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          background: C.surfaceHi,
+          border: `1px solid ${C.border}`,
+          borderRadius: 99,
           color: C.textMid,
-          fontSize: 13,
+          fontSize: 12,
+          fontFamily: "'Epilogue',sans-serif",
+          fontWeight: 700,
           cursor: "pointer",
           marginBottom: 18,
-          padding: 0,
+          padding: "7px 14px",
+          letterSpacing: "0.01em",
         }}
       >
-        Back to Chant Vault
+        <span style={{ fontSize: 14, lineHeight: 1 }}>←</span> Chant Vault
       </button>
       <div style={{ ...VS.glowCard(active.color), padding: 24, marginBottom: 18, position: "relative", overflow: "hidden" }}>
         <div style={{ position: "absolute", top: -32, right: -32, width: 180, height: 180, borderRadius: "50%", background: `radial-gradient(circle, ${active.color}22, transparent 55%)`, pointerEvents: "none" }} />
@@ -14301,9 +14318,35 @@ function ChantVault() {
             <Btn small color={active.color} onClick={() => stepLine(1)} disabled={lineIdx === active.lines.length - 1}>Next</Btn>
             <Btn small color={active.color} onClick={() => setRepeatTick((t) => t + 1)}>Repeat</Btn>
           </div>
-          <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr auto", alignItems: "center" }}>
+          <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr auto", alignItems: "center", marginBottom: 16 }}>
             <Btn color={active.color} onClick={() => setRunning(!running)} small style={{ width: "100%" }}>{running ? "Pause practice" : "Auto practice"}</Btn>
             <Btn ghost color={C.textMid} onClick={() => { clearInterval(intRef.current); setRunning(false); setLineIdx(0); }} small>Reset</Btn>
+          </div>
+          <div>
+            <p style={{ margin: "0 0 8px", fontSize: 10, fontFamily: "'Epilogue',sans-serif", fontWeight: 800, letterSpacing: "0.08em", color: C.textDim, textTransform: "uppercase" }}>Practice Speed</p>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {SPEED_PRESETS.map((sp, i) => (
+                <button
+                  key={sp.label}
+                  onClick={() => setSpeedIdx(i)}
+                  className="tap"
+                  style={{
+                    padding: "7px 13px",
+                    borderRadius: 99,
+                    fontSize: 11,
+                    fontFamily: "'Epilogue',sans-serif",
+                    fontWeight: 700,
+                    border: `1.5px solid ${speedIdx === i ? active.color : C.border}`,
+                    background: speedIdx === i ? `${active.color}22` : C.surfaceHi,
+                    color: speedIdx === i ? active.color : C.textMid,
+                    cursor: "pointer",
+                    transition: "all .15s",
+                  }}
+                >
+                  {sp.label} · {sp.mult}x
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </div>
