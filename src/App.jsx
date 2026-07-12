@@ -26397,7 +26397,10 @@ function AppInner() {
                   {active&&<div style={{ position:"absolute", top:0, left:"50%", transform:"translateX(-50%)", width:32, height:2, background:`linear-gradient(90deg,${C.accent},${C.pink})`, borderRadius:99, boxShadow:`0 0 8px ${C.accent}80` }} />}
                   {/* Active ambient glow */}
                   {active&&<div style={{ position:"absolute", top:-2, left:"50%", transform:"translateX(-50%)", width:48, height:28, background:`radial-gradient(ellipse,${C.accent}1c,transparent 70%)`, pointerEvents:"none", animation:"ambientGlow 3s ease-in-out infinite" }} />}
-                  <div style={{ width:22, height:22, display:"flex", alignItems:"center", justifyContent:"center", position:"relative" }}>
+                  {/* My World's B glyph grows slightly on active — this slot reserves the
+                      extra height so the label below shifts down for it instead of the
+                      icon overflowing on top of the label (every other tab stays 22x22). */}
+                  <div style={{ width:22, height:n.icon==="shelf"&&active?30:22, flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", position:"relative", transition:"height 160ms ease" }}>
                     {NAV_ICONS[n.icon]}
                     {/* DM unread badge on Profile tab */}
                     {n.id==="profile"&&(()=>{const u=ls.get("backstage_dms",[]).reduce((s,c)=>s+c.unread,0); return u>0?<div style={{ position:"absolute",top:-3,right:-3,width:14,height:14,borderRadius:"50%",background:C.rose,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.bg }}>{u}</div>:null; })()}

@@ -205,26 +205,25 @@ export const BackstageBIcon = ({ active }) => (
 // not a generic circle/badge. Transparent background — sits directly on the
 // nav bar in both Pearl and Concert/Dark Mode without its own frame.
 // Active: bright/glowing via filters. Inactive: dimmed via brightness/opacity.
-// Native aspect ratio of public/backstage-b-glyph.png (182x198, tightly
-// cropped to the glyph's own bounding box). Used to compute explicit pixel
+// Native aspect ratio of public/backstage-b-glyph.png (362x454, cropped tight
+// to the glyph's own bounding box including its full tail swoop — the prior
+// crop clipped the tail by a few px because its source window ended right at
+// the edge of the tail's true extent). Used to compute explicit pixel
 // dimensions below instead of relying on % / auto sizing inside a
 // placeItems:"center" grid span — that combination disables grid "stretch",
 // so a percentage-sized child has no definite size to resolve against and
 // silently falls back to the image's tiny intrinsic size. Explicit px
 // dimensions sidestep that entirely.
-const B_GLYPH_ASPECT = 182 / 198;
+const B_GLYPH_ASPECT = 362 / 454;
 
 export function BackstageBNavIcon({ active }) {
-  // Box stays fixed at 28 for both states — the icon's own wrapper slot in
-  // the nav (App.jsx) is a fixed 22x22, and any active/inactive size *change*
-  // here risks the box overflowing enough to collide with the "My World"
-  // label below or neighboring tab icons (confirmed: both 42/34 and a 30/28
-  // split did exactly that). Sibling SVG nav icons don't resize on active
-  // either — only recolor/glow — so this now matches that pattern exactly.
-  // The crop tightening (glyph now fills ~92% of its own frame instead of
-  // ~40%) is what actually fixes the "tiny speck" problem — at a fixed 28px
-  // box this alone renders a visibly much larger, properly prominent glyph.
-  const h = 28;
+  // Active grows a bit (24 -> 30) for presence; the nav's icon-slot wrapper
+  // (App.jsx) reserves the extra height only for this tab when active, so
+  // the "My World" label shifts down to make room instead of the icon
+  // overflowing on top of it (confirmed via measured bounding rects — a
+  // fixed-slot version at 42/34 and 30/28 both visually collided with the
+  // label; this only works because the wrapper now grows in step with it).
+  const h = active ? 30 : 24;
   const w = Math.round(h * B_GLYPH_ASPECT);
   return (
     <span style={{
