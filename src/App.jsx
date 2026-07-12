@@ -759,60 +759,103 @@ const OVERLAY_CHARS = {
   cosmos:   ["★","✦","·","★","✦","·","★","✦"],
   diamonds: ["◆","◇","◆","◇","◆"],
 };
-// skinId → grad key (for Profile page lookup without needing full SKINS array)
-const SKIN_ID_TO_GRAD = {
-  // Classic Styles
-  classic:"purple haze", soft:"pink aura",   midnight:"midnight silver",
-  cherry:"cherry",       holo:"holo",        glitter:"golden hour",
-  y2k:"y2k",            neon:"neon",         sakura:"sakura",
-  idol:"idol",           concert:"concert",  binder:"binder",
-  angel:"angel",         galaxy:"galaxy",    bling:"bling",
-  // Bias Energy
-  dancer:"dancer",       vocal:"vocal",      maknae:"maknae",
-  wrecker:"wrecker",     rapvolt:"rapvolt",  visuals:"visuals",
-  leader:"leader",       ultshrine:"ultshrine",
-  // Era & Vibe
-  neonmaniac:"neonmaniac", purplearmy:"purplearmy", softbunny:"softbunny",
-  oceanlstick:"oceanlstick", pinkvenom:"pinkvenom", silverai:"silverai",
-  goldensolo:"goldensolo",   blackpearl:"blackpearl", redcurtain:"redcurtain",
-  cherryboom:"cherryboom",
-  // Fan Role
-  cardcollect:"cardcollect", traveler:"traveler",  freebiemaker:"freebiemaker",
-  chantmstr:"chantmstr",     soloconcert:"soloconcert", mootmagnet:"mootmagnet",
-  tradequeen:"tradequeen",   projlead:"projlead",
-  // Concert Energy
-  arenaglow:"arenaglow", encorenight:"encorenight", vipsound:"vipsound",
-  // OG Internet
-  myspaceglitter:"myspaceglitter", pixelfanclub:"pixelfanclub", stickerbomb:"stickerbomb", diarypage:"diarypage",
-  // Collector Core
-  bindersleeve:"bindersleeve", photocardhole:"photocardhole", tradingdesk:"tradingdesk", biasshrineSkin:"biasshrineSkin",
-  // Emotional/Soft
-  afterglowskin:"afterglowskin", rainyseoul:"rainyseoul", lavenderroom:"lavenderroom", moonlightfan:"moonlightfan",
-};
-
-// ─── STAGE WORLDS — full-page banner/background themes ────────────────────────
-// Each world drives the banner gradient + page overlay on My Stage / Stage Studio.
-const STAGE_WORLDS = [
-  { id:"concert_night",  name:"Concert Night",    grad:"wrecker",        deco:"sparkles", desc:"Classic backstage darkness" },
-  { id:"purple_army",    name:"Purple Army",       grad:"purplearmy",     deco:"sparkles", desc:"Deep fandom energy" },
-  { id:"poster_wall",    name:"Poster Wall",       grad:"redcurtain",     deco:"beams",    desc:"Tour posters, raw energy" },
-  { id:"glitter_fan",    name:"Glitter Fanpage",   grad:"myspaceglitter", deco:"glitter",  desc:"Sparkles, glossy, iconic" },
-  { id:"diary_page",     name:"Diary Page",        grad:"diarypage",      deco:"hearts",   desc:"Personal, warm, yours" },
-  { id:"pixel_fanclub",  name:"Pixel Fanclub",     grad:"pixelfanclub",   deco:"cosmos",   desc:"Retro digital, arcade core" },
-  { id:"soft_pop",       name:"Soft Pop",          grad:"lavenderroom",   deco:"petals",   desc:"Pastel, dreamy, soft" },
-  { id:"neon_venue",     name:"Neon Venue",        grad:"neonmaniac",     deco:"neonbeam", desc:"Club lights, stage glow" },
-  { id:"shrine_board",   name:"Shrine Board",      grad:"biasshrineSkin", deco:"crown",    desc:"Devoted. That's it." },
-  { id:"silver_ai",      name:"Silver AI World",   grad:"silverai",       deco:"shimmer",  desc:"Chrome, digital, future" },
-  { id:"golden_era",     name:"Golden Solo Era",   grad:"goldensolo",     deco:"glitter",  desc:"Warm gold, triumphant" },
-  { id:"ocean_stick",    name:"Ocean Lightstick",  grad:"oceanlstick",    deco:"bubbles",  desc:"Concert sea of blue" },
+// ─── SKIN CATALOG — the single source of truth for "My Stage" backgrounds ─────
+// One unified, categorized list drives every skin picker (Stage Studio) AND the
+// full-page background everywhere it's shown (My Stage, Stage Studio preview,
+// public profile view) via profileStyle.skinId. There used to be a second,
+// parallel "Stage World" catalog that only ever reached the banner card and
+// confusingly claimed to control the full page — it's been folded in here so
+// there's exactly one list, one id space, one place to add a new skin.
+const SKIN_CATEGORIES = [
+  { id:"bias", label:"⚡ Bias Energy", skins:[
+    { id:"dancer",    name:"Main Dancer Energy", grad:"dancer",      overlay:"beams",    emoji:"💃", desc:"Concert floor presence",    price:0 },
+    { id:"vocal",     name:"Vocal Line Glow",    grad:"vocal",       overlay:"aura",     emoji:"🎵", desc:"Warm rose, emotional depth",price:0 },
+    { id:"maknae",    name:"Maknae Spark",       grad:"maknae",      overlay:"hearts",   emoji:"🍬", desc:"Sweet chaos energy",        price:0 },
+    { id:"wrecker",   name:"Bias Wrecker Mode",  grad:"wrecker",     overlay:"glitter",  emoji:"💥", desc:"Did not ask for this",      price:0 },
+    { id:"rapvolt",   name:"Rap Line Voltage",   grad:"rapvolt",     overlay:"neonbeam", emoji:"⚡", desc:"Hard-hitting, electric",    price:"vip" },
+    { id:"visuals",   name:"Visual Center",      grad:"visuals",     overlay:"shimmer",  emoji:"🪞", desc:"Ethereal, striking, quiet", price:"vip" },
+    { id:"leader",    name:"Leader Aura",        grad:"leader",      overlay:"cosmos",   emoji:"🫶", desc:"Steady, grounding, loyal",  price:"vip" },
+    { id:"ultshrine", name:"Ult Bias Shrine",    grad:"ultshrine",   overlay:"crown",    emoji:"🛕", desc:"Devoted. That's it.",       price:"vip" },
+  ]},
+  { id:"era", label:"✦ Era & Vibe", skins:[
+    { id:"neonmaniac",  name:"Neon Maniac",         grad:"neonmaniac",  overlay:"neonbeam", emoji:"🟢", desc:"Electric, raw, chaotic",    price:0 },
+    { id:"purplearmy",  name:"Purple Army Night",   grad:"purplearmy",  overlay:"sparkles", emoji:"💜", desc:"Deep purple velvet fandom", price:0 },
+    { id:"softbunny",   name:"Soft Bunny Diary",    grad:"softbunny",   overlay:"hearts",   emoji:"🐰", desc:"Pastel, personal, precious",price:0 },
+    { id:"oceanlstick", name:"Ocean Lightstick",    grad:"oceanlstick", overlay:"bubbles",  emoji:"🌊", desc:"Concert sea of blue",       price:0 },
+    { id:"pinkvenom",   name:"Pink Venom Glow",     grad:"pinkvenom",   overlay:"diamonds", emoji:"🖤", desc:"Bold. Don't touch.",        price:"vip" },
+    { id:"silverai",    name:"Silver AI World",     grad:"silverai",    overlay:"shimmer",  emoji:"🤖", desc:"Chrome, digital, future",   price:"vip" },
+    { id:"goldensolo",  name:"Golden Solo Era",     grad:"goldensolo",  overlay:"glitter",  emoji:"🌟", desc:"Warm gold, triumphant",     price:"vip" },
+    { id:"blackpearl",  name:"Black Pearl Stage",   grad:"blackpearl",  overlay:"cosmos",   emoji:"🎭", desc:"Jet black drama",           price:"vip" },
+    { id:"redcurtain",  name:"Red Velvet Curtain",  grad:"redcurtain",  overlay:"petals",   emoji:"🌹", desc:"Deep red, theatrical",      price:"vip" },
+    { id:"cherryboom",  name:"Cherry Bomb Room",    grad:"cherryboom",  overlay:"glitter",  emoji:"💣", desc:"Loud, red, explosive",      price:"vip" },
+  ]},
+  { id:"role", label:"🎟️ Fan Role", skins:[
+    { id:"cardcollect",  name:"Photocard Collector", grad:"cardcollect",  overlay:"cards",    emoji:"🃏", desc:"Binder life, always trading",price:0 },
+    { id:"traveler",     name:"Concert Traveler",    grad:"traveler",     overlay:"cosmos",   emoji:"✈️", desc:"Flights booked, no regrets",price:0 },
+    { id:"chantmstr",    name:"Chant Master",        grad:"chantmstr",    overlay:"beams",    emoji:"📣", desc:"Every word, every fanchant",price:0 },
+    { id:"soloconcert",  name:"Solo Concert Girlie", grad:"soloconcert",  overlay:"hearts",   emoji:"🎟️", desc:"Party of one, still iconic",price:0 },
+    { id:"freebiemaker", name:"Freebie Maker",       grad:"freebiemaker", overlay:"petals",   emoji:"🎁", desc:"Crafting for the fandom",   price:"vip" },
+    { id:"mootmagnet",   name:"Moot Magnet",         grad:"mootmagnet",   overlay:"aura",     emoji:"🤝", desc:"Everyone's favorite moot",  price:"vip" },
+    { id:"tradequeen",   name:"Trade Queen",         grad:"tradequeen",   overlay:"diamonds", emoji:"👑", desc:"Fair trades only, bestie",  price:"vip" },
+    { id:"projlead",     name:"Fan Project Lead",    grad:"projlead",     overlay:"cosmos",   emoji:"📋", desc:"Organized chaos, always on",price:"vip" },
+  ]},
+  { id:"classic", label:"🎨 Classic Styles", skins:[
+    { id:"classic",  name:"Backstage Classic", grad:"purple haze",    overlay:"sparkles", emoji:"✦",  desc:"The original",          price:0 },
+    { id:"soft",     name:"Soft Purple",       grad:"pink aura",      overlay:"hearts",   emoji:"💜", desc:"Dreamy & soft",         price:0 },
+    { id:"midnight", name:"Midnight",          grad:"midnight silver", overlay:"dots",    emoji:"🌙", desc:"Dark & minimal",        price:0 },
+    { id:"cherry",   name:"Cherry Bomb",       grad:"cherry",         overlay:"petals",   emoji:"🍒", desc:"Bold & dramatic",       price:0 },
+    { id:"holo",     name:"Holographic",       grad:"holo",           overlay:"shimmer",  emoji:"💿", desc:"Iridescent shine",      price:0 },
+    { id:"glitter",  name:"Glitter Storm",     grad:"golden hour",    overlay:"glitter",  emoji:"✨", desc:"All the sparkle",       price:0 },
+    { id:"y2k",      name:"Y2K Butterfly",     grad:"y2k",            overlay:"bubbles",  emoji:"🦋", desc:"2000s nostalgia",       price:0 },
+    { id:"neon",     name:"Neon Seoul",        grad:"neon",           overlay:"neonbeam", emoji:"🌃", desc:"Electric & alive",      price:0 },
+    { id:"sakura",   name:"Sakura Season",     grad:"sakura",         overlay:"petals",   emoji:"🌸", desc:"Soft pink season",      price:0 },
+    { id:"idol",     name:"Idol Glow",         grad:"idol",           overlay:"crown",    emoji:"👑", desc:"You're the bias",       price:"vip" },
+    { id:"concert",  name:"Concert Lights",    grad:"concert",        overlay:"beams",    emoji:"🎤", desc:"Live show energy",      price:"vip" },
+    { id:"binder",   name:"Photocard Binder",  grad:"binder",         overlay:"cards",    emoji:"🃏", desc:"Collector aesthetic",   price:"vip" },
+    { id:"angel",    name:"Angel Aura",        grad:"angel",          overlay:"aura",     emoji:"🪬", desc:"Ethereal & pure",       price:"vip" },
+    { id:"galaxy",   name:"Galaxy Brain",      grad:"galaxy",         overlay:"cosmos",   emoji:"🌌", desc:"Deep space vibes",      price:"vip" },
+    { id:"bling",    name:"Bling Bling",       grad:"bling",          overlay:"diamonds", emoji:"💎", desc:"Maximalist glam",       price:"vip" },
+  ]},
+  { id:"concert_energy", label:"🎤 Concert Energy", skins:[
+    { id:"arenaglow",    name:"Arena Glow",       grad:"arenaglow",    overlay:"beams",    emoji:"🔮", desc:"Massive stage energy",   price:0 },
+    { id:"encorenight",  name:"Encore Night",     grad:"encorenight",  overlay:"cosmos",   emoji:"🌙", desc:"Post-show magic",        price:0 },
+    { id:"vipsound",     name:"VIP Soundcheck",   grad:"vipsound",     overlay:"shimmer",  emoji:"🎧", desc:"Backstage access only",  price:"vip" },
+  ]},
+  { id:"og_internet", label:"🌐 OG Internet", skins:[
+    { id:"myspaceglitter",name:"MySpace Glitter",  grad:"myspaceglitter",overlay:"glitter", emoji:"💻", desc:"2003 energy, no apology",price:0 },
+    { id:"pixelfanclub",  name:"Pixel Fanclub",    grad:"pixelfanclub",  overlay:"dots",    emoji:"🕹️", desc:"8-bit devotion",         price:0 },
+    { id:"stickerbomb",   name:"Sticker Bomb",     grad:"stickerbomb",   overlay:"sparkles",emoji:"🎪", desc:"All stickers, no regrets",price:0 },
+    { id:"diarypage",     name:"Diary Page",       grad:"diarypage",     overlay:"hearts",  emoji:"📓", desc:"Locked diary, fan edition",price:"vip" },
+  ]},
+  { id:"collector_core", label:"🃏 Collector Core", skins:[
+    { id:"bindersleeve",  name:"Binder Sleeve",   grad:"bindersleeve",  overlay:"cards",    emoji:"📦", desc:"Neat sleeves, organized", price:0 },
+    { id:"photocardhole", name:"Photocard Holo",  grad:"photocardhole", overlay:"shimmer",  emoji:"💿", desc:"Rainbow refraction",      price:0 },
+    { id:"tradingdesk",   name:"Trading Desk",    grad:"tradingdesk",   overlay:"diamonds", emoji:"♟️", desc:"Always dealing",          price:0 },
+    { id:"biasshrineSkin",name:"Bias Shrine",     grad:"biasshrineSkin",overlay:"aura",     emoji:"🛕", desc:"For the truly devoted",   price:"vip" },
+  ]},
+  { id:"emotional_soft", label:"🌙 Emotional / Soft", skins:[
+    { id:"afterglowskin", name:"Afterglow",       grad:"afterglowskin", overlay:"aura",     emoji:"🌅", desc:"Crying in the parking lot", price:0 },
+    { id:"rainyseoul",    name:"Rainy Seoul",     grad:"rainyseoul",    overlay:"dots",     emoji:"🌧️", desc:"Atmospheric and real",    price:0 },
+    { id:"lavenderroom",  name:"Lavender Room",   grad:"lavenderroom",  overlay:"hearts",   emoji:"💜", desc:"Soft hours only",         price:0 },
+    { id:"moonlightfan",  name:"Moonlight Fan",   grad:"moonlightfan",  overlay:"cosmos",   emoji:"🌕", desc:"Quiet devotion",          price:"vip" },
+  ]},
 ];
+const ALL_SKINS = SKIN_CATEGORIES.flatMap(c=>c.skins);
+// skinId → grad key / full skin record — derived once from SKIN_CATEGORIES so
+// the catalog never has to be hand-duplicated for lookup purposes.
+const SKIN_ID_TO_GRAD = Object.fromEntries(ALL_SKINS.map(s=>[s.id, s.grad]));
+const SKIN_MAP = Object.fromEntries(ALL_SKINS.map(s=>[s.id, s]));
 
-const STAGE_WORLD_MAP = Object.fromEntries(STAGE_WORLDS.map(w=>[w.id, w]));
-
-// Resolve a stageWorld id to its gradient CSS string
-function resolveWorldGrad(stageWorldId) {
-  const w = STAGE_WORLD_MAP[stageWorldId];
-  return w ? SKIN_GRADIENTS[w.grad] : SKIN_GRADIENTS["wrecker"];
+// Resolve a skinId to its full-page gradient CSS string
+function resolveSkinGrad(skinId) {
+  return SKIN_GRADIENTS[SKIN_ID_TO_GRAD[skinId]] || SKIN_GRADIENTS["purple haze"];
+}
+// Text color for content sitting directly on a skin background. Every current
+// skin is a dark gradient, so this always resolves to white today — but skins
+// can opt into `light:true` (a pastel/bright background) and get readable dark
+// text instead, rather than hardcoding white everywhere a skin shows through.
+function skinTextColor(skinId, alpha=1) {
+  return SKIN_MAP[skinId]?.light ? `rgba(20,10,40,${alpha})` : `rgba(255,255,255,${alpha})`;
 }
 
 // ─── STAGE DECO OPTIONS — named overlay sets ──────────────────────────────────
@@ -2106,7 +2149,6 @@ const DEFAULT_PRIVACY = {
 
 // PROFILE STYLE
 const DEFAULT_PROFILE_STYLE = {
-  stageWorld: "concert_night",
   stageDeco: "sparkles",
   bgImageUrl: null,
   bannerGradient: "purple haze",
@@ -18632,21 +18674,18 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack, o
   const publicBiases = isPublic ? (bias ? [bias] : []) : biases;
   const publicCards = isPublic ? [] : cards;
 
+  // One skin (skinId) drives the full page AND banner card here too — same
+  // source as ProfileTab and Stage Studio's preview, no separate "stage world".
   const skinId  = isPublic ? (overrideFan.profile_style?.skinId||"classic") : (profileStyle?.skinId||"classic");
-  const skinOv  = isPublic ? (overrideFan.profile_style?.skinOverlay||"sparkles") : (profileStyle?.skinOverlay||"sparkles");
-  const skinChars = (OVERLAY_CHARS[skinOv]||[]).slice(0,8);
-  // Stage World + uploaded background drive the FULL page (not just banner)
-  const _stageWorldId = isPublic ? (overrideFan.profile_style?.stageWorld||"concert_night") : (profileStyle?.stageWorld||"concert_night");
   const _stageBgUrl   = isPublic ? (overrideFan.profile_style?.bgImageUrl||null) : profileStyle?.bgImageUrl;
-  // Full page: uploaded bg → stage world → fallback dark
-  const fullPageBg = _stageBgUrl ? `url(${_stageBgUrl}) center/cover no-repeat` : resolveWorldGrad(_stageWorldId);
-  // Banner card: same world but banner-specific framing
-  const bannerGradForPreview = resolveWorldGrad(_stageWorldId);
+  // Full page: uploaded bg → skin → fallback dark
+  const fullPageBg = _stageBgUrl ? `url(${_stageBgUrl}) center/cover no-repeat` : resolveSkinGrad(skinId);
+  // Banner card: same skin, banner-specific framing
+  const bannerGradForPreview = fullPageBg;
   const _stageDecoId  = isPublic ? (overrideFan.profile_style?.stageDeco||"sparkles") : (profileStyle?.stageDeco||"sparkles");
   const bannerDecoChars = (STAGE_DECO_MAP[_stageDecoId]?.chars || OVERLAY_CHARS.sparkles).slice(0,8);
   // Scattered deco positions — not diagonal
   const DECO_POS = [[8,8],[18,78],[30,42],[44,88],[58,22],[70,60],[82,85],[92,35]];
-  const PREVIEW_SPARKLE_POS = [[5,78],[20,90],[35,10],[50,68],[65,85],[78,22],[88,55],[14,42]];
   // For public view: city comes from API — already stripped server-side if show_city=false.
   // For own preview ("how others see you"): respect showCity so preview matches public reality.
   const _ownShowCity = isPublic ? true : (ls.get('backstage_privacy_settings', DEFAULT_PRIVACY)?.showCity !== false);
@@ -18674,10 +18713,6 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack, o
       {bannerDecoChars.slice(0,6).map((ch,i)=>(
         <div key={`deco-pg-${i}`} style={{ position:"absolute",top:`${DECO_POS[i]?.[0]??i*14}%`,left:`${DECO_POS[i]?.[1]??50}%`,fontSize:ch.length>1?13:10,opacity:0.18,animation:`sparkleFloat ${4+i*0.7}s ease-in-out infinite`,animationDelay:`${i*0.5}s`,color:"rgba(255,255,255,0.85)",pointerEvents:"none",zIndex:0 }}>{ch}</div>
       ))}
-      {/* Full-page skin sparkles */}
-      {skinChars.map((ch,i)=>(
-        <div key={i} style={{ position:"absolute",top:`${PREVIEW_SPARKLE_POS[i]?.[0]??i*12}%`,left:`${PREVIEW_SPARKLE_POS[i]?.[1]??80}%`,fontSize:ch.length>1?15:10,opacity:0.12,animation:`sparkleFloat ${3.5+i*0.6}s ease-in-out infinite`,animationDelay:`${i*0.45}s`,color:"rgba(255,255,255,0.9)",pointerEvents:"none",zIndex:0 }}>{ch}</div>
-      ))}
       {/* Stage Effect overlay — subtle floating chars across the full page */}
       {stageEffectCfg.chars.length>0 && stageEffectCfg.chars.map((ch,i)=>(
         <div key={`eff-${i}`} style={{ position:"absolute",top:`${10+i*16}%`,left:`${5+i*19}%`,fontSize:ch.length>1?14:10,opacity:0.18,animation:`${stageEffectCfg.animation} ${3+i*0.7}s ease-in-out infinite`,animationDelay:`${i*0.5}s`,color:"rgba(255,255,255,0.9)",pointerEvents:"none",zIndex:0 }}>{ch}</div>
@@ -18693,7 +18728,7 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack, o
       </div>
 
       <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))",position:"relative",zIndex:1 }}>
-        {/* Cinematic banner — uses stageWorld gradient */}
+        {/* Cinematic banner — uses the same skin gradient as the full page */}
         <div style={{ background:bannerGradForPreview,backgroundSize:"cover",backgroundPosition:"center",borderRadius:26,padding:"20px 18px 18px",marginTop:16,marginBottom:18,position:"relative",minHeight:110,overflow:"hidden",boxShadow:`0 12px 40px rgba(0,0,0,0.5), 0 4px 16px ${C.berry}10` }}>
           <div style={{ position:"absolute",inset:0,backgroundImage:`radial-gradient(circle,rgba(255,255,255,0.35) 1px,transparent 1px)`,backgroundSize:"28px 28px",opacity:0.05,pointerEvents:"none" }} />
           <div style={{ position:"absolute",inset:0,background:`radial-gradient(ellipse at 80% 20%,${C.blush}28,transparent 55%)`,pointerEvents:"none",animation:"ambientGlow 6s ease-in-out infinite" }} />
@@ -21035,19 +21070,25 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
   if(section==="account") return <AccountSettings user={user} isVip={profileVip} go={go} onUpgrade={onUpgrade} onBack={()=>setSection("main")} privacySettings={privacySettings} setPrivacySettings={setPrivacySettings} onShowDeleteModal={()=>setShowDeleteModal(true)} onAccountRefresh={onAccountRefresh} />;
 
   // ── MAIN PROFILE ──
-  const activeSkinGrad = SKIN_GRADIENTS[SKIN_ID_TO_GRAD[profileStyle.skinId||"classic"]||"purple haze"];
-  const activeSkinChars = (OVERLAY_CHARS[profileStyle.skinOverlay||"sparkles"]||[]).slice(0,8);
-  // Stage World drives the banner card; skinId drives full-page background
-  const activeBannerGrad = profileStyle.bgImageUrl
+  // One skin (profileStyle.skinId) drives the full-page background AND the
+  // banner card, everywhere it's shown (here, Stage Studio's preview, and the
+  // public profile view) — a custom uploaded photo overrides it in both places.
+  const activeSkinGrad = profileStyle.bgImageUrl
     ? `url(${profileStyle.bgImageUrl}) center/cover`
-    : resolveWorldGrad(profileStyle.stageWorld || "concert_night");
-  const activeDecoChars = (STAGE_DECO_MAP[profileStyle.stageDeco || profileStyle.skinOverlay || "sparkles"]?.chars || []).slice(0,8);
+    : resolveSkinGrad(profileStyle.skinId||"classic");
+  const activeBannerGrad = activeSkinGrad;
+  // Stage Deco is the one decorative-overlay system, scattered both across the
+  // full page and (more densely) inside the banner card.
+  const activeDecoChars = (STAGE_DECO_MAP[profileStyle.stageDeco||"sparkles"]?.chars||[]).slice(0,8);
+  const activeSkinChars = activeDecoChars;
   // Positions for full-page sparkle wallpaper (top%, left%)
   const SPARKLE_POS = [[6,80],[18,92],[32,12],[48,72],[62,88],[75,28],[88,60],[12,45]];
 
   return(
-    <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden", position:"relative", background:activeSkinGrad }}>
+    <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden", position:"relative", background:activeSkinGrad, backgroundSize:"cover", backgroundPosition:"center" }}>
       <AmbientStarfield />
+      {/* Readability overlay when a custom photo is the full-page background */}
+      {profileStyle.bgImageUrl && <div style={{ position:"absolute", inset:0, background:"rgba(6,6,15,0.6)", pointerEvents:"none", zIndex:0 }} />}
       {/* Full-page skin sparkle wallpaper */}
       {activeSkinChars.map((ch,i)=>(
         <div key={i} style={{ position:"absolute", top:`${SPARKLE_POS[i]?.[0]??i*12}%`, left:`${SPARKLE_POS[i]?.[1]??80}%`, fontSize:ch.length>1?16:11, opacity:0.15, animation:`sparkleFloat ${3.5+i*0.6}s ease-in-out infinite`, animationDelay:`${i*0.45}s`, color:"rgba(255,255,255,0.9)", pointerEvents:"none", zIndex:0 }}>{ch}</div>
@@ -21056,11 +21097,11 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
         {/* My Stage label */}
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"18px 20px 0" }}>
           <div>
-            <p style={{ fontSize:9, color:"rgba(255,255,255,0.7)", fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.18em" }}>✦ My Stage</p>
-            <p style={{ fontSize:8.5, color:"rgba(255,255,255,0.65)", fontFamily:"'Epilogue',sans-serif", fontWeight:500, marginTop:2 }}>Your fandom. Your memories. Your stage.</p>
+            <p style={{ fontSize:9, color:skinTextColor(profileStyle.skinId||"classic",0.7), fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.18em" }}>✦ My Stage</p>
+            <p style={{ fontSize:8.5, color:skinTextColor(profileStyle.skinId||"classic",0.65), fontFamily:"'Epilogue',sans-serif", fontWeight:500, marginTop:2 }}>Your fandom. Your memories. Your stage.</p>
           </div>
         </div>
-        {/* STATUS BANNER — uses stageWorld gradient */}
+        {/* STATUS BANNER — uses the same skin gradient as the full page */}
         <div style={{ background:activeBannerGrad, backgroundSize:"cover", backgroundPosition:"center", borderRadius:28, padding:"22px 18px 18px", marginTop:18, marginBottom:18, position:"relative", minHeight:120, boxShadow:`0 16px 48px rgba(0,0,0,0.6), 0 4px 20px ${C.berry}18`, overflow:"hidden" }}>
           {/* Cosmic texture overlay */}
           <div style={{ position:"absolute",inset:0,backgroundImage:`radial-gradient(circle,rgba(255,255,255,0.4) 1px,transparent 1px)`,backgroundSize:"28px 28px",opacity:0.06,pointerEvents:"none" }} />
@@ -21077,7 +21118,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
           <div style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
             <div style={{ fontSize:28 }}>{profileStyle.bannerEmoji}</div>
             <div style={{ flex:1 }}>
-              <p className="bs-title" style={{ fontSize:15, color:"rgba(255,255,255,0.92)", lineHeight:1.45, minHeight:20, textShadow:"0 2px 12px rgba(0,0,0,0.4)" }}>"{profileStyle.bannerText || "tap ✏️ to set your vibe..."}"</p>
+              <p className="bs-title" style={{ fontSize:15, color:skinTextColor(profileStyle.skinId||"classic",0.92), lineHeight:1.45, minHeight:20, textShadow:"0 2px 12px rgba(0,0,0,0.4)" }}>"{profileStyle.bannerText || "tap ✏️ to set your vibe..."}"</p>
             </div>
           </div>
         </div>
@@ -22497,6 +22538,7 @@ function BackstagePasses({ onBack, user }) {
   const [commentDraft, setCommentDraft] = useState("");
   const [showInsights, setShowInsights] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
+  const [showMeta, setShowMeta] = useState(false);
   const [venueSuggestOpen, setVenueSuggestOpen] = useState(false);
   const captionRef = useRef(null);
   const fileRef = useRef(null);
@@ -22621,7 +22663,6 @@ function BackstagePasses({ onBack, user }) {
     setViewing(v=>v&&v.id===id?{...v,comments:[...(v.comments||[]),comment]}:v);
   };
   const addPass    = () => {
-    if(!draft.caption.trim()) return;
     const t=PASS_TYPES.find(tp=>tp.id===draft.type)||PASS_TYPES[0];
     const dur=DURATIONS.find(d=>d.id===draft.duration)||DURATIONS[0];
     const newPass={id:`p${Date.now()}`,type:draft.type,caption:draft.caption,username:`@${user?.name||user?.username||"stan"}`,expires:dur.label,color:t.color,grad:t.grad,viewed:false,likes:0,reactions:{},venue:draft.venueOn&&draft.venue.trim()?draft.venue.trim():null,city:draft.venueOn&&draft.city.trim()?draft.city.trim():null,checkedIn:draft.venueOn&&draft.checkedIn,inCapsule:draft.toCapsule,creative_layers:draft.layers,mentions:draft.layers.filter(l=>l.type==="mention"&&!l.pending).map(l=>l.username),visibility:draft.visibility,views:0,comments:[]};
@@ -22963,8 +23004,7 @@ function BackstagePasses({ onBack, user }) {
             <div style={{ position:"absolute",top:0,left:0,right:0,padding:"16px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",zIndex:10 }}>
               <button onClick={()=>{ setCreating(false); setShowDetails(false); setActiveTool(null); setDraft(d=>({...d,image:null,caption:"",layers:[],visibility:"public"})); }} style={{ background:"rgba(0,0,0,0.42)",backdropFilter:"blur(10px)",border:"none",borderRadius:99,width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:18,cursor:"pointer" }}>✕</button>
               <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,letterSpacing:"0.04em",color:"rgba(255,255,255,0.88)",textShadow:"0 1px 8px rgba(0,0,0,0.8)" }}>New Backstage Pass ✨</p>
-              {/* Camera roll re-pick */}
-              <button onClick={()=>fileRef.current?.click()} style={{ background:"rgba(0,0,0,0.42)",backdropFilter:"blur(10px)",border:"none",borderRadius:99,width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:16,cursor:"pointer" }}>📷</button>
+              <div style={{ width:36 }} />
             </div>
 
             {/* ── PASS STUDIO TOOL RAIL — vertical, right edge ── */}
@@ -22995,25 +23035,11 @@ function BackstagePasses({ onBack, user }) {
 
             {/* ── MEDIA PICKER — visible when no photo ── */}
             {!draft.image&&(
-              <button onClick={()=>fileRef.current?.click()} style={{ position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-60%)",display:"flex",flexDirection:"column",alignItems:"center",gap:10,background:"none",border:"none",cursor:"pointer",zIndex:8,animation:"float 4s ease-in-out infinite" }}>
-                <div style={{ width:72,height:72,borderRadius:22,background:"rgba(255,255,255,0.1)",backdropFilter:"blur(12px)",border:"1.5px solid rgba(255,255,255,0.22)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:30,boxShadow:"0 8px 32px rgba(0,0,0,0.4)" }}>📷</div>
-                <p style={{ color:"rgba(255,255,255,0.8)",fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,textShadow:"0 1px 8px rgba(0,0,0,0.9)" }}>Capture the moment</p>
-                <p style={{ color:"rgba(255,255,255,0.45)",fontSize:10.5 }}>photo or video · tap to pick</p>
+              <button onClick={()=>fileRef.current?.click()} style={{ position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-60%)",display:"flex",flexDirection:"column",alignItems:"center",gap:10,background:"none",border:"none",cursor:"pointer",zIndex:8 }}>
+                <div style={{ width:64,height:64,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.berry})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,boxShadow:`0 8px 28px ${C.accent}40`,color:"#04020d" }}>📷</div>
+                <p style={{ color:"rgba(255,255,255,0.85)",fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12.5,textShadow:"0 1px 8px rgba(0,0,0,0.9)" }}>Add photo or video</p>
               </button>
             )}
-            {/* Big emoji watermark */}
-            <div style={{ position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-58%)",fontSize:88,opacity:draft.image?0.06:0.14,pointerEvents:"none",transition:"opacity .4s",zIndex:5 }}>{selectedType.emoji}</div>
-
-            {/* ── PASS TYPE + EXPIRES chips ── */}
-            <div style={{ position:"absolute",top:72,left:16,zIndex:10,display:"flex",gap:7 }}>
-              <div style={{ background:"rgba(0,0,0,0.50)",backdropFilter:"blur(10px)",borderRadius:99,padding:"4px 12px",display:"flex",alignItems:"center",gap:4 }}>
-                <span style={{ fontSize:11 }}>{selectedType.emoji}</span>
-                <span style={{ fontSize:9,color:"rgba(255,255,255,0.9)",fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{selectedType.label}</span>
-              </div>
-              <div style={{ background:"rgba(0,0,0,0.50)",backdropFilter:"blur(10px)",borderRadius:99,padding:"4px 10px" }}>
-                <span style={{ fontSize:9,color:"rgba(255,255,255,0.7)",fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{DURATIONS.find(d=>d.id===draft.duration)?.label||"Tonight"}</span>
-              </div>
-            </div>
 
             {/* ── FLOATING CAPTION — a visible glass card, not transparent text
                  floating on the photo, so it reads as an actual input field ── */}
@@ -23058,27 +23084,35 @@ function BackstagePasses({ onBack, user }) {
           {/* ── BOTTOM CONTROLS — minimal chrome ── */}
           <div style={{ flexShrink:0,background:"rgba(4,2,13,0.97)",backdropFilter:"blur(24px)",padding:"12px 16px 44px",borderTop:"1px solid rgba(255,255,255,0.14)" }}>
 
-            {/* Who can see this — Public vs Circle-only, a real per-post privacy
-                 choice (not just a browse-side filter). Kept visible by default
-                 rather than tucked in "Add details" since it's a decision users
-                 should make every time, like Instagram's audience picker. */}
-            <div style={{ display:"flex",gap:6,marginBottom:10 }}>
-              <button onClick={()=>setDraft(d=>({...d,visibility:"public"}))} style={{ flex:1,padding:"8px 6px",borderRadius:10,border:`1.5px solid ${draft.visibility==="public"?C.accent:"rgba(255,255,255,0.16)"}`,background:draft.visibility==="public"?`${C.accent}22`:"rgba(255,255,255,0.06)",color:draft.visibility==="public"?C.accent:"rgba(255,255,255,0.7)",fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,cursor:"pointer",transition:"all .15s",display:"flex",alignItems:"center",justifyContent:"center",gap:5 }}>
-                🌐 Public
-              </button>
-              <button onClick={()=>setDraft(d=>({...d,visibility:"circle"}))} style={{ flex:1,padding:"8px 6px",borderRadius:10,border:`1.5px solid ${draft.visibility==="circle"?C.lavender:"rgba(255,255,255,0.16)"}`,background:draft.visibility==="circle"?`${C.lavender}22`:"rgba(255,255,255,0.06)",color:draft.visibility==="circle"?C.lavender:"rgba(255,255,255,0.7)",fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,cursor:"pointer",transition:"all .15s",display:"flex",alignItems:"center",justifyContent:"center",gap:5 }}>
-                🔒 My Circle Only
-              </button>
-            </div>
-
-            {/* Duration — compact horizontal pills */}
-            <div style={{ display:"flex",gap:6,marginBottom:10 }}>
-              {DURATIONS.map(d=>(
-                <button key={d.id} onClick={()=>setDraft(dr=>({...dr,duration:d.id}))} style={{ flex:1,padding:"7px 2px",borderRadius:10,border:`1.5px solid ${draft.duration===d.id?C.accent:"rgba(255,255,255,0.16)"}`,background:draft.duration===d.id?`${C.accent}22`:"rgba(255,255,255,0.06)",color:draft.duration===d.id?C.accent:"rgba(255,255,255,0.7)",fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:9,cursor:"pointer",transition:"all .15s",whiteSpace:"nowrap" }}>
-                  {d.label}
-                </button>
-              ))}
-            </div>
+            {/* Who can see this + how long it lasts — collapsed into one summary
+                 row by default (tap to expand), instead of two full-width rows
+                 always taking up space. Same state as before (draft.visibility,
+                 draft.duration) — just a lighter-weight entry point. */}
+            <button onClick={()=>setShowMeta(s=>!s)} style={{ width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"8px 6px",borderRadius:10,border:"1.5px solid rgba(255,255,255,0.16)",background:"rgba(255,255,255,0.06)",color:"rgba(255,255,255,0.8)",fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,cursor:"pointer",marginBottom:10 }}>
+              <span>{draft.visibility==="circle"?"🔒 My Circle Only":"🌐 Public"}</span>
+              <span style={{ opacity:0.4 }}>·</span>
+              <span>{DURATIONS.find(d=>d.id===draft.duration)?.label||"Tonight"}</span>
+              <span style={{ fontSize:9,display:"inline-block",transition:"transform .2s ease",transform:showMeta?"rotate(180deg)":"none" }}>▾</span>
+            </button>
+            {showMeta&&(
+              <div style={{ animation:"in .15s ease" }}>
+                <div style={{ display:"flex",gap:6,marginBottom:8 }}>
+                  <button onClick={()=>setDraft(d=>({...d,visibility:"public"}))} style={{ flex:1,padding:"8px 6px",borderRadius:10,border:`1.5px solid ${draft.visibility==="public"?C.accent:"rgba(255,255,255,0.16)"}`,background:draft.visibility==="public"?`${C.accent}22`:"rgba(255,255,255,0.06)",color:draft.visibility==="public"?C.accent:"rgba(255,255,255,0.7)",fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,cursor:"pointer",transition:"all .15s",display:"flex",alignItems:"center",justifyContent:"center",gap:5 }}>
+                    🌐 Public
+                  </button>
+                  <button onClick={()=>setDraft(d=>({...d,visibility:"circle"}))} style={{ flex:1,padding:"8px 6px",borderRadius:10,border:`1.5px solid ${draft.visibility==="circle"?C.accent:"rgba(255,255,255,0.16)"}`,background:draft.visibility==="circle"?`${C.accent}22`:"rgba(255,255,255,0.06)",color:draft.visibility==="circle"?C.accent:"rgba(255,255,255,0.7)",fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,cursor:"pointer",transition:"all .15s",display:"flex",alignItems:"center",justifyContent:"center",gap:5 }}>
+                    🔒 My Circle Only
+                  </button>
+                </div>
+                <div style={{ display:"flex",gap:6,marginBottom:10 }}>
+                  {DURATIONS.map(d=>(
+                    <button key={d.id} onClick={()=>setDraft(dr=>({...dr,duration:d.id}))} style={{ flex:1,padding:"7px 2px",borderRadius:10,border:`1.5px solid ${draft.duration===d.id?C.accent:"rgba(255,255,255,0.16)"}`,background:draft.duration===d.id?`${C.accent}22`:"rgba(255,255,255,0.06)",color:draft.duration===d.id?C.accent:"rgba(255,255,255,0.7)",fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:9,cursor:"pointer",transition:"all .15s",whiteSpace:"nowrap" }}>
+                      {d.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Add details — collapsed by default */}
             <button onClick={()=>setShowDetails(s=>!s)} style={{ width:"100%",background:"none",border:"none",color:"rgba(255,255,255,0.7)",fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:5,padding:"4px 0 8px" }}>
@@ -23092,9 +23126,9 @@ function BackstagePasses({ onBack, user }) {
                 {/* Pass type selector — mature minimal pills */}
                 <div style={{ display:"flex",gap:5,overflowX:"auto",scrollbarWidth:"none",marginBottom:10,flexWrap:"wrap" }}>
                   {PASS_TYPES.map(t=>(
-                    <button key={t.id} onClick={()=>setDraft(d=>({...d,type:t.id}))} style={{ flexShrink:0,display:"flex",alignItems:"center",gap:5,padding:"5px 11px",borderRadius:99,cursor:"pointer",background:draft.type===t.id?`${t.color}22`:"rgba(255,255,255,0.06)",border:`1px solid ${draft.type===t.id?t.color:"rgba(255,255,255,0.16)"}`,transition:"all .15s" }}>
-                      <div style={{ width:6,height:6,borderRadius:"50%",background:t.color,flexShrink:0,opacity:draft.type===t.id?1:0.5 }} />
-                      <span style={{ fontSize:9.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,color:draft.type===t.id?t.color:"rgba(255,255,255,0.7)",whiteSpace:"nowrap" }}>{t.label}</span>
+                    <button key={t.id} onClick={()=>setDraft(d=>({...d,type:t.id}))} style={{ flexShrink:0,display:"flex",alignItems:"center",gap:5,padding:"5px 11px",borderRadius:99,cursor:"pointer",background:draft.type===t.id?`${C.accent}22`:"rgba(255,255,255,0.06)",border:`1px solid ${draft.type===t.id?C.accent:"rgba(255,255,255,0.16)"}`,transition:"all .15s" }}>
+                      <span style={{ fontSize:10 }}>{t.emoji}</span>
+                      <span style={{ fontSize:9.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,color:draft.type===t.id?C.accent:"rgba(255,255,255,0.7)",whiteSpace:"nowrap" }}>{t.label}</span>
                     </button>
                   ))}
                 </div>
@@ -23104,7 +23138,7 @@ function BackstagePasses({ onBack, user }) {
                     📍 {draft.venueOn?"Venue ✓":"Add Venue"}
                   </button>
                   <button onClick={()=>setDraft(d=>({...d,toCapsule:!d.toCapsule}))} style={{ flex:1,padding:"8px 10px",borderRadius:11,border:`1.5px solid ${draft.toCapsule?C.accent:"rgba(255,255,255,0.16)"}`,background:draft.toCapsule?`${C.accent}18`:"rgba(255,255,255,0.06)",color:draft.toCapsule?C.accent:"rgba(255,255,255,0.7)",fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10,cursor:"pointer",transition:"all .18s",display:"flex",alignItems:"center",justifyContent:"center",gap:5 }}>
-                    ✦ {draft.toCapsule?"Capsule ✓":"+ Capsule"}
+                    📦 {draft.toCapsule?"Capsule ✓":"+ Capsule"}
                   </button>
                 </div>
                 {draft.venueOn && (
@@ -23141,12 +23175,12 @@ function BackstagePasses({ onBack, user }) {
               </div>
             )}
 
-            {/* CTA */}
-            <p style={{ fontSize:9.5,color:draft.caption.trim()?"rgba(255,255,255,0.55)":"rgba(184,162,255,0.65)",textAlign:"center",marginBottom:9,fontStyle:"italic",transition:"color .2s" }}>
-              {draft.caption.trim() ? "A live memory from your concert night ✨" : "Write your moment above to drop your pass"}
+            {/* CTA — always posts; caption is optional, never a gate */}
+            <p style={{ fontSize:9.5,color:"rgba(255,255,255,0.55)",textAlign:"center",marginBottom:9,fontStyle:"italic" }}>
+              A live memory from your concert night ✨
             </p>
-            <button onClick={draft.caption.trim() ? addPass : ()=>captionRef.current?.focus()} style={{ width:"100%",padding:"14px",borderRadius:14,border:"none",background:draft.caption.trim()?`linear-gradient(135deg,${C.accent},${C.berry})`:`rgba(255,255,255,0.08)`,color:draft.caption.trim()?"#04020d":"rgba(255,255,255,0.85)",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,cursor:"pointer",boxShadow:draft.caption.trim()?`0 0 24px ${C.accent}40,0 6px 20px rgba(0,0,0,0.5)`:"none",transition:"all .22s",letterSpacing:"-0.01em" }}>
-              {draft.caption.trim() ? "Drop this Pass ✨" : "Add a caption first ↑"}
+            <button onClick={addPass} style={{ width:"100%",padding:"14px",borderRadius:14,border:"none",background:`linear-gradient(135deg,${C.accent},${C.berry})`,color:"#04020d",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,cursor:"pointer",boxShadow:`0 0 24px ${C.accent}40,0 6px 20px rgba(0,0,0,0.5)`,transition:"all .22s",letterSpacing:"-0.01em" }}>
+              Drop this Pass ✨
             </button>
           </div>
 
@@ -23453,82 +23487,7 @@ function ProfileStudio({ profileStyle, setProfileStyle, isVip, onUpgrade, onBack
   };
   const EMOJIS = ["🎤","✨","🃏","💜","🌙","⭐","🦋","🎧"];
   const BANNER_TEXTS = ["currently in my concert era","collecting chaos beautifully","ult era loading","bias wrecked daily","here for the music & the fandom"];
-  // SKIN_GRADIENTS, OVERLAY_CHARS, SKIN_ID_TO_GRAD are module-scope
-  const SKIN_CATEGORIES = [
-    { id:"bias", label:"⚡ Bias Energy", skins:[
-      { id:"dancer",    name:"Main Dancer Energy", grad:"dancer",      overlay:"beams",    emoji:"💃", desc:"Concert floor presence",    price:0 },
-      { id:"vocal",     name:"Vocal Line Glow",    grad:"vocal",       overlay:"aura",     emoji:"🎵", desc:"Warm rose, emotional depth",price:0 },
-      { id:"maknae",    name:"Maknae Spark",       grad:"maknae",      overlay:"hearts",   emoji:"🍬", desc:"Sweet chaos energy",        price:0 },
-      { id:"wrecker",   name:"Bias Wrecker Mode",  grad:"wrecker",     overlay:"glitter",  emoji:"💥", desc:"Did not ask for this",      price:0 },
-      { id:"rapvolt",   name:"Rap Line Voltage",   grad:"rapvolt",     overlay:"neonbeam", emoji:"⚡", desc:"Hard-hitting, electric",    price:"vip" },
-      { id:"visuals",   name:"Visual Center",      grad:"visuals",     overlay:"shimmer",  emoji:"🪞", desc:"Ethereal, striking, quiet", price:"vip" },
-      { id:"leader",    name:"Leader Aura",        grad:"leader",      overlay:"cosmos",   emoji:"🫶", desc:"Steady, grounding, loyal",  price:"vip" },
-      { id:"ultshrine", name:"Ult Bias Shrine",    grad:"ultshrine",   overlay:"crown",    emoji:"🛕", desc:"Devoted. That's it.",       price:"vip" },
-    ]},
-    { id:"era", label:"✦ Era & Vibe", skins:[
-      { id:"neonmaniac",  name:"Neon Maniac",         grad:"neonmaniac",  overlay:"neonbeam", emoji:"🟢", desc:"Electric, raw, chaotic",    price:0 },
-      { id:"purplearmy",  name:"Purple Army Night",   grad:"purplearmy",  overlay:"sparkles", emoji:"💜", desc:"Deep purple velvet fandom", price:0 },
-      { id:"softbunny",   name:"Soft Bunny Diary",    grad:"softbunny",   overlay:"hearts",   emoji:"🐰", desc:"Pastel, personal, precious",price:0 },
-      { id:"oceanlstick", name:"Ocean Lightstick",    grad:"oceanlstick", overlay:"bubbles",  emoji:"🌊", desc:"Concert sea of blue",       price:0 },
-      { id:"pinkvenom",   name:"Pink Venom Glow",     grad:"pinkvenom",   overlay:"diamonds", emoji:"🖤", desc:"Bold. Don't touch.",        price:"vip" },
-      { id:"silverai",    name:"Silver AI World",     grad:"silverai",    overlay:"shimmer",  emoji:"🤖", desc:"Chrome, digital, future",   price:"vip" },
-      { id:"goldensolo",  name:"Golden Solo Era",     grad:"goldensolo",  overlay:"glitter",  emoji:"🌟", desc:"Warm gold, triumphant",     price:"vip" },
-      { id:"blackpearl",  name:"Black Pearl Stage",   grad:"blackpearl",  overlay:"cosmos",   emoji:"🎭", desc:"Jet black drama",           price:"vip" },
-      { id:"redcurtain",  name:"Red Velvet Curtain",  grad:"redcurtain",  overlay:"petals",   emoji:"🌹", desc:"Deep red, theatrical",      price:"vip" },
-      { id:"cherryboom",  name:"Cherry Bomb Room",    grad:"cherryboom",  overlay:"glitter",  emoji:"💣", desc:"Loud, red, explosive",      price:"vip" },
-    ]},
-    { id:"role", label:"🎟️ Fan Role", skins:[
-      { id:"cardcollect",  name:"Photocard Collector", grad:"cardcollect",  overlay:"cards",    emoji:"🃏", desc:"Binder life, always trading",price:0 },
-      { id:"traveler",     name:"Concert Traveler",    grad:"traveler",     overlay:"cosmos",   emoji:"✈️", desc:"Flights booked, no regrets",price:0 },
-      { id:"chantmstr",    name:"Chant Master",        grad:"chantmstr",    overlay:"beams",    emoji:"📣", desc:"Every word, every fanchant",price:0 },
-      { id:"soloconcert",  name:"Solo Concert Girlie", grad:"soloconcert",  overlay:"hearts",   emoji:"🎟️", desc:"Party of one, still iconic",price:0 },
-      { id:"freebiemaker", name:"Freebie Maker",       grad:"freebiemaker", overlay:"petals",   emoji:"🎁", desc:"Crafting for the fandom",   price:"vip" },
-      { id:"mootmagnet",   name:"Moot Magnet",         grad:"mootmagnet",   overlay:"aura",     emoji:"🤝", desc:"Everyone's favorite moot",  price:"vip" },
-      { id:"tradequeen",   name:"Trade Queen",         grad:"tradequeen",   overlay:"diamonds", emoji:"👑", desc:"Fair trades only, bestie",  price:"vip" },
-      { id:"projlead",     name:"Fan Project Lead",    grad:"projlead",     overlay:"cosmos",   emoji:"📋", desc:"Organized chaos, always on",price:"vip" },
-    ]},
-    { id:"classic", label:"🎨 Classic Styles", skins:[
-      { id:"classic",  name:"Backstage Classic", grad:"purple haze",    overlay:"sparkles", emoji:"✦",  desc:"The original",          price:0 },
-      { id:"soft",     name:"Soft Purple",       grad:"pink aura",      overlay:"hearts",   emoji:"💜", desc:"Dreamy & soft",         price:0 },
-      { id:"midnight", name:"Midnight",          grad:"midnight silver", overlay:"dots",    emoji:"🌙", desc:"Dark & minimal",        price:0 },
-      { id:"cherry",   name:"Cherry Bomb",       grad:"cherry",         overlay:"petals",   emoji:"🍒", desc:"Bold & dramatic",       price:0 },
-      { id:"holo",     name:"Holographic",       grad:"holo",           overlay:"shimmer",  emoji:"💿", desc:"Iridescent shine",      price:0 },
-      { id:"glitter",  name:"Glitter Storm",     grad:"golden hour",    overlay:"glitter",  emoji:"✨", desc:"All the sparkle",       price:0 },
-      { id:"y2k",      name:"Y2K Butterfly",     grad:"y2k",            overlay:"bubbles",  emoji:"🦋", desc:"2000s nostalgia",       price:0 },
-      { id:"neon",     name:"Neon Seoul",        grad:"neon",           overlay:"neonbeam", emoji:"🌃", desc:"Electric & alive",      price:0 },
-      { id:"sakura",   name:"Sakura Season",     grad:"sakura",         overlay:"petals",   emoji:"🌸", desc:"Soft pink season",      price:0 },
-      { id:"idol",     name:"Idol Glow",         grad:"idol",           overlay:"crown",    emoji:"👑", desc:"You're the bias",       price:"vip" },
-      { id:"concert",  name:"Concert Lights",    grad:"concert",        overlay:"beams",    emoji:"🎤", desc:"Live show energy",      price:"vip" },
-      { id:"binder",   name:"Photocard Binder",  grad:"binder",         overlay:"cards",    emoji:"🃏", desc:"Collector aesthetic",   price:"vip" },
-      { id:"angel",    name:"Angel Aura",        grad:"angel",          overlay:"aura",     emoji:"🪬", desc:"Ethereal & pure",       price:"vip" },
-      { id:"galaxy",   name:"Galaxy Brain",      grad:"galaxy",         overlay:"cosmos",   emoji:"🌌", desc:"Deep space vibes",      price:"vip" },
-      { id:"bling",    name:"Bling Bling",       grad:"bling",          overlay:"diamonds", emoji:"💎", desc:"Maximalist glam",       price:"vip" },
-    ]},
-    { id:"concert_energy", label:"🎤 Concert Energy", skins:[
-      { id:"arenaglow",    name:"Arena Glow",       grad:"arenaglow",    overlay:"beams",    emoji:"🔮", desc:"Massive stage energy",   price:0 },
-      { id:"oceanlstick",  name:"Lightstick Ocean", grad:"oceanlstick",  overlay:"bubbles",  emoji:"🌊", desc:"Sea of purple light",    price:0 },
-      { id:"encorenight",  name:"Encore Night",     grad:"encorenight",  overlay:"cosmos",   emoji:"🌙", desc:"Post-show magic",        price:0 },
-      { id:"vipsound",     name:"VIP Soundcheck",   grad:"vipsound",     overlay:"shimmer",  emoji:"🎧", desc:"Backstage access only",  price:"vip" },
-    ]},
-    { id:"og_internet", label:"🌐 OG Internet", skins:[
-      { id:"myspaceglitter",name:"MySpace Glitter",  grad:"myspaceglitter",overlay:"glitter", emoji:"💻", desc:"2003 energy, no apology",price:0 },
-      { id:"pixelfanclub",  name:"Pixel Fanclub",    grad:"pixelfanclub",  overlay:"dots",    emoji:"🕹️", desc:"8-bit devotion",         price:0 },
-      { id:"stickerbomb",   name:"Sticker Bomb",     grad:"stickerbomb",   overlay:"sparkles",emoji:"🎪", desc:"All stickers, no regrets",price:0 },
-      { id:"diarypage",     name:"Diary Page",       grad:"diarypage",     overlay:"hearts",  emoji:"📓", desc:"Locked diary, fan edition",price:"vip" },
-    ]},
-    { id:"collector_core", label:"🃏 Collector Core", skins:[
-      { id:"bindersleeve",  name:"Binder Sleeve",   grad:"bindersleeve",  overlay:"cards",    emoji:"📦", desc:"Neat sleeves, organized", price:0 },
-      { id:"photocardhole", name:"Photocard Holo",  grad:"photocardhole", overlay:"shimmer",  emoji:"💿", desc:"Rainbow refraction",      price:0 },
-      { id:"tradingdesk",   name:"Trading Desk",    grad:"tradingdesk",   overlay:"diamonds", emoji:"♟️", desc:"Always dealing",          price:0 },
-      { id:"biasshrineSkin",name:"Bias Shrine",     grad:"biasshrineSkin",overlay:"aura",     emoji:"🛕", desc:"For the truly devoted",   price:"vip" },
-    ]},
-    { id:"emotional_soft", label:"🌙 Emotional / Soft", skins:[
-      { id:"afterglowskin", name:"Afterglow",       grad:"afterglowskin", overlay:"aura",     emoji:"🌅", desc:"Crying in the parking lot", price:0 },
-      { id:"rainyseoul",    name:"Rainy Seoul",     grad:"rainyseoul",    overlay:"dots",     emoji:"🌧️", desc:"Atmospheric and real",    price:0 },
-      { id:"lavenderroom",  name:"Lavender Room",   grad:"lavenderroom",  overlay:"hearts",   emoji:"💜", desc:"Soft hours only",         price:0 },
-      { id:"moonlightfan",  name:"Moonlight Fan",   grad:"moonlightfan",  overlay:"cosmos",   emoji:"🌕", desc:"Quiet devotion",          price:"vip" },
-    ]},
-  ];
+  // SKIN_GRADIENTS, OVERLAY_CHARS, SKIN_CATEGORIES, SKIN_ID_TO_GRAD, SKIN_MAP are module-scope
   const [activeCat, setActiveCat] = useState("bias");
 
   const tryBuy = (skin) => {
@@ -23587,16 +23546,18 @@ function ProfileStudio({ profileStyle, setProfileStyle, isVip, onUpgrade, onBack
           <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:19 }}>Stage Studio ✦</h2>
         </div>
         <button onClick={save} style={{ background:saveConfirm?C.mint:C.accent,border:"none",borderRadius:11,padding:"7px 16px",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer",transition:"background .3s" }}>
-          {saveConfirm ? "Stage saved ✦" : "Save"}
+          {saveConfirm ? "Synced ✦" : "Sync"}
         </button>
       </div>
+      <p style={{ padding:"0 20px 10px", margin:0, fontSize:9.5, color:C.textDim, flexShrink:0 }}>Every change below applies instantly — Sync just backs it up to your account.</p>
 
-      {/* Live Preview — mini full My Stage */}
+      {/* Live Preview — mini full My Stage, driven by the same skinId that
+          renders the real page, so what you see here is what you get. */}
       <div style={{ padding:"0 20px 12px", flexShrink:0 }}>
         <p style={{ fontSize:9.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.textMid, marginBottom:2, letterSpacing:"0.08em", textTransform:"uppercase" }}>My Stage Preview</p>
         <p style={{ fontSize:9, color:C.textDim, marginBottom:7 }}>See how your full profile will feel.</p>
         <div style={{
-          background: profileStyle.bgImageUrl ? `url(${profileStyle.bgImageUrl}) center/cover` : resolveWorldGrad(profileStyle.stageWorld||"concert_night"),
+          background: profileStyle.bgImageUrl ? `url(${profileStyle.bgImageUrl}) center/cover` : resolveSkinGrad(profileStyle.skinId||"classic"),
           backgroundSize:"cover", backgroundPosition:"center",
           borderRadius:18, position:"relative", minHeight:148, overflow:"hidden",
           border:`1px solid rgba(255,255,255,0.08)`
@@ -23618,10 +23579,10 @@ function ProfileStudio({ profileStyle, setProfileStyle, isVip, onUpgrade, onBack
               <div key={j} style={{ height:14,borderRadius:5,background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.07)" }} />
             ))}
           </div>
-          {/* World label */}
+          {/* Skin label */}
           <div style={{ position:"absolute",bottom:8,right:10,background:"rgba(6,6,15,0.72)",borderRadius:7,padding:"2px 8px" }}>
             <p style={{ fontSize:7.5,color:"rgba(255,255,255,0.55)",fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>
-              {STAGE_WORLD_MAP[profileStyle.stageWorld||"concert_night"]?.name||"Concert Night"}
+              {SKIN_MAP[profileStyle.skinId||"classic"]?.name||"Backstage Classic"}
             </p>
           </div>
         </div>
@@ -23636,26 +23597,16 @@ function ProfileStudio({ profileStyle, setProfileStyle, isVip, onUpgrade, onBack
       <Screen>
         {activeSection==="banner" && (
           <div>
-            {/* ── STAGE WORLD ── */}
-            <SectionHeader title="Stage World" />
-            <p style={{ fontSize:11, color:C.textMid, marginBottom:12, lineHeight:1.5 }}>Your world. Sets the full page background anyone sees when they visit your Stage.</p>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:20 }}>
-              {STAGE_WORLDS.map(w=>{
-                const isActive = (profileStyle.stageWorld||"concert_night") === w.id;
-                return (
-                  <div key={w.id} onClick={()=>setProfileStyle({...profileStyle, stageWorld:w.id})} className="tap"
-                    style={{ borderRadius:16, overflow:"hidden", cursor:"pointer", border:`2px solid ${isActive?C.white:"transparent"}`, boxShadow:isActive?`0 0 18px ${C.accent}66`:"none", position:"relative" }}>
-                    <div style={{ height:72, background:SKIN_GRADIENTS[w.grad], position:"relative" }}>
-                      {isActive && <div style={{ position:"absolute",top:6,left:6,background:"rgba(255,255,255,0.92)",borderRadius:99,padding:"2px 8px",fontSize:7.5,color:"#06060f",fontFamily:"'Epilogue',sans-serif",fontWeight:800,letterSpacing:"0.05em" }}>● ACTIVE</div>}
-                      <div style={{ position:"absolute",bottom:0,right:0,fontSize:11,padding:"4px 8px",opacity:0.7 }}>{(OVERLAY_CHARS[w.deco]||[]).slice(0,3).join(" ")}</div>
-                    </div>
-                    <div style={{ padding:"8px 10px", background:C.surface }}>
-                      <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,marginBottom:2 }}>{w.name}</p>
-                      <p style={{ fontSize:8.5,color:C.textDim }}>{w.desc}</p>
-                    </div>
-                  </div>
-                );
-              })}
+            {/* Stage World (the skin/background picker) now lives entirely under
+                the "Stage World" tab above — one picker, one place, instead of
+                a second grid living here too. */}
+            <div style={{ background:C.surfaceHi, border:`1px solid ${C.border}`, borderRadius:13, padding:"11px 14px", marginBottom:18, display:"flex", alignItems:"center", gap:10 }}>
+              <span style={{ fontSize:18 }}>{SKIN_MAP[profileStyle.skinId||"classic"]?.emoji||"✦"}</span>
+              <div style={{ flex:1 }}>
+                <p style={{ fontSize:9, color:C.textDim, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:2 }}>Current Stage World</p>
+                <p style={{ fontSize:12, fontFamily:"'Epilogue',sans-serif", fontWeight:700 }}>{SKIN_MAP[profileStyle.skinId||"classic"]?.name||"Backstage Classic"}</p>
+              </div>
+              <button onClick={()=>setActiveSection("theme")} style={{ background:C.accent, border:"none", borderRadius:9, padding:"7px 12px", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10.5, cursor:"pointer" }}>Change</button>
             </div>
 
             {/* ── UPLOAD YOUR OWN ── */}
