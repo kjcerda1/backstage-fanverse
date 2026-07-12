@@ -4988,11 +4988,9 @@ function Onboarding({ onDone }) {
         {/* Glow backdrop */}
         <div style={{ position:"absolute",top:"20%",left:"50%",transform:"translateX(-50%)",width:280,height:200,borderRadius:"50%",background:`radial-gradient(ellipse,${C.accent}12,transparent 70%)`,pointerEvents:"none" }} />
         {/* Backstage logo */}
-        <img
-          src="/fanverse-logo.png"
-          alt="Backstage"
-          style={{ width:120, height:120, objectFit:"contain", marginBottom:16 }}
-        />
+        <div style={{ display:"inline-flex",alignItems:"center",justifyContent:"center",width:120,height:120,borderRadius:30,background:"transparent",marginBottom:16,boxShadow:`0 0 48px ${C.accent}40, 0 0 80px ${C.accent}18` }}>
+          <img src="/backstage-b-glyph.png" alt="Backstage" style={{ width:"100%",height:"100%",objectFit:"contain",borderRadius:26 }} />
+        </div>
         <p style={{ fontSize:10, letterSpacing:"0.2em", textTransform:"uppercase", color:C.textMid, marginBottom:12 }}>Fanverse · K-pop Fandom App</p>
         <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, letterSpacing:"-0.02em", marginBottom:8, lineHeight:1.2 }}>Welcome to Backstage</p>
         <p style={{ color:C.textMid, fontSize:12.5, lineHeight:1.65, maxWidth:270, margin:"0 auto 6px" }}>Your fandom. Your people. Your memories.</p>
@@ -5173,7 +5171,7 @@ function Onboarding({ onDone }) {
             <div style={{ position:"absolute",inset:-14,borderRadius:"50%",background:`radial-gradient(circle,${slide.accent}20,transparent 70%)`,pointerEvents:"none" }} />
             <div style={{ width:92,height:92,borderRadius:28,background:slide.logo?"transparent":`linear-gradient(145deg,${slide.accent}22,${slide.accent}0c)`,border:`1.5px solid ${slide.accent}50`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:42,boxShadow:`0 0 48px ${slide.accent}30,0 0 0 1px ${slide.accent}18`,transition:"all .5s",position:"relative",overflow:"hidden" }}>
               {slide.logo
-                ? <img src="/fanverse-logo.png" alt="Backstage" style={{ width:"100%",height:"100%",objectFit:"cover",display:"block" }} />
+                ? <img src="/backstage-b-glyph.png" alt="Backstage" style={{ width:"100%",height:"100%",objectFit:"contain",display:"block",borderRadius:24 }} />
                 : slide.emoji}
             </div>
           </div>
@@ -5223,10 +5221,10 @@ function Onboarding({ onDone }) {
   // ── FIRST ACTION ──
   if (mode === "firstaction") {
     const FA_ACTIONS = [
-      { emoji:"🎭", label:"Customize My Stage",  sub:"Make your fan identity shine",           dest:"studio",    color:C.lavender },
+      { emoji:"✨", label:"Customize My Stage",  sub:"Make your fan identity shine",           dest:"studio",    color:C.lavender },
       { emoji:"💜", label:"Find my people",       sub:"Meet fans near your next show",          dest:"community", color:C.accent   },
       { emoji:"⭕", label:"Join a Fan Circle",    sub:"Groups for your specific fandom era",    dest:"community", color:C.pink     },
-      { emoji:"🏛️", label:"Open My World",       sub:"Collections, capsules and memories",     dest:"collect",   color:C.mint     },
+      { emoji:"🌌", label:"Open My World",       sub:"Collections, capsules and memories",     dest:"collect",   color:C.mint     },
       { emoji:"🎤", label:"Add a concert",        sub:"Log your shows and fan eras",            dest:"myshows",   color:C.gold     },
       { emoji:"📸", label:"Concert Capsule",      sub:"Save tonight's moments forever",         dest:"capsule",   color:C.rose     },
     ];
@@ -11293,12 +11291,12 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
   const SOCIAL_RINGS = [
     { key:"circle",    avatar:"💜", label:"My Circle",    color:C.lavender, isFilter:true,  filterType:"circle"   },
     { key:"local",     avatar:"📍", label:"Local Fans",   color:C.mint,     isFilter:true,  filterType:"local"    },
-    { key:"u-armyjoon",    avatar:"J", label:"armyjoon",      color:C.pink,    isUser:true, fandoms:["BTS"],   city:"Las Vegas" },
-    { key:"u-vegasarmy",   avatar:"Y", label:"vegasarmy",     color:C.rose,    isUser:true, fandoms:["BTS"],   city:"Las Vegas" },
-    { key:"u-mochitrades", avatar:"M", label:"mochi.trades",  color:C.gold,    isUser:true, fandoms:["BTS"],   city:"Dallas"    },
-    { key:"u-purplehour",  avatar:"H", label:"purplehour",    color:C.iris,    isUser:true, fandoms:["BTS","ENHYPEN"], city:"New York" },
-    { key:"u-jungkookfilm",avatar:"J", label:"jungkookfilm",  color:C.lavender,isUser:true, fandoms:["BTS"],   city:"Las Vegas" },
-    { key:"u-concertcry",  avatar:"A", label:"concertcry",    color:C.blush,   isUser:true, fandoms:["BTS"],   city:"Dallas"    },
+    { key:"u-armyjoon",    avatar:"J", label:"armyjoon",      color:C.pink,    isUser:true, hasStory:true, fandoms:["BTS"],   city:"Las Vegas" },
+    { key:"u-vegasarmy",   avatar:"Y", label:"vegasarmy",     color:C.rose,    isUser:true, hasStory:true, fandoms:["BTS"],   city:"Las Vegas" },
+    { key:"u-mochitrades", avatar:"M", label:"mochi.trades",  color:C.gold,    isUser:true, hasStory:true, fandoms:["BTS"],   city:"Dallas"    },
+    { key:"u-purplehour",  avatar:"H", label:"purplehour",    color:C.iris,    isUser:true, hasStory:true, fandoms:["BTS","ENHYPEN"], city:"New York" },
+    { key:"u-jungkookfilm",avatar:"J", label:"jungkookfilm",  color:C.lavender,isUser:true, hasStory:true, fandoms:["BTS"],   city:"Las Vegas" },
+    { key:"u-concertcry",  avatar:"A", label:"concertcry",    color:C.blush,   isUser:true, hasStory:true, fandoms:["BTS"],   city:"Dallas"    },
   ];
 
   const FAN_DOTS = [
@@ -11471,7 +11469,7 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
                 if(r.isFilter) { setRingFilter(ringFilter===r.filterType?null:r.filterType); }
                 else if(r.isUser) { setShowUserMoment(r); }
               }} className="tap" style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:4,cursor:"pointer" }}>
-                <div style={{ width:sz,height:sz,borderRadius:"50%",background:isActive?`linear-gradient(150deg,${r.color}cc,${r.color}88)`:`linear-gradient(150deg,${C.cosmic}d9,${C.bg}d9)`,padding:isActive?0:1.5,boxShadow:isActive?`0 0 14px ${r.color}55, inset 0 1px 0 rgba(255,255,255,0.25)`:"inset 0 1px 0 rgba(255,255,255,0.06)",border:`${isActive?"1.5":"1"}px solid ${isActive?r.color+"cc":C.glassBorder}`,transition:"all .25s ease",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:r.isUser?sz*0.36:sz*0.42,color:isActive?C.bg:r.color }}>
+                <div style={{ width:sz,height:sz,borderRadius:"50%",background:r.hasStory?`linear-gradient(${C.bg},${C.bg}) padding-box, conic-gradient(from 0deg,${r.color},${C.lavender},${C.pink},${r.color}) border-box`:isActive?`linear-gradient(150deg,${r.color}cc,${r.color}88)`:`linear-gradient(150deg,${C.cosmic}d9,${C.bg}d9)`,border:r.hasStory?"2.5px solid transparent":(`${isActive?"1.5":"1"}px solid ${isActive?r.color+"cc":C.glassBorder}`),boxShadow:r.hasStory?`0 0 14px ${r.color}55, 0 0 28px ${r.color}22`:isActive?`0 0 14px ${r.color}55, inset 0 1px 0 rgba(255,255,255,0.25)`:"inset 0 1px 0 rgba(255,255,255,0.06)",transition:"all .25s ease",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:r.isUser?sz*0.36:sz*0.42,color:isActive?C.bg:r.color }}>
                   {r.avatar}
                 </div>
                 <p style={{ fontSize:8.5,color:isActive?r.color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap",maxWidth:64,overflow:"hidden",textOverflow:"ellipsis",textAlign:"center",transition:"color .2s" }}>{r.label}</p>
@@ -13444,10 +13442,10 @@ function ExploreTab({ user, go, onViewProfile }) {
               boxShadow: s.image_url ? "none" : "inset 0 0 0 1px rgba(217,199,255,0.22)",
             }}>
               <CategoryChip label="Upcoming Show" color={C.lavender} />
-              <p style={{ fontSize:s.image_url?14:17, fontWeight:800, color:"#fff", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", textShadow:"0 2px 8px rgba(0,0,0,0.6)" }}>{s.name||s.title}</p>
+              <p style={{ fontSize:s.image_url?14:17, fontWeight:800, color:s.image_url?"#fff":C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", textShadow:s.image_url?"0 2px 8px rgba(0,0,0,0.6)":"none" }}>{s.name||s.title}</p>
               <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:4, flexWrap:"wrap" }}>
-                <p style={{ fontSize:10.5,color:"rgba(255,255,255,0.75)" }}>{s.city}{s.date?` · ${s.date}`:""}</p>
-                {s.venue && <span style={{ fontSize:8.5, padding:"2px 8px", borderRadius:99, background:"rgba(255,255,255,0.14)", border:"1px solid rgba(255,255,255,0.22)", color:"rgba(255,255,255,0.85)" }}>{s.venue}</span>}
+                <p style={{ fontSize:10.5,color:s.image_url?"rgba(255,255,255,0.75)":C.textMid }}>{s.city}{s.date?` · ${s.date}`:""}</p>
+                {s.venue && <span style={{ fontSize:8.5, padding:"2px 8px", borderRadius:99, background:s.image_url?"rgba(255,255,255,0.14)":`${C.lavender}22`, border:`1px solid ${s.image_url?"rgba(255,255,255,0.22)":C.border}`, color:s.image_url?"rgba(255,255,255,0.85)":C.textMid }}>{s.venue}</span>}
               </div>
             </div>
           </div>
