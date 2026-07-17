@@ -23596,6 +23596,14 @@ function ProfileStudio({ profileStyle, setProfileStyle, isVip, onUpgrade, onBack
 
   const [saveConfirm, setSaveConfirm] = useState(false);
   const uploadBgRef = useRef(null);
+  // Collapse the tall preview header once the user scrolls into the editor
+  // content, so the options get the screen back. Hysteresis (48px down /
+  // 12px up) keeps it from flickering at the boundary.
+  const [previewCollapsed, setPreviewCollapsed] = useState(false);
+  const handleStudioScroll = (e) => {
+    const y = e.target.scrollTop;
+    setPreviewCollapsed(prev => prev ? y > 12 : y > 48);
+  };
 
   const save = () => {
     ls.set("backstage_profile_style", profileStyle);
@@ -23638,11 +23646,15 @@ function ProfileStudio({ profileStyle, setProfileStyle, isVip, onUpgrade, onBack
           {saveConfirm ? "Synced ✦" : "Sync"}
         </button>
       </div>
-      <p style={{ padding:"0 20px 10px", margin:0, fontSize:9.5, color:C.textDim, flexShrink:0 }}>Every change below applies instantly — Sync just backs it up to your account.</p>
+      {/* Explainer + live preview collapse together once the user scrolls the
+          editor content, so the options below get the screen back. Tapping the
+          collapsed strip re-opens it. */}
+      <div style={{ flexShrink:0, overflow:"hidden", maxHeight:previewCollapsed?0:320, opacity:previewCollapsed?0:1, transition:"max-height .28s ease, opacity .2s ease" }}>
+      <p style={{ padding:"0 20px 10px", margin:0, fontSize:9.5, color:C.textDim }}>Every change below applies instantly — Sync just backs it up to your account.</p>
 
       {/* Live Preview — mini full My Stage, driven by the same skinId that
           renders the real page, so what you see here is what you get. */}
-      <div style={{ padding:"0 20px 12px", flexShrink:0 }}>
+      <div style={{ padding:"0 20px 12px" }}>
         <p style={{ fontSize:9.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.textMid, marginBottom:2, letterSpacing:"0.08em", textTransform:"uppercase" }}>My Stage Preview</p>
         <p style={{ fontSize:9, color:C.textDim, marginBottom:7 }}>See how your full profile will feel.</p>
         <div style={{
@@ -23676,6 +23688,15 @@ function ProfileStudio({ profileStyle, setProfileStyle, isVip, onUpgrade, onBack
           </div>
         </div>
       </div>
+      </div>
+
+      {/* Collapsed strip — one-line stand-in for the preview, tap to reopen */}
+      {previewCollapsed && (
+        <button onClick={()=>setPreviewCollapsed(false)} style={{ flexShrink:0, margin:"0 20px 10px", padding:"6px 12px", borderRadius:10, background:C.surfaceHi, border:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, cursor:"pointer", animation:"in .2s ease" }}>
+          <span style={{ fontSize:9.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.textMid }}>👁 Preview · {SKIN_MAP[profileStyle.skinId||"classic"]?.name||"Backstage Classic"}</span>
+          <span style={{ fontSize:9, color:C.textDim }}>▾ show</span>
+        </button>
+      )}
 
       <div style={{ display:"flex", gap:6, padding:"0 20px 12px", overflowX:"auto", flexShrink:0 }}>
         {SECTIONS_MAP.map(s=>(
@@ -23683,7 +23704,7 @@ function ProfileStudio({ profileStyle, setProfileStyle, isVip, onUpgrade, onBack
         ))}
       </div>
 
-      <Screen>
+      <Screen onScroll={handleStudioScroll}>
         {activeSection==="banner" && (
           <div>
             {/* Stage World (the skin/background picker) now lives entirely under
