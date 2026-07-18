@@ -742,6 +742,15 @@ const SKIN_GRADIENTS = {
   "rainyseoul":     `linear-gradient(140deg,#08101c,#0c1830,#040c18,#081424)`,
   "lavenderroom":   `linear-gradient(140deg,#120828,#1e1040,#0e0820,#180c34)`,
   "moonlightfan":   `linear-gradient(140deg,#08080e,#10101a,#060608,#0c0c16)`,
+  // ── VIP Exclusive ────────────────────────────────────────────────────────
+  "rosegoldera":    `linear-gradient(140deg,#2a1008,#4a2412,#2c1408,#3a1c0e)`,
+  "crystalskies":   `linear-gradient(140deg,#041824,#0a2c3c,#062030,#082838)`,
+  "velvetmidnight": `linear-gradient(140deg,#0e0018,#1c0030,#0a0012,#160028)`,
+  "hologramfoil":   `linear-gradient(140deg,#180030,#2c0850,#001832,#200a40)`,
+  "vintagepolaroid":`linear-gradient(140deg,#241608,#3a2810,#22180a,#302010)`,
+  "deepspacefancam":`linear-gradient(140deg,#02040e,#0a0a2a,#04061a,#080818)`,
+  "chromeheart":    `linear-gradient(140deg,#141418,#242430,#181820,#20202a)`,
+  "emeraldstage":   `linear-gradient(140deg,#001a10,#003a24,#001812,#00281a)`,
 };
 const OVERLAY_CHARS = {
   sparkles: ["✦","✦","✦","✦","✦","✦","✦","✦"],
@@ -838,6 +847,16 @@ const SKIN_CATEGORIES = [
     { id:"rainyseoul",    name:"Rainy Seoul",     grad:"rainyseoul",    overlay:"dots",     emoji:"🌧️", desc:"Atmospheric and real",    price:0 },
     { id:"lavenderroom",  name:"Lavender Room",   grad:"lavenderroom",  overlay:"hearts",   emoji:"💜", desc:"Soft hours only",         price:0 },
     { id:"moonlightfan",  name:"Moonlight Fan",   grad:"moonlightfan",  overlay:"cosmos",   emoji:"🌕", desc:"Quiet devotion",          price:"vip" },
+  ]},
+  { id:"vip_exclusive", label:"👑 VIP Exclusive", skins:[
+    { id:"rosegoldera",     name:"Rose Gold Era",     grad:"rosegoldera",     overlay:"glitter",  emoji:"🌹", desc:"Warm, luxe, unbothered",        price:"vip" },
+    { id:"crystalskies",    name:"Crystal Skies",     grad:"crystalskies",    overlay:"shimmer",  emoji:"💎", desc:"Clear, cool, cut glass",        price:"vip" },
+    { id:"velvetmidnight",  name:"Velvet Midnight",   grad:"velvetmidnight",  overlay:"sparkles", emoji:"🖤", desc:"After-hours, no apologies",     price:"vip" },
+    { id:"hologramfoil",    name:"Hologram Foil",     grad:"hologramfoil",    overlay:"diamonds", emoji:"🌈", desc:"Photocard holo, IRL",           price:"vip" },
+    { id:"vintagepolaroid", name:"Vintage Polaroid",  grad:"vintagepolaroid", overlay:"dots",     emoji:"📷", desc:"Warm film, old fancams",        price:"vip" },
+    { id:"deepspacefancam", name:"Deep Space Fancam",  grad:"deepspacefancam", overlay:"cosmos",   emoji:"🛰️", desc:"Zoomed in from another galaxy",price:"vip" },
+    { id:"chromeheart",     name:"Chrome Heart",      grad:"chromeheart",     overlay:"shimmer",  emoji:"🩶", desc:"Brushed metal, cold romance",   price:"vip" },
+    { id:"emeraldstage",    name:"Emerald Stage",     grad:"emeraldstage",    overlay:"beams",    emoji:"💚", desc:"Encore lighting, deep green",   price:"vip" },
   ]},
 ];
 const ALL_SKINS = SKIN_CATEGORIES.flatMap(c=>c.skins);
