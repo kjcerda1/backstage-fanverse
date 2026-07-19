@@ -26218,6 +26218,38 @@ function AppInner() {
     }).catch(() => {});
   }, [auth.user?.id, auth.tokenReady]);
 
+  // ── Pin the app shell to the VISUAL viewport (native-app feel) ──────────────
+  // The shell is position:fixed. By default that binds to the LAYOUT viewport,
+  // so it sits behind Safari's toolbar and gets pushed/"blown up" when the
+  // keyboard opens (Messages). We instead drive its height + top offset from
+  // window.visualViewport, which reports the true visible region — so the shell
+  // stays locked, never drifts, and compresses to sit above the keyboard.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    const root = document.documentElement;
+    const apply = () => {
+      const h = vv ? vv.height : window.innerHeight;
+      const top = vv ? vv.offsetTop : 0;
+      root.style.setProperty("--app-vh", h + "px");
+      root.style.setProperty("--app-vv-top", top + "px");
+    };
+    apply();
+    if (vv) {
+      vv.addEventListener("resize", apply);
+      vv.addEventListener("scroll", apply);
+    }
+    window.addEventListener("resize", apply);
+    window.addEventListener("orientationchange", apply);
+    return () => {
+      if (vv) {
+        vv.removeEventListener("resize", apply);
+        vv.removeEventListener("scroll", apply);
+      }
+      window.removeEventListener("resize", apply);
+      window.removeEventListener("orientationchange", apply);
+    };
+  }, []);
+
   useEffect(()=>{
     if(appState!=="main") return;
     const shows = ls.get("backstage_myshows",[]);
