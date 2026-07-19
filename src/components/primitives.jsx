@@ -214,7 +214,11 @@ export const BackstageBIcon = ({ active }) => (
 // so a percentage-sized child has no definite size to resolve against and
 // silently falls back to the image's tiny intrinsic size. Explicit px
 // dimensions sidestep that entirely.
-const B_GLYPH_ASPECT = 362 / 454;
+// Illuminated glowing-B nav mark (public/backstage-b-illuminated-nav.png),
+// luminance-keyed to transparent from the cosmic illuminated logo, then recolored
+// to the vivid purple->pink brand gradient so it reads on the light nav bar.
+// Tight-cropped intrinsic size 131x182.
+const B_GLYPH_ASPECT = 131 / 182;
 
 export function BackstageBNavIcon({ active }) {
   // Active grows a bit (24 -> 30) for presence; the nav's icon-slot wrapper
@@ -239,7 +243,7 @@ export function BackstageBNavIcon({ active }) {
       transition: "all 160ms ease",
     }}>
       <img
-        src="/backstage-b-glyph.png"
+        src="/backstage-b-illuminated-nav.png"
         alt=""
         aria-hidden="true"
         width={w}

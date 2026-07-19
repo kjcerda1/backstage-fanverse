@@ -5060,7 +5060,7 @@ function Onboarding({ onDone }) {
         <div style={{ position:"absolute",top:"20%",left:"50%",transform:"translateX(-50%)",width:280,height:200,borderRadius:"50%",background:`radial-gradient(ellipse,${C.accent}12,transparent 70%)`,pointerEvents:"none" }} />
         {/* Backstage logo */}
         <div style={{ display:"inline-flex",alignItems:"center",justifyContent:"center",width:120,height:120,borderRadius:30,background:"transparent",marginBottom:16,boxShadow:`0 0 48px ${C.accent}40, 0 0 80px ${C.accent}18` }}>
-          <img src="/backstage-b-glyph.png" alt="Backstage" style={{ width:"100%",height:"100%",objectFit:"contain",borderRadius:26 }} />
+          <img src="/backstage-b-illuminated.png" alt="Backstage" style={{ width:"100%",height:"100%",objectFit:"contain",borderRadius:26 }} />
         </div>
         <p style={{ fontSize:10, letterSpacing:"0.2em", textTransform:"uppercase", color:C.textMid, marginBottom:12 }}>Fanverse · K-pop Fandom App</p>
         <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:22, letterSpacing:"-0.02em", marginBottom:8, lineHeight:1.2 }}>Welcome to Backstage</p>
@@ -5242,7 +5242,7 @@ function Onboarding({ onDone }) {
             <div style={{ position:"absolute",inset:-14,borderRadius:"50%",background:`radial-gradient(circle,${slide.accent}20,transparent 70%)`,pointerEvents:"none" }} />
             <div style={{ width:92,height:92,borderRadius:28,background:slide.logo?"transparent":`linear-gradient(145deg,${slide.accent}22,${slide.accent}0c)`,border:`1.5px solid ${slide.accent}50`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:42,boxShadow:`0 0 48px ${slide.accent}30,0 0 0 1px ${slide.accent}18`,transition:"all .5s",position:"relative",overflow:"hidden" }}>
               {slide.logo
-                ? <img src="/backstage-b-glyph.png" alt="Backstage" style={{ width:"100%",height:"100%",objectFit:"contain",display:"block",borderRadius:24 }} />
+                ? <img src="/backstage-b-illuminated.png" alt="Backstage" style={{ width:"100%",height:"100%",objectFit:"contain",display:"block",borderRadius:24 }} />
                 : slide.emoji}
             </div>
           </div>
