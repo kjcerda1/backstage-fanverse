@@ -11428,7 +11428,10 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
   );
 
   // Social rail uses SOCIAL_RINGS (personal/social bubbles).
-  // Pass categories (Fit Check, Merch etc.) live in Backstage Passes only — not duplicated here.
+  // Pass categories (Fit Check, Merch etc.) no longer have a dedicated browse
+  // surface — the redundant category-filter rings + grid page were removed;
+  // passes now surface only via the composer's type picker, Explore, and the
+  // Fanverse feed's inline pass cards.
 
   return (
     <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden", position:"relative", background:`linear-gradient(165deg,${C.cosmic} 0%,${C.bg} 55%,${C.surfaceMid})` }}>
@@ -11491,12 +11494,13 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
         </button>
 
         {/* ── SOCIAL STORY RAIL — personal/social bubbles (NOT pass categories) ── */}
-        {/* Pass categories (Fit Check, Merch, etc.) stay in Backstage Passes page only */}
+        {/* Pass categories (Fit Check, Merch, etc.) no longer have a browse surface at all */}
         {/* Collapses fully on scroll — same maxHeight/opacity technique as the title block above */}
         <div style={{ display:"flex",gap:12,overflowX:"auto",scrollbarWidth:"none",overflowY:"hidden",maxHeight:scrolled?0:96,opacity:scrolled?0:1,padding:scrolled?"0 14px":"6px 54px 6px 14px",transition:"max-height .28s ease, opacity .2s ease, padding .28s ease",alignItems:"flex-start" }}>
           {/* Your Pass — always first. Bubbles sized so ~5 are visible at once; rest via horizontal swipe.
-              "+" badge is a shortcut straight into the Pass composer, same idea as tapping the +
-              on your own story ring in Instagram — the ring itself still opens the Passes page. */}
+              "+" badge is a shortcut straight into the Pass composer. The ring itself now opens
+              your latest pass directly in the full-screen viewer (or the composer if you don't
+              have one yet) — there's no browsing page in between anymore. */}
           <div style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:3,position:"relative" }}>
             <div onClick={()=>go?.("passes")} className="tap" style={{ cursor:"pointer" }}>
               <div style={{ width:scrolled?46:60,height:scrolled?46:60,borderRadius:"50%",background:`linear-gradient(135deg,rgba(184,162,255,0.9),rgba(232,201,135,0.55))`,padding:2.5,boxShadow:`0 0 14px rgba(184,162,255,0.32), inset 0 1px 0 rgba(255,255,255,0.2)`,transition:"all .28s ease",flexShrink:0 }}>
@@ -15271,7 +15275,7 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
               {feedPasses.length > 0 && sortedPosts.length > 0 && (
                 <div style={{ marginBottom:10 }}>
                   {feedPasses.map(ps=>(
-                    <PassPreviewCard key={`pass-${ps.id}`} pass={ps} variant="feed" onOpen={()=>go?.("passes")} />
+                    <PassPreviewCard key={`pass-${ps.id}`} pass={ps} variant="feed" onOpen={()=>{ ls.set("backstage_open_pass_id", ps.id); go?.("passes"); }} />
                   ))}
                 </div>
               )}
@@ -22520,8 +22524,10 @@ const MOCK_PASSES = [
 // (Explore's content grid, the Fanverse feed rail). Two variants: "grid" (a
 // square tile) and "feed" (a wide horizontal card matching feed post rows).
 // Tapping always hands off to the caller via onOpen — callers decide whether
-// that opens the full BackstagePasses page or a lighter detail sheet, so this
-// component stays a pure preview and never owns navigation.
+// that opens the shared full-screen Pass viewer (BackstagePasses, which no
+// longer has a browsing page — it goes straight to the tapped pass) or a
+// lighter detail sheet, so this component stays a pure preview and never
+// owns navigation.
 function PassPreviewCard({ pass, onOpen, variant = "grid" }) {
   const pt = PASS_TYPES.find(x => x.id === pass.type);
   const color = pt?.color || C.lavender;
@@ -22639,8 +22645,6 @@ function BackstagePasses({ onBack, user }) {
   const [passes, setPasses]     = useState(()=>ls.get(KEY,MOCK_PASSES));
   const [creating, setCreating] = useState(false);
   const [draft, setDraft]       = useState({type:"fitcheck",caption:"",duration:"tonight",venueOn:false,venue:"",city:"",checkedIn:false,toCapsule:false,image:null,layers:[],visibility:"public"});
-  const [filter, setFilter]     = useState("all");
-  const [section, setSection]   = useState("live"); // live | circle | capsule
   const [viewing, setViewing]   = useState(null);
   const [showComments, setShowComments] = useState(false);
   const [commentDraft, setCommentDraft] = useState("");
@@ -22729,13 +22733,33 @@ function BackstagePasses({ onBack, user }) {
     addLayer({ type:"location", venue:v.name, city:v.city, state:v.state });
     setActiveTool(null);
   };
-  // Your Pass "+" badge shortcut sets this one-shot flag before navigating here
-  // so we land straight in the composer, like tapping your own story ring's +.
+  // No more standalone browsing page — this component now goes straight to
+  // whichever surface the caller asked for: the "+" badge sets a one-shot
+  // compose flag, a specific feed/Explore pass card sets a one-shot pass id,
+  // and a plain "Your Pass" ring tap (no flag/id) opens your latest pass —
+  // falling back to the composer if you don't have one yet, same as the old
+  // in-page ring's behavior. Guarded by a ref (not just `[]` deps) because the
+  // one-shot ls flags are deleted as part of deciding what to open — under
+  // React 18 dev StrictMode's double-invoked mount effect, a second run would
+  // find the flag already gone and misfire the "nothing to open" fallback,
+  // opening the composer on top of the viewer.
+  const didInitPassView = useRef(false);
   useEffect(()=>{
+    if(didInitPassView.current) return;
+    didInitPassView.current = true;
     if(ls.get("backstage_open_pass_composer", false)){
       ls.del("backstage_open_pass_composer");
       setCreating(true);
+      return;
     }
+    const openId = ls.get("backstage_open_pass_id", null);
+    if(openId){
+      ls.del("backstage_open_pass_id");
+      const target = passes.find(p=>p.id===openId);
+      if(target){ viewPass(target.id); return; }
+    }
+    if(myPasses.length>0) setViewing(myPasses[0]);
+    else setCreating(true);
   },[]);
   const venueMatches = draft.venue.trim()
     ? VENUE_SUGGESTIONS.filter(v => {
@@ -22780,154 +22804,16 @@ function BackstagePasses({ onBack, user }) {
     setViewing(newPass); // land on the story you just posted, like Instagram does
   };
 
-  // Section filtering
-  const circleUsernames = (()=>{
-    const f = ls.get("backstage_friends", MOCK_FRIENDS).filter(f=>f.status==="accepted").map(f=>f.name?.replace("@",""));
-    const c = ls.get("backstage_circle",[]).map(c=>c.name?.replace("@",""));
-    return [...new Set([...f,...c])];
-  })();
-  const sectionPasses = section==="circle"
-    ? passes.filter(p=>circleUsernames.some(u=>p.username?.includes(u)))
-    : section==="capsule"
-    ? passes.filter(p=>p.inCapsule||p.expires==="Era Memory"||p.expires==="Keep in Capsule")
-    : passes.filter(p=>p.visibility!=="circle"); // "live" = public only — Circle-only passes stay out of the public feed
-  const filtered = filter==="all"?sectionPasses:sectionPasses.filter(p=>p.type===filter);
-  const unviewed = passes.filter(p=>!p.viewed).length;
   const selectedType = PASS_TYPES.find(t=>t.id===draft.type)||PASS_TYPES[0];
   const myUsername = `@${user?.name||user?.username||"stan"}`;
   const myPasses = passes.filter(p=>p.username===myUsername);
 
-  const SECTIONS = [
-    { id:"circle", label:"My Circle",     color:C.lavender, desc:"Moments from your people." },
-    { id:"live",   label:"Live Fanverse", color:C.berry,    desc:"Public passes lighting up the Fanverse." },
-    { id:"capsule",label:"Capsule",       color:C.gold,     desc:"The night, saved together." },
-  ];
-
-  // Story rings — one ring per pass type that has unviewed passes
-  const ringTypes = PASS_TYPES.filter(t=>passes.some(p=>p.type===t.id));
-
   return (
-    <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden",position:"relative" }}>
-
-      {/* ── HEADER ── */}
-      <div style={{ padding:"14px 20px 10px",flexShrink:0,background:`linear-gradient(180deg,${C.cosmic},transparent)` }}>
-        <div style={{ display:"flex",gap:10,alignItems:"center",marginBottom:10 }}>
-          <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
-          <div style={{ flex:1 }}>
-            <div style={{ display:"flex",alignItems:"center",gap:8 }}>
-              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17 }}>Backstage Passes</p>
-              {unviewed>0&&<div style={{ background:C.rose,borderRadius:99,padding:"2px 8px",fontSize:9,color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800 }}>{unviewed} live</div>}
-            </div>
-            <p style={{ fontSize:10,color:C.textMid }}>Live fan moments · share your concert night</p>
-          </div>
-          {pendingTagCount>0&&(
-            <button onClick={()=>setShowTagRequests(true)} title="Tag requests" style={{ position:"relative",background:C.glassBgHi,border:`1px solid ${C.glassBorder}`,borderRadius:12,width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,cursor:"pointer",flexShrink:0 }}>
-              🏷️
-              <span style={{ position:"absolute",top:-4,right:-4,background:C.rose,color:"#fff",fontSize:8,fontWeight:800,borderRadius:99,minWidth:15,height:15,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 3px" }}>{pendingTagCount}</span>
-            </button>
-          )}
-          <button onClick={()=>setCreating(true)} style={{ background:`linear-gradient(135deg,${C.accent},${C.berry})`,border:"none",borderRadius:13,padding:"8px 14px",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:11,cursor:"pointer",flexShrink:0,boxShadow:`0 0 14px ${C.accent}40` }}>+ Pass</button>
-        </div>
-
-        {/* ── STORY RINGS — also the category filter, tap again to clear ── */}
-        <div style={{ display:"flex",gap:10,overflowX:"auto",paddingBottom:10,scrollbarWidth:"none" }}>
-          {/* Your ring — view your own latest pass if you have one; the + badge always creates */}
-          <div onClick={()=>{ if(myPasses.length>0) setViewing(myPasses[0]); else setCreating(true); }} className="tap" style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:4,cursor:"pointer" }}>
-            <div style={{ width:52,height:52,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.berry})`,padding:2,boxShadow:`0 0 16px ${C.accent}44`,position:"relative" }}>
-              <div style={{ width:"100%",height:"100%",borderRadius:"50%",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20 }}>✦</div>
-              <button onClick={e=>{ e.stopPropagation(); setCreating(true); }} style={{ position:"absolute",bottom:-2,right:-2,width:20,height:20,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.berry})`,border:`2px solid ${C.bg}`,color:"#fff",fontSize:12,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",lineHeight:1 }}>+</button>
-            </div>
-            <p style={{ fontSize:8,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap" }}>Your Pass</p>
-          </div>
-          {ringTypes.map(t=>{
-            const hasUnviewed=passes.some(p=>p.type===t.id&&!p.viewed);
-            const active=filter===t.id;
-            return (
-              <div key={t.id} onClick={()=>setFilter(f=>f===t.id?"all":t.id)} className="tap" style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:4,cursor:"pointer" }}>
-                <div style={{ width:52,height:52,borderRadius:"50%",background:hasUnviewed?`linear-gradient(135deg,${t.color},${C.berry})`:`${t.color}44`,padding:hasUnviewed?2:1.5,boxShadow:active?`0 0 0 2px ${C.bg},0 0 0 4px ${t.color}`:hasUnviewed?`0 0 14px ${t.color}55`:"none",transform:active?"scale(1.06)":"scale(1)",transition:"all .2s" }}>
-                  <div style={{ width:"100%",height:"100%",borderRadius:"50%",background:t.grad||C.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22 }}>{t.emoji}</div>
-                </div>
-                <p style={{ fontSize:8,color:active?t.color:hasUnviewed?t.color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,whiteSpace:"nowrap",maxWidth:56,overflow:"hidden",textOverflow:"ellipsis" }}>{t.label}</p>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* ── SECTION TABS ── */}
-        <div style={{ display:"flex",gap:0,background:C.glassBgHi,border:`1px solid ${C.glassBorder}`,borderRadius:14,padding:3,marginBottom:10 }}>
-          {SECTIONS.map(s=>(
-            <span key={s.id} onClick={()=>{setSection(s.id);setFilter("all");}} className="tap" style={{ ...getPillStyle({active:section===s.id}), flex:1,textAlign:"center",padding:"7px 4px",fontSize:10.5,border:"none" }}>{s.label}</span>
-          ))}
-        </div>
-        {/* Section explainer + clear-filter (filtering now lives on the story rings above) */}
-        <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8 }}>
-          {(() => { const s = SECTIONS.find(s=>s.id===section); return s ? <p style={{ fontSize:10,color:C.textMid,fontStyle:"italic" }}>{s.desc}</p> : <span />; })()}
-          {filter!=="all"&&<span onClick={()=>setFilter("all")} className="tap" style={{ fontSize:9.5,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>✦ Clear filter</span>}
-        </div>
-      </div>
-
-      {/* ── PASS FEED ── */}
-      <Screen style={{ padding:"0 16px calc(120px + env(safe-area-inset-bottom))" }}>
-        {filtered.length===0?(
-          <div style={{ textAlign:"center",padding:"50px 20px" }}>
-            <div style={{ fontSize:48,marginBottom:12,animation:"float 3s ease-in-out infinite" }}>
-              {section==="circle"?"🌌":section==="capsule"?"🔮":"🎟️"}
-            </div>
-            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,marginBottom:6 }}>
-              {section==="circle"?"Your Circle hasn't posted yet":section==="capsule"?"No memories saved yet":"Nothing live yet"}
-            </p>
-            <p style={{ fontSize:12,color:C.textMid,lineHeight:1.6,marginBottom:20 }}>
-              {section==="circle"?"Your Circle moments will show here once your people start posting."
-                :section==="capsule"?"Start the capsule before the night disappears."
-                :"Be the first to light up the Fanverse."}
-            </p>
-            <Btn onClick={()=>setCreating(true)}>Drop Your First Pass ✨</Btn>
-          </div>
-        ):(
-          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10 }}>
-            {filtered.map(pass=>{
-              const t=PASS_TYPES.find(tp=>tp.id===pass.type)||PASS_TYPES[0];
-              const topReaction=Object.entries(pass.reactions||{}).sort((a,b)=>b[1]-a[1])[0]?.[0];
-              return (
-                <div key={pass.id} onClick={()=>viewPass(pass.id)} className="tap" style={{ borderRadius:18,overflow:"hidden",cursor:"pointer",position:"relative",boxShadow:!pass.viewed?`0 0 16px ${pass.color}33`:"none",transition:"box-shadow .3s" }}>
-                  {/* Gradient header */}
-                  <div style={{ height:130,background:pass.grad||t.grad,position:"relative",display:"flex",flexDirection:"column",justifyContent:"space-between",padding:"10px 10px 8px" }}>
-                    {/* Live pulse */}
-                    {!pass.viewed&&<div style={{ position:"absolute",top:0,left:0,right:0,height:2,background:`linear-gradient(90deg,transparent,${pass.color},transparent)`,animation:"shimmer 2s ease-in-out infinite" }} />}
-                    {/* Pass type chip */}
-                    <div style={{ display:"flex",gap:4 }}>
-                      <div style={{ alignSelf:"flex-start",background:"rgba(0,0,0,0.45)",backdropFilter:"blur(8px)",borderRadius:99,padding:"3px 9px",display:"flex",alignItems:"center",gap:4 }}>
-                        <span style={{ fontSize:9 }}>{t.emoji}</span>
-                        <span style={{ fontSize:8,color:"rgba(255,255,255,0.9)",fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{t.label}</span>
-                      </div>
-                      {pass.visibility==="circle"&&<div title="My Circle only" style={{ background:"rgba(0,0,0,0.45)",backdropFilter:"blur(8px)",borderRadius:99,padding:"3px 7px",display:"flex",alignItems:"center" }}><span style={{ fontSize:9 }}>🔒</span></div>}
-                    </div>
-                    {/* Large emoji watermark */}
-                    <div style={{ position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",fontSize:38,opacity:0.18 }}>{t.emoji}</div>
-                    {/* Caption overlay */}
-                    <p style={{ fontSize:10,fontStyle:"italic",color:"rgba(255,255,255,0.92)",lineHeight:1.4,textShadow:"0 1px 8px rgba(0,0,0,0.7)",overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical" }}>"{pass.caption}"</p>
-                  </div>
-                  {/* Footer */}
-                  <div style={{ background:C.surface,padding:"8px 10px" }}>
-                    <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5 }}>
-                      <p style={{ fontSize:9,color:C.textMid,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1 }}>{pass.username} · {pass.expires}</p>
-                      {pass.venue&&<p style={{ fontSize:8,flexShrink:0,marginLeft:4,fontWeight:700,background:`linear-gradient(110deg,${C.gold},${C.pink},${C.berry})`,WebkitBackgroundClip:"text",backgroundClip:"text",color:"transparent" }}>📍 {pass.venue}</p>}
-                    </div>
-                    {/* Fandom reactions */}
-                    <div style={{ display:"flex",gap:4,flexWrap:"wrap" }}>
-                      {Object.entries(pass.reactions||{}).slice(0,3).map(([emoji,count])=>(
-                        <button key={emoji} onClick={e=>{e.stopPropagation();likePass(pass.id,emoji);}} style={{ background:`${pass.color}18`,border:`1px solid ${pass.color}33`,borderRadius:99,padding:"2px 7px",fontSize:9.5,cursor:"pointer",display:"flex",alignItems:"center",gap:2,color:C.text }}>
-                          {emoji}<span style={{ fontSize:8,color:C.textMid }}>{count}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </Screen>
+    <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden",position:"relative",background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 100%)` }}>
+      {/* No standalone browsing page anymore — this component goes straight to the
+          viewer or composer (see the mount effect above). Everything below is
+          reached only as an overlay: viewer, comments, insights, tag requests,
+          creator. */}
 
       {/* ── FULL-SCREEN PASS VIEWER ── */}
       {viewing&&(
@@ -22938,13 +22824,21 @@ function BackstagePasses({ onBack, user }) {
           {[{t:"12%",l:"8%"},{t:"22%",l:"85%"},{t:"65%",l:"12%"},{t:"80%",l:"78%"}].map((s,i)=>(
             <div key={i} style={{ position:"absolute",top:s.t,left:s.l,color:"rgba(255,255,255,0.4)",fontSize:10,animation:`sparkleFloat ${2+i*0.6}s ease-in-out infinite`,animationDelay:`${i*0.5}s`,pointerEvents:"none",zIndex:1 }}>✦</div>
           ))}
-          {/* Close */}
+          {/* Close — there's no browsing page to fall back to anymore, so exit
+              all the way back out (onBack) instead of leaving a blank shell. */}
           <div style={{ position:"absolute",top:16,left:16,zIndex:10 }}>
-            <button onClick={()=>{ setViewing(null); setShowComments(false); setShowInsights(false); setCommentDraft(""); }} style={{ background:"rgba(0,0,0,0.5)",backdropFilter:"blur(8px)",border:"none",borderRadius:99,width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:18,cursor:"pointer" }}>✕</button>
+            <button onClick={()=>{ setViewing(null); setShowComments(false); setShowInsights(false); setCommentDraft(""); onBack?.(); }} style={{ background:"rgba(0,0,0,0.5)",backdropFilter:"blur(8px)",border:"none",borderRadius:99,width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:18,cursor:"pointer" }}>✕</button>
           </div>
-          {/* Insights — only visible on your own Pass */}
+          {/* Insights + Tag Requests — only visible on your own Pass. Tag Requests
+              used to live in the removed page's header bell; it belongs here now. */}
           {viewing.username===myUsername&&(
-            <div style={{ position:"absolute",top:16,right:16,zIndex:10 }}>
+            <div style={{ position:"absolute",top:16,right:16,zIndex:10,display:"flex",gap:8 }}>
+              {pendingTagCount>0&&(
+                <button onClick={()=>setShowTagRequests(true)} title="Tag requests" style={{ position:"relative",background:"rgba(0,0,0,0.5)",backdropFilter:"blur(8px)",border:"none",borderRadius:99,width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:14,cursor:"pointer" }}>
+                  🏷️
+                  <span style={{ position:"absolute",top:-4,right:-4,background:C.rose,color:"#fff",fontSize:8,fontWeight:800,borderRadius:99,minWidth:15,height:15,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 3px" }}>{pendingTagCount}</span>
+                </button>
+              )}
               <button onClick={()=>setShowInsights(true)} style={{ background:"rgba(0,0,0,0.5)",backdropFilter:"blur(8px)",border:"none",borderRadius:99,padding:"8px 14px",display:"flex",alignItems:"center",gap:5,color:"#fff",fontSize:12,cursor:"pointer" }}>
                 📊 <span style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11 }}>Insights</span>
               </button>
@@ -23110,7 +23004,7 @@ function BackstagePasses({ onBack, user }) {
 
             {/* ── TOP CHROME ── */}
             <div style={{ position:"absolute",top:0,left:0,right:0,padding:"16px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",zIndex:10 }}>
-              <button onClick={()=>{ setCreating(false); setShowDetails(false); setActiveTool(null); setDraft(d=>({...d,image:null,caption:"",layers:[],visibility:"public"})); }} style={{ background:"rgba(0,0,0,0.42)",backdropFilter:"blur(10px)",border:"none",borderRadius:99,width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:18,cursor:"pointer" }}>✕</button>
+              <button onClick={()=>{ setCreating(false); setShowDetails(false); setActiveTool(null); setDraft(d=>({...d,image:null,caption:"",layers:[],visibility:"public"})); onBack?.(); }} style={{ background:"rgba(0,0,0,0.42)",backdropFilter:"blur(10px)",border:"none",borderRadius:99,width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:18,cursor:"pointer" }}>✕</button>
               <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,letterSpacing:"0.04em",color:"rgba(255,255,255,0.88)",textShadow:"0 1px 8px rgba(0,0,0,0.8)" }}>New Backstage Pass ✨</p>
               <div style={{ width:36 }} />
             </div>
