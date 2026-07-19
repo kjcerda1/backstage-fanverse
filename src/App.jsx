@@ -7150,6 +7150,14 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
     window.addEventListener("backstage:openEraRoom", handler);
     return () => window.removeEventListener("backstage:openEraRoom", handler);
   }, []);
+  // Re-tapping the My World nav tab while already on it snaps back to the main
+  // Binders page (e.g. from Wishlist / Trades / an open Era Room) instead of
+  // staying in the sub-view.
+  useEffect(() => {
+    const onReset = () => { setSection("albums"); setAlbumSubView("binders"); setEraRoomDeep(null); setShowTradeHub(false); setShowCollectionTracker(false); };
+    window.addEventListener("bs:collect-reset", onReset);
+    return () => window.removeEventListener("bs:collect-reset", onReset);
+  }, []);
   const allCards  = cards || MOCK_CARDS;
   const wishlist  = allCards.filter(c=>c.status==='iso');
   const dupes     = allCards.filter(c=>c.status==='duplicate'||c.dupe);
@@ -11290,7 +11298,7 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
 
   // Bottom-nav re-tap on Fanverse (while already there) snaps back to Feed + full chrome.
   useEffect(() => {
-    const onReset = () => { setView("feed"); setScrolled(false); };
+    const onReset = () => { setView("feed"); setScrolled(false); setRingFilter(null); setHubDetail(null); setCircleView(null); setShowUserMoment(null); };
     window.addEventListener("bs:fanverse-reset", onReset);
     return () => window.removeEventListener("bs:fanverse-reset", onReset);
   }, []);
@@ -13774,6 +13782,14 @@ function ToolsTab({ user, weather, isVip, onUpgrade, go, onBack, cards, patchCar
     return getFollowed();
   });
   const handleToggleFollow = (name) => setFollowedArtists(toggleFollow(name));
+
+  // Re-tapping the Tools nav tab while already on it snaps back to the tool grid
+  // (e.g. from Chant Finder or an open era view) instead of staying in the sub-view.
+  useEffect(() => {
+    const onReset = () => { setView("grid"); setEraModal(null); setEraRoom(null); };
+    window.addEventListener("bs:tools-reset", onReset);
+    return () => window.removeEventListener("bs:tools-reset", onReset);
+  }, []);
 
   const TOOL_CARDS = [
     { id:"buildday", icon:"🗓️", label:"Build My Day",     sub:"AI-planned fan day with food, cafes & meetups",         color:C.pink,   wide:true, soon:false },
@@ -26419,7 +26435,19 @@ function AppInner() {
                 profile: <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M5.25 12.15C5.25 8.42 8.27 5.4 12 5.4C15.73 5.4 18.75 8.42 18.75 12.15C18.75 15.88 15.73 18.9 12 18.9C8.27 18.9 5.25 15.88 5.25 12.15Z" stroke={active?"url(#navG5)":C.textDim} strokeWidth="1.45"/><path d="M8.25 11.2C7.72 10.3 7.9 9.25 8.65 8.72C9.38 8.2 10.35 8.42 11.05 9.15L12 10.15L12.95 9.15C13.65 8.42 14.62 8.2 15.35 8.72C16.1 9.25 16.28 10.3 15.75 11.2C15.42 11.78 14.88 12.32 14.25 12.9L12 14.95L9.75 12.9C9.12 12.32 8.58 11.78 8.25 11.2Z" fill={active?"url(#navG5)":C.textDim}/><path d="M12 2.9V4.1M12 20.2V21.1M2.9 12.15H4.1M19.9 12.15H21.1" stroke={active?"url(#navG5)":C.textDim} strokeWidth="1.25" strokeLinecap="round" opacity="0.48"/><path d="M17.95 4.25L18.48 5.25L19.48 5.78L18.48 6.31L17.95 7.31L17.42 6.31L16.42 5.78L17.42 5.25L17.95 4.25Z" fill={active?"url(#navG5)":C.textDim} opacity={active?0.78:0.45}/><defs><linearGradient id="navG5" x1="0" y1="0" x2="24" y2="24"><stop stopColor={C.accent}/><stop offset="1" stopColor={C.pink}/></linearGradient></defs></svg>,
               };
               return(
-                <button key={n.id} onClick={()=>{ if(n.id==="fanverse" && tab==="fanverse"){ window.dispatchEvent(new Event("bs:fanverse-reset")); } setTab(n.id); }} style={{ flex:1, background:"none", border:"none", padding:"10px 2px 8px", display:"flex", flexDirection:"column", alignItems:"center", gap:3, position:"relative", transition:"opacity .15s" }}>
+                <button key={n.id} onClick={()=>{
+                  // Re-tapping the tab you're already on snaps that tab back to
+                  // its main/root view (feed / Binders / tools grid) instead of
+                  // staying stuck in a sub-view. Each tab component listens for
+                  // its own reset event. (Internal ids: community=Fanverse,
+                  // collect=My World, fanverse=Tools.)
+                  if(tab===n.id){
+                    if(n.id==="community")      window.dispatchEvent(new Event("bs:fanverse-reset"));
+                    else if(n.id==="collect")   window.dispatchEvent(new Event("bs:collect-reset"));
+                    else if(n.id==="fanverse")  window.dispatchEvent(new Event("bs:tools-reset"));
+                  }
+                  setTab(n.id);
+                }} style={{ flex:1, background:"none", border:"none", padding:"10px 2px 8px", display:"flex", flexDirection:"column", alignItems:"center", gap:3, position:"relative", transition:"opacity .15s" }}>
                   {/* Active top accent line */}
                   {active&&<div style={{ position:"absolute", top:0, left:"50%", transform:"translateX(-50%)", width:32, height:2, background:`linear-gradient(90deg,${C.accent},${C.pink})`, borderRadius:99, boxShadow:`0 0 8px ${C.accent}80` }} />}
                   {/* Active ambient glow */}
