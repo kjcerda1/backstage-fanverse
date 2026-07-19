@@ -4528,7 +4528,7 @@ function HomeFeed({ user, go, weather, isVip, onUpgrade, onSmartNotifs, onViewPr
 
 
 // ─── NOTIFICATION BELL ────────────────────────────────────────────────────────
-function NotificationBell({ onOpen }) {
+function NotificationBell({ onOpen, onOpenSettings }) {
   const [unread, setUnread] = useState(()=>{
     const inbox = filterActiveNotifs(ls.get("backstage_notif_inbox", []).filter(n=>!isMockNotifId(n?.id)));
     return inbox.filter(n=>!n.read).length;
@@ -4554,7 +4554,7 @@ function NotificationBell({ onOpen }) {
   },[showQuickView]);
 
   const openFullCenter = () => { setShowQuickView(false); onOpen(); };
-  const openSettings = () => { setShowQuickView(false); ls.set("backstage_open_notif_settings", true); onOpen(); };
+  const openSettings = () => { setShowQuickView(false); onOpenSettings ? onOpenSettings() : onOpen(); };
 
   return (
     <div style={{ position:"absolute",top:6,right:14,zIndex:300 }}>
@@ -21218,8 +21218,8 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
   // ── SECTION: PRIVACY ──
   if(section==="privacy") return <PrivacySettings settings={privacySettings} setSettings={setPrivacySettings} onBack={()=>setSection("main")} />;
 
-  // ── SECTION: NOTIFICATIONS ──
-  if(section==="notifications") return <NotificationCenter settings={notifSettings} setSettings={setNotifSettings} onBack={()=>setSection("main")} notifOn={notifOn} requestNotif={requestNotif} disableNotif={disableNotif} pushUserKey={pushUserKey} user={user} />;
+  // Notification settings now live in the global "notif_settings" modal (opened via
+  // go("notif_settings") from the Settings row + the bell) — not a My Stage section.
 
   // ── SECTION: K-DRAMAS (from profile) ──
   if(section==="kdramas") return (
@@ -21581,7 +21581,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
           <SectionHeader title="Settings" />
           <Card>
             {[
-              {label:"🔔 Push Notifications",sub:"Concert alerts, trade updates",val:notifOn,set:notifOn?disableNotif:requestNotif,color:C.accent,action:()=>setSection("notifications")},
+              {label:"🔔 Push Notifications",sub:"Concert alerts, trade updates — tap to customize",val:notifOn,set:notifOn?disableNotif:requestNotif,color:C.accent,action:()=>go("notif_settings"),chevron:true},
               {label:"🔍 Fan Discovery",sub:"Show me in fan suggestions & concert discovery",val:discoverable,set:setDiscoverable,color:C.mint,action:null},
               {label:"🎯 Solo Mode",sub:"Prioritize solo fans & safer meetups",val:soloMode,set:setSoloMode,color:C.gold,action:null},
               {label:"🤍 Pearl Mode",sub:themeMode==="light"?"Soft everyday theme — on":"Switch from Concert Mode to soft everyday theme",val:themeMode==="light",set:(v)=>setThemeMode(v?"light":"dark"),color:C.silver,action:null},
@@ -21590,7 +21590,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
                 {i>0&&<div style={{ height:1,background:C.border,margin:"14px 0" }} />}
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                   <div onClick={s.action||undefined} style={{ flex:1, paddingRight:14, cursor:s.action?"pointer":"default" }}>
-                    <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:600, fontSize:13.5 }}>{s.label}</p>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:600, fontSize:13.5 }}>{s.label}{s.chevron&&<span style={{ color:C.textMid, fontSize:13, marginLeft:6 }}>›</span>}</p>
                     <p style={{ fontSize:10.5, color:C.textMid }}>{s.sub}</p>
                   </div>
                   <Toggle on={s.val} onChange={s.set} color={s.color} />
@@ -21598,12 +21598,13 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
               </div>
             ))}
           </Card>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginTop:10 }}>
-            <button onClick={()=>setSection("privacy")} className="tap" style={{ padding:"12px", borderRadius:14, background:C.surface, border:`1.5px solid ${C.border}`, color:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:600, fontSize:11.5, cursor:"pointer" }}>🛡️ Privacy & Discovery</button>
-            <button onClick={()=>setSection("notifications")} className="tap" style={{ padding:"12px", borderRadius:14, background:C.surface, border:`1.5px solid ${C.border}`, color:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:600, fontSize:11.5, cursor:"pointer" }}>🔔 Notification Settings</button>
-          </div>
+          {/* Notification settings intentionally NOT here — the "Push Notifications"
+              row above is the single entry point (tap to open the full screen). */}
+          <button onClick={()=>setSection("privacy")} className="tap" style={{ width:"100%",marginTop:10,padding:"12px 16px",borderRadius:14,background:C.surface,border:`1.5px solid ${C.border}`,color:C.text,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:11.5,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+            <span>🛡️ Privacy & Discovery</span><span style={{ color:C.textMid,fontSize:14 }}>›</span>
+          </button>
           <button onClick={()=>setSection("account")} className="tap" style={{ width:"100%",marginTop:8,padding:"12px 16px",borderRadius:14,background:C.surface,border:`1.5px solid ${C.border}`,color:C.text,fontFamily:"'Epilogue',sans-serif",fontWeight:600,fontSize:11.5,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-            <span>⚙️ Account Info & Settings</span><span style={{ color:C.textDim,fontSize:14 }}>›</span>
+            <span>⚙️ Account Info & Settings</span><span style={{ color:C.textMid,fontSize:14 }}>›</span>
           </button>
 
           {/* VIP tour replay — only shown to VIP members */}
@@ -24088,7 +24089,7 @@ function PrivacySettings({ settings, setSettings, onBack }) {
 // Used by NotificationBell → setModal("notifications") path.
 // Owns its own settings/notifOn state so it works outside ProfileTab.
 // onNavigate({modal?, tab?}) — called when a notification card is tapped.
-function StandaloneNotifCenter({ onBack, onNavigate, user }) {
+function StandaloneNotifCenter({ onBack, onNavigate, user, mode = "inbox" }) {
   const pushUserKey = user?.id || user?.email || "anon";
   const notifSettingsKey = `backstage_notification_settings_${pushUserKey}`;
   const [settings, setSettings] = useState(()=>({...DEFAULT_NOTIF_SETTINGS, ...ls.get(notifSettingsKey, {})}));
@@ -24127,7 +24128,7 @@ function StandaloneNotifCenter({ onBack, onNavigate, user }) {
     disableNotificationPush(ls.get(`backstage_push_token_${pushUserKey}`, null));
     ls.del(`backstage_push_token_${pushUserKey}`);
   };
-  return <NotificationCenter settings={settings} setSettings={saveSettings} onBack={onBack} notifOn={notifOn} requestNotif={requestNotif} disableNotif={disableNotif} onNavigate={onNavigate} pushUserKey={pushUserKey} user={user} />;
+  return <NotificationCenter settings={settings} setSettings={saveSettings} onBack={onBack} notifOn={notifOn} requestNotif={requestNotif} disableNotif={disableNotif} onNavigate={onNavigate} pushUserKey={pushUserKey} user={user} mode={mode} />;
 }
 
 // ─── NOTIFICATION CENTER ──────────────────────────────────────────────────────
@@ -24140,7 +24141,7 @@ function StandaloneNotifCenter({ onBack, onNavigate, user }) {
 //
 // FCM push payload should mirror the same shape in the `data` field so
 // that notification taps from the system tray open the correct modal/tab.
-function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNotif, disableNotif, onNavigate, pushUserKey, user }) {
+function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNotif, disableNotif, onNavigate, pushUserKey, user, mode = "inbox" }) {
   const [pushTest, setPushTest] = useState(()=>ls.get(`backstage_push_test_${pushUserKey}`, null));
   const [pushTesting, setPushTesting] = useState(false);
   const savedToken = pushUserKey ? ls.get(`backstage_push_token_${pushUserKey}`, null) : null;
@@ -24168,11 +24169,10 @@ function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNot
   // honest empty state, not fake sample cards. isMockNotifId strips any previously-baked-in
   // mock entries from storage so existing sessions self-heal too.
   const [inbox, setInbox] = useState(()=>filterActiveNotifs(ls.get("backstage_notif_inbox", []).filter(n=>!isMockNotifId(n?.id))));
-  const [tab, setTab]     = useState("updates"); // updates | settings
-  // Deep-link from the notification-bell quick view's "Notification settings" CTA.
-  // A useEffect (not a side-effecting lazy initializer) so this stays correct under
-  // StrictMode's dev-only double-invoke — the flag read/clear only ever fires once.
-  useEffect(()=>{ if(ls.get("backstage_open_notif_settings",false)){ ls.del("backstage_open_notif_settings"); setTab("settings"); } },[]);
+  // mode is set by the caller: "inbox" = Backstage Buzz (the bell), "settings" =
+  // the dedicated Notification Settings screen. A single component, one job each —
+  // settings no longer piggyback on the Buzz inbox as a second tab.
+  const isSettings = mode === "settings";
   const unread = inbox.filter(n=>!n.read).length;
 
   useEffect(()=>{
@@ -24267,19 +24267,14 @@ function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNot
         <div style={{ display:"flex",gap:10,alignItems:"center",marginBottom:12 }}>
           <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
           <div style={{ flex:1 }}>
-            <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18,lineHeight:1.1 }}>Backstage Buzz ✦</h2>
-            <p style={{ fontSize:9.5,color:C.textMid,marginTop:2 }}>Requests, capsule alerts, pass reactions, and fan updates.</p>
+            <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18,lineHeight:1.1 }}>{isSettings?"Notification Settings 🔔":"Backstage Buzz ✦"}</h2>
+            <p style={{ fontSize:9.5,color:C.textMid,marginTop:2 }}>{isSettings?"Choose what alerts you get and where.":"Requests, capsule alerts, pass reactions, and fan updates."}</p>
           </div>
-          {unread>0&&<div style={{ ...VS.activePill(C.rose),fontSize:9,flexShrink:0 }}>{unread} new</div>}
-        </div>
-        <div style={{ display:"flex",gap:0,background:C.surfaceHi,borderRadius:12,padding:3,marginBottom:0 }}>
-          {[["updates",`✦ Updates${unread>0?` (${unread})`:""}` ],["settings","⚙️ Settings"]].map(([id,label])=>(
-            <span key={id} onClick={()=>setTab(id)} style={{ flex:1,textAlign:"center",padding:"8px 4px",borderRadius:9,fontSize:11,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:tab===id?C.accent:"transparent",color:tab===id?C.bg:C.textMid,transition:"all .18s" }}>{label}</span>
-          ))}
+          {!isSettings&&unread>0&&<div style={{ ...VS.activePill(C.rose),fontSize:9,flexShrink:0 }}>{unread} new</div>}
         </div>
       </div>
       <Screen>
-      {tab==="updates" && (
+      {!isSettings && (
         <div style={{ paddingTop:14 }}>
           {unread>0&&<button onClick={markAllRead} style={{ width:"100%",padding:"10px",borderRadius:12,background:`${C.accent}12`,border:`1px solid ${C.accent}28`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer",marginBottom:12 }}>Mark all as read</button>}
           {inbox.map(n=>{
@@ -24358,7 +24353,7 @@ function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNot
           </div>
         </div>
       )}
-      {tab==="settings" && (<div style={{ paddingTop:14 }}>
+      {isSettings && (<div style={{ paddingTop:14 }}>
         {/* Master toggle */}
         <div style={{ background:notifOn?`${C.mint}12`:C.surface, border:`1.5px solid ${notifOn?C.mint:C.border}`, borderRadius:16, padding:"14px 16px", marginBottom:18, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
           <div>
@@ -26095,7 +26090,7 @@ function AppInner() {
     // "+" shortcut on the Your Pass story bubble — jump straight into the Pass
     // composer instead of just opening the Backstage Passes browsing page.
     if(dest==="passes_create"){ ls.set("backstage_open_pass_composer", true); dest = "passes"; }
-    const FULL_MODALS = ["concertprep","myshows","scrapbook","afterglow","friends","chats","qr","safety","events","concertday","timeline","tickets","nearby","trust","games","creator","backup","fanidentity","valuetracks","fanprojects","assistant","invite","contentgen","fanmap","livefeed","budget","capsule","passes","notifications"];
+    const FULL_MODALS = ["concertprep","myshows","scrapbook","afterglow","friends","chats","qr","safety","events","concertday","timeline","tickets","nearby","trust","games","creator","backup","fanidentity","valuetracks","fanprojects","assistant","invite","contentgen","fanmap","livefeed","budget","capsule","passes","notifications","notif_settings"];
     if(FULL_MODALS.includes(dest)){
       // Push a new history entry so the browser back button can close this modal
       window.history.pushState({ bsLevel:1, modal:dest }, '');
@@ -26400,6 +26395,11 @@ function AppInner() {
             else if (dest.tab) { setTimeout(()=>setTab(dest.tab), 60); }
           }}
         /></ModalWrapper>}
+        {modal==="notif_settings"&&<ModalWrapper><StandaloneNotifCenter
+          mode="settings"
+          user={user}
+          onBack={()=>setModal(null)}
+        /></ModalWrapper>}
         {modal==="invite"&&<ModalWrapper><InvitePage onBack={()=>setModal(null)} user={user} onNotif={showNotif} isVip={isVip} onUpgrade={openUpgrade} go={go} onViewProfile={setFullProfileFan} /></ModalWrapper>}
         {modal==="contentgen"&&<ModalWrapper><ContentGenerator onBack={()=>setModal(null)} user={user} go={go} onNotif={showNotif} /></ModalWrapper>}
         {modal==="capsule"&&<ModalWrapper><ConcertCapsule concert={MOCK_CONCERTS[0]} onBack={()=>setModal(null)} user={user} isVip={isVip} onUpgrade={openUpgrade} /></ModalWrapper>}
@@ -26447,7 +26447,7 @@ function AppInner() {
                   community (Fanverse renders its own combined Messages+AI dock instead) */}
               {tab!=="profile"&&tab!=="collect"&&tab!=="community"&&<AskBackstageButton go={go} />}
               {/* Notification Bell — floating, hidden on profile (section nav), collect (own + Add button) */}
-              {tab!=="profile"&&tab!=="collect"&&<NotificationBell onOpen={()=>setModal("notifications")} />}
+              {tab!=="profile"&&tab!=="collect"&&<NotificationBell onOpen={()=>setModal("notifications")} onOpenSettings={()=>go("notif_settings")} />}
             </>
           )}
         </div>
