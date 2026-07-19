@@ -3263,6 +3263,43 @@ function toClientNotification(n) {
   };
 }
 
+// FCM error codes that mean a token is permanently dead (app uninstalled, push
+// unregistered, or the token is malformed) — safe to delete on sight so it stops
+// getting retried on every future send.
+const DEAD_TOKEN_CODES = new Set([
+  'messaging/registration-token-not-registered',
+  'messaging/invalid-registration-token',
+  'messaging/invalid-argument',
+]);
+
+// Push a message to every device a user has registered, pruning any token FCM
+// reports as dead. Without this, stale tokens accumulate in fcm_tokens forever
+// and each send keeps failing against them. Returns {delivered, failed}.
+async function pushToUserTokens(userId, message) {
+  if (!HAS_FIREBASE || !admin.apps.length) return { delivered: 0, failed: 0 };
+  const { data: rows } = await supabase.from('fcm_tokens').select('token').eq('user_id', userId);
+  if (!rows?.length) return { delivered: 0, failed: 0 };
+
+  const results = await Promise.allSettled(
+    rows.map(({ token }) => admin.messaging().send({ ...message, token }))
+  );
+
+  const dead = [];
+  let delivered = 0, failed = 0;
+  results.forEach((r, i) => {
+    if (r.status === 'fulfilled') { delivered++; return; }
+    failed++;
+    const code = r.reason?.errorInfo?.code || r.reason?.code;
+    if (DEAD_TOKEN_CODES.has(code)) dead.push(rows[i].token);
+  });
+
+  if (dead.length) {
+    await supabase.from('fcm_tokens').delete().eq('user_id', userId).in('token', dead);
+    console.log(`[push] pruned ${dead.length} dead token(s) for user ${userId}`);
+  }
+  return { delivered, failed };
+}
+
 async function deliverNotification({ userId, type, title, body, actorId = null, entityId = null, entityType = null, targetModal = 'friends', targetTab = null, channels = ['in_app', 'push'], gif = null }) {
   if (!userId) return { ok: false, reason: 'no_user' };
   if (MOCK_MODE) return { ok: true, mock: true };
@@ -3291,11 +3328,9 @@ async function deliverNotification({ userId, type, title, body, actorId = null, 
     console.warn('[deliverNotification] persistent insert failed:', error.message);
   }
 
-  if (channels.includes('push') && HAS_FIREBASE && admin.apps.length) {
+  if (channels.includes('push')) {
     try {
-      const { data: rows } = await supabase.from('fcm_tokens').select('token').eq('user_id', userId);
-      await Promise.allSettled((rows || []).map(({ token }) => admin.messaging().send({
-        token,
+      await pushToUserTokens(userId, {
         notification: { title, body },
         data: {
           targetModal: targetModal || '',
@@ -3304,7 +3339,7 @@ async function deliverNotification({ userId, type, title, body, actorId = null, 
           entityType: entityType || '',
         },
         webpush: { fcmOptions: { link: process.env.FRONTEND_URL || '/' } },
-      })));
+      });
     } catch (err) {
       console.warn('[deliverNotification] push failed:', err.message);
     }
@@ -4693,33 +4728,17 @@ app.post('/api/send-notification', requireAuth, async (req, res) => {
   }
 
   try {
-    const { data: rows, error } = await supabase
-      .from('fcm_tokens')
-      .select('token')
-      .eq('user_id', userId);
-
-    if (error) throw error;
-    if (!rows?.length) return res.json({ success: true, delivered: 0 });
-
-    const results = await Promise.allSettled(
-      rows.map(({ token }) =>
-        admin.messaging().send({
-          token,
-          notification: { title, body },
-          data: {
-            targetModal: data?.targetModal || '',
-            targetTab:   data?.targetTab   || '',
-            targetId:    data?.targetId    || '',
-          },
-          webpush: {
-            fcmOptions: { link: process.env.FRONTEND_URL || '/' },
-          },
-        })
-      )
-    );
-
-    const delivered = results.filter(r => r.status === 'fulfilled').length;
-    const failed    = results.filter(r => r.status === 'rejected').length;
+    const { delivered, failed } = await pushToUserTokens(userId, {
+      notification: { title, body },
+      data: {
+        targetModal: data?.targetModal || '',
+        targetTab:   data?.targetTab   || '',
+        targetId:    data?.targetId    || '',
+      },
+      webpush: {
+        fcmOptions: { link: process.env.FRONTEND_URL || '/' },
+      },
+    });
     if (failed) console.warn(`[send-notification] ${failed} token(s) failed delivery`);
     res.json({ success: true, delivered, failed });
   } catch (err) {
