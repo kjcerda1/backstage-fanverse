@@ -86,11 +86,14 @@ const api = {
       return r.ok ? r.json() : { error: `${r.status}` };
     } catch { return { error:'Network error' }; }
   },
-  async del(path) {
+  async del(path, body) {
+    const opts = () => body === undefined
+      ? { method:'DELETE', headers:this._headers() }
+      : { method:'DELETE', headers:this._headers(), body:JSON.stringify(body) };
     try {
-      let r = await fetch(`${API_URL}${path}`, { method:'DELETE', headers:this._headers() });
+      let r = await fetch(`${API_URL}${path}`, opts());
       if (r.status === 401 && await this._refreshToken()) {
-        r = await fetch(`${API_URL}${path}`, { method:'DELETE', headers:this._headers() });
+        r = await fetch(`${API_URL}${path}`, opts());
       }
       return r.ok ? r.json() : { error: `${r.status}` };
     } catch { return { error:'Network error' }; }
@@ -2231,6 +2234,13 @@ async function requestNotificationPermission(userId) {
   const mockToken = `mock-fcm-${userId}-${Date.now()}`;
   await api.post('/api/save-token', { token: mockToken, userId }).catch(()=>{});
   return mockToken;
+}
+
+// Turn OFF device push: deletes this device's FCM token on the backend so
+// deliverNotification() stops pushing to it. Without this, flipping the Settings
+// toggle off only changed local state while real device push kept firing.
+async function disableNotificationPush(savedToken) {
+  await api.del('/api/save-token', savedToken ? { token: savedToken } : {}).catch(()=>{});
 }
 
 // ─── NOTIFICATION DELIVERY HELPER ────────────────────────────────────────────
@@ -21527,7 +21537,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
           <SectionHeader title="Settings" />
           <Card>
             {[
-              {label:"🔔 Push Notifications",sub:"Concert alerts, trade updates",val:notifOn,set:notifOn?()=>{ setNotifOn(false); setNotifSettings(prev=>({...prev,phonePush:false})); ls.set(`backstage_push_enabled_${pushUserKey}`,false); }:requestNotif,color:C.accent,action:()=>setSection("notifications")},
+              {label:"🔔 Push Notifications",sub:"Concert alerts, trade updates",val:notifOn,set:notifOn?()=>{ setNotifOn(false); setNotifSettings(prev=>({...prev,phonePush:false})); ls.set(`backstage_push_enabled_${pushUserKey}`,false); disableNotificationPush(ls.get(`backstage_push_token_${pushUserKey}`,null)); ls.del(`backstage_push_token_${pushUserKey}`); }:requestNotif,color:C.accent,action:()=>setSection("notifications")},
               {label:"🔍 Fan Discovery",sub:"Show me in fan suggestions & concert discovery",val:discoverable,set:setDiscoverable,color:C.mint,action:null},
               {label:"🎯 Solo Mode",sub:"Prioritize solo fans & safer meetups",val:soloMode,set:setSoloMode,color:C.gold,action:null},
               {label:"🤍 Pearl Mode",sub:themeMode==="light"?"Soft everyday theme — on":"Switch from Concert Mode to soft everyday theme",val:themeMode==="light",set:(v)=>setThemeMode(v?"light":"dark"),color:C.silver,action:null},

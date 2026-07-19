@@ -4663,6 +4663,22 @@ app.post('/api/save-token', requireAuth, async (req, res) => {
   res.json({ success: true });
 });
 
+// Deactivate push for a device: removes the caller's FCM token so deliverNotification()
+// stops sending real device push. Called when a user turns off Push Notifications in
+// Settings. Scoped to the authenticated caller's own rows — a token is only ever
+// deleted for req.userId, never for anyone else, even if the body token belonged to
+// another user. With a token, deletes just that device; without one, clears all the
+// caller's tokens (belt-and-suspenders for a full opt-out).
+app.delete('/api/save-token', requireAuth, async (req, res) => {
+  const token = req.query.token || req.body?.token;
+  if (MOCK_MODE) return res.json({ success: true, mock: true });
+  let q = supabase.from('fcm_tokens').delete().eq('user_id', req.userId);
+  if (token) q = q.eq('token', token);
+  const { error } = await q;
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true });
+});
+
 app.post('/api/send-notification', requireAuth, async (req, res) => {
   // The frontend only ever calls this to push a notification to the currently
   // signed-in device (see deliverNotification() in App.jsx) — it never sends a
