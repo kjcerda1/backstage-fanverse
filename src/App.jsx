@@ -536,6 +536,18 @@ function syncMyWorldToServer() {
   }, 1200);
 }
 
+// Debounced push of notification preferences → users.notification_settings (jsonb).
+// The backend's deliverNotification() reads this to gate the push channel per type,
+// so a toggle change here actually stops/starts real device push after it syncs.
+let _notifSettingsSyncTimer = null;
+function syncNotifSettingsToServer(settings) {
+  if (!API_URL || !settings || typeof settings !== 'object') return;
+  clearTimeout(_notifSettingsSyncTimer);
+  _notifSettingsSyncTimer = setTimeout(() => {
+    api.post('/api/profile/update', { notificationSettings: settings }).catch(()=>{});
+  }, 1200);
+}
+
 // Wipes every auth-related key from localStorage:
 //   - backstage_session, backstage_is_vip, backstage_pending_uid (our keys)
 //   - sb-<project>-auth-token (Supabase v2 key, known project ref)
@@ -2149,6 +2161,12 @@ const MOCK_AFTERGLOW_MOODS = [
 // NOTIFICATION SETTINGS
 const DEFAULT_NOTIF_SETTINGS = {
   phonePush: true, watchAlerts: false, emailDigest: false, emailBackup: true,
+  // Social Alerts — gate push for the notification types that actually fire today.
+  // Keys must match TYPE_TO_PREF in api_server_v16.js (deliverNotification gating).
+  dmAlerts: true, likeAlerts: true, friendRequestAlerts: true,
+  meetupAlerts: true, capsuleAlerts: true, tradeOffers: true,
+  // Aspirational categories — no backend trigger yet (need a scheduler); toggles
+  // are shown as "coming soon" and don't gate anything.
   concertCountdown: true, dayBefore: true, venueWeather: true,
   meetupRsvp: true, friendNearby: false, tradeMatch: true,
   wishlistMatch: true, shipping: true, chantReminder: false,
@@ -21056,7 +21074,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
     const backendShowCity = user?.showCity;
     return backendShowCity !== undefined ? { ...cached, showCity: backendShowCity } : cached;
   });
-  const [notifSettings, setNotifSettings] = useState(()=>ls.get(notifSettingsKey, DEFAULT_NOTIF_SETTINGS));
+  const [notifSettings, setNotifSettings] = useState(()=>({...DEFAULT_NOTIF_SETTINGS, ...ls.get(notifSettingsKey, {})}));
   // Account deletion
   const [showDeleteModal, setShowDeleteModal]   = useState(false);
   const [deleteConfirm,   setDeleteConfirm]     = useState("");
@@ -21100,7 +21118,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
   }, [top5]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(()=>{ ls.set("backstage_profile_style", profileStyle); }, [profileStyle]);
   useEffect(()=>{ ls.set("backstage_privacy_settings", privacySettings); }, [privacySettings]);
-  useEffect(()=>{ ls.set(notifSettingsKey, notifSettings); }, [notifSettingsKey, notifSettings]);
+  useEffect(()=>{ ls.set(notifSettingsKey, notifSettings); syncNotifSettingsToServer(notifSettings); }, [notifSettingsKey, notifSettings]);
 
   const requestNotif = async () => {
     ls.set(`backstage_push_prompted_${pushUserKey}`, true);
@@ -21115,6 +21133,16 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
       setNotifSettings(prev => ({ ...prev, phonePush: false }));
       ls.set(`backstage_push_enabled_${pushUserKey}`, false);
     }
+  };
+
+  // Turn push OFF: delete this device's FCM token so real device push actually stops,
+  // then clear local flags. Shared by the Settings master toggle and the Buzz panel.
+  const disableNotif = () => {
+    setNotifOn(false);
+    setNotifSettings(prev => ({ ...prev, phonePush: false }));
+    ls.set(`backstage_push_enabled_${pushUserKey}`, false);
+    disableNotificationPush(ls.get(`backstage_push_token_${pushUserKey}`, null));
+    ls.del(`backstage_push_token_${pushUserKey}`);
   };
 
   // saveCity — accepts an optional CITY_LIST entry for normalized storage.
@@ -21175,7 +21203,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
   if(section==="privacy") return <PrivacySettings settings={privacySettings} setSettings={setPrivacySettings} onBack={()=>setSection("main")} />;
 
   // ── SECTION: NOTIFICATIONS ──
-  if(section==="notifications") return <NotificationCenter settings={notifSettings} setSettings={setNotifSettings} onBack={()=>setSection("main")} notifOn={notifOn} requestNotif={requestNotif} pushUserKey={pushUserKey} user={user} />;
+  if(section==="notifications") return <NotificationCenter settings={notifSettings} setSettings={setNotifSettings} onBack={()=>setSection("main")} notifOn={notifOn} requestNotif={requestNotif} disableNotif={disableNotif} pushUserKey={pushUserKey} user={user} />;
 
   // ── SECTION: K-DRAMAS (from profile) ──
   if(section==="kdramas") return (
@@ -21537,7 +21565,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
           <SectionHeader title="Settings" />
           <Card>
             {[
-              {label:"🔔 Push Notifications",sub:"Concert alerts, trade updates",val:notifOn,set:notifOn?()=>{ setNotifOn(false); setNotifSettings(prev=>({...prev,phonePush:false})); ls.set(`backstage_push_enabled_${pushUserKey}`,false); disableNotificationPush(ls.get(`backstage_push_token_${pushUserKey}`,null)); ls.del(`backstage_push_token_${pushUserKey}`); }:requestNotif,color:C.accent,action:()=>setSection("notifications")},
+              {label:"🔔 Push Notifications",sub:"Concert alerts, trade updates",val:notifOn,set:notifOn?disableNotif:requestNotif,color:C.accent,action:()=>setSection("notifications")},
               {label:"🔍 Fan Discovery",sub:"Show me in fan suggestions & concert discovery",val:discoverable,set:setDiscoverable,color:C.mint,action:null},
               {label:"🎯 Solo Mode",sub:"Prioritize solo fans & safer meetups",val:soloMode,set:setSoloMode,color:C.gold,action:null},
               {label:"🤍 Pearl Mode",sub:themeMode==="light"?"Soft everyday theme — on":"Switch from Concert Mode to soft everyday theme",val:themeMode==="light",set:(v)=>setThemeMode(v?"light":"dark"),color:C.silver,action:null},
@@ -24047,7 +24075,7 @@ function PrivacySettings({ settings, setSettings, onBack }) {
 function StandaloneNotifCenter({ onBack, onNavigate, user }) {
   const pushUserKey = user?.id || user?.email || "anon";
   const notifSettingsKey = `backstage_notification_settings_${pushUserKey}`;
-  const [settings, setSettings] = useState(()=>ls.get(notifSettingsKey, DEFAULT_NOTIF_SETTINGS));
+  const [settings, setSettings] = useState(()=>({...DEFAULT_NOTIF_SETTINGS, ...ls.get(notifSettingsKey, {})}));
   const [notifOn, setNotifOn] = useState(()=>{
     const key = user?.id || user?.email || "anon";
     const saved = ls.get(`backstage_push_enabled_${key}`, false);
@@ -24061,7 +24089,7 @@ function StandaloneNotifCenter({ onBack, onNavigate, user }) {
     const perm = window.Notification?.permission;
     setNotifOn(saved === true && perm === "granted");
   }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-  const saveSettings = (v) => { setSettings(v); ls.set(notifSettingsKey, v); };
+  const saveSettings = (v) => { setSettings(v); ls.set(notifSettingsKey, v); syncNotifSettingsToServer(v); };
   const requestNotif = async () => {
     ls.set(`backstage_push_prompted_${pushUserKey}`, true);
     const token = await requestNotificationPermission(user?.id || user?.name || "user");
@@ -24076,7 +24104,14 @@ function StandaloneNotifCenter({ onBack, onNavigate, user }) {
       ls.set(`backstage_push_enabled_${pushUserKey}`, false);
     }
   };
-  return <NotificationCenter settings={settings} setSettings={saveSettings} onBack={onBack} notifOn={notifOn} requestNotif={requestNotif} onNavigate={onNavigate} pushUserKey={pushUserKey} user={user} />;
+  const disableNotif = () => {
+    setNotifOn(false);
+    saveSettings({ ...settings, phonePush: false });
+    ls.set(`backstage_push_enabled_${pushUserKey}`, false);
+    disableNotificationPush(ls.get(`backstage_push_token_${pushUserKey}`, null));
+    ls.del(`backstage_push_token_${pushUserKey}`);
+  };
+  return <NotificationCenter settings={settings} setSettings={saveSettings} onBack={onBack} notifOn={notifOn} requestNotif={requestNotif} disableNotif={disableNotif} onNavigate={onNavigate} pushUserKey={pushUserKey} user={user} />;
 }
 
 // ─── NOTIFICATION CENTER ──────────────────────────────────────────────────────
@@ -24089,7 +24124,7 @@ function StandaloneNotifCenter({ onBack, onNavigate, user }) {
 //
 // FCM push payload should mirror the same shape in the `data` field so
 // that notification taps from the system tray open the correct modal/tab.
-function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNotif, onNavigate, pushUserKey, user }) {
+function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNotif, disableNotif, onNavigate, pushUserKey, user }) {
   const [pushTest, setPushTest] = useState(()=>ls.get(`backstage_push_test_${pushUserKey}`, null));
   const [pushTesting, setPushTesting] = useState(false);
   const savedToken = pushUserKey ? ls.get(`backstage_push_token_${pushUserKey}`, null) : null;
@@ -24184,6 +24219,16 @@ function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNot
   };
 
   const NOTIF_TYPE_COLOR = { concert:C.pink, trade:C.accent, meetup:C.mint, comeback:C.rose, afterglow:C.gold, friend_req:C.lavender, capsule:C.berry, pass_reaction:C.gold, accepted:C.mint, dm_received:C.accent, feed_like:C.pink };
+
+  // Social Alerts — these gate REAL push delivery (keys ↔ TYPE_TO_PREF on the backend).
+  const SOCIAL_CATS = [
+    {key:"dmAlerts",label:"💬 Direct Messages",sub:"New DMs from other fans"},
+    {key:"likeAlerts",label:"❤️ Post Likes",sub:"When someone likes your Fanverse post"},
+    {key:"friendRequestAlerts",label:"🫂 Friend Requests",sub:"New requests and when they're accepted"},
+    {key:"meetupAlerts",label:"🤝 Meetup Invites",sub:"When a host invites you to a meetup"},
+    {key:"capsuleAlerts",label:"✨ Capsule Moments",sub:"New moments in a concert capsule you joined"},
+    {key:"tradeOffers",label:"🃏 Trade Offers",sub:"When someone offers on your listing"},
+  ];
 
   const CATS = [
     {key:"concertCountdown",label:"🎤 Concert Countdown",sub:"Reminders as show day approaches"},
@@ -24304,7 +24349,7 @@ function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNot
             <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:14 }}>🔔 Push Notifications</p>
             <p style={{ fontSize:11, color:C.textMid }}>{notifOn?"Push alerts on":window.Notification?.permission==="denied"?"Blocked in browser settings":window.Notification?.permission==="granted"?"Push alerts off":"Tap to enable push alerts"}</p>
           </div>
-          {notifOn ? <Pill color={C.mint} active small>ON</Pill> : window.Notification?.permission==="denied" ? <Pill color={C.rose} small>Blocked</Pill> : <Btn small onClick={requestNotif} style={{ width:110 }}>Enable</Btn>}
+          {window.Notification?.permission==="denied" ? <Pill color={C.rose} small>Blocked</Pill> : <Toggle on={notifOn} onChange={v=>v?requestNotif():disableNotif?.()} />}
         </div>
 
         {/* Diagnostics — permission state, token saved, last push test */}
@@ -24329,11 +24374,24 @@ function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNot
           )}
         </Card>
 
+        {/* Social Alerts — these actually gate real push delivery per type */}
+        <SectionHeader title="Social Alerts" />
+        <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:18 }}>
+          {SOCIAL_CATS.map(item=>(
+            <div key={item.key} style={{ background:C.surface, border:`1.5px solid ${settings[item.key]?C.mint:C.border}`, borderRadius:13, padding:"11px 14px", display:"flex", justifyContent:"space-between", alignItems:"center", transition:"border-color .2s" }}>
+              <div style={{ flex:1, paddingRight:12 }}>
+                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:600, fontSize:13 }}>{item.label}</p>
+                <p style={{ fontSize:10.5, color:C.textMid }}>{item.sub}</p>
+              </div>
+              <Toggle on={settings[item.key]!==false} onChange={v=>setSettings({...settings,[item.key]:v})} color={C.mint} />
+            </div>
+          ))}
+        </div>
+
         {/* Channels */}
         <SectionHeader title="Channels" />
         <Card style={{ marginBottom:16 }}>
           {[
-            {key:"phonePush",label:"📱 Phone Push",sub:"Standard push notifications"},
             {key:"watchAlerts",label:"⌚ Watch Alerts",sub:"Short alerts optimized for Apple Watch"},
             {key:"emailBackup",label:"📧 Email backup",sub:"Important alerts when push is off"},
             {key:"emailDigest",label:"📰 Email Digest",sub:"Weekly summary (coming soon)"},
@@ -24351,8 +24409,9 @@ function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNot
           ))}
         </Card>
 
-        {/* Categories */}
+        {/* Categories — aspirational; no backend trigger yet (need a scheduler) */}
         <SectionHeader title="Notification Types" />
+        <p style={{ fontSize:10.5, color:C.textMid, margin:"-4px 2px 10px", lineHeight:1.5 }}>Coming soon — these alert types aren't sent yet. Your picks are saved for when they launch.</p>
         <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:18 }}>
           {CATS.map(item=>(
             <div key={item.key} style={{ background:C.surface, border:`1.5px solid ${settings[item.key]?C.accent:C.border}`, borderRadius:13, padding:"11px 14px", display:"flex", justifyContent:"space-between", alignItems:"center", transition:"border-color .2s" }}>
@@ -25720,6 +25779,15 @@ function AppInner() {
           const savedCaps = Array.isArray(remoteWorld["backstage_saved_capsules"]) ? remoteWorld["backstage_saved_capsules"] : [];
           savedCaps.forEach(c => { if (c && c.id != null) localStorage.setItem(`backstage_saved_capsule_${c.id}`, "true"); });
         }
+      }
+    } catch {}
+    // Notification settings — hydrate from server on fresh devices only (no local
+    // settings yet). Server is the source of truth the backend gates push on.
+    try {
+      const remoteNotif = nextUser.notification_settings;
+      const notifKey = `backstage_notification_settings_${nextUser.id}`;
+      if (remoteNotif && typeof remoteNotif === 'object' && Object.keys(remoteNotif).length && localStorage.getItem(notifKey) == null) {
+        localStorage.setItem(notifKey, JSON.stringify(remoteNotif));
       }
     } catch {}
     // Sync VIP from the merged profile (/api/users/me SELECT * includes is_vip).

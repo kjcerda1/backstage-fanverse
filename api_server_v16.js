@@ -3263,6 +3263,29 @@ function toClientNotification(n) {
   };
 }
 
+// Maps each real notification type to the user preference key (in
+// users.notification_settings) that gates its PUSH delivery. In-app delivery is
+// never gated — users always see it in their inbox. A type with no entry here, or
+// a pref that's unset/true, pushes normally; only an explicit `false` suppresses.
+const TYPE_TO_PREF = {
+  dm_received:             'dmAlerts',
+  feed_like:               'likeAlerts',
+  friend_request_received: 'friendRequestAlerts',
+  friend_request_accepted: 'friendRequestAlerts',
+  meetup_invite:           'meetupAlerts',
+  capsule:                 'capsuleAlerts',
+  trade:                   'tradeOffers',
+};
+
+// Returns false only when the recipient has explicitly turned off push for this
+// notification type. Defaults to true (push allowed) on any missing pref or error.
+async function pushAllowedForType(userId, type) {
+  const prefKey = TYPE_TO_PREF[type];
+  if (!prefKey) return true;
+  const { data: row } = await supabase.from('users').select('notification_settings').eq('id', userId).single();
+  return row?.notification_settings?.[prefKey] !== false;
+}
+
 // FCM error codes that mean a token is permanently dead (app uninstalled, push
 // unregistered, or the token is malformed) — safe to delete on sight so it stops
 // getting retried on every future send.
@@ -3328,7 +3351,7 @@ async function deliverNotification({ userId, type, title, body, actorId = null, 
     console.warn('[deliverNotification] persistent insert failed:', error.message);
   }
 
-  if (channels.includes('push')) {
+  if (channels.includes('push') && await pushAllowedForType(userId, type)) {
     try {
       await pushToUserTokens(userId, {
         notification: { title, body },
@@ -3873,6 +3896,9 @@ app.post('/api/profile/update', requireAuth, async (req, res) => {
     // my world collection blob (photocard sets, tracked/custom sets, era saves,
     // wishlist, world theme, featured shelf, saved capsules, saved shop outfits)
     myWorld,
+    // notification preferences blob (per-type push toggles) → users.notification_settings.
+    // deliverNotification() reads this to gate the push channel per notification type.
+    notificationSettings,
     // normalized location fields (sent by saveCity when user picks from autocomplete)
     city_display, city_key, region, region_code,
     country, country_code, continent, city_lat, city_lng, timezone,
@@ -3906,6 +3932,8 @@ app.post('/api/profile/update', requireAuth, async (req, res) => {
   if (eraBoards !== undefined && eraBoards !== null && typeof eraBoards === 'object' && !Array.isArray(eraBoards)) updates.era_boards = eraBoards;
   // my world — whole-object jsonb, plain object only
   if (myWorld !== undefined && myWorld !== null && typeof myWorld === 'object' && !Array.isArray(myWorld)) updates.my_world = myWorld;
+  // notification settings — whole-object jsonb, plain object only
+  if (notificationSettings !== undefined && notificationSettings !== null && typeof notificationSettings === 'object' && !Array.isArray(notificationSettings)) updates.notification_settings = notificationSettings;
   // location — sparse, all optional
   if (city         !== undefined) updates.city         = city;
   if (city_display !== undefined) updates.city_display = city_display;
