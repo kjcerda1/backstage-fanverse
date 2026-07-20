@@ -2163,7 +2163,7 @@ const DEFAULT_NOTIF_SETTINGS = {
   phonePush: true, watchAlerts: false, emailDigest: false, emailBackup: true,
   // Social Alerts — gate push for the notification types that actually fire today.
   // Keys must match TYPE_TO_PREF in api_server_v16.js (deliverNotification gating).
-  dmAlerts: true, likeAlerts: true, friendRequestAlerts: true,
+  dmAlerts: true, likeAlerts: true, commentAlerts: true, friendRequestAlerts: true,
   meetupAlerts: true, capsuleAlerts: true, tradeOffers: true,
   // Aspirational categories — no backend trigger yet (need a scheduler); toggles
   // are shown as "coming soon" and don't gate anything.
@@ -15115,8 +15115,121 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
   const showToast = msg => { setToast(msg); setTimeout(()=>setToast(null), 2400); };
   const imgRef = useRef(null);
 
-  // Comments have no backend table or routes yet — the sheet shows an honest
-  // "not built" state rather than sample content. See next-priorities (item #2).
+  // ── Comments (real — GET/POST /api/posts/:id/comments, one level of replies) ──
+  const { submitReport } = useModeration();
+  const [comments, setComments] = useState([]);          // threaded: top-level with .replies[]
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [commentsError, setCommentsError] = useState(false);
+  const [sendingComment, setSendingComment] = useState(false);
+  const [replyingTo, setReplyingTo] = useState(null);    // { id, username } | null
+  const [expandedReplies, setExpandedReplies] = useState({});
+  const [commentMenuFor, setCommentMenuFor] = useState(null);
+
+  // Total across both levels — what the post's 💬 count should read.
+  const countComments = (list) =>
+    list.reduce((n, c) => n + 1 + (c.replies?.length || 0), 0);
+
+  // Keep the feed card's count in step with the sheet without refetching the feed.
+  const syncCommentCount = (postId, list) =>
+    setPosts(ps => ps.map(p => p.id===postId ? { ...p, comments: countComments(list) } : p));
+
+  const loadComments = useCallback(async (postId) => {
+    setCommentsLoading(true); setCommentsError(false);
+    const d = await api.get(`/api/posts/${postId}/comments`);
+    if (d?.error || !Array.isArray(d?.comments)) {
+      console.warn('[comments] load failed:', d?.error);
+      setCommentsError(true); setCommentsLoading(false);
+      return;
+    }
+    setComments(d.comments);
+    syncCommentCount(postId, d.comments);
+    setCommentsLoading(false);
+  }, []);
+
+  const openComments = (postId) => {
+    setCommentsOpenFor(postId);
+    setComments([]); setReplyDraft(""); setReplyingTo(null);
+    setExpandedReplies({}); setCommentMenuFor(null);
+    loadComments(postId);
+  };
+
+  const sendComment = async () => {
+    const text = replyDraft.trim();
+    if (!text || sendingComment) return;
+    setSendingComment(true);
+    const r = await api.post(`/api/posts/${commentsOpenFor}/comments`, {
+      body: text,
+      parentId: replyingTo?.id || null,
+    });
+    setSendingComment(false);
+    if (r?.error || !r?.comment) {
+      console.warn('[comments] send failed:', r?.error);
+      showToast(r?.error === '400' ? "That comment couldn't be posted" : "Couldn't post — try again");
+      return;
+    }
+    const next = replyingTo
+      ? comments.map(c => c.id===replyingTo.id ? { ...c, replies:[...(c.replies||[]), r.comment] } : c)
+      : [...comments, { ...r.comment, replies: [] }];
+    setComments(next);
+    syncCommentCount(commentsOpenFor, next);
+    if (replyingTo) setExpandedReplies(s => ({ ...s, [replyingTo.id]: true }));
+    setReplyDraft(""); setReplyingTo(null);
+  };
+
+  const toggleCommentLike = async (comment, parentId=null) => {
+    const wasLiked = comment.liked;
+    const apply = (fn) => setComments(cs => cs.map(c => {
+      if (!parentId && c.id===comment.id) return fn(c);
+      if (parentId && c.id===parentId) return { ...c, replies: c.replies.map(r => r.id===comment.id ? fn(r) : r) };
+      return c;
+    }));
+    apply(c => ({ ...c, liked:!wasLiked, likes: Math.max(0, c.likes + (wasLiked?-1:1)) }));
+    const r = await api.post(`/api/comments/${comment.id}/like`);
+    if (r?.error) {
+      console.warn('[comments] like failed:', r.error);
+      apply(c => ({ ...c, liked:wasLiked, likes: Math.max(0, c.likes + (wasLiked?1:-1)) }));
+      showToast("Couldn't save that like");
+      return;
+    }
+    // Trust the server's trigger-maintained count over the optimistic guess
+    apply(c => ({ ...c, liked:r.liked, likes:r.likes }));
+  };
+
+  const deleteComment = async (comment, parentId=null) => {
+    setCommentMenuFor(null);
+    const r = await api.del(`/api/comments/${comment.id}`);
+    if (r?.error) {
+      console.warn('[comments] delete failed:', r.error);
+      showToast(r.error === '403' ? "You can't delete that comment" : "Couldn't delete — try again");
+      return;
+    }
+    // Deleting a top-level comment cascades its replies server-side; mirror that here.
+    const next = parentId
+      ? comments.map(c => c.id===parentId ? { ...c, replies: c.replies.filter(x => x.id!==comment.id) } : c)
+      : comments.filter(c => c.id!==comment.id);
+    setComments(next);
+    syncCommentCount(commentsOpenFor, next);
+    showToast("Comment deleted");
+  };
+
+  const reportComment = async (comment) => {
+    setCommentMenuFor(null);
+    await submitReport({
+      type: 'comment',
+      targetId: comment.id,
+      targetHandle: comment.username ? `@${comment.username}` : null,
+      reason: 'reported_from_feed',
+      detail: (comment.body || '').slice(0, 300),
+    });
+    showToast("Reported — thank you");
+  };
+
+  // Highlights @handles. Display-only in v1: no autocomplete, no mention notification.
+  const renderMentions = (text="") => String(text).split(/(@[a-zA-Z0-9_.]+)/g).map((part,i) =>
+    part.startsWith("@")
+      ? <span key={i} style={{ color:C.modalAccent, fontWeight:700 }}>{part}</span>
+      : part
+  );
 
   const POST_TYPES = [
     { id:"concert", label:"🎤 Concert", color:C.pink },
@@ -15347,7 +15460,7 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
               <button onClick={()=>toggleLike(p)} className="tap" style={{ background:"none",border:"none",fontSize:12.5,color:p.liked?C.rose:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>
                 {p.liked?"♥":"♡"} {p.likes}
               </button>
-              <button onClick={()=>{ setReplyDraft(""); setCommentsOpenFor(p.id); }} className="tap" style={{ background:"none",border:"none",fontSize:12.5,color:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>💬 {p.comments}</button>
+              <button onClick={()=>openComments(p.id)} className="tap" style={{ background:"none",border:"none",fontSize:12.5,color:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>💬 {p.comments}</button>
               <button onClick={()=>{ setReposted(r=>({...r,[p.id]:!r[p.id]})); setPosts(ps=>ps.map(x=>x.id===p.id?{...x,reposts:(x.reposts||0)+(reposted[p.id]?-1:1)}:x)); }} className="tap" style={{ background:"none",border:"none",fontSize:12.5,color:reposted[p.id]?C.iris:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>⟲ {(p.reposts||0)+(reposted[p.id]?1:0)}</button>
               <button onClick={()=>{ const shareText=`${p.text} — via Backstage`; if(navigator.share){ navigator.share({ text:shareText }).catch(()=>{}); } else if(navigator.clipboard){ navigator.clipboard.writeText(shareText).then(()=>showToast("Copied to share")); } }} className="tap" style={{ background:"none",border:"none",fontSize:12.5,color:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>↗</button>
               <button onClick={()=>setMemeMode(memeMode===p.id?null:p.id)} style={{ background:"none",border:"none",fontSize:12.5,color:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>{p.meme||"😂"}</button>
@@ -15503,19 +15616,80 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
         );
       })()}
 
-      {/* Comments — no backend table or routes exist yet, so this sheet shows the
-          post plus an honest not-built state. No sample comments. */}
+      {/* Comments — real, threaded one level deep.
+          GET/POST /api/posts/:id/comments | POST /api/comments/:id/like | DELETE /api/comments/:id */}
       {commentsOpenFor!=null && (()=>{
         const activePost = posts.find(x=>x.id===commentsOpenFor);
         if (!activePost) return null;
+        const iOwnPost = activePost.userId && activePost.userId === user?.id;
+
+        // One comment row, used for both top-level and replies. `parentId` is null
+        // for top-level; replies get the indented treatment and no reply button
+        // (the schema is one level deep and the DB rejects deeper nesting).
+        const renderComment = (c, parentId=null) => {
+          const mine    = c.userId && c.userId === user?.id;
+          const canDel  = mine || iOwnPost;
+          const isReply = !!parentId;
+          const menuKey = c.id;
+          return (
+            <div key={c.id} style={{ display:"flex", gap:isReply?7:8, alignItems:"flex-start", ...(isReply?{ marginTop:10, paddingLeft:6, borderLeft:"1.5px solid rgba(214,189,255,0.16)" }:{}) }}>
+              <div style={{ width:isReply?20:26,height:isReply?20:26,borderRadius:"50%",background:C.modalSurface,border:`1px solid ${C.modalBorder}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:isReply?C.modalTextMid:C.modalAccent,fontSize:isReply?8.5:10,flexShrink:0,...(isReply?{marginLeft:8}:{}) }}>
+                {(c.username||"?").slice(0,1).toUpperCase()}
+              </div>
+              <div style={{ flex:1,minWidth:0 }}>
+                <div style={{ display:"flex", alignItems:"baseline", gap:6 }}>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:isReply?10:11,color:C.modalText }}>@{c.username||"fan"}</p>
+                  <p style={{ fontSize:9,color:C.modalTextDim }}>{fmtCapsuleTs(c.createdAt)}</p>
+                  {mine && <span style={{ fontSize:8,color:C.modalTextDim,border:`1px solid ${C.modalBorder}`,borderRadius:99,padding:"1px 5px" }}>you</span>}
+                </div>
+                <p style={{ fontSize:isReply?10.5:11.5,color:C.modalText,lineHeight:1.5,marginTop:1,wordBreak:"break-word" }}>{renderMentions(c.body)}</p>
+                <div style={{ display:"flex", gap:14, alignItems:"center", marginTop:5 }}>
+                  <button onClick={()=>toggleCommentLike(c, parentId)} className="tap" style={{ background:"none",border:"none",cursor:"pointer",display:"flex",alignItems:"center",gap:4,fontSize:10.5,color:c.liked?C.rose:C.modalTextMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,padding:0 }}>
+                    {c.liked?"♥":"♡"} {c.likes||0}
+                  </button>
+                  {!isReply && (
+                    <button onClick={()=>{ setReplyingTo({ id:c.id, username:c.username }); setReplyDraft(`@${c.username||""} `); }} className="tap" style={{ background:"none",border:"none",cursor:"pointer",fontSize:10.5,color:C.modalTextMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,padding:0 }}>Reply</button>
+                  )}
+                  {!isReply && c.replies?.length>0 && (
+                    <button onClick={()=>setExpandedReplies(s=>({...s,[c.id]:!s[c.id]}))} className="tap" style={{ background:"none",border:"none",cursor:"pointer",fontSize:10.5,color:C.modalAccent,fontFamily:"'Epilogue',sans-serif",fontWeight:600,padding:0 }}>
+                      {expandedReplies[c.id]?"Hide replies":`View replies (${c.replies.length})`}
+                    </button>
+                  )}
+                  <div style={{ marginLeft:"auto", position:"relative" }}>
+                    <button onClick={()=>setCommentMenuFor(commentMenuFor===menuKey?null:menuKey)} style={{ background:"none",border:"none",cursor:"pointer",fontSize:12,color:C.modalTextDim,padding:0 }}>⋯</button>
+                    {commentMenuFor===menuKey && (
+                      <>
+                        <div onClick={()=>setCommentMenuFor(null)} style={{ position:"fixed", inset:0, zIndex:4 }} />
+                        <div style={{ position:"absolute", top:18, right:0, zIndex:5, background:C.modalBg, border:`1px solid ${C.modalBorder}`, borderRadius:11, padding:5, minWidth:118, boxShadow:C.modalShadow, backdropFilter:"blur(16px)" }}>
+                          {canDel && (
+                            <div onClick={()=>deleteComment(c, parentId)} className="tap" style={{ padding:"7px 10px", borderRadius:8, fontSize:10.5, color:C.rose, fontFamily:"'Epilogue',sans-serif", fontWeight:600, cursor:"pointer", whiteSpace:"nowrap" }}>
+                              {mine ? "Delete" : "Remove"}
+                            </div>
+                          )}
+                          {!mine && (
+                            <div onClick={()=>reportComment(c)} className="tap" style={{ padding:"7px 10px", borderRadius:8, fontSize:10.5, color:C.modalTextMid, fontFamily:"'Epilogue',sans-serif", fontWeight:600, cursor:"pointer", whiteSpace:"nowrap" }}>Report</div>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+                {!isReply && expandedReplies[c.id] && c.replies?.map(r => renderComment(r, c.id))}
+              </div>
+            </div>
+          );
+        };
+
         return (
           <div onClick={()=>setCommentsOpenFor(null)} style={{ position:"fixed",inset:0,zIndex:470,background:C.overlayBg,backdropFilter:"blur(2px)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
-            <div onClick={e=>e.stopPropagation()} style={{ position:"relative", overflow:"hidden", background:C.modalBg,border:`1px solid ${C.modalBorder}`,borderTop:`1px solid ${C.modalBorderHi}`,borderRadius:"24px 24px 0 0",padding:"20px 20px",width:"100%",maxHeight:"80vh",display:"flex",flexDirection:"column",animation:"slideUp .25s ease",boxShadow:C.modalShadow,backdropFilter:"blur(26px) saturate(150%)" }}>
+            <div onClick={e=>e.stopPropagation()} style={{ position:"relative", overflow:"hidden", background:C.modalBg,border:`1px solid ${C.modalBorder}`,borderTop:`1px solid ${C.modalBorderHi}`,borderRadius:"24px 24px 0 0",padding:"20px 20px calc(14px + env(safe-area-inset-bottom))",width:"100%",maxHeight:"80vh",display:"flex",flexDirection:"column",animation:"slideUp .25s ease",boxShadow:C.modalShadow,backdropFilter:"blur(26px) saturate(150%)" }}>
               {/* Iridescent sheen across the whole sheet */}
               <div style={{ position:"absolute", inset:0, background:"linear-gradient(150deg,rgba(184,162,255,0.06),transparent 30%,rgba(240,204,136,0.04) 70%,transparent)", pointerEvents:"none" }} />
               <div style={{ width:34,height:4,borderRadius:99,background:C.modalBorderHi,margin:"0 auto 16px",flexShrink:0,position:"relative" }} />
               <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexShrink:0,position:"relative" }}>
-                <h3 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,color:C.modalText }}>Comments</h3>
+                <h3 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,color:C.modalText }}>
+                  Comments{activePost.comments>0?` · ${activePost.comments}`:""}
+                </h3>
                 <button onClick={()=>setCommentsOpenFor(null)} style={{ background:"none",border:"none",color:C.modalTextMid,fontSize:20,cursor:"pointer" }}>✕</button>
               </div>
               {/* Post context */}
@@ -15526,13 +15700,52 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
                   <p style={{ fontSize:11.5,color:C.modalTextMid,lineHeight:1.5,marginTop:2 }}>{activePost.text}</p>
                 </div>
               </div>
-              {/* Comments aren't built yet — say so plainly instead of showing samples. */}
-              <div style={{ flex:1,overflowY:"auto",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,padding:"26px 10px",marginBottom:14,position:"relative" }}>
-                <div style={{ fontSize:26 }}>💬</div>
-                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,color:C.modalText,textAlign:"center" }}>Comments are coming soon</p>
-                <p style={{ fontSize:11,color:C.modalTextMid,textAlign:"center",lineHeight:1.55,maxWidth:250 }}>
-                  Likes and posts are live across the Fanverse. Replies are next — for now, send a DM or react to keep the conversation going.
-                </p>
+
+              {/* Comment list */}
+              <div style={{ flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:14,marginBottom:12,position:"relative" }}>
+                {commentsLoading && comments.length===0 && (
+                  <p style={{ textAlign:"center",fontSize:11,color:C.modalTextDim,padding:"22px 0",fontFamily:"'Epilogue',sans-serif" }}>Loading comments…</p>
+                )}
+                {!commentsLoading && commentsError && (
+                  <div style={{ textAlign:"center",padding:"20px 0" }}>
+                    <p style={{ fontSize:11.5,color:C.modalTextMid,marginBottom:9 }}>Couldn't load comments.</p>
+                    <button onClick={()=>loadComments(commentsOpenFor)} className="tap" style={{ background:C.modalSurface,border:`1px solid ${C.modalBorder}`,borderRadius:99,padding:"7px 16px",fontSize:11,color:C.modalText,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>Retry</button>
+                  </div>
+                )}
+                {!commentsLoading && !commentsError && comments.length===0 && (
+                  <div style={{ textAlign:"center",padding:"24px 10px" }}>
+                    <div style={{ fontSize:22,marginBottom:6 }}>💬</div>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,color:C.modalText }}>No comments yet</p>
+                    <p style={{ fontSize:11,color:C.modalTextMid,marginTop:3 }}>Be the first to say something.</p>
+                  </div>
+                )}
+                {comments.map(c => renderComment(c, null))}
+              </div>
+
+              {/* Composer */}
+              <div style={{ flexShrink:0,position:"relative" }}>
+                {replyingTo && (
+                  <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:7,padding:"5px 10px",borderRadius:99,background:`${C.modalAccent}18`,border:`1px solid ${C.modalAccent}44`,width:"fit-content" }}>
+                    <span style={{ fontSize:10,color:C.modalAccent,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>Replying to @{replyingTo.username||"fan"}</span>
+                    <button onClick={()=>{ setReplyingTo(null); setReplyDraft(""); }} style={{ background:"none",border:"none",color:C.modalAccent,fontSize:11,cursor:"pointer",padding:0,lineHeight:1 }}>✕</button>
+                  </div>
+                )}
+                <div style={{ display:"flex",gap:8 }}>
+                  <input
+                    value={replyDraft}
+                    onChange={e=>setReplyDraft(e.target.value)}
+                    onKeyDown={e=>{ if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); sendComment(); } }}
+                    maxLength={1000}
+                    placeholder={replyingTo?"Write a reply…":"Add a comment…"}
+                    style={{ flex:1,background:C.modalSurface,border:`1.5px solid ${C.modalBorder}`,borderRadius:99,padding:"10px 14px",fontSize:12.5,color:C.modalText,fontFamily:"'Epilogue',sans-serif",outline:"none",boxShadow:"inset 0 2px 6px rgba(0,0,0,0.12)",minWidth:0 }}
+                  />
+                  <button
+                    onClick={sendComment}
+                    disabled={!replyDraft.trim() || sendingComment}
+                    className="tap"
+                    style={{ background:replyDraft.trim()&&!sendingComment?`linear-gradient(135deg,${C.modalAccent},${C.modalAccent}cc)`:C.modalSurface,border:`1.5px solid ${replyDraft.trim()&&!sendingComment?"rgba(255,255,255,0.28)":C.modalBorder}`,borderRadius:99,padding:"0 16px",color:replyDraft.trim()&&!sendingComment?"#1a1228":C.modalTextDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:replyDraft.trim()&&!sendingComment?"pointer":"default",flexShrink:0 }}
+                  >{sendingComment?"…":"Post"}</button>
+                </div>
               </div>
             </div>
           </div>
@@ -24253,6 +24466,8 @@ function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNot
     accepted:     { modal:"invite"      }, // Bring Your Crew to see Circle
     dm_received:  { modal:"chats"       }, // Direct Messages
     feed_like:    { tab:"community"     }, // Fanverse/Community feed
+    post_comment: { tab:"community"     }, // Fanverse/Community feed
+    comment_reply:{ tab:"community"     }, // Fanverse/Community feed
     // friend_req intentionally omitted — stays open for inline Accept/Decline
   };
 
@@ -24269,12 +24484,13 @@ function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNot
     if (onNavigate) onNavigate(dest);
   };
 
-  const NOTIF_TYPE_COLOR = { concert:C.pink, trade:C.accent, meetup:C.mint, comeback:C.rose, afterglow:C.gold, friend_req:C.lavender, capsule:C.berry, pass_reaction:C.gold, accepted:C.mint, dm_received:C.accent, feed_like:C.pink };
+  const NOTIF_TYPE_COLOR = { concert:C.pink, trade:C.accent, meetup:C.mint, comeback:C.rose, afterglow:C.gold, friend_req:C.lavender, capsule:C.berry, pass_reaction:C.gold, accepted:C.mint, dm_received:C.accent, feed_like:C.pink, post_comment:C.lavender, comment_reply:C.lavender };
 
   // Social Alerts — these gate REAL push delivery (keys ↔ TYPE_TO_PREF on the backend).
   const SOCIAL_CATS = [
     {key:"dmAlerts",label:"💬 Direct Messages",sub:"New DMs from other fans"},
     {key:"likeAlerts",label:"❤️ Post Likes",sub:"When someone likes your Fanverse post"},
+    {key:"commentAlerts",label:"💬 Comments & Replies",sub:"Comments on your post and replies to you"},
     {key:"friendRequestAlerts",label:"🫂 Friend Requests",sub:"New requests and when they're accepted"},
     {key:"meetupAlerts",label:"🤝 Meetup Invites",sub:"When a host invites you to a meetup"},
     {key:"capsuleAlerts",label:"✨ Capsule Moments",sub:"New moments in a concert capsule you joined"},

@@ -2371,6 +2371,209 @@ app.post('/api/feed/like', requireAuth, async (req, res) => {
 
 
 // ═════════════════════════════════════════════════════════════════════════════
+// FEED COMMENTS  (one level of replies — see supabase-post-comments-migration.sql)
+// ═════════════════════════════════════════════════════════════════════════════
+// posts.comments and post_comments.likes are maintained by DB triggers, NOT by
+// these routes — do not hand-increment them here or they'll double-count.
+//
+// users!post_comments_user_id_fkey: post_comments↔users is reachable directly AND
+// via the comment_likes junction, so the embed needs the explicit FK or PostgREST
+// 500s. Same trap as /api/feed and /api/meetups.
+
+const COMMENT_MAX_LEN = 1000;
+const COMMENT_FETCH_CAP = 300;
+
+// Shapes a raw comment row for the client. Author is flattened; `liked` is the
+// requesting viewer's own state.
+function toPublicComment(row, likedSet) {
+  return {
+    id:        row.id,
+    postId:    row.post_id,
+    parentId:  row.parent_id,
+    body:      row.body,
+    likes:     row.likes || 0,
+    createdAt: row.created_at,
+    userId:    row.user_id,
+    username:  row.users?.username || null,
+    avatarUrl: row.users?.avatar_url || null,
+    liked:     likedSet ? likedSet.has(row.id) : false,
+  };
+}
+
+app.get('/api/posts/:postId/comments', optionalAuth, async (req, res) => {
+  const { postId } = req.params;
+  if (MOCK_MODE) return res.json({ comments: [], mock: true });
+
+  const { data, error } = await supabase
+    .from('post_comments')
+    .select('*, users!post_comments_user_id_fkey(username, avatar_url)')
+    .eq('post_id', postId)
+    .order('created_at', { ascending: true })
+    .limit(COMMENT_FETCH_CAP);
+  if (error) return res.status(500).json({ error: error.message });
+
+  let rows = data || [];
+
+  // Hide comments from blocked relationships in either direction. A hidden parent
+  // takes its replies with it, otherwise orphaned replies render under nothing.
+  if (req.userId) {
+    const blocked = await getBlockedUserIdSet(req.userId);
+    if (blocked.size) {
+      rows = rows.filter(r => !blocked.has(r.user_id));
+      const alive = new Set(rows.filter(r => !r.parent_id).map(r => r.id));
+      rows = rows.filter(r => !r.parent_id || alive.has(r.parent_id));
+    }
+  }
+
+  // Viewer's own like state, one query for every comment on the post
+  let likedSet = new Set();
+  if (req.userId && rows.length) {
+    const { data: myLikes } = await supabase
+      .from('comment_likes').select('comment_id')
+      .eq('user_id', req.userId).in('comment_id', rows.map(r => r.id));
+    likedSet = new Set((myLikes || []).map(l => l.comment_id));
+  }
+
+  // Flat rows -> one level of nesting. Replies stay in created_at order.
+  const byId = new Map();
+  const top = [];
+  for (const r of rows) {
+    if (r.parent_id) continue;
+    const c = toPublicComment(r, likedSet);
+    c.replies = [];
+    byId.set(r.id, c);
+    top.push(c);
+  }
+  for (const r of rows) {
+    if (!r.parent_id) continue;
+    byId.get(r.parent_id)?.replies.push(toPublicComment(r, likedSet));
+  }
+
+  res.json({ comments: top, total: rows.length });
+});
+
+app.post('/api/posts/:postId/comments', requireAuth, async (req, res) => {
+  const { postId } = req.params;
+  const { body, parentId } = req.body || {};
+  const text = typeof body === 'string' ? body.trim() : '';
+  if (!text) return res.status(400).json({ error: 'Comment cannot be empty' });
+  if (text.length > COMMENT_MAX_LEN) return res.status(400).json({ error: 'Comment is too long' });
+  if (MOCK_MODE) return res.json({ success: true, mock: true });
+
+  const { data: post } = await supabase.from('posts').select('id, user_id').eq('id', postId).single();
+  if (!post) return res.status(404).json({ error: 'Post not found' });
+
+  // Resolve the reply target before inserting so we can 400 cleanly instead of
+  // surfacing the depth trigger's raw exception as a 500.
+  let parent = null;
+  if (parentId) {
+    const { data: p } = await supabase
+      .from('post_comments').select('id, user_id, parent_id, post_id').eq('id', parentId).single();
+    if (!p || p.post_id !== postId) return res.status(400).json({ error: 'Invalid parent comment' });
+    if (p.parent_id) return res.status(400).json({ error: 'You can only reply to a top-level comment' });
+    parent = p;
+  }
+
+  const { data, error } = await supabase
+    .from('post_comments')
+    .insert({ post_id: postId, user_id: req.userId, parent_id: parentId || null, body: text })
+    .select('*, users!post_comments_user_id_fkey(username, avatar_url)')
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+
+  const comment = toPublicComment(data, new Set());
+  comment.replies = [];
+  res.json({ success: true, comment });
+
+  // Notify after responding (fire-and-forget). A reply notifies the parent's
+  // author; a top-level comment notifies the post owner. Never self-notify, and
+  // never send both to the same person for one action.
+  (async () => {
+    try {
+      const actor = await getPublicUser(req.userId);
+      const handle = actor?.username || 'a fan';
+      const notified = new Set([req.userId]);
+
+      if (parent && !notified.has(parent.user_id)) {
+        notified.add(parent.user_id);
+        await deliverNotification({
+          userId: parent.user_id,
+          type: 'comment_reply',
+          title: `@${handle} replied to your comment`,
+          body: text.slice(0, 120),
+          actorId: req.userId,
+          entityId: postId,
+          entityType: 'post',
+          targetTab: 'community',
+          channels: ['in_app', 'push'],
+        });
+      }
+      if (!notified.has(post.user_id)) {
+        await deliverNotification({
+          userId: post.user_id,
+          type: 'post_comment',
+          title: `@${handle} commented on your post`,
+          body: text.slice(0, 120),
+          actorId: req.userId,
+          entityId: postId,
+          entityType: 'post',
+          targetTab: 'community',
+          channels: ['in_app', 'push'],
+        });
+      }
+    } catch (err) {
+      console.warn('[comments] notify failed:', err.message);
+    }
+  })();
+});
+
+// Author can delete their own comment; the post owner can moderate any comment on
+// their post. Deleting a top-level comment cascades its replies (DB-level).
+app.delete('/api/comments/:commentId', requireAuth, async (req, res) => {
+  const { commentId } = req.params;
+  if (MOCK_MODE) return res.json({ success: true, mock: true });
+
+  const { data: comment } = await supabase
+    .from('post_comments').select('id, user_id, post_id').eq('id', commentId).single();
+  if (!comment) return res.status(404).json({ error: 'Comment not found' });
+
+  let allowed = comment.user_id === req.userId;
+  if (!allowed) {
+    const { data: post } = await supabase.from('posts').select('user_id').eq('id', comment.post_id).single();
+    allowed = post?.user_id === req.userId;
+  }
+  if (!allowed) return res.status(403).json({ error: 'Not allowed' });
+
+  const { error } = await supabase.from('post_comments').delete().eq('id', commentId);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true });
+});
+
+app.post('/api/comments/:commentId/like', requireAuth, async (req, res) => {
+  const { commentId } = req.params;
+  if (MOCK_MODE) return res.json({ success: true, mock: true });
+
+  const { data: comment } = await supabase
+    .from('post_comments').select('id').eq('id', commentId).single();
+  if (!comment) return res.status(404).json({ error: 'Comment not found' });
+
+  const { data: existing } = await supabase
+    .from('comment_likes').select('comment_id')
+    .eq('comment_id', commentId).eq('user_id', req.userId).maybeSingle();
+
+  if (existing) {
+    await supabase.from('comment_likes').delete().eq('comment_id', commentId).eq('user_id', req.userId);
+  } else {
+    await supabase.from('comment_likes').insert({ comment_id: commentId, user_id: req.userId });
+  }
+
+  // Re-read the trigger-maintained count rather than guessing it client-side
+  const { data: fresh } = await supabase.from('post_comments').select('likes').eq('id', commentId).single();
+  res.json({ success: true, liked: !existing, likes: fresh?.likes || 0 });
+});
+
+
+// ═════════════════════════════════════════════════════════════════════════════
 // MEETUPS
 // ═════════════════════════════════════════════════════════════════════════════
 
@@ -3298,6 +3501,8 @@ function toClientNotification(n) {
 const TYPE_TO_PREF = {
   dm_received:             'dmAlerts',
   feed_like:               'likeAlerts',
+  post_comment:            'commentAlerts',
+  comment_reply:           'commentAlerts',
   friend_request_received: 'friendRequestAlerts',
   friend_request_accepted: 'friendRequestAlerts',
   meetup_invite:           'meetupAlerts',
