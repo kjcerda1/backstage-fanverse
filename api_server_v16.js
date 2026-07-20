@@ -61,6 +61,37 @@
 //   POST /api/outfits/save-inspo     ← NEW
 // ─────────────────────────────────────────────────────────────────────────────
 
+import 'dotenv/config';
+// Sentry must be imported and initialised BEFORE express and any route module so
+// its auto-instrumentation can patch them. Keep this above the express import.
+import * as Sentry from '@sentry/node';
+
+const SENTRY_DSN = process.env.SENTRY_DSN;
+if (SENTRY_DSN) {
+  Sentry.init({
+    dsn: SENTRY_DSN,
+    environment: process.env.NODE_ENV || 'production',
+    sendDefaultPii: false,       // never attach req bodies, cookies, or IPs
+    tracesSampleRate: 0,         // errors only; tracing multiplies event volume
+    beforeSend(event) {
+      // Belt and braces: this API receives Bearer tokens, Stripe payloads, and
+      // DM text. None of it should ever reach an error report.
+      if (event.request) {
+        delete event.request.data;
+        delete event.request.cookies;
+        if (event.request.headers) {
+          delete event.request.headers.authorization;
+          delete event.request.headers.Authorization;
+          delete event.request.headers.cookie;
+          delete event.request.headers['stripe-signature'];
+        }
+      }
+      return event;
+    },
+  });
+  console.log('[Sentry] error monitoring enabled');
+}
+
 import express     from 'express';
 import cors        from 'cors';
 import helmet      from 'helmet';
@@ -70,7 +101,6 @@ import Anthropic   from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 import admin        from 'firebase-admin';
 import jwt          from 'jsonwebtoken';
-import 'dotenv/config';
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
@@ -6158,12 +6188,22 @@ app.use((req, res) => {
   res.status(404).json({ error: `Route not found: ${req.method} ${req.path}` });
 });
 
+// Sentry's express error handler must come BEFORE our own, and after all routes.
+if (SENTRY_DSN) Sentry.setupExpressErrorHandler(app);
+
 app.use((err, req, res, next) => {
   console.error('[Unhandled Error]', err);
   res.status(500).json({
     error: 'Internal server error',
     details: process.env.NODE_ENV === 'development' ? err.message : undefined,
   });
+});
+
+// An unhandled rejection in a fire-and-forget block (notifications, pushes) would
+// otherwise vanish silently — exactly the class of bug that hid the /api/feed 500.
+process.on('unhandledRejection', (reason) => {
+  console.error('[UnhandledRejection]', reason);
+  if (SENTRY_DSN) Sentry.captureException(reason);
 });
 
 // ═════════════════════════════════════════════════════════════════════════════

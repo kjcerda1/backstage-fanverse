@@ -21,6 +21,7 @@ import {
   getCachedVip, setCachedVip, isProfileComplete, canEnterApp, mergeStoredProfile,
 } from "./lib/profileHelpers.js";
 import { formatRelativeOrDate, computeDaysLeft, parseConcertShowTime, getConcertStatus } from "./lib/dateHelpers.js";
+import { track, trackScreen, identifyUser, resetIdentity, captureError, captureMessage, EV } from "./lib/telemetry.js";
 
 // ─── PRODUCTION IMPORTS ───────────────────────────────────────────────────────
 // Supabase client — see lib/supabase.js
@@ -389,10 +390,20 @@ function AuthProvider({ children }) {
         if (!mounted) return;
         const u = mergeStoredProfile(ls.get(`backstage_profile_${session.user.id}`), profile?.id ? profile : null, fallback);
         setUser(u);
+        // Analytics identity — Supabase id + non-identifying traits only.
+        // Never pass email, username, or display name here (see telemetry.js).
+        identifyUser(u.id, {
+          is_vip:        !!u.is_vip,
+          vip_source:    u.vip_source || 'none',
+          city_key:      u.city_key || null,
+          fandom_count:  Array.isArray(u.fandoms) ? u.fandoms.length : 0,
+          has_onboarded: hasCompletedOnboarding(u.id),
+        });
         ls.set('backstage_session', { user: u });
         if (u.id) ls.set(`backstage_profile_${u.id}`, u);
         setLoading(false);
       } else if (event === 'SIGNED_OUT') {
+        resetIdentity();
         // Only clear state on an explicit sign-out — not on transient null sessions
         // that Supabase emits during INITIAL_SESSION (before storage resolves) or
         // during the TOKEN_REFRESHED cycle. Clearing the token during those brief
@@ -4861,6 +4872,7 @@ function Onboarding({ onDone }) {
         }
         setLoading(false); return;
       }
+      track(EV.LOGIN);
       // Set token immediately so api.get('/api/users/me') below is authenticated.
       // AuthProvider.onAuthStateChange will also set it, but fires asynchronously.
       if (d.session?.access_token) api._setToken(d.session.access_token);
@@ -4913,7 +4925,10 @@ function Onboarding({ onDone }) {
         setLoading(false);
         return;
       }
-      if (d.user) { ls.set('backstage_pending_uid', d.user.id); setMode("profile"); }
+      if (d.user) {
+        track(EV.SIGNUP_COMPLETED, { needs_confirmation: !d.session });
+        ls.set('backstage_pending_uid', d.user.id); setMode("profile");
+      }
     } catch(e) { setErr('Connection error. Try again.'); }
     setLoading(false);
   };
@@ -5047,6 +5062,16 @@ function Onboarding({ onDone }) {
       ls.set('backstage_session', { user: profile });
       if (profile.id) ls.set(`backstage_profile_${profile.id}`, profile);
       markOnboardingComplete(profile);
+      // The single most important funnel number: how many people who sign up
+      // actually finish onboarding and reach the app. Counts only, no free text.
+      track(EV.ONBOARDING_DONE, {
+        fandom_count:   Array.isArray(data.groups) ? data.groups.length : 0,
+        has_bias:       !!data.bias,
+        has_ult:        !!data.ult,
+        has_city:       !!data.city,
+        fan_dna_count:  Array.isArray(data.fanDNA) ? data.fanDNA.length : 0,
+        concert_count:  data.concertCount || null,
+      });
       ls.del('backstage_pending_uid');
       // Seed rich fan identity from onboarding data
       try {
@@ -15164,9 +15189,15 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
     setSendingComment(false);
     if (r?.error || !r?.comment) {
       console.warn('[comments] send failed:', r?.error);
+      captureMessage('comment send failed', { status: r?.error, is_reply: !!replyingTo });
       showToast(r?.error === '400' ? "That comment couldn't be posted" : "Couldn't post — try again");
       return;
     }
+    track(EV.COMMENT_CREATED, {
+      is_reply: !!replyingTo,
+      length_bucket: text.length < 40 ? 'short' : text.length < 140 ? 'medium' : 'long',
+      has_mention: /@[a-zA-Z0-9_.]+/.test(text),
+    });
     const next = replyingTo
       ? comments.map(c => c.id===replyingTo.id ? { ...c, replies:[...(c.replies||[]), r.comment] } : c)
       : [...comments, { ...r.comment, replies: [] }];
@@ -15185,6 +15216,7 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
     }));
     apply(c => ({ ...c, liked:!wasLiked, likes: Math.max(0, c.likes + (wasLiked?-1:1)) }));
     const r = await api.post(`/api/comments/${comment.id}/like`);
+    if (!r?.error) track(EV.COMMENT_LIKED, { liked: !wasLiked, is_reply: !!parentId });
     if (r?.error) {
       console.warn('[comments] like failed:', r.error);
       apply(c => ({ ...c, liked:wasLiked, likes: Math.max(0, c.likes + (wasLiked?1:-1)) }));
@@ -15273,9 +15305,19 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
     // check explicitly, or a failed post shows a false success (see friend-request bug).
     if (r?.error || !r?.post) {
       console.warn('[feed] post failed:', r?.error);
+      captureMessage('feed post failed', { status: r?.error });
       showToast("Couldn't post — try again");
       return;
     }
+    // Counts and flags only — never the post text itself.
+    track(EV.POST_CREATED, {
+      post_type:   draft.type || 'general',
+      tag_count:   draft.tags.length,
+      has_image:   !!draft.image,
+      has_location: !!(draft.locationOn && (draft.venue.trim() || draft.city.trim())),
+      checked_in:  !!(draft.locationOn && draft.checkedIn),
+      length_bucket: draft.text.length < 80 ? 'short' : draft.text.length < 240 ? 'medium' : 'long',
+    });
     setPosts(ps => [apiPostToFeed(r.post), ...ps]);
     setDraft({ text:"", tags:[], type:"general", image:null, locationOn:false, venue:"", city:"", checkedIn:false });
     setTagQuery(""); setComposing(false);
@@ -15289,8 +15331,10 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
       ? { ...x, liked:!wasLiked, likes: Math.max(0, x.likes + (wasLiked ? -1 : 1)) }
       : x));
     const r = await api.post('/api/feed/like', { postId: post.id });
+    if (!r?.error) track(EV.POST_LIKED, { liked: !wasLiked, post_type: post.type });
     if (r?.error) {
       console.warn('[feed] like failed:', r.error);
+      captureMessage('feed like failed', { status: r.error });
       setPosts(ps => ps.map(x => x.id===post.id
         ? { ...x, liked:wasLiked, likes: Math.max(0, x.likes + (wasLiked ? 1 : -1)) }
         : x));
@@ -15461,7 +15505,10 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
                 {p.liked?"♥":"♡"} {p.likes}
               </button>
               <button onClick={()=>openComments(p.id)} className="tap" style={{ background:"none",border:"none",fontSize:12.5,color:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>💬 {p.comments}</button>
-              <button onClick={()=>{ setReposted(r=>({...r,[p.id]:!r[p.id]})); setPosts(ps=>ps.map(x=>x.id===p.id?{...x,reposts:(x.reposts||0)+(reposted[p.id]?-1:1)}:x)); }} className="tap" style={{ background:"none",border:"none",fontSize:12.5,color:reposted[p.id]?C.iris:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>⟲ {(p.reposts||0)+(reposted[p.id]?1:0)}</button>
+              {/* The count lives in post state only — do NOT also add `reposted[p.id]`
+                  to the label or one tap renders 2. Same double-count the like
+                  button had before it was wired to the server. */}
+              <button onClick={()=>{ setReposted(r=>({...r,[p.id]:!r[p.id]})); setPosts(ps=>ps.map(x=>x.id===p.id?{...x,reposts:Math.max(0,(x.reposts||0)+(reposted[p.id]?-1:1))}:x)); }} className="tap" style={{ background:"none",border:"none",fontSize:12.5,color:reposted[p.id]?C.iris:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>⟲ {p.reposts||0}</button>
               <button onClick={()=>{ const shareText=`${p.text} — via Backstage`; if(navigator.share){ navigator.share({ text:shareText }).catch(()=>{}); } else if(navigator.clipboard){ navigator.clipboard.writeText(shareText).then(()=>showToast("Copied to share")); } }} className="tap" style={{ background:"none",border:"none",fontSize:12.5,color:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>↗</button>
               <button onClick={()=>setMemeMode(memeMode===p.id?null:p.id)} style={{ background:"none",border:"none",fontSize:12.5,color:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>{p.meme||"😂"}</button>
               <button onClick={()=>{ setSaved(s=>({...s,[p.id]:!s[p.id]})); setPosts(ps=>ps.map(x=>x.id===p.id?{...x,saved:!x.saved}:x)); }} style={{ background:"none",border:"none",fontSize:13,color:saved[p.id]?C.gold:C.textMid,cursor:"pointer",marginLeft:"auto" }}>
@@ -25901,6 +25948,9 @@ class AppErrorBoundary extends React.Component {
       '\nStack:', error?.stack?.split('\n').slice(0,6).join('\n'),
       '\nComponent stack:', info?.componentStack?.split('\n').slice(0,8).join('\n')
     );
+    // A caught render error never reaches window.onerror, so Sentry only learns
+    // about it if we forward it explicitly from here.
+    captureError(error, { componentStack: info?.componentStack?.slice(0, 2000) });
   }
   render() {
     if (this.state.error) {
@@ -26288,6 +26338,7 @@ function AppInner() {
       setNotif({ title:"VIP checkout is almost ready.", body:"Please try again soon.", icon:"✦", color:C.gold });
     };
     if (!API_URL) { showCheckoutUnavailable(); return; }
+    track(EV.VIP_CHECKOUT_START, { plan: selectedPlan });
     let data;
     try {
       const res = await fetch(`${API_URL}/api/subscriptions/checkout`, {
@@ -26338,6 +26389,9 @@ function AppInner() {
   };
 
   const go = (dest) => {
+    // Single funnel choke point for navigation — `dest` is our own route name,
+    // never a URL, so nothing user-authored leaks into analytics.
+    trackScreen(dest);
     // "+" shortcut on the Your Pass story bubble — jump straight into the Pass
     // composer instead of just opening the Backstage Passes browsing page.
     if(dest==="passes_create"){ ls.set("backstage_open_pass_composer", true); dest = "passes"; }
