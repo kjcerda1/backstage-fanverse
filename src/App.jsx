@@ -26213,20 +26213,22 @@ function AppInner() {
     }).catch(() => {});
   }, [auth.user?.id, auth.tokenReady]);
 
-  // ── Pin the app shell to the VISUAL viewport (native-app feel) ──────────────
-  // The shell is position:fixed. By default that binds to the LAYOUT viewport,
-  // so it sits behind Safari's toolbar and gets pushed/"blown up" when the
-  // keyboard opens (Messages). We instead drive its height + top offset from
-  // window.visualViewport, which reports the true visible region — so the shell
-  // stays locked, never drifts, and compresses to sit above the keyboard.
+  // ── Lift the app shell above the on-screen keyboard ────────────────────────
+  // The shell stays full-bleed (top:0;bottom:0) so it always covers the screen —
+  // never sizing off visualViewport.height directly, which UNDER-reports in iOS
+  // standalone PWA and leaves a dead gap below the bottom nav.
+  // Instead we measure only the keyboard: iOS does not shrink the layout
+  // viewport for the keyboard, so innerHeight stays constant while
+  // visualViewport shrinks — the difference IS the keyboard height. With no
+  // keyboard up this is 0, i.e. exactly the original gap-free inset:0.
   useEffect(() => {
     const vv = window.visualViewport;
     const root = document.documentElement;
     const apply = () => {
-      const h = vv ? vv.height : window.innerHeight;
-      const top = vv ? vv.offsetTop : 0;
-      root.style.setProperty("--app-vh", h + "px");
-      root.style.setProperty("--app-vv-top", top + "px");
+      const kb = vv
+        ? Math.max(0, window.innerHeight - (vv.height + vv.offsetTop))
+        : 0;
+      root.style.setProperty("--app-kb", kb + "px");
     };
     apply();
     if (vv) {

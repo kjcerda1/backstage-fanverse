@@ -244,7 +244,7 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
    above the home-indicator area. Only frame to a phone width + relative
    positioning when the browser viewport is wide enough to be a desktop
    preview (not an actual phone). */
-.app-shell{position:fixed;left:0;right:0;top:var(--app-vv-top,0px);height:var(--app-vh,100dvh);width:100%;box-sizing:border-box;padding-top:calc(env(safe-area-inset-top,0px) + 12px)}
+.app-shell{position:fixed;left:0;right:0;top:0;bottom:var(--app-kb,0px);width:100%;box-sizing:border-box;padding-top:calc(env(safe-area-inset-top,0px) + 12px)}
 @media (min-width:501px){.app-shell{position:relative;inset:auto;width:430px;max-width:430px;height:100dvh;margin:0 auto}}
 .tap{transition:transform .12s,opacity .12s}
 .tap:active{transform:scale(.94);opacity:.8}
