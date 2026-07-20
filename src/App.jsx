@@ -7107,6 +7107,117 @@ function PhotocardGrid({ cards, groups, groupFilter, setGroupFilter, go, onAddCa
   );
 }
 
+// ─── SAVED / REPOSTS ─────────────────────────────────────────────────────────
+// The "place to track them" for the two feed actions that persist per-user.
+// GET /api/me/saves and /api/me/reposts, ordered by when you interacted.
+// Saves are PRIVATE — the copy says so, because a bookmark that people think is
+// public is a privacy surprise waiting to happen.
+function SavedPostsSection({ go }) {
+  const { tokenReady } = useAuth();
+  const [view, setView]       = useState("saved");   // saved | reposts
+  const [posts, setPosts]     = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState(false);
+
+  const load = useCallback(async (which) => {
+    setLoading(true); setError(false);
+    const d = await api.get(which === "saved" ? '/api/me/saves' : '/api/me/reposts');
+    if (d?.error || !Array.isArray(d?.posts)) {
+      console.warn('[saved] load failed:', d?.error);
+      setError(true); setLoading(false); return;
+    }
+    setPosts(d.posts.map(apiPostToFeed));
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { if (tokenReady) load(view); }, [tokenReady, view, load]);
+
+  // Un-saving / un-reposting from this screen removes the row immediately —
+  // it's the only list where the item disappearing is the expected outcome.
+  const undo = async (post) => {
+    const path = view === "saved" ? `/api/posts/${post.id}/save` : `/api/posts/${post.id}/repost`;
+    setPosts(ps => ps.filter(p => p.id !== post.id));
+    const r = await api.post(path);
+    if (r?.error) {
+      console.warn('[saved] undo failed:', r.error);
+      load(view);   // put it back by refetching truth
+    }
+  };
+
+  const TABS = [
+    { id:"saved",   label:"🔖 Saved" },
+    { id:"reposts", label:"⟲ Reposts" },
+  ];
+
+  return (
+    <div style={{ paddingTop:4 }}>
+      <div style={{ background:`linear-gradient(140deg,${C.plum},${C.cosmic})`,border:`1.5px solid ${C.accent}20`,borderRadius:18,padding:"14px 16px",marginBottom:14 }}>
+        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:C.text,marginBottom:4 }}>🔖 Saved & Reposted</p>
+        <p style={{ fontSize:11,color:C.textMid,lineHeight:1.6 }}>
+          {view==="saved"
+            ? "Posts you bookmarked. Private — only you can see this list."
+            : "Posts you sent back out to the Fanverse."}
+        </p>
+      </div>
+
+      <div style={{ display:"flex", gap:6, marginBottom:14 }}>
+        {TABS.map(t=>(
+          <span key={t.id} onClick={()=>setView(t.id)} className="tap" style={{ padding:"6px 13px", borderRadius:99, fontSize:11, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:view===t.id?`linear-gradient(135deg,${C.accent},${C.lavender})`:C.chipInactiveBg, color:view===t.id?"#1a1228":C.textMid, border:`1px solid ${view===t.id?"rgba(255,255,255,0.28)":C.glassBorder}` }}>{t.label}</span>
+        ))}
+      </div>
+
+      {loading && (
+        <p style={{ textAlign:"center", fontSize:11, color:C.textDim, padding:"26px 0", fontFamily:"'Epilogue',sans-serif" }}>Loading…</p>
+      )}
+
+      {!loading && error && (
+        <div style={{ textAlign:"center", padding:"30px 20px" }}>
+          <p style={{ fontSize:12, color:C.textMid, marginBottom:10 }}>Couldn't load this list.</p>
+          <button onClick={()=>load(view)} className="tap" style={{ background:C.chipInactiveBg,border:`1px solid ${C.glassBorder}`,borderRadius:99,padding:"7px 16px",fontSize:11,color:C.text,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>Retry</button>
+        </div>
+      )}
+
+      {!loading && !error && posts.length===0 && (
+        <div style={{ textAlign:"center", padding:"40px 20px", color:C.textDim }}>
+          <p style={{ fontSize:30, marginBottom:12 }}>{view==="saved"?"🔖":"⟲"}</p>
+          <p style={{ fontSize:12.5, lineHeight:1.6 }}>
+            {view==="saved"
+              ? <>Nothing saved yet.<br/>Tap 🏷️ on any Fanverse post to keep it here.</>
+              : <>No reposts yet.<br/>Tap ⟲ on a post to share it with your Fanverse.</>}
+          </p>
+          <button onClick={()=>go?.("fanverse")} className="tap" style={{ marginTop:16, background:`linear-gradient(135deg,${C.accent},${C.lavender})`, border:"none", borderRadius:99, padding:"9px 20px", color:"#1a1228", fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, cursor:"pointer" }}>Go to the Feed</button>
+        </div>
+      )}
+
+      {!loading && !error && posts.map(p=>(
+        <div key={p.id} style={{ position:"relative", overflow:"hidden", background:C.feedCard, border:`1px solid ${C.feedCardBorder}`, borderRadius:16, padding:"12px 14px", marginBottom:10, boxShadow:C.feedCardShadow, backdropFilter:"blur(14px)" }}>
+          <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:8 }}>
+            <div style={{ width:32,height:32,borderRadius:"50%",background:`linear-gradient(150deg,${p.color}ee,${p.color}66)`,border:"1px solid rgba(255,255,255,0.22)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:"#1a1228",fontSize:12.5,flexShrink:0 }}>{p.avatar}</div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, color:C.text }}>{p.user}</p>
+              <p style={{ fontSize:9.5, color:C.textMid }}>{p.time}</p>
+            </div>
+            <button onClick={()=>undo(p)} className="tap" title={view==="saved"?"Remove from saved":"Undo repost"} style={{ background:"none", border:"none", fontSize:14, color:view==="saved"?C.gold:C.iris, cursor:"pointer", flexShrink:0 }}>
+              {view==="saved" ? "🔖" : "⟲"}
+            </button>
+          </div>
+          <p style={{ fontSize:12.5, lineHeight:1.65, color:C.text, wordBreak:"break-word" }}>{p.text}</p>
+          {p.image && <img src={p.image} alt="" style={{ width:"100%",maxHeight:180,objectFit:"cover",borderRadius:12,marginTop:9 }} />}
+          {(p.venue||p.city) && <div style={{ marginTop:9 }}><LocationTag venue={p.venue} city={p.city} checkedIn={p.checkedIn} glass /></div>}
+          <div style={{ display:"flex", gap:12, alignItems:"center", marginTop:9, fontSize:11, color:C.textMid }}>
+            <span>{p.liked?"♥":"♡"} {p.likes}</span>
+            <span>💬 {p.comments}</span>
+            <span>⟲ {p.reposts}</span>
+            {topReactions(p.reactions,2).map(([e,n])=>(
+              <span key={e} style={{ display:"inline-flex", alignItems:"center", gap:3 }}>{e}{n}</span>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoading, refreshCards, isVip, onUpgrade, go, user, weather }) {
   const softBlue = '#78A8FF';
   const softBlue2 = '#A7C7FF';
@@ -7272,6 +7383,7 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
 
   const SECTIONS = [
     { id:'albums', label:'Binders', icon:'' },
+    { id:'saved', label:'Saved', icon:'' },
     { id:'wishlist', label:'Wishlist', icon:'' },
     { id:'trades', label:'Trades', icon:'' },
     { id:'scrapbook', label:'Scrapbooks', icon:'' },
@@ -7816,6 +7928,7 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
 
         {section==="scrapbook" && <ScrapbookTab isVip={isVip} onUpgrade={onUpgrade} />}
 
+        {section==="saved" && <SavedPostsSection go={go} />}
         {section==="memories" && <CollectTab cards={cards} setCards={setCards} patchCard={patchCard} deleteCard={deleteCard} addCard={addCard} cardsLoading={cardsLoading} refreshCards={refreshCards} isVip={isVip} onUpgrade={onUpgrade} user={user} onAddMemory={()=>setSection("scrapbook")} hideNav defaultView="shelf" />}
 
         {section==="capsule-memories" && (() => {
@@ -15037,8 +15150,9 @@ const feedAvatarColor = (seed="") =>
   FEED_AVATAR_COLORS[[...String(seed)].reduce((a,c)=>a+c.charCodeAt(0),0) % FEED_AVATAR_COLORS.length];
 
 // GET /api/feed row → the shape this component renders.
-// saved/reposted/meme are deliberately absent: they have no backend yet and stay
-// client-local, so they must never be read back off a server row.
+// Every engagement field is now server-owned. `reactions` is the public aggregate
+// {emoji: count}; `myReaction` is this viewer's own emoji (or null); `saved` is
+// private and only ever true for the person who saved it.
 function apiPostToFeed(p) {
   const handle = p.users?.username || "backstage_fan";
   const meta   = p.metadata || {};
@@ -15060,9 +15174,22 @@ function apiPostToFeed(p) {
     venue:     meta.venue || null,
     city:      meta.city || null,
     checkedIn: !!meta.checkedIn,
-    liked:     !!p.liked,
-    meme:      null,
+    liked:      !!p.liked,
+    reposts:    p.reposts || 0,
+    reposted:   !!p.reposted,
+    saved:      !!p.saved,
+    reactions:  p.reactions || {},     // public aggregate {emoji: count}
+    myReaction: p.myReaction || null,  // this viewer's own emoji
   };
+}
+
+// Top reactions for the card row, most-used first. Capped so a post with a long
+// tail of one-off emoji doesn't overflow the action bar.
+function topReactions(reactions = {}, limit = 3) {
+  return Object.entries(reactions)
+    .filter(([, n]) => n > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit);
 }
 
 function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) {
@@ -15112,7 +15239,6 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
   // unauthenticated (like-state-less) result, and never re-runs. See KEY PATTERNS.
   useEffect(() => { if (tokenReady) loadFeed(); }, [tokenReady, loadFeed]);
 
-  const [saved, setSaved] = useState({});
   const [sort, setSort] = useState("trending");
   const [filter, setFilter] = useState("all");
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
@@ -15133,7 +15259,6 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
   const [memeMode, setMemeMode] = useState(null);
   const [customEmojiFor, setCustomEmojiFor] = useState(null);
   const [customEmojiDraft, setCustomEmojiDraft] = useState("");
-  const [reposted, setReposted] = useState({});
   const [commentsOpenFor, setCommentsOpenFor] = useState(null);
   const [replyDraft, setReplyDraft] = useState("");
   const [toast, setToast] = useState(null);
@@ -15342,6 +15467,60 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
     }
   };
 
+  // Patch one post in place — all three engagement handlers share this.
+  const patchPost = (postId, fn) =>
+    setPosts(ps => ps.map(x => x.id===postId ? fn(x) : x));
+
+  const toggleRepost = async (post) => {
+    const was = post.reposted;
+    patchPost(post.id, x => ({ ...x, reposted:!was, reposts: Math.max(0, x.reposts + (was?-1:1)) }));
+    const r = await api.post(`/api/posts/${post.id}/repost`);
+    if (r?.error) {
+      console.warn('[feed] repost failed:', r.error);
+      captureMessage('feed repost failed', { status: r.error });
+      patchPost(post.id, x => ({ ...x, reposted:was, reposts: Math.max(0, x.reposts + (was?1:-1)) }));
+      showToast("Couldn't repost — try again");
+      return;
+    }
+    // Server owns the count (trigger-maintained) — take its number, not ours.
+    patchPost(post.id, x => ({ ...x, reposted:r.reposted, reposts:r.reposts }));
+    track(EV.POST_REPOSTED, { reposted: r.reposted, post_type: post.type });
+    if (r.reposted) showToast("Reposted to your Fanverse");
+  };
+
+  // Save is private — no count, and nothing about it is shown to the post's author.
+  const toggleSave = async (post) => {
+    const was = post.saved;
+    patchPost(post.id, x => ({ ...x, saved:!was }));
+    const r = await api.post(`/api/posts/${post.id}/save`);
+    if (r?.error) {
+      console.warn('[feed] save failed:', r.error);
+      captureMessage('feed save failed', { status: r.error });
+      patchPost(post.id, x => ({ ...x, saved:was }));
+      showToast("Couldn't save — try again");
+      return;
+    }
+    patchPost(post.id, x => ({ ...x, saved:r.saved }));
+    track(EV.POST_SAVED, { saved: r.saved, post_type: post.type });
+    showToast(r.saved ? "Saved to My World" : "Removed from saved");
+  };
+
+  // One reaction per user per post: picking a different emoji replaces yours,
+  // picking your current one clears it. The server returns the authoritative
+  // totals, so we never try to recompute the aggregate locally.
+  const setReaction = async (post, emoji) => {
+    setMemeMode(null); setCustomEmojiFor(null); setCustomEmojiDraft("");
+    const r = await api.post(`/api/posts/${post.id}/react`, { emoji });
+    if (r?.error) {
+      console.warn('[feed] react failed:', r.error);
+      captureMessage('feed react failed', { status: r.error });
+      showToast("Couldn't save that reaction");
+      return;
+    }
+    patchPost(post.id, x => ({ ...x, reactions:r.reactions || {}, myReaction:r.myReaction || null }));
+    track(EV.POST_REACTED, { cleared: !r.myReaction });
+  };
+
   const handleImgUpload = (e) => {
     const f = e.target.files[0]; if(!f) return;
     const r = new FileReader();
@@ -15493,7 +15672,6 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
                 ))}
               </div>
             </div>
-            {p.meme&&<div style={{ fontSize:28, marginBottom:6, textAlign:"center", position:"relative" }}>{p.meme}</div>}
             <p style={{ fontSize:13, lineHeight:1.7, marginBottom:11, color:C.text, position:"relative" }}>{p.text}</p>
             {/* Post image (Phase 5) */}
             {p.image&&<img src={p.image} alt="post" style={{ width:"100%",maxHeight:220,objectFit:"cover",borderRadius:14,marginBottom:11,position:"relative" }} />}
@@ -15505,25 +15683,42 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
                 {p.liked?"♥":"♡"} {p.likes}
               </button>
               <button onClick={()=>openComments(p.id)} className="tap" style={{ background:"none",border:"none",fontSize:12.5,color:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>💬 {p.comments}</button>
-              {/* The count lives in post state only — do NOT also add `reposted[p.id]`
-                  to the label or one tap renders 2. Same double-count the like
-                  button had before it was wired to the server. */}
-              <button onClick={()=>{ setReposted(r=>({...r,[p.id]:!r[p.id]})); setPosts(ps=>ps.map(x=>x.id===p.id?{...x,reposts:Math.max(0,(x.reposts||0)+(reposted[p.id]?-1:1))}:x)); }} className="tap" style={{ background:"none",border:"none",fontSize:12.5,color:reposted[p.id]?C.iris:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>⟲ {p.reposts||0}</button>
+              {/* Counts come straight off post state, which the server owns. Never
+                  add a second local toggle on top of the label — that's the
+                  double-count bug repost and like both had. */}
+              <button onClick={()=>toggleRepost(p)} className="tap" style={{ background:"none",border:"none",fontSize:12.5,color:p.reposted?C.iris:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>⟲ {p.reposts}</button>
               <button onClick={()=>{ const shareText=`${p.text} — via Backstage`; if(navigator.share){ navigator.share({ text:shareText }).catch(()=>{}); } else if(navigator.clipboard){ navigator.clipboard.writeText(shareText).then(()=>showToast("Copied to share")); } }} className="tap" style={{ background:"none",border:"none",fontSize:12.5,color:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>↗</button>
-              <button onClick={()=>setMemeMode(memeMode===p.id?null:p.id)} style={{ background:"none",border:"none",fontSize:12.5,color:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>{p.meme||"😂"}</button>
-              <button onClick={()=>{ setSaved(s=>({...s,[p.id]:!s[p.id]})); setPosts(ps=>ps.map(x=>x.id===p.id?{...x,saved:!x.saved}:x)); }} style={{ background:"none",border:"none",fontSize:13,color:saved[p.id]?C.gold:C.textMid,cursor:"pointer",marginLeft:"auto" }}>
-                {saved[p.id]?"🔖":"🏷️"}
+              <button onClick={()=>setMemeMode(memeMode===p.id?null:p.id)} className="tap" title={p.myReaction?"Your reaction — tap to change":"React"} style={{ background:p.myReaction?`${C.accent}18`:"none",border:p.myReaction?`1px solid ${C.accent}55`:"none",borderRadius:99,padding:p.myReaction?"2px 8px":0,fontSize:12.5,color:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>
+                {p.myReaction || "😂"}
+              </button>
+              <button onClick={()=>toggleSave(p)} className="tap" title={p.saved?"Saved (only you can see this)":"Save privately"} style={{ background:"none",border:"none",fontSize:13,color:p.saved?C.gold:C.textMid,cursor:"pointer",marginLeft:"auto" }}>
+                {p.saved?"🔖":"🏷️"}
               </button>
             </div>
 
-            {/* Reaction picker — a few quick presets plus custom emoji via native keyboard.
-                Reactions are a local visual only; they must never touch the server-owned
-                like count, or it desyncs on the next feed refresh. */}
+            {/* Public reaction totals — everyone's reactions, not just yours.
+                Tapping one applies (or clears) that emoji as your own. */}
+            {topReactions(p.reactions).length>0 && (
+              <div style={{ display:"flex", gap:5, marginTop:8, flexWrap:"wrap", position:"relative" }}>
+                {topReactions(p.reactions).map(([emoji,count])=>{
+                  const mine = p.myReaction===emoji;
+                  return (
+                    <button key={emoji} onClick={()=>setReaction(p, emoji)} className="tap" style={{ display:"flex",alignItems:"center",gap:4,padding:"2px 8px",borderRadius:99,fontSize:11,cursor:"pointer",background:mine?`${C.accent}22`:C.chipInactiveBg,border:`1px solid ${mine?C.accent+"66":C.glassBorder}`,color:mine?C.text:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>
+                      <span style={{ fontSize:12 }}>{emoji}</span>{count}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Reaction picker — a few quick presets plus custom emoji via native
+                keyboard. One reaction per user per post: picking a different emoji
+                replaces yours, picking your current one clears it (server-enforced). */}
             {memeMode===p.id&&(
               <div style={{ marginTop:10, animation:"up .15s ease" }}>
                 <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:customEmojiFor===p.id?8:0 }}>
                   {["😭","✨","🎤","💜","🌸"].map(emoji=>(
-                    <button key={emoji} onClick={()=>{setPosts(ps=>ps.map(x=>x.id===p.id?{...x,meme:emoji}:x));setMemeMode(null);}} style={{ background:C.surfaceHi,border:`1px solid ${C.border}`,borderRadius:10,width:36,height:36,fontSize:18,cursor:"pointer" }}>{emoji}</button>
+                    <button key={emoji} onClick={()=>setReaction(p, emoji)} style={{ background:p.myReaction===emoji?`${C.accent}26`:C.surfaceHi,border:`1px solid ${p.myReaction===emoji?C.accent+"66":C.border}`,borderRadius:10,width:36,height:36,fontSize:18,cursor:"pointer" }}>{emoji}</button>
                   ))}
                   <button onClick={()=>setCustomEmojiFor(customEmojiFor===p.id?null:p.id)} title="Add any emoji" style={{ background:C.chipInactiveBg,border:`1.5px dashed rgba(214,189,255,0.32)`,borderRadius:10,width:36,height:36,fontSize:16,color:C.lavender,cursor:"pointer" }}>+</button>
                 </div>
@@ -15537,7 +15732,7 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
                       maxLength={8}
                       style={{ flex:1, background:C.inputBg, border:"1.5px solid rgba(214,189,255,0.2)", borderRadius:99, padding:"7px 12px", fontSize:13, color:C.text, outline:"none" }}
                     />
-                    <button onClick={()=>{ if(customEmojiDraft.trim()){ setPosts(ps=>ps.map(x=>x.id===p.id?{...x,meme:customEmojiDraft.trim()}:x)); } setCustomEmojiFor(null); setCustomEmojiDraft(""); setMemeMode(null); }} className="tap" style={{ background:`linear-gradient(135deg,${C.accent},${C.lavender})`, border:"none", borderRadius:99, padding:"7px 14px", color:"#1a1228", fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>Add</button>
+                    <button onClick={()=>{ const e=customEmojiDraft.trim(); if(e){ setReaction(p, e); } else { setCustomEmojiFor(null); setCustomEmojiDraft(""); setMemeMode(null); } }} className="tap" style={{ background:`linear-gradient(135deg,${C.accent},${C.lavender})`, border:"none", borderRadius:99, padding:"7px 14px", color:"#1a1228", fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>Add</button>
                   </div>
                 )}
               </div>
