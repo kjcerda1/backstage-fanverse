@@ -2326,17 +2326,45 @@ app.get('/api/feed', optionalAuth, async (req, res) => {
   if (req.userId) {
     const blocked = await getBlockedUserIdSet(req.userId);
     if (blocked.size) posts = posts.filter(p => !blocked.has(p.user_id));
-
-    // Attach this viewer's own like state so the heart renders correctly on load
-    // (without this the client can only guess, and likes appear to reset on refresh).
-    const ids = posts.map(p => p.id);
-    if (ids.length) {
-      const { data: myLikes } = await supabase
-        .from('post_likes').select('post_id').eq('user_id', req.userId).in('post_id', ids);
-      const likedSet = new Set((myLikes || []).map(l => l.post_id));
-      posts = posts.map(p => ({ ...p, liked: likedSet.has(p.id) }));
-    }
   }
+
+  // Public reaction totals — everyone sees these, signed in or not. Computed on
+  // read rather than denormalised; one grouped query per page (see the migration).
+  const ids = posts.map(p => p.id);
+  if (ids.length) {
+    const { data: allReactions } = await supabase
+      .from('post_reactions').select('post_id, emoji').in('post_id', ids);
+    const totals = new Map();
+    for (const r of allReactions || []) {
+      if (!totals.has(r.post_id)) totals.set(r.post_id, {});
+      const bucket = totals.get(r.post_id);
+      bucket[r.emoji] = (bucket[r.emoji] || 0) + 1;
+    }
+    posts = posts.map(p => ({ ...p, reactions: totals.get(p.id) || {} }));
+  }
+
+  // Per-viewer state: without this the client can only guess, and every toggle
+  // appears to reset on refresh.
+  if (req.userId && ids.length) {
+    const [myLikes, myReposts, mySaves, myReactions] = await Promise.all([
+      supabase.from('post_likes')    .select('post_id')       .eq('user_id', req.userId).in('post_id', ids),
+      supabase.from('post_reposts')  .select('post_id')       .eq('user_id', req.userId).in('post_id', ids),
+      supabase.from('post_saves')    .select('post_id')       .eq('user_id', req.userId).in('post_id', ids),
+      supabase.from('post_reactions').select('post_id, emoji').eq('user_id', req.userId).in('post_id', ids),
+    ]);
+    const likedSet    = new Set((myLikes.data   || []).map(r => r.post_id));
+    const repostedSet = new Set((myReposts.data || []).map(r => r.post_id));
+    const savedSet    = new Set((mySaves.data   || []).map(r => r.post_id));
+    const myEmoji     = new Map((myReactions.data || []).map(r => [r.post_id, r.emoji]));
+    posts = posts.map(p => ({
+      ...p,
+      liked:      likedSet.has(p.id),
+      reposted:   repostedSet.has(p.id),
+      saved:      savedSet.has(p.id),
+      myReaction: myEmoji.get(p.id) || null,
+    }));
+  }
+
   res.json({ posts, page: pageNum, hasMore: data.length === pageSize });
 });
 
@@ -2600,6 +2628,189 @@ app.post('/api/comments/:commentId/like', requireAuth, async (req, res) => {
   // Re-read the trigger-maintained count rather than guessing it client-side
   const { data: fresh } = await supabase.from('post_comments').select('likes').eq('id', commentId).single();
   res.json({ success: true, liked: !existing, likes: fresh?.likes || 0 });
+});
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// FEED ENGAGEMENT: REPOSTS / SAVES / REACTIONS
+// (see supabase-post-engagement-migration.sql)
+// ═════════════════════════════════════════════════════════════════════════════
+// Three different visibility models — do not "unify" them:
+//   repost   PUBLIC,  counted on posts.reposts (trigger), notifies the author
+//   save     PRIVATE, no count, no notification, never visible to anyone else
+//   reaction PUBLIC,  aggregate totals, one reaction per user per post
+//
+// posts.reposts is trigger-maintained — never hand-increment it here.
+
+// Toggle a repost. Returns the trigger-maintained count so the client doesn't guess.
+app.post('/api/posts/:postId/repost', requireAuth, async (req, res) => {
+  const { postId } = req.params;
+  if (MOCK_MODE) return res.json({ success: true, mock: true });
+
+  const { data: post } = await supabase.from('posts').select('id, user_id').eq('id', postId).single();
+  if (!post) return res.status(404).json({ error: 'Post not found' });
+
+  const { data: existing } = await supabase
+    .from('post_reposts').select('post_id')
+    .eq('post_id', postId).eq('user_id', req.userId).maybeSingle();
+
+  if (existing) {
+    await supabase.from('post_reposts').delete().eq('post_id', postId).eq('user_id', req.userId);
+  } else {
+    await supabase.from('post_reposts').insert({ post_id: postId, user_id: req.userId });
+  }
+
+  const { data: fresh } = await supabase.from('posts').select('reposts').eq('id', postId).single();
+  res.json({ success: true, reposted: !existing, reposts: fresh?.reposts || 0 });
+
+  // Notify on a new repost only — never on an un-repost, never to yourself.
+  if (!existing && post.user_id !== req.userId) {
+    (async () => {
+      try {
+        const actor = await getPublicUser(req.userId);
+        await deliverNotification({
+          userId: post.user_id,
+          type: 'post_repost',
+          title: `@${actor?.username || 'a fan'} reposted your post`,
+          body: 'Your moment is spreading through the Fanverse.',
+          actorId: req.userId,
+          entityId: postId,
+          entityType: 'post',
+          targetTab: 'community',
+          channels: ['in_app', 'push'],
+        });
+      } catch (err) {
+        console.warn('[repost] notify failed:', err.message);
+      }
+    })();
+  }
+});
+
+// Toggle a private save. No notification and no public count BY DESIGN — a save
+// must never be observable by the post's author.
+app.post('/api/posts/:postId/save', requireAuth, async (req, res) => {
+  const { postId } = req.params;
+  if (MOCK_MODE) return res.json({ success: true, mock: true });
+
+  const { data: post } = await supabase.from('posts').select('id').eq('id', postId).single();
+  if (!post) return res.status(404).json({ error: 'Post not found' });
+
+  const { data: existing } = await supabase
+    .from('post_saves').select('post_id')
+    .eq('post_id', postId).eq('user_id', req.userId).maybeSingle();
+
+  if (existing) {
+    await supabase.from('post_saves').delete().eq('post_id', postId).eq('user_id', req.userId);
+  } else {
+    await supabase.from('post_saves').insert({ post_id: postId, user_id: req.userId });
+  }
+  res.json({ success: true, saved: !existing });
+});
+
+// Set, change, or clear this user's reaction. One row per (post, user): sending a
+// different emoji REPLACES the existing one, it never stacks. Send emoji:null to clear.
+// No notification — reactions are lightweight by design, and notifying on every
+// emoji tap would drown the inbox that feed_like already covers.
+app.post('/api/posts/:postId/react', requireAuth, async (req, res) => {
+  const { postId } = req.params;
+  const { emoji } = req.body || {};
+  if (MOCK_MODE) return res.json({ success: true, mock: true });
+
+  const clean = typeof emoji === 'string' ? emoji.trim() : null;
+  if (clean && [...clean].length > 8) return res.status(400).json({ error: 'Reaction is too long' });
+
+  const { data: post } = await supabase.from('posts').select('id').eq('id', postId).single();
+  if (!post) return res.status(404).json({ error: 'Post not found' });
+
+  if (!clean) {
+    await supabase.from('post_reactions').delete().eq('post_id', postId).eq('user_id', req.userId);
+  } else {
+    // Tapping the emoji you already have set clears it, matching how the like
+    // and repost toggles behave.
+    const { data: existing } = await supabase
+      .from('post_reactions').select('emoji')
+      .eq('post_id', postId).eq('user_id', req.userId).maybeSingle();
+    if (existing?.emoji === clean) {
+      await supabase.from('post_reactions').delete().eq('post_id', postId).eq('user_id', req.userId);
+    } else {
+      await supabase.from('post_reactions')
+        .upsert({ post_id: postId, user_id: req.userId, emoji: clean }, { onConflict: 'post_id,user_id' });
+    }
+  }
+
+  const { data: rows } = await supabase.from('post_reactions').select('emoji, user_id').eq('post_id', postId);
+  const reactions = {};
+  let myReaction = null;
+  for (const r of rows || []) {
+    reactions[r.emoji] = (reactions[r.emoji] || 0) + 1;
+    if (r.user_id === req.userId) myReaction = r.emoji;
+  }
+  res.json({ success: true, myReaction, reactions });
+});
+
+// ── "A place to track your reposts / saves" ──────────────────────────────────
+// Shared loader: hydrates full post rows for a set of ids, newest interaction
+// first, with the same author embed and reaction totals the feed uses.
+async function hydratePostsForUser(ids, userId, orderedIds) {
+  if (!ids.length) return [];
+  const { data: posts } = await supabase
+    .from('posts')
+    .select('*, users!posts_user_id_fkey(username, avatar_url)')
+    .in('id', ids);
+  let rows = posts || [];
+
+  const blocked = await getBlockedUserIdSet(userId);
+  if (blocked.size) rows = rows.filter(p => !blocked.has(p.user_id));
+
+  const liveIds = rows.map(p => p.id);
+  const [allReactions, myLikes, myReposts, mySaves, myReactions] = await Promise.all([
+    supabase.from('post_reactions').select('post_id, emoji').in('post_id', liveIds),
+    supabase.from('post_likes')    .select('post_id')       .eq('user_id', userId).in('post_id', liveIds),
+    supabase.from('post_reposts')  .select('post_id')       .eq('user_id', userId).in('post_id', liveIds),
+    supabase.from('post_saves')    .select('post_id')       .eq('user_id', userId).in('post_id', liveIds),
+    supabase.from('post_reactions').select('post_id, emoji').eq('user_id', userId).in('post_id', liveIds),
+  ]);
+  const totals = new Map();
+  for (const r of allReactions.data || []) {
+    if (!totals.has(r.post_id)) totals.set(r.post_id, {});
+    const b = totals.get(r.post_id);
+    b[r.emoji] = (b[r.emoji] || 0) + 1;
+  }
+  const likedSet    = new Set((myLikes.data   || []).map(r => r.post_id));
+  const repostedSet = new Set((myReposts.data || []).map(r => r.post_id));
+  const savedSet    = new Set((mySaves.data   || []).map(r => r.post_id));
+  const myEmoji     = new Map((myReactions.data || []).map(r => [r.post_id, r.emoji]));
+
+  const byId = new Map(rows.map(p => [p.id, {
+    ...p,
+    reactions:  totals.get(p.id) || {},
+    liked:      likedSet.has(p.id),
+    reposted:   repostedSet.has(p.id),
+    saved:      savedSet.has(p.id),
+    myReaction: myEmoji.get(p.id) || null,
+  }]));
+  // Preserve interaction order (when you saved it), not post creation order.
+  return orderedIds.map(id => byId.get(id)).filter(Boolean);
+}
+
+app.get('/api/me/reposts', requireAuth, async (req, res) => {
+  if (MOCK_MODE) return res.json({ posts: [], mock: true });
+  const { data: rows, error } = await supabase
+    .from('post_reposts').select('post_id, created_at')
+    .eq('user_id', req.userId).order('created_at', { ascending: false }).limit(100);
+  if (error) return res.status(500).json({ error: error.message });
+  const ids = (rows || []).map(r => r.post_id);
+  res.json({ posts: await hydratePostsForUser(ids, req.userId, ids) });
+});
+
+app.get('/api/me/saves', requireAuth, async (req, res) => {
+  if (MOCK_MODE) return res.json({ posts: [], mock: true });
+  const { data: rows, error } = await supabase
+    .from('post_saves').select('post_id, created_at')
+    .eq('user_id', req.userId).order('created_at', { ascending: false }).limit(100);
+  if (error) return res.status(500).json({ error: error.message });
+  const ids = (rows || []).map(r => r.post_id);
+  res.json({ posts: await hydratePostsForUser(ids, req.userId, ids) });
 });
 
 
@@ -3531,6 +3742,7 @@ function toClientNotification(n) {
 const TYPE_TO_PREF = {
   dm_received:             'dmAlerts',
   feed_like:               'likeAlerts',
+  post_repost:             'likeAlerts',   // same "someone engaged with your post" family
   post_comment:            'commentAlerts',
   comment_reply:           'commentAlerts',
   friend_request_received: 'friendRequestAlerts',
