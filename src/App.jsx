@@ -15005,7 +15005,43 @@ function FanStories({ user }) {
   );
 }
 
+// Feed avatar tint — seeded from the author's handle so a given fan keeps the same
+// colour everywhere (same charCode-sum pattern the discovery strips use).
+const FEED_AVATAR_COLORS = [C.accent, C.pink, C.mint, C.gold, C.rose, C.berry, C.lavender, C.iris];
+const feedAvatarColor = (seed="") =>
+  FEED_AVATAR_COLORS[[...String(seed)].reduce((a,c)=>a+c.charCodeAt(0),0) % FEED_AVATAR_COLORS.length];
+
+// GET /api/feed row → the shape this component renders.
+// saved/reposted/meme are deliberately absent: they have no backend yet and stay
+// client-local, so they must never be read back off a server row.
+function apiPostToFeed(p) {
+  const handle = p.users?.username || "backstage_fan";
+  const meta   = p.metadata || {};
+  return {
+    id:        p.id,
+    userId:    p.user_id,
+    user:      `@${handle}`,
+    avatar:    handle.slice(0,1).toUpperCase(),
+    color:     feedAvatarColor(handle),
+    type:      p.type || "general",
+    text:      p.content || "",
+    likes:     p.likes || 0,
+    comments:  p.comments || 0,
+    time:      fmtCapsuleTs(p.created_at),
+    _ts:       p.created_at ? new Date(p.created_at).getTime() : Date.now(),
+    tag:       p.tag || (meta.tags?.[0]) || "General",
+    tags:      Array.isArray(meta.tags) && meta.tags.length ? meta.tags : (p.tag ? [p.tag] : []),
+    image:     p.image_url || null,
+    venue:     meta.venue || null,
+    city:      meta.city || null,
+    checkedIn: !!meta.checkedIn,
+    liked:     !!p.liked,
+    meme:      null,
+  };
+}
+
 function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) {
+  const { tokenReady } = useAuth();
   const [eraSearch, setEraSearch] = useState("");
   const [eraSearchOpen, setEraSearchOpen] = useState(false);
   // Collapsible feed chrome: search/hashtags/sort+filter collapse on downward scroll,
@@ -15029,16 +15065,29 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
     window.addEventListener("bs:fanverse-reset", onReset);
     return () => window.removeEventListener("bs:fanverse-reset", onReset);
   }, []);
-  const [posts, setPosts] = useState(ls.get("backstage_feed_posts", [
-    { id:1, user:"@armyvibes_mia", avatar:"M", color:C.pink, type:"concert", text:"BTS Dallas merch line is INSANE right now. Gate B opens at 2pm per staff!! 💜 tag your squad", likes:284, comments:31, time:"3m", tag:"BTS", saved:false, meme:null, image:null },
-    { id:2, user:"@stayforever_jen", avatar:"J", color:C.accent, type:"outfit", text:"Finally pulled together my MANIAC era fit for the Chicago show ✨ silver + black everything. Outfit thread below!", likes:512, comments:47, time:"12m", tag:"Stray Kids", saved:false, meme:null, image:null },
-    { id:3, user:"@blinkinseoul", avatar:"B", color:C.rose, type:"trade", text:"Looking for Jennie BORN PINK UR! Have Lisa BORNPINK UR to trade. DM me 🃏 will meet at venue or ship tracked", likes:88, comments:12, time:"28m", tag:"BLACKPINK", saved:true, meme:null, image:null },
-    { id:4, user:"@mysfan_paris", avatar:"P", color:C.mint, type:"concert", text:"Recovering from Drama Seoul Day 2 😭 Still can't believe Winter saw my banner. I am not okay. Fancam in comments", likes:1240, comments:203, time:"1h", tag:"aespa", saved:false, meme:"😭", image:null },
-    { id:5, user:"@nj_kaz", avatar:"K", color:C.silver, type:"outfit", text:"Soft bunny era for the NewJeans show. ETA 5 minutes and I still don't know which shoes 😭 rate my fit?", likes:374, comments:56, time:"2h", tag:"NewJeans", saved:false, meme:"🤡", image:null },
-    { id:6, user:"@army_dallas_hub", avatar:"A", color:C.gold, type:"concert", text:"📍 Klyde Warren Pre-show meetup CONFIRMED — Apr 30 @ 3PM. Bring photocards, extra freebies, and your whole heart 💜 RSVP below", likes:891, comments:74, time:"3h", tag:"BTS", saved:false, meme:null, image:null },
-  ]));
-  const [liked, setLiked] = useState({4:true});
-  const [saved, setSaved] = useState({3:true});
+  // Real feed — GET /api/feed. There is no local seed: an empty feed renders the
+  // empty state rather than fake posts, so users never see content that isn't real.
+  const [posts, setPosts] = useState([]);
+  const [feedLoading, setFeedLoading] = useState(true);
+  const [feedError, setFeedError] = useState(false);
+  const [posting, setPosting] = useState(false);
+
+  const loadFeed = useCallback(async () => {
+    const d = await api.get('/api/feed?limit=30');
+    if (d?.error || !Array.isArray(d?.posts)) {
+      console.warn('[feed] load failed:', d?.error);
+      setFeedError(true); setFeedLoading(false);
+      return;
+    }
+    setPosts(d.posts.map(apiPostToFeed));
+    setFeedError(false); setFeedLoading(false);
+  }, []);
+
+  // tokenReady gate: without it this fires before api._token is set, returns an
+  // unauthenticated (like-state-less) result, and never re-runs. See KEY PATTERNS.
+  useEffect(() => { if (tokenReady) loadFeed(); }, [tokenReady, loadFeed]);
+
+  const [saved, setSaved] = useState({});
   const [sort, setSort] = useState("trending");
   const [filter, setFilter] = useState("all");
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
@@ -15066,21 +15115,8 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
   const showToast = msg => { setToast(msg); setTimeout(()=>setToast(null), 2400); };
   const imgRef = useRef(null);
 
-  // Mock comments — UI only, not persisted. No backend comments table exists yet.
-  const MOCK_COMMENT_POOL = [
-    { user:"@stanforlife",   text:"omg same energy, this is everything 😭", likes:14, replies:[{ user:"@bunnybiased", text:"@stanforlife right?? I felt this" }] },
-    { user:"@kpopdaily_",    text:"wait this is so real, screenshotting this", likes:6,  replies:[] },
-    { user:"@bunnybiased",   text:"the way I felt this in my soul", likes:22, replies:[{ user:"@seoulboundfan", text:"@bunnybiased same honestly" },{ user:"@stanforlife", text:"@bunnybiased no literally" }] },
-    { user:"@seoulboundfan", text:"need updates on this asap pls 🙏", likes:3,  replies:[] },
-  ];
-  const getMockComments = (postId) => {
-    const seed = postId % MOCK_COMMENT_POOL.length;
-    return [MOCK_COMMENT_POOL[seed], MOCK_COMMENT_POOL[(seed+1)%MOCK_COMMENT_POOL.length]];
-  };
-  // Comment UI-only state — likes/replies/report are local interactions on mock data, not persisted.
-  const [commentLiked, setCommentLiked] = useState({});
-  const [expandedReplies, setExpandedReplies] = useState({});
-  const [reportMenuFor, setReportMenuFor] = useState(null);
+  // Comments have no backend table or routes yet — the sheet shows an honest
+  // "not built" state rather than sample content. See next-priorities (item #2).
 
   const POST_TYPES = [
     { id:"concert", label:"🎤 Concert", color:C.pink },
@@ -15098,18 +15134,55 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
   const sortedPosts = [...posts].sort((a,b)=>{
     if(sort==="trending") return (b.likes+b.comments*2)-(a.likes+a.comments*2);
     if(sort==="liked") return b.likes-a.likes;
-    return b.id-a.id;
+    return b._ts-a._ts;   // post ids are uuids now — order by real timestamp
   }).filter(p=>{
     if(eraSearch) return p.tag?.toLowerCase().includes(eraSearch.toLowerCase()) || p.text?.toLowerCase().includes(eraSearch.toLowerCase());
     return filter==="all"||p.type===filter||p.tag?.toLowerCase()===filter;
   });
 
-  const addPost = () => {
-    if(!draft.text.trim()) return;
-    const newPost = { id:Date.now(), user:`@${user?.username||user?.name||user?.stanName||"you"}`, avatar:(user?.username||user?.name||user?.stanName||"Y")[0].toUpperCase(), color:C.accent, type:draft.type||"general", text:draft.text, likes:0, comments:0, reposts:0, time:"now", tag:draft.tags[0]||"General", tags:draft.tags.length?draft.tags:["General"], saved:false, meme:null, image:draft.image||null, venue:draft.locationOn&&draft.venue.trim()?draft.venue.trim():null, city:draft.locationOn&&draft.city.trim()?draft.city.trim():null, checkedIn:draft.locationOn&&draft.checkedIn };
-    const next = [newPost, ...posts];
-    setPosts(next); ls.set("backstage_feed_posts", next.slice(0,50));
-    setDraft({ text:"", tags:[], type:"general", image:null, locationOn:false, venue:"", city:"", checkedIn:false }); setTagQuery(""); setComposing(false);
+  const addPost = async () => {
+    if(!draft.text.trim() || posting) return;
+    setPosting(true);
+    const r = await api.post('/api/feed/post', {
+      content:  draft.text.trim(),
+      type:     draft.type || "general",
+      tag:      draft.tags[0] || null,
+      imageUrl: draft.image || null,
+      metadata: {
+        tags:      draft.tags,
+        venue:     draft.locationOn && draft.venue.trim() ? draft.venue.trim() : null,
+        city:      draft.locationOn && draft.city.trim()  ? draft.city.trim()  : null,
+        checkedIn: draft.locationOn && draft.checkedIn,
+      },
+    });
+    setPosting(false);
+    // api.post resolves with {error} instead of rejecting on a non-2xx — always
+    // check explicitly, or a failed post shows a false success (see friend-request bug).
+    if (r?.error || !r?.post) {
+      console.warn('[feed] post failed:', r?.error);
+      showToast("Couldn't post — try again");
+      return;
+    }
+    setPosts(ps => [apiPostToFeed(r.post), ...ps]);
+    setDraft({ text:"", tags:[], type:"general", image:null, locationOn:false, venue:"", city:"", checkedIn:false });
+    setTagQuery(""); setComposing(false);
+    showToast("Posted to the Fanverse");
+  };
+
+  // Optimistic like with rollback — the server owns the real state.
+  const toggleLike = async (post) => {
+    const wasLiked = post.liked;
+    setPosts(ps => ps.map(x => x.id===post.id
+      ? { ...x, liked:!wasLiked, likes: Math.max(0, x.likes + (wasLiked ? -1 : 1)) }
+      : x));
+    const r = await api.post('/api/feed/like', { postId: post.id });
+    if (r?.error) {
+      console.warn('[feed] like failed:', r.error);
+      setPosts(ps => ps.map(x => x.id===post.id
+        ? { ...x, liked:wasLiked, likes: Math.max(0, x.likes + (wasLiked ? 1 : -1)) }
+        : x));
+      showToast("Couldn't save that like");
+    }
   };
 
   const handleImgUpload = (e) => {
@@ -15254,7 +15327,7 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
               <div style={{ width:38,height:38,borderRadius:"50%",background:`linear-gradient(150deg,${p.color}ee,${p.color}66)`,border:"1px solid rgba(255,255,255,0.22)",boxShadow:`0 3px 10px ${p.color}30, inset 0 1px 0 rgba(255,255,255,0.3)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:"#1a1228",fontSize:14,flexShrink:0 }}>{p.avatar}</div>
               <div style={{ flex:1 }}>
                 <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12.5, color:C.text }}>{p.user}</p>
-                <p style={{ fontSize:9.5, color:C.textMid }}>{p.time} ago</p>
+                <p style={{ fontSize:9.5, color:C.textMid }}>{p.time}</p>
               </div>
               {/* Topic badges — clean outline pills, no emoji clutter */}
               <div style={{ display:"flex", gap:4, flexShrink:0 }}>
@@ -15271,8 +15344,8 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
             {/* Social proof — quiet metric, not heavy text */}
             {p.likes>500&&<p style={{ fontSize:9.5, color:C.gold, fontFamily:"'Epilogue',sans-serif", fontWeight:600, marginBottom:8, letterSpacing:"0.01em", position:"relative" }}>🔥 {p.likes.toLocaleString()} fans loved this</p>}
             <div style={{ display:"flex", gap:13, alignItems:"center", position:"relative" }}>
-              <button onClick={()=>{ setLiked(l=>({...l,[p.id]:!l[p.id]})); setPosts(ps=>ps.map(x=>x.id===p.id?{...x,likes:x.likes+(liked[p.id]?-1:1)}:x)); }} className="tap" style={{ background:"none",border:"none",fontSize:12.5,color:liked[p.id]?C.rose:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>
-                {liked[p.id]?"♥":"♡"} {p.likes+(liked[p.id]?1:0)}
+              <button onClick={()=>toggleLike(p)} className="tap" style={{ background:"none",border:"none",fontSize:12.5,color:p.liked?C.rose:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>
+                {p.liked?"♥":"♡"} {p.likes}
               </button>
               <button onClick={()=>{ setReplyDraft(""); setCommentsOpenFor(p.id); }} className="tap" style={{ background:"none",border:"none",fontSize:12.5,color:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>💬 {p.comments}</button>
               <button onClick={()=>{ setReposted(r=>({...r,[p.id]:!r[p.id]})); setPosts(ps=>ps.map(x=>x.id===p.id?{...x,reposts:(x.reposts||0)+(reposted[p.id]?-1:1)}:x)); }} className="tap" style={{ background:"none",border:"none",fontSize:12.5,color:reposted[p.id]?C.iris:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>⟲ {(p.reposts||0)+(reposted[p.id]?1:0)}</button>
@@ -15283,12 +15356,14 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
               </button>
             </div>
 
-            {/* Reaction picker — a few quick presets plus custom emoji via native keyboard */}
+            {/* Reaction picker — a few quick presets plus custom emoji via native keyboard.
+                Reactions are a local visual only; they must never touch the server-owned
+                like count, or it desyncs on the next feed refresh. */}
             {memeMode===p.id&&(
               <div style={{ marginTop:10, animation:"up .15s ease" }}>
                 <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:customEmojiFor===p.id?8:0 }}>
                   {["😭","✨","🎤","💜","🌸"].map(emoji=>(
-                    <button key={emoji} onClick={()=>{setPosts(ps=>ps.map(x=>x.id===p.id?{...x,meme:emoji,likes:x.likes+1}:x));setMemeMode(null);}} style={{ background:C.surfaceHi,border:`1px solid ${C.border}`,borderRadius:10,width:36,height:36,fontSize:18,cursor:"pointer" }}>{emoji}</button>
+                    <button key={emoji} onClick={()=>{setPosts(ps=>ps.map(x=>x.id===p.id?{...x,meme:emoji}:x));setMemeMode(null);}} style={{ background:C.surfaceHi,border:`1px solid ${C.border}`,borderRadius:10,width:36,height:36,fontSize:18,cursor:"pointer" }}>{emoji}</button>
                   ))}
                   <button onClick={()=>setCustomEmojiFor(customEmojiFor===p.id?null:p.id)} title="Add any emoji" style={{ background:C.chipInactiveBg,border:`1.5px dashed rgba(214,189,255,0.32)`,borderRadius:10,width:36,height:36,fontSize:16,color:C.lavender,cursor:"pointer" }}>+</button>
                 </div>
@@ -15302,7 +15377,7 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
                       maxLength={8}
                       style={{ flex:1, background:C.inputBg, border:"1.5px solid rgba(214,189,255,0.2)", borderRadius:99, padding:"7px 12px", fontSize:13, color:C.text, outline:"none" }}
                     />
-                    <button onClick={()=>{ if(customEmojiDraft.trim()){ setPosts(ps=>ps.map(x=>x.id===p.id?{...x,meme:customEmojiDraft.trim(),likes:x.likes+1}:x)); } setCustomEmojiFor(null); setCustomEmojiDraft(""); setMemeMode(null); }} className="tap" style={{ background:`linear-gradient(135deg,${C.accent},${C.lavender})`, border:"none", borderRadius:99, padding:"7px 14px", color:"#1a1228", fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>Add</button>
+                    <button onClick={()=>{ if(customEmojiDraft.trim()){ setPosts(ps=>ps.map(x=>x.id===p.id?{...x,meme:customEmojiDraft.trim()}:x)); } setCustomEmojiFor(null); setCustomEmojiDraft(""); setMemeMode(null); }} className="tap" style={{ background:`linear-gradient(135deg,${C.accent},${C.lavender})`, border:"none", borderRadius:99, padding:"7px 14px", color:"#1a1228", fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>Add</button>
                   </div>
                 )}
               </div>
@@ -15328,7 +15403,17 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
           );
         })()}
 
-        {sortedPosts.length===0&&<Empty emoji="📱" title="Nothing posted yet" sub="Be the first to share something with the Fanverse." action="+ Post Now" onAction={()=>setComposing(true)} />}
+        {feedLoading && posts.length===0 && (
+          <p style={{ textAlign:"center", fontSize:11, color:C.textDim, padding:"26px 0", fontFamily:"'Epilogue',sans-serif" }}>Loading the Fanverse…</p>
+        )}
+        {!feedLoading && feedError && (
+          <Empty emoji="🌙" title="Couldn't load the feed" sub="Check your connection and try again." action="Retry" onAction={()=>{ setFeedLoading(true); loadFeed(); }} />
+        )}
+        {!feedLoading && !feedError && sortedPosts.length===0 && (
+          posts.length===0
+            ? <Empty emoji="📱" title="Nothing posted yet" sub="Be the first to share something with the Fanverse." action="+ Post Now" onAction={()=>setComposing(true)} />
+            : <Empty emoji="🔍" title="No matches" sub="No posts match that search or filter yet." action="Clear filters" onAction={()=>{ setEraSearch(""); setFilter("all"); }} />
+        )}
       </Screen>
 
       {/* Compose — premium liquid-glass sheet, not an inline block */}
@@ -15410,7 +15495,7 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
             )}
 
             <div style={{ display:"flex", gap:8, position:"relative" }}>
-              <Btn onClick={addPost} disabled={!draft.text.trim()} style={{ flex:1 }} small>Post to Feed ✦</Btn>
+              <Btn onClick={addPost} disabled={!draft.text.trim() || posting} style={{ flex:1 }} small>{posting ? "Posting…" : "Post to Feed ✦"}</Btn>
               <Btn ghost color={C.modalTextMid} onClick={()=>setComposing(false)} style={{ width:80,flex:"none" }} small>Cancel</Btn>
             </div>
           </div>
@@ -15418,15 +15503,11 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
         );
       })()}
 
-      {/* Comments — mock only, not persisted. No backend comments table exists yet. */}
+      {/* Comments — no backend table or routes exist yet, so this sheet shows the
+          post plus an honest not-built state. No sample comments. */}
       {commentsOpenFor!=null && (()=>{
         const activePost = posts.find(x=>x.id===commentsOpenFor);
         if (!activePost) return null;
-        const mockComments = getMockComments(activePost.id);
-        // Renders @mentions inside comment/reply text with a quiet lavender highlight.
-        const renderMentions = (text) => text.split(/(@[a-zA-Z0-9_]+)/g).map((part,i) =>
-          part.startsWith("@") ? <span key={i} style={{ color:C.lavender, fontWeight:700 }}>{part}</span> : part
-        );
         return (
           <div onClick={()=>setCommentsOpenFor(null)} style={{ position:"fixed",inset:0,zIndex:470,background:C.overlayBg,backdropFilter:"blur(2px)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
             <div onClick={e=>e.stopPropagation()} style={{ position:"relative", overflow:"hidden", background:C.modalBg,border:`1px solid ${C.modalBorder}`,borderTop:`1px solid ${C.modalBorderHi}`,borderRadius:"24px 24px 0 0",padding:"20px 20px",width:"100%",maxHeight:"80vh",display:"flex",flexDirection:"column",animation:"slideUp .25s ease",boxShadow:C.modalShadow,backdropFilter:"blur(26px) saturate(150%)" }}>
@@ -15445,59 +15526,13 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
                   <p style={{ fontSize:11.5,color:C.modalTextMid,lineHeight:1.5,marginTop:2 }}>{activePost.text}</p>
                 </div>
               </div>
-              {/* Mock comments */}
-              <div style={{ flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:14,marginBottom:14,position:"relative" }}>
-                {mockComments.map((c,i)=>{
-                  const cLiked = !!commentLiked[i];
-                  const repliesShown = !!expandedReplies[i];
-                  return (
-                  <div key={i} style={{ display:"flex",gap:8,alignItems:"flex-start" }}>
-                    <div style={{ width:26,height:26,borderRadius:"50%",background:C.modalSurface,border:`1px solid ${C.modalBorder}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.modalAccent,fontSize:10,flexShrink:0 }}>{c.user[1].toUpperCase()}</div>
-                    <div style={{ flex:1,minWidth:0 }}>
-                      <div style={{ display:"flex", alignItems:"baseline", gap:6 }}>
-                        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,color:C.modalText }}>{c.user}</p>
-                        <p style={{ fontSize:9,color:C.modalTextDim }}>2h</p>
-                      </div>
-                      <p style={{ fontSize:11.5,color:C.modalText,lineHeight:1.5,marginTop:1 }}>{renderMentions(c.text)}</p>
-                      <div style={{ display:"flex", gap:14, alignItems:"center", marginTop:5 }}>
-                        <button onClick={()=>setCommentLiked(s=>({...s,[i]:!s[i]}))} className="tap" style={{ background:"none",border:"none",cursor:"pointer",display:"flex",alignItems:"center",gap:4,fontSize:10.5,color:cLiked?C.rose:C.modalTextMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,padding:0 }}>
-                          {cLiked?"♥":"♡"} {(c.likes||0)+(cLiked?1:0)}
-                        </button>
-                        <button onClick={()=>setReplyDraft(`@${c.user.replace("@","")} `)} className="tap" style={{ background:"none",border:"none",cursor:"pointer",fontSize:10.5,color:C.modalTextMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,padding:0 }}>Reply</button>
-                        {c.replies?.length>0 && (
-                          <button onClick={()=>setExpandedReplies(s=>({...s,[i]:!s[i]}))} className="tap" style={{ background:"none",border:"none",cursor:"pointer",fontSize:10.5,color:C.modalAccent,fontFamily:"'Epilogue',sans-serif",fontWeight:600,padding:0 }}>
-                            {repliesShown?"Hide replies":`View replies (${c.replies.length})`}
-                          </button>
-                        )}
-                        <button onClick={()=>setReportMenuFor(reportMenuFor===i?null:i)} style={{ background:"none",border:"none",cursor:"pointer",fontSize:12,color:C.modalTextDim,marginLeft:"auto",padding:0,position:"relative" }}>
-                          ⋯
-                          {reportMenuFor===i && (
-                            <div onClick={e=>e.stopPropagation()} style={{ position:"absolute", top:18, right:0, zIndex:5, background:C.modalBg, border:`1px solid ${C.modalBorder}`, borderRadius:11, padding:5, minWidth:110, boxShadow:C.modalShadow, backdropFilter:"blur(16px)" }}>
-                              <div onClick={()=>{ setReportMenuFor(null); showToast("Comment reported"); }} className="tap" style={{ padding:"7px 10px", borderRadius:8, fontSize:10.5, color:C.rose, fontFamily:"'Epilogue',sans-serif", fontWeight:600, cursor:"pointer", whiteSpace:"nowrap" }}>Report</div>
-                            </div>
-                          )}
-                        </button>
-                      </div>
-                      {/* Nested replies */}
-                      {repliesShown && c.replies?.map((r,ri)=>(
-                        <div key={ri} style={{ display:"flex", gap:7, alignItems:"flex-start", marginTop:10, paddingLeft:6, borderLeft:"1.5px solid rgba(214,189,255,0.16)" }}>
-                          <div style={{ width:20,height:20,borderRadius:"50%",background:C.modalSurface,border:`1px solid ${C.modalBorder}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.modalTextMid,fontSize:8.5,flexShrink:0,marginLeft:8 }}>{r.user[1].toUpperCase()}</div>
-                          <div style={{ flex:1,minWidth:0 }}>
-                            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10,color:C.modalText }}>{r.user}</p>
-                            <p style={{ fontSize:10.5,color:C.modalText,lineHeight:1.45,marginTop:1 }}>{renderMentions(r.text)}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  );
-                })}
-                <p style={{ fontSize:9.5,color:C.modalTextDim,textAlign:"center",marginTop:4 }}>Sample comments · live comments are coming soon</p>
-              </div>
-              {/* Reply input — disabled submit, honest toast */}
-              <div style={{ display:"flex",gap:8,flexShrink:0,paddingTop:4,position:"relative" }}>
-                <input value={replyDraft} onChange={e=>setReplyDraft(e.target.value)} placeholder="Add a comment…" style={{ flex:1,background:C.modalSurface,border:`1.5px solid ${C.modalBorder}`,borderRadius:99,padding:"10px 14px",fontSize:12.5,color:C.modalText,fontFamily:"'Epilogue',sans-serif",outline:"none",boxShadow:"inset 0 2px 6px rgba(0,0,0,0.12)" }} />
-                <button onClick={()=>{ setReplyDraft(""); showToast("Live comments are coming soon — your reply wasn't saved."); }} disabled={!replyDraft.trim()} className="tap" style={{ background:replyDraft.trim()?`linear-gradient(135deg,${C.modalAccent},${C.modalAccent}cc)`:C.modalSurface,border:`1.5px solid ${replyDraft.trim()?"rgba(255,255,255,0.28)":C.modalBorder}`,borderRadius:99,padding:"0 16px",color:replyDraft.trim()?"#1a1228":C.modalTextDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:replyDraft.trim()?"pointer":"default",flexShrink:0 }}>Post</button>
+              {/* Comments aren't built yet — say so plainly instead of showing samples. */}
+              <div style={{ flex:1,overflowY:"auto",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,padding:"26px 10px",marginBottom:14,position:"relative" }}>
+                <div style={{ fontSize:26 }}>💬</div>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,color:C.modalText,textAlign:"center" }}>Comments are coming soon</p>
+                <p style={{ fontSize:11,color:C.modalTextMid,textAlign:"center",lineHeight:1.55,maxWidth:250 }}>
+                  Likes and posts are live across the Fanverse. Replies are next — for now, send a DM or react to keep the conversation going.
+                </p>
               </div>
             </div>
           </div>

@@ -2280,8 +2280,13 @@ app.get('/api/feed', optionalAuth, async (req, res) => {
     ], mock: true, page: 1, hasMore: true });
   }
 
-  const offset = (page - 1) * limit;
-  let query = supabase.from('posts').select('*, users(username, avatar_url)').order('created_at', { ascending: false }).range(offset, offset + limit - 1);
+  const pageNum  = Math.max(1, parseInt(page) || 1);
+  const pageSize = Math.min(50, Math.max(1, parseInt(limit) || 20));
+  const offset   = (pageNum - 1) * pageSize;
+  // users!posts_user_id_fkey — posts↔users is reachable both directly (posts.user_id)
+  // and via the post_likes junction, so PostgREST needs the explicit FK or it 500s
+  // with "more than one relationship was found". Same trap as GET /api/meetups.
+  let query = supabase.from('posts').select('*, users!posts_user_id_fkey(username, avatar_url)').order('created_at', { ascending: false }).range(offset, offset + pageSize - 1);
   if (type)   query = query.eq('type', type);
   if (fandom) query = query.eq('tag', fandom);
   const { data, error } = await query;
@@ -2291,17 +2296,40 @@ app.get('/api/feed', optionalAuth, async (req, res) => {
   if (req.userId) {
     const blocked = await getBlockedUserIdSet(req.userId);
     if (blocked.size) posts = posts.filter(p => !blocked.has(p.user_id));
+
+    // Attach this viewer's own like state so the heart renders correctly on load
+    // (without this the client can only guess, and likes appear to reset on refresh).
+    const ids = posts.map(p => p.id);
+    if (ids.length) {
+      const { data: myLikes } = await supabase
+        .from('post_likes').select('post_id').eq('user_id', req.userId).in('post_id', ids);
+      const likedSet = new Set((myLikes || []).map(l => l.post_id));
+      posts = posts.map(p => ({ ...p, liked: likedSet.has(p.id) }));
+    }
   }
-  res.json({ posts, page: parseInt(page), hasMore: data.length === parseInt(limit) });
+  res.json({ posts, page: pageNum, hasMore: data.length === pageSize });
 });
 
 app.post('/api/feed/post', requireAuth, async (req, res) => {
-  const { content, type, tag, imageUrl } = req.body;
+  const { content, type, tag, imageUrl, metadata } = req.body;
   if (!content?.trim()) return res.status(400).json({ error: 'Content required' });
+  if (content.length > 2000) return res.status(400).json({ error: 'Post is too long' });
   if (MOCK_MODE) return res.json({ success: true, mock: true, post: { id: `p_${Date.now()}`, content, type, tag } });
-  const { data, error } = await supabase.from('posts').insert({ user_id: req.userId, content, type: type || 'general', tag, image_url: imageUrl }).select().single();
+
+  // Whitelist metadata — never persist arbitrary client-supplied JSON into the row.
+  const m = metadata && typeof metadata === 'object' ? metadata : {};
+  const safeMeta = {
+    tags:      Array.isArray(m.tags) ? m.tags.filter(t => typeof t === 'string').slice(0, 5).map(t => t.slice(0, 40)) : [],
+    venue:     typeof m.venue === 'string' ? m.venue.slice(0, 120) : null,
+    city:      typeof m.city  === 'string' ? m.city.slice(0, 120)  : null,
+    checkedIn: !!m.checkedIn,
+  };
+
+  const { data, error } = await supabase.from('posts')
+    .insert({ user_id: req.userId, content: content.trim(), type: type || 'general', tag, image_url: imageUrl, metadata: safeMeta })
+    .select('*, users!posts_user_id_fkey(username, avatar_url)').single();
   if (error) return res.status(500).json({ error: error.message });
-  res.json({ success: true, post: data });
+  res.json({ success: true, post: { ...data, liked: false } });
 });
 
 app.post('/api/feed/like', requireAuth, async (req, res) => {
