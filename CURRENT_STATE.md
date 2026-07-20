@@ -3,9 +3,11 @@
 *This is the doc to re-upload to the Claude Project most often — it reflects the actual shipped state of the app, not a single session's diff. For stable architecture background, see `PROJECT_OVERVIEW.md` instead.*
 
 **Snapshot date:** 2026-06-22
-**Branch:** `main` @ `360fe2b` (also mirrored on `claude/backstage-project-handover-249n56`)
+**Branch:** `main` @ `360fe2b`
 **Version:** `package.json` → `1.6.0`
-**Build:** Vite production build (last verified clean per `NEXT_PHASE_HANDOFF.md` history; re-run `npm run build` to confirm before trusting this on a stale clone)
+**Supabase project:** `wshqjxsbwqijodlskrbx` (ACTIVE_HEALTHY, us-east-1, Postgres 17.6)
+**Live users:** 17 registered accounts, 6 friends connections, 19 DMs, 6 FCM push tokens, 132 synced events
+**Build:** re-run `npm run build` to verify before sharing — last confirmed clean per git history but not re-verified this session
 
 > **Why this doc exists:** prior handoff docs in this repo (`NEXT_PHASE_HANDOFF.md`) were written as single-session diffs, not cumulative inventories. Re-uploading only the latest one to a Claude Project causes the project's knowledge to drift backward to whatever session last got written up, even though dozens of earlier commits already shipped real features. This doc is a full survey of the live codebase (component list + API routes + migrations + commit history), not just "since last time."
 
