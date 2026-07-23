@@ -2222,36 +2222,103 @@ const DEFAULT_PROFILE_STYLE = {
 // vars aren't configured on this deploy (in-app notifications still work via
 // backstage_notif_inbox regardless — see deliverNotification() below).
 // ─────────────────────────────────────────────────────────────────────────────
+// Firebase web config for this deploy, or null when the VITE_FIREBASE_* vars
+// aren't set. Shared by token registration and the foreground message handler so
+// the two can't drift apart.
+function getFirebaseConfig() {
+  const apiKey    = import.meta.env.VITE_FIREBASE_API_KEY;
+  const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
+  const vapidKey  = import.meta.env.VITE_FIREBASE_VAPID_KEY;
+  if (!apiKey || !projectId || !vapidKey) return null;
+  return {
+    vapidKey,
+    config: {
+      apiKey,
+      authDomain:        import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+      projectId,
+      messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+      appId:             import.meta.env.VITE_FIREBASE_APP_ID,
+    },
+  };
+}
+
+// FCM delivers to the PAGE, not the service worker, whenever the app is focused —
+// onBackgroundMessage deliberately does not fire there. Without an onMessage
+// handler the payload arrives and is silently discarded, which is why a test push
+// could report delivered:3 and show nothing on screen. Render it through the SW
+// registration so a focused app still produces a real system notification.
+let _fgMessageHandlerAttached = false;
+async function attachForegroundMessageHandler() {
+  if (_fgMessageHandlerAttached) return;
+  if (!("Notification" in window) || !("serviceWorker" in navigator)) return;
+  if (Notification.permission !== "granted") return;
+  const fb = getFirebaseConfig();
+  if (!fb) return;
+  try {
+    const { initializeApp, getApps } = await import('firebase/app');
+    const { getMessaging, onMessage } = await import('firebase/messaging');
+    const firebaseApp = getApps().length ? getApps()[0] : initializeApp(fb.config);
+    const messaging   = getMessaging(firebaseApp);
+    // Set before the await below so a second caller can't slip past the guard
+    _fgMessageHandlerAttached = true;
+    onMessage(messaging, async (payload) => {
+      const title = payload.notification?.title || 'Backstage';
+      const body  = payload.notification?.body  || '';
+      const { targetModal, targetTab, targetId } = payload.data || {};
+      const reg = await navigator.serviceWorker.getRegistration('/firebase-messaging-sw.js');
+      // Mirrors the SW's showNotification options so foreground and background
+      // notifications look identical and share the notificationclick handler
+      reg?.showNotification(title, {
+        body,
+        icon:  '/fanverse-logo.png',
+        badge: '/fanverse-logo.png',
+        tag:   targetModal || targetTab || 'backstage-notif',
+        data:  { targetModal, targetTab, targetId, origin: window.location.origin },
+      });
+    });
+  } catch (err) {
+    _fgMessageHandlerAttached = false;
+    console.warn('[FCM] foreground handler failed:', err?.message);
+  }
+}
+
 async function requestNotificationPermission(userId) {
   if (!("Notification" in window) || !("serviceWorker" in navigator)) return null;
   const permission = await Notification.requestPermission();
   if (permission !== "granted") return null;
 
-  const FB_API_KEY    = import.meta.env.VITE_FIREBASE_API_KEY;
-  const FB_PROJECT_ID = import.meta.env.VITE_FIREBASE_PROJECT_ID;
-  const FB_VAPID      = import.meta.env.VITE_FIREBASE_VAPID_KEY;
+  const fb = getFirebaseConfig();
 
-  if (FB_API_KEY && FB_PROJECT_ID && FB_VAPID) {
+  if (fb) {
     try {
       const { initializeApp, getApps } = await import('firebase/app');
       const { getMessaging, getToken }  = await import('firebase/messaging');
-      const config = {
-        apiKey:            FB_API_KEY,
-        authDomain:        import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-        projectId:         FB_PROJECT_ID,
-        messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-        appId:             import.meta.env.VITE_FIREBASE_APP_ID,
-      };
+      const config = fb.config;
       const firebaseApp = getApps().length ? getApps()[0] : initializeApp(config);
       const messaging   = getMessaging(firebaseApp);
-      const reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
-      // Send config to SW so it can handle background messages
-      const sw = reg.active || reg.waiting || reg.installing;
-      if (sw) sw.postMessage({ type: 'FIREBASE_CONFIG', config });
-      await navigator.serviceWorker.ready;
-      const token = await getToken(messaging, { vapidKey: FB_VAPID, serviceWorkerRegistration: reg });
+      // Config rides on the script URL so the worker can initialize at top level and
+      // survive termination/revival. The URL is part of the registration, so a
+      // revived worker still sees these params — a postMessage sent once at
+      // registration time does not survive.
+      const swUrl = `/firebase-messaging-sw.js?${new URLSearchParams({
+        apiKey:            config.apiKey,
+        authDomain:        config.authDomain || '',
+        projectId:         config.projectId,
+        messagingSenderId: config.messagingSenderId || '',
+        appId:             config.appId || '',
+      })}`;
+      const reg = await navigator.serviceWorker.register(swUrl);
+      // Wait for an ACTIVATED worker before talking to it. The old code posted to
+      // reg.installing and only then awaited ready, so the message was routinely
+      // dropped on a fresh install.
+      const readyReg = await navigator.serviceWorker.ready;
+      // Legacy path: an older cached worker still initializes from this message.
+      // Current workers ignore it — they already have config from the URL.
+      readyReg.active?.postMessage({ type: 'FIREBASE_CONFIG', config });
+      const token = await getToken(messaging, { vapidKey: fb.vapidKey, serviceWorkerRegistration: readyReg || reg });
       if (token) {
         await api.post('/api/save-token', { token, userId, platform: 'web' });
+        await attachForegroundMessageHandler();
         return token;
       }
     } catch (err) {
@@ -26635,8 +26702,27 @@ function AppInner() {
     setTab(dest);
   };
 
-  // Auto-prompt disabled — push is opt-in via Settings only.
-  // showNotifPrompt state + UI kept for future opt-in flows; never triggered automatically.
+  // Re-attach the foreground FCM handler on every load. onMessage listeners live on
+  // the page, so they die with the tab — a device that granted permission weeks ago
+  // still needs this wired up before a focused app can display anything.
+  useEffect(()=>{ attachForegroundMessageHandler(); }, [user?.id]);
+
+  // Ask for notification permission once per device. Previously showNotifPrompt was
+  // never set true anywhere, so the only path to a push token was finding the toggle
+  // in Settings — a device that never went looking stayed permanently unenrolled
+  // while the server reported successful delivery to that user's OTHER devices.
+  // Gated on permission === "default": never re-ask after granted or denied (iOS
+  // shows the system dialog once, so re-prompting a denied device does nothing).
+  useEffect(()=>{
+    if (appState !== "main" || !user?.id) return;
+    if (!("Notification" in window) || !("serviceWorker" in navigator)) return;
+    if (Notification.permission !== "default") return;
+    const pushUserKey = user?.id || user?.email || "anon";
+    if (ls.get(`backstage_push_prompted_${pushUserKey}`, false)) return;
+    // Let the app settle first so this never lands on top of onboarding
+    const t = setTimeout(()=>setShowNotifPrompt(true), 4000);
+    return ()=>clearTimeout(t);
+  }, [appState, user?.id, user?.email]);
 
   // Handle push notification deep-links, OAuth callbacks, and Stripe checkout returns
   useEffect(()=>{
