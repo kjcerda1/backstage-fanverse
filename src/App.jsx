@@ -4706,6 +4706,40 @@ function NotificationBell({ onOpen, onOpenSettings }) {
 }
 
 // ─── ASK BACKSTAGE BUTTON ─────────────────────────────────────────────────────
+// Floating Messages shortcut. Mirrors NotificationBell's placement (top:6, 40px)
+// and sits directly left of it, so the Messages+Bell pair lands in exactly the
+// same spot on every tab. Reads the same backstage_dms store the dock and the
+// Fanverse header read, so every unread badge in the app agrees.
+function FloatingMessagesButton({ go }) {
+  const [unread, setUnread] = useState(0);
+  useEffect(() => {
+    const compute = () => {
+      const stored = ls.get("backstage_dms", []);
+      const convos = Array.isArray(stored) ? stored.filter(c => !String(c.id || "").startsWith("dm-")) : [];
+      setUnread(convos.reduce((s, c) => s + (c.unread || 0), 0));
+    };
+    compute();
+    const iv = setInterval(compute, 2500);
+    return () => clearInterval(iv);
+  }, []);
+  return (
+    <div style={{ position:"absolute", top:6, right:62, zIndex:300 }}>
+      <button onClick={()=>go("chats")} className="tap" title="Messages" style={{
+        width:40, height:40, borderRadius:"50%",
+        background: C.surfaceHi,
+        border: `1.5px solid ${unread>0?C.lavender:C.border}`,
+        display:"flex", alignItems:"center", justifyContent:"center",
+        cursor:"pointer", position:"relative",
+        boxShadow: unread>0 ? `0 0 12px ${C.lavender}28` : "none",
+        backdropFilter:"blur(10px)", transition:"all .2s",
+      }}>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke={unread>0?C.lavender:C.text} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+        {unread>0&&<div style={{ position:"absolute",top:-3,right:-3,minWidth:16,height:16,borderRadius:99,background:`linear-gradient(135deg,${C.lavender},${C.accent})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,border:`1.5px solid ${C.bg}`,padding:"0 3px" }}>{unread>9?"9+":unread}</div>}
+      </button>
+    </div>
+  );
+}
+
 function AskBackstageButton({ go }) {
   return (
     <div style={{ position:"absolute",bottom:108,right:16,zIndex:300,width:42,height:42,display:"flex",alignItems:"center",justifyContent:"center" }}>
@@ -12215,7 +12249,8 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
         </div>
       )}
 
-      <FanverseFloatingDock go={go} />
+      {/* The dock is rendered once at app level (AppInner) so it holds the same
+          position on every tab — deliberately NOT rendered per-tab here. */}
     </div>
   );
 }
@@ -27077,18 +27112,25 @@ function AppInner() {
                   </>
                 );
               })()}
-              {/* Ask Backstage AI — hidden on profile (has its own Studio/Preview actions) and
-                  community (Fanverse renders its own combined Messages+AI dock instead) */}
-              {tab!=="profile"&&tab!=="collect"&&tab!=="community"&&<AskBackstageButton go={go} />}
-              {/* Notification Bell — floating, hidden on profile (section nav), collect (own + Add button) */}
-              {tab!=="profile"&&tab!=="collect"&&<NotificationBell onOpen={()=>setModal("notifications")} onOpenSettings={()=>go("notif_settings")} />}
+              {/* Ask Backstage AI dock — rendered HERE for every tab, never inside a tab.
+                  It used to live inside FanverseTab for community and at this level for the
+                  others; both used bottom:108/right:16, but an absolutely-positioned element
+                  resolves against its nearest positioned ancestor, so the tab-level copy
+                  anchored to the tab container and the app-level copy to the shell — which is
+                  why the bubble jumped around when switching tabs. One instance, one
+                  containing block, same spot everywhere. */}
+              <FanverseFloatingDock go={go} />
+              {/* Messages + Notifications — on every tab except My Stage (profile), which has
+                  its own dense section nav. */}
+              {tab!=="profile"&&<FloatingMessagesButton go={go} />}
+              {tab!=="profile"&&<NotificationBell onOpen={()=>setModal("notifications")} onOpenSettings={()=>go("notif_settings")} />}
             </>
           )}
         </div>
 
         {/* BOTTOM NAV */}
         {appState==="main"&&!modal&&(
-          <div className="bs-bottom-nav" style={{ position:"absolute",left:0,right:0,bottom:0,display:"flex",minHeight:"calc(72px + max(env(safe-area-inset-bottom), 10px))",background:C.navFade,paddingBottom:"max(env(safe-area-inset-bottom), 10px)",backdropFilter:"blur(24px)",WebkitMaskImage:"linear-gradient(to bottom, transparent 0%, #000 34%)",maskImage:"linear-gradient(to bottom, transparent 0%, #000 34%)",zIndex:100 }}>
+          <div className="bs-bottom-nav" style={{ position:"absolute",left:0,right:0,bottom:0,display:"flex",minHeight:"calc(72px + max(env(safe-area-inset-bottom), 10px))",background:C.navFade,paddingBottom:"max(env(safe-area-inset-bottom), 10px)",backdropFilter:"blur(24px)",zIndex:100 }}>
             {NAV.map(n=>{
               const active = tab===n.id;
               const NAV_ICONS = {
