@@ -15242,6 +15242,13 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
   const [sort, setSort] = useState("trending");
   const [filter, setFilter] = useState("all");
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
+  // The filter menu must render position:FIXED, anchored to the button's measured
+  // rect. It lives inside the collapsible header, which is overflow:hidden (that
+  // clip drives the collapse-on-scroll animation and can't be removed) — an
+  // absolutely-positioned menu opens below the header's edge and gets clipped
+  // away entirely, which is why "All Moments" looked like it did nothing.
+  const filterBtnRef = useRef(null);
+  const [filterMenuPos, setFilterMenuPos] = useState({ top: 0, right: 0 });
   const FILTER_OPTIONS = [
     { id:"all",       label:"All Moments" },
     { id:"concert",    label:"Concert" },
@@ -15585,7 +15592,12 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
             {/* Type dropdown — liquid-glass custom menu, not a system <select> */}
             <div style={{ position:"relative", flexShrink:0 }}>
               <button
-                onClick={()=>setFilterMenuOpen(v=>!v)}
+                ref={filterBtnRef}
+                onClick={()=>{
+                  const r = filterBtnRef.current?.getBoundingClientRect();
+                  if (r) setFilterMenuPos({ top: r.bottom + 8, right: Math.max(8, window.innerWidth - r.right) });
+                  setFilterMenuOpen(v=>!v);
+                }}
                 className="tap"
                 style={{ appearance:"none", background:filter!=="all"?"rgba(240,204,136,0.14)":C.chipInactiveBg, border:`1.5px solid ${filter!=="all"?"rgba(240,204,136,0.4)":C.glassBorder}`, borderRadius:99, color:filter!=="all"?C.gold:C.textMid, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, padding:"6px 26px 6px 12px", cursor:"pointer", outline:"none", display:"flex", alignItems:"center", gap:4, whiteSpace:"nowrap" }}
               >
@@ -15597,7 +15609,7 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
                 <>
                   <div onClick={()=>setFilterMenuOpen(false)} style={{ position:"fixed", inset:0, zIndex:80 }} />
                   <div style={{
-                    position:"absolute", top:"calc(100% + 8px)", right:0, zIndex:81, minWidth:172,
+                    position:"fixed", top:filterMenuPos.top, right:filterMenuPos.right, zIndex:81, minWidth:172,
                     background:C.modalBg,
                     border:`1px solid ${C.modalBorder}`, borderRadius:16, padding:6,
                     boxShadow:`${C.modalShadow}, inset 0 1px 0 rgba(255,255,255,0.3)`,
@@ -26987,7 +26999,7 @@ function AppInner() {
 
         {/* BOTTOM NAV */}
         {appState==="main"&&!modal&&(
-          <div className="bs-bottom-nav" style={{ position:"absolute",left:0,right:0,bottom:0,display:"flex",minHeight:"calc(62px + max(env(safe-area-inset-bottom), 10px))",background:C.navFade,paddingBottom:"max(env(safe-area-inset-bottom), 10px)",backdropFilter:"blur(24px)",WebkitMaskImage:"linear-gradient(to bottom, transparent 0%, #000 34%)",maskImage:"linear-gradient(to bottom, transparent 0%, #000 34%)",zIndex:100 }}>
+          <div className="bs-bottom-nav" style={{ position:"absolute",left:0,right:0,bottom:0,display:"flex",minHeight:"calc(72px + max(env(safe-area-inset-bottom), 10px))",background:C.navFade,paddingBottom:"max(env(safe-area-inset-bottom), 10px)",backdropFilter:"blur(24px)",WebkitMaskImage:"linear-gradient(to bottom, transparent 0%, #000 34%)",maskImage:"linear-gradient(to bottom, transparent 0%, #000 34%)",zIndex:100 }}>
             {NAV.map(n=>{
               const active = tab===n.id;
               const NAV_ICONS = {
@@ -27020,12 +27032,12 @@ function AppInner() {
                   {/* My World's B glyph grows slightly on active — this slot reserves the
                       extra height so the label below shifts down for it instead of the
                       icon overflowing on top of the label (every other tab stays 22x22). */}
-                  <div style={{ width:22, height:n.icon==="shelf"&&active?30:22, flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", position:"relative", transition:"height 160ms ease" }}>
+                  <div style={{ width:26, height:n.icon==="shelf"&&active?34:26, flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", position:"relative", transition:"height 160ms ease" }}>
                     {NAV_ICONS[n.icon]}
                     {/* DM unread badge on Profile tab */}
                     {n.id==="profile"&&(()=>{const u=ls.get("backstage_dms",[]).reduce((s,c)=>s+c.unread,0); return u>0?<div style={{ position:"absolute",top:-3,right:-3,width:14,height:14,borderRadius:"50%",background:C.rose,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.bg }}>{u}</div>:null; })()}
                   </div>
-                  <span style={{ fontSize:9.5, fontFamily:"'Epilogue',sans-serif", fontWeight:active?800:500, color:active?C.accent:C.textMid, letterSpacing:"0.04em", transition:"color .18s" }}>{n.label}</span>
+                  <span style={{ fontSize:10, fontFamily:"'Epilogue',sans-serif", fontWeight:active?800:500, color:active?C.accent:C.textMid, letterSpacing:"0.04em", transition:"color .18s" }}>{n.label}</span>
                 </button>
               );
             })}

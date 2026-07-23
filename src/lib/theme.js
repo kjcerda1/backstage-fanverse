@@ -265,6 +265,10 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
    Keyboard lift still applies via --app-kb. */
 @media (max-width:500px){html[data-standalone="1"] .app-shell{height:calc(100vh - var(--app-kb,0px));bottom:auto}}
 @media (min-width:501px){.app-shell{position:relative;inset:auto;width:430px;max-width:430px;height:100dvh;margin:0 auto}}
+/* Nav icons scaled up 22->26. Set here rather than on each of the six inline
+   SVGs, which hardcode width/height="22". The My World B glyph is a <span>, not
+   an <svg>, so it is sized in primitives.jsx instead and is unaffected by this. */
+.bs-bottom-nav button svg{width:26px;height:26px}
 .tap{transition:transform .12s,opacity .12s}
 .tap:active{transform:scale(.94);opacity:.8}
 /* ── Collectible card hover lift ─────────────────────────────────────────── */

@@ -26,6 +26,51 @@
       if (isStandalone) document.documentElement.setAttribute('data-standalone', '1');
     })();
   </script>
+  <script>
+    // TEMPORARY — remove once the missing DM composer is diagnosed.
+    // Only runs in the installed PWA, and only shows itself once a DM thread is
+    // actually open. The composer renders correctly in every desktop-browser
+    // condition tested (including a 1600px-tall message list), so this reports
+    // the one thing that cannot be measured off-device: where the composer
+    // actually sits relative to the visible screen in standalone mode.
+    (function () {
+      var standalone =
+        (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+        window.navigator.standalone === true;
+      if (!standalone) return;
+      var box = null;
+      function tick() {
+        var input = document.querySelector('input[placeholder="Send a message..."]');
+        if (!input) { if (box) { box.remove(); box = null; } return; }
+        if (!box) {
+          box = document.createElement('div');
+          box.style.cssText =
+            'position:fixed;left:8px;right:8px;top:96px;z-index:2147483647;' +
+            'background:rgba(8,4,20,.93);color:#8fffc8;border:1px solid #b8a2ff;' +
+            'border-radius:10px;padding:8px 10px;pointer-events:none;white-space:pre;' +
+            'font:600 11px/1.45 ui-monospace,Menlo,Consolas,monospace';
+          document.body.appendChild(box);
+        }
+        var r = input.getBoundingClientRect();
+        var shell = document.querySelector('.app-shell');
+        var sr = shell ? shell.getBoundingClientRect() : null;
+        var kb = getComputedStyle(document.documentElement).getPropertyValue('--app-kb').trim();
+        var n = function (v) { return Math.round(v); };
+        box.textContent =
+          'DM COMPOSER DIAGNOSTIC\n' +
+          'screen.h     ' + n(window.screen.height) + '\n' +
+          'innerHeight  ' + n(window.innerHeight) + '\n' +
+          'visualVP.h   ' + (window.visualViewport ? n(window.visualViewport.height) : 'n/a') + '\n' +
+          '--app-kb     ' + kb + '\n' +
+          'shell        ' + (sr ? 'top=' + n(sr.top) + ' bot=' + n(sr.bottom) + ' h=' + n(sr.height) : '(none)') + '\n' +
+          'composer     top=' + n(r.top) + ' bot=' + n(r.bottom) + '\n' +
+          '>> below innerHeight : ' + n(r.bottom - window.innerHeight) + '\n' +
+          '>> below screen      : ' + n(r.bottom - window.screen.height) + '\n' +
+          '   (any value > 0 means it is off-screen)';
+      }
+      setInterval(tick, 700);
+    })();
+  </script>
 </head>
 
 <body>

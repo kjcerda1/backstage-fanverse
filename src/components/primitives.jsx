@@ -227,7 +227,7 @@ export function BackstageBNavIcon({ active }) {
   // overflowing on top of it (confirmed via measured bounding rects — a
   // fixed-slot version at 42/34 and 30/28 both visually collided with the
   // label; this only works because the wrapper now grows in step with it).
-  const h = active ? 30 : 24;
+  const h = active ? 34 : 28;
   const w = Math.round(h * B_GLYPH_ASPECT);
   return (
     <span style={{
