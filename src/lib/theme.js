@@ -79,7 +79,10 @@ export const LIGHT_THEME = {
   surfaceMid:"#f2e8ff",
   border:   "#ddd0f5",
   borderHi: "#c9b4f0",
-  navBg:    "rgba(255,250,255,0.9)",
+  // Pale lavender, not white: the nav's safe-area padding paints a band behind
+  // the home indicator, and at rgba(255,250,255,.9) that band read as a white
+  // slab against the lavender app once the shell reached the true screen bottom.
+  navBg:    "rgba(246,238,255,0.92)",
   // ── Primary brand — deepened for contrast against pale surfaces ────────────
   accent:   "#8e68e8",
   accentDim:"#6b46c1",

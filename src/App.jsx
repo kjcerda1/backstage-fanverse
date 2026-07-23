@@ -26980,7 +26980,7 @@ function AppInner() {
 
         {/* BOTTOM NAV */}
         {appState==="main"&&!modal&&(
-          <div className="bs-bottom-nav" style={{ position:"absolute",left:0,right:0,bottom:0,display:"flex",minHeight:62,background:C.navBg,borderTop:`1px solid ${C.borderHi}`,paddingBottom:"max(env(safe-area-inset-bottom), 10px)",backdropFilter:"blur(24px)",boxShadow:"0 -1px 0 rgba(184,162,255,0.06)",zIndex:100 }}>
+          <div className="bs-bottom-nav" style={{ position:"absolute",left:0,right:0,bottom:0,display:"flex",minHeight:"calc(62px + max(env(safe-area-inset-bottom), 10px))",background:C.navBg,borderTop:`1px solid ${C.borderHi}`,paddingBottom:"max(env(safe-area-inset-bottom), 10px)",backdropFilter:"blur(24px)",boxShadow:"0 -1px 0 rgba(184,162,255,0.06)",zIndex:100 }}>
             {NAV.map(n=>{
               const active = tab===n.id;
               const NAV_ICONS = {
