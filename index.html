@@ -17,5 +17,73 @@
 <body>
   <div id="root"></div>
   <script type="module" src="/src/main.jsx"></script>
+
+  <!-- ───────────────────────────────────────────────────────────────────────
+       TEMPORARY VIEWPORT DIAGNOSTIC — REMOVE ONCE THE PWA GAP IS DIAGNOSED.
+       Renders ONLY inside the installed standalone PWA, which is the one
+       surface that cannot be reproduced in a desktop browser. Regular web
+       visitors never see this. Read-only: measures, never changes layout.
+       ─────────────────────────────────────────────────────────────────── -->
+  <script>
+  (function () {
+    var standalone =
+      (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+      window.navigator.standalone === true;
+    if (!standalone) return;
+
+    // Probe element to read the real safe-area inset values.
+    var probe = document.createElement('div');
+    probe.style.cssText =
+      'position:fixed;left:-9999px;top:0;' +
+      'padding-top:env(safe-area-inset-top,0px);' +
+      'padding-bottom:env(safe-area-inset-bottom,0px);';
+    document.body.appendChild(probe);
+
+    var box = document.createElement('div');
+    box.style.cssText =
+      'position:fixed;left:8px;right:8px;top:60px;z-index:2147483647;' +
+      'background:rgba(8,4,20,.93);color:#8fffc8;border:1px solid #b8a2ff;' +
+      'border-radius:10px;padding:8px 10px;pointer-events:none;' +
+      'font:600 11px/1.45 ui-monospace,Menlo,Consolas,monospace;' +
+      'white-space:pre;overflow:hidden';
+    document.body.appendChild(box);
+
+    function n(v) { return Math.round(v * 10) / 10; }
+
+    function read() {
+      var vv = window.visualViewport;
+      var ps = getComputedStyle(probe);
+      var shell = document.querySelector('.app-shell');
+      var nav = document.querySelector('.bs-bottom-nav');
+      var sr = shell ? shell.getBoundingClientRect() : null;
+      var nr = nav ? nav.getBoundingClientRect() : null;
+      var kb = getComputedStyle(document.documentElement)
+        .getPropertyValue('--app-kb').trim() || '(unset)';
+
+      box.textContent =
+        'PWA VIEWPORT DIAGNOSTIC\n' +
+        'screen.h      ' + n(window.screen.height) + '\n' +
+        'window.inner  ' + n(window.innerWidth) + ' x ' + n(window.innerHeight) + '\n' +
+        'visualVP      ' + (vv ? n(vv.width) + ' x ' + n(vv.height) + '  top=' + n(vv.offsetTop) : 'n/a') + '\n' +
+        'docEl.client  ' + n(document.documentElement.clientHeight) + '\n' +
+        'safe-top      ' + ps.paddingTop + '\n' +
+        'safe-bottom   ' + ps.paddingBottom + '\n' +
+        '--app-kb      ' + kb + '\n' +
+        'shell        ' + (sr ? ' top=' + n(sr.top) + ' bot=' + n(sr.bottom) + ' h=' + n(sr.height) : ' (none)') + '\n' +
+        'nav bottom   ' + (nr ? ' ' + n(nr.bottom) : ' (none)') + '\n' +
+        '>> GAP below shell : ' + (sr ? n(window.innerHeight - sr.bottom) : '?') + '\n' +
+        '>> GAP below nav   : ' + (nr ? n(window.innerHeight - nr.bottom) : '?');
+    }
+
+    read();
+    setInterval(read, 600);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', read);
+      window.visualViewport.addEventListener('scroll', read);
+    }
+    window.addEventListener('resize', read);
+    window.addEventListener('orientationchange', read);
+  })();
+  </script>
 </body>
 </html>
