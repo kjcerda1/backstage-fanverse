@@ -50,6 +50,21 @@
 
     function n(v) { return Math.round(v * 10) / 10; }
 
+    // Probe each candidate height unit off-screen and measure what it actually
+    // resolves to on this device. The winner is whichever equals screen.height
+    // (956 on the reporting device) rather than the 894 layout viewport.
+    var UNITS = ['100vh', '100dvh', '100lvh', '100svh', '-webkit-fill-available'];
+    var unitProbes = UNITS.map(function (u) {
+      var d = document.createElement('div');
+      d.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:' + u + ';';
+      document.body.appendChild(d);
+      return { unit: u, el: d };
+    });
+    // A fixed element with inset:0 — what the shell currently resolves to.
+    var insetProbe = document.createElement('div');
+    insetProbe.style.cssText = 'position:fixed;left:-9999px;top:0;bottom:0;width:1px;';
+    document.body.appendChild(insetProbe);
+
     function read() {
       var vv = window.visualViewport;
       var ps = getComputedStyle(probe);
@@ -60,19 +75,25 @@
       var kb = getComputedStyle(document.documentElement)
         .getPropertyValue('--app-kb').trim() || '(unset)';
 
+      var target = window.screen.height;
+      var unitLines = unitProbes.map(function (p) {
+        var h = p.el.getBoundingClientRect().height;
+        var mark = Math.abs(h - target) < 2 ? '  <== REACHES SCREEN' : '';
+        return '  ' + (p.unit + '            ').slice(0, 22) + n(h) + mark;
+      }).join('\n');
+      var insetH = insetProbe.getBoundingClientRect().height;
+
       box.textContent =
         'PWA VIEWPORT DIAGNOSTIC\n' +
-        'screen.h      ' + n(window.screen.height) + '\n' +
+        'screen.h      ' + n(target) + '   <-- must reach this\n' +
         'window.inner  ' + n(window.innerWidth) + ' x ' + n(window.innerHeight) + '\n' +
         'visualVP      ' + (vv ? n(vv.width) + ' x ' + n(vv.height) + '  top=' + n(vv.offsetTop) : 'n/a') + '\n' +
-        'docEl.client  ' + n(document.documentElement.clientHeight) + '\n' +
-        'safe-top      ' + ps.paddingTop + '\n' +
-        'safe-bottom   ' + ps.paddingBottom + '\n' +
-        '--app-kb      ' + kb + '\n' +
-        'shell        ' + (sr ? ' top=' + n(sr.top) + ' bot=' + n(sr.bottom) + ' h=' + n(sr.height) : ' (none)') + '\n' +
-        'nav bottom   ' + (nr ? ' ' + n(nr.bottom) : ' (none)') + '\n' +
-        '>> GAP below shell : ' + (sr ? n(window.innerHeight - sr.bottom) : '?') + '\n' +
-        '>> GAP below nav   : ' + (nr ? n(window.innerHeight - nr.bottom) : '?');
+        'safe-top      ' + ps.paddingTop + '   safe-bot ' + ps.paddingBottom + '\n' +
+        'fixed inset:0 ' + n(insetH) + '\n' +
+        'UNIT PROBES:\n' + unitLines + '\n' +
+        'shell        ' + (sr ? ' bot=' + n(sr.bottom) + ' h=' + n(sr.height) : ' (none)') + '\n' +
+        '>> gap vs viewport : ' + (sr ? n(window.innerHeight - sr.bottom) : '?') + '\n' +
+        '>> GAP vs SCREEN   : ' + (sr ? n(target - sr.bottom) : '?');
     }
 
     read();
