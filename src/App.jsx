@@ -26718,15 +26718,27 @@ function AppInner() {
   // --app-kb must be 0 unless a keyboard is genuinely up, or the shell lifts off
   // the bottom of the screen and leaves a dead gap under the nav.
   //
-  // Do NOT compute this as (innerHeight - visualViewport.height): on iOS Safari
-  // that difference is the BROWSER TOOLBAR chrome, not the keyboard, so it is
-  // permanently nonzero and produces exactly that gap. Instead measure the
-  // keyboard as a SHRINK from the resting visual-viewport height, and only
+  // Do NOT compute this as (innerHeight - visualViewport.height): on iOS that
+  // difference is browser toolbar chrome / safe-area insets, not the keyboard,
+  // so it is permanently nonzero and produces exactly that gap. Instead measure
+  // the keyboard as a SHRINK from the resting visual-viewport height, and only
   // while a text field actually holds focus — with nothing focused we always
   // report 0, i.e. the original gap-free full-bleed shell.
   useEffect(() => {
     const vv = window.visualViewport;
+    if (!vv) return;
     const root = document.documentElement;
+    // Largest visual-viewport height seen at the current layout size = the
+    // no-keyboard resting height (already excludes any chrome / safe areas).
+    let baseline = vv.height;
+
+    const isTextFieldFocused = () => {
+      const el = document.activeElement;
+      if (!el) return false;
+      const tag = el.tagName;
+      return tag === "INPUT" || tag === "TEXTAREA" || el.isContentEditable;
+    };
+
     const apply = () => {
       if (vv.height > baseline) baseline = vv.height;
       // Ignore sub-threshold shrink (toolbar collapse, rubber-banding) — a real
@@ -26735,6 +26747,14 @@ function AppInner() {
       const kb = isTextFieldFocused() && shrink > 120 ? shrink : 0;
       root.style.setProperty("--app-kb", kb + "px");
     };
+
+    // Layout actually changed (rotate / window resize): re-baseline from scratch.
+    const rebaseline = () => {
+      baseline = vv.height;
+      root.style.setProperty("--app-kb", "0px");
+      setTimeout(() => { baseline = Math.max(baseline, vv.height); apply(); }, 300);
+    };
+
     apply();
     vv.addEventListener("resize", apply);
     vv.addEventListener("scroll", apply);
@@ -26813,33 +26833,13 @@ function AppInner() {
   return(
     <ThemeContext.Provider value={{ themeMode, setThemeMode }}>
     <>
-    if (!vv) return;
       <style>{getCSS()}</style>
-    // Largest visual-viewport height seen at the current layout size = the
-    // no-keyboard resting height (already excludes any browser chrome).
-    let baseline = vv.height;
-
-    const isTextFieldFocused = () => {
-      const el = document.activeElement;
-      if (!el) return false;
-      const tag = el.tagName;
-      return tag === "INPUT" || tag === "TEXTAREA" || el.isContentEditable;
-    };
-
       <div className="cosmic-bg app-shell" style={{ background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 40%,${C.surfaceMid} 100%)`, display:"flex", flexDirection:"column", overflow:"hidden" }}>
 
         {/* OFFLINE BANNER */}
         <OfflineReadyBanner />
 
         {/* IN-APP NOTIF */}
-
-    // Layout actually changed (rotate / window resize): re-baseline from scratch.
-    const rebaseline = () => {
-      baseline = vv.height;
-      root.style.setProperty("--app-kb", "0px");
-      setTimeout(() => { baseline = Math.max(baseline, vv.height); apply(); }, 300);
-    };
-
         {notif&&<NotifBanner notif={notif} onDismiss={()=>setNotif(null)} />}
 
         {/* VIP MODAL */}
