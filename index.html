@@ -12,99 +12,24 @@
   <link rel="manifest" href="/manifest.json" />
   <link rel="icon" type="image/png" href="/logo-orb.png" />
   <link rel="apple-touch-icon" href="/logo-orb.png" />
+  <script>
+    // Flag the installed standalone PWA before first paint so .app-shell can use
+    // a full-screen height there without affecting Safari. iOS gives a standalone
+    // web view a layout viewport SHORTER than the screen by the top safe-area
+    // inset (measured on device: screen 956, innerHeight 894, inset 62), so
+    // position:fixed;bottom:0 stops 62px short of the bottom. See theme.js.
+    // matchMedia is the standard check; navigator.standalone is the iOS fallback.
+    (function () {
+      var isStandalone =
+        (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+        window.navigator.standalone === true;
+      if (isStandalone) document.documentElement.setAttribute('data-standalone', '1');
+    })();
+  </script>
 </head>
 
 <body>
   <div id="root"></div>
   <script type="module" src="/src/main.jsx"></script>
-
-  <!-- ───────────────────────────────────────────────────────────────────────
-       TEMPORARY VIEWPORT DIAGNOSTIC — REMOVE ONCE THE PWA GAP IS DIAGNOSED.
-       Renders ONLY inside the installed standalone PWA, which is the one
-       surface that cannot be reproduced in a desktop browser. Regular web
-       visitors never see this. Read-only: measures, never changes layout.
-       ─────────────────────────────────────────────────────────────────── -->
-  <script>
-  (function () {
-    var standalone =
-      (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
-      window.navigator.standalone === true;
-    if (!standalone) return;
-
-    // Probe element to read the real safe-area inset values.
-    var probe = document.createElement('div');
-    probe.style.cssText =
-      'position:fixed;left:-9999px;top:0;' +
-      'padding-top:env(safe-area-inset-top,0px);' +
-      'padding-bottom:env(safe-area-inset-bottom,0px);';
-    document.body.appendChild(probe);
-
-    var box = document.createElement('div');
-    box.style.cssText =
-      'position:fixed;left:8px;right:8px;top:60px;z-index:2147483647;' +
-      'background:rgba(8,4,20,.93);color:#8fffc8;border:1px solid #b8a2ff;' +
-      'border-radius:10px;padding:8px 10px;pointer-events:none;' +
-      'font:600 11px/1.45 ui-monospace,Menlo,Consolas,monospace;' +
-      'white-space:pre;overflow:hidden';
-    document.body.appendChild(box);
-
-    function n(v) { return Math.round(v * 10) / 10; }
-
-    // Probe each candidate height unit off-screen and measure what it actually
-    // resolves to on this device. The winner is whichever equals screen.height
-    // (956 on the reporting device) rather than the 894 layout viewport.
-    var UNITS = ['100vh', '100dvh', '100lvh', '100svh', '-webkit-fill-available'];
-    var unitProbes = UNITS.map(function (u) {
-      var d = document.createElement('div');
-      d.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:' + u + ';';
-      document.body.appendChild(d);
-      return { unit: u, el: d };
-    });
-    // A fixed element with inset:0 — what the shell currently resolves to.
-    var insetProbe = document.createElement('div');
-    insetProbe.style.cssText = 'position:fixed;left:-9999px;top:0;bottom:0;width:1px;';
-    document.body.appendChild(insetProbe);
-
-    function read() {
-      var vv = window.visualViewport;
-      var ps = getComputedStyle(probe);
-      var shell = document.querySelector('.app-shell');
-      var nav = document.querySelector('.bs-bottom-nav');
-      var sr = shell ? shell.getBoundingClientRect() : null;
-      var nr = nav ? nav.getBoundingClientRect() : null;
-      var kb = getComputedStyle(document.documentElement)
-        .getPropertyValue('--app-kb').trim() || '(unset)';
-
-      var target = window.screen.height;
-      var unitLines = unitProbes.map(function (p) {
-        var h = p.el.getBoundingClientRect().height;
-        var mark = Math.abs(h - target) < 2 ? '  <== REACHES SCREEN' : '';
-        return '  ' + (p.unit + '            ').slice(0, 22) + n(h) + mark;
-      }).join('\n');
-      var insetH = insetProbe.getBoundingClientRect().height;
-
-      box.textContent =
-        'PWA VIEWPORT DIAGNOSTIC\n' +
-        'screen.h      ' + n(target) + '   <-- must reach this\n' +
-        'window.inner  ' + n(window.innerWidth) + ' x ' + n(window.innerHeight) + '\n' +
-        'visualVP      ' + (vv ? n(vv.width) + ' x ' + n(vv.height) + '  top=' + n(vv.offsetTop) : 'n/a') + '\n' +
-        'safe-top      ' + ps.paddingTop + '   safe-bot ' + ps.paddingBottom + '\n' +
-        'fixed inset:0 ' + n(insetH) + '\n' +
-        'UNIT PROBES:\n' + unitLines + '\n' +
-        'shell        ' + (sr ? ' bot=' + n(sr.bottom) + ' h=' + n(sr.height) : ' (none)') + '\n' +
-        '>> gap vs viewport : ' + (sr ? n(window.innerHeight - sr.bottom) : '?') + '\n' +
-        '>> GAP vs SCREEN   : ' + (sr ? n(target - sr.bottom) : '?');
-    }
-
-    read();
-    setInterval(read, 600);
-    if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', read);
-      window.visualViewport.addEventListener('scroll', read);
-    }
-    window.addEventListener('resize', read);
-    window.addEventListener('orientationchange', read);
-  })();
-  </script>
 </body>
 </html>
