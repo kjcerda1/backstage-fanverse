@@ -4722,21 +4722,42 @@ function FloatingMessagesButton({ go }) {
     const iv = setInterval(compute, 2500);
     return () => clearInterval(iv);
   }, []);
+  // Styling is the original Fanverse-header treatment verbatim (glass pill,
+  // borderRadius 13, 💬 glyph, rose/berry badge) — NOT a plain white circle.
   return (
-    <div style={{ position:"absolute", top:6, right:62, zIndex:300 }}>
-      <button onClick={()=>go("chats")} className="tap" title="Messages" style={{
-        width:40, height:40, borderRadius:"50%",
-        background: C.surfaceHi,
-        border: `1.5px solid ${unread>0?C.lavender:C.border}`,
-        display:"flex", alignItems:"center", justifyContent:"center",
-        cursor:"pointer", position:"relative",
-        boxShadow: unread>0 ? `0 0 12px ${C.lavender}28` : "none",
-        backdropFilter:"blur(10px)", transition:"all .2s",
-      }}>
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke={unread>0?C.lavender:C.text} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
-        {unread>0&&<div style={{ position:"absolute",top:-3,right:-3,minWidth:16,height:16,borderRadius:99,background:`linear-gradient(135deg,${C.lavender},${C.accent})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,border:`1.5px solid ${C.bg}`,padding:"0 3px" }}>{unread>9?"9+":unread}</div>}
-      </button>
-    </div>
+    <button
+      onClick={()=>go?.("chats")}
+      className="tap"
+      title="Messages"
+      style={{
+        position:"absolute", top:6, right:62, zIndex:300,
+        width:40, height:40,
+        borderRadius:13,
+        background:C.glassBgHi,
+        border:`1px solid ${unread>0?"rgba(184,162,255,0.45)":C.glassBorder}`,
+        color:unread>0?C.lavender:C.textMid,
+        fontSize:15,
+        cursor:"pointer",
+        display:"flex",alignItems:"center",justifyContent:"center",
+        boxShadow:unread>0?"0 0 12px rgba(184,162,255,0.22), inset 0 1px 0 rgba(255,255,255,0.1)":"inset 0 1px 0 rgba(255,255,255,0.05)",
+        backdropFilter:"blur(10px)",
+        transition:"all .2s",
+      }}
+    >
+      💬
+      {unread>0&&(
+        <div style={{
+          position:"absolute",top:-3,right:-3,
+          width:14,height:14,borderRadius:"50%",
+          background:`linear-gradient(135deg,${C.rose},${C.berry})`,
+          display:"flex",alignItems:"center",justifyContent:"center",
+          fontSize:7.5,color:"#fff",
+          fontFamily:"'Epilogue',sans-serif",fontWeight:800,
+          boxShadow:`0 0 6px ${C.rose}55`,
+          border:`1.5px solid ${C.bg}`,
+        }}>{unread>9?"9+":unread}</div>
+      )}
+    </button>
   );
 }
 
@@ -11732,41 +11753,9 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
           </div>
         )}
 
-        {/* Messages shortcut — floats beside the notification bell, same treatment,
-            since Home (and its old Messages entry point) is gone. */}
-        <button
-          onClick={()=>go?.("chats")}
-          className="tap"
-          title="Messages"
-          style={{
-            position:"absolute", top:6, right:62, zIndex:300,
-            width:40,height:40,
-            borderRadius:13,
-            background:C.glassBgHi,
-            border:`1px solid ${dmUnread>0?"rgba(184,162,255,0.45)":C.glassBorder}`,
-            color:dmUnread>0?C.lavender:C.textMid,
-            fontSize:15,
-            cursor:"pointer",
-            display:"flex",alignItems:"center",justifyContent:"center",
-            boxShadow:dmUnread>0?"0 0 12px rgba(184,162,255,0.22), inset 0 1px 0 rgba(255,255,255,0.1)":"inset 0 1px 0 rgba(255,255,255,0.05)",
-            backdropFilter:"blur(10px)",
-            transition:"all .2s",
-          }}
-        >
-          💬
-          {dmUnread>0&&(
-            <div style={{
-              position:"absolute",top:-3,right:-3,
-              width:14,height:14,borderRadius:"50%",
-              background:`linear-gradient(135deg,${C.rose},${C.berry})`,
-              display:"flex",alignItems:"center",justifyContent:"center",
-              fontSize:7.5,color:"#fff",
-              fontFamily:"'Epilogue',sans-serif",fontWeight:800,
-              boxShadow:`0 0 6px ${C.rose}55`,
-              border:`1.5px solid ${C.bg}`,
-            }}>{dmUnread>9?"9+":dmUnread}</div>
-          )}
-        </button>
+        {/* Messages shortcut is rendered once at app level (FloatingMessagesButton in
+            AppInner) so it appears on every tab in the same spot — deliberately not
+            duplicated here, or Fanverse would show two stacked at top:6/right:62. */}
 
         {/* ── SOCIAL STORY RAIL — personal/social bubbles (NOT pass categories) ── */}
         {/* Pass categories (Fit Check, Merch, etc.) no longer have a browse surface at all */}
@@ -15760,7 +15749,7 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
       {/* Gutters 20->12px so cards read wider. Bottom pad only needs to clear the
           nav (62px + inset) plus breathing room — 120px left a dead band under
           the last post now that the nav fades instead of sitting on a hard edge. */}
-      <Screen ref={feedScrollRef} id="fanverse-feed-scroll" style={{ padding:"0 12px calc(84px + env(safe-area-inset-bottom))" }} onScroll={handleFeedScroll}>
+      <Screen ref={feedScrollRef} id="fanverse-feed-scroll" style={{ padding:"0 12px calc(96px + env(safe-area-inset-bottom))" }} onScroll={handleFeedScroll}>
         {/* Pass rail — hidden when sticky header provides it (Fanverse context) */}
         {!hideStoryRail && <FanStories user={user} />}
 
@@ -26889,6 +26878,15 @@ function AppInner() {
       const shrink = baseline - vv.height;
       const kb = isTextFieldFocused() && shrink > 120 ? shrink : 0;
       root.style.setProperty("--app-kb", kb + "px");
+
+      // iOS ALSO scrolls the layout viewport up to reveal the focused input. The
+      // shell is position:fixed, so that scroll shifts the whole app upward on top
+      // of the shrink we just applied — the composer ends up near the top of the
+      // screen with a band of dead space beneath it. Undo it: with the shell
+      // already sized to sit above the keyboard, no scroll is needed at all.
+      if (kb > 0 && (window.scrollY !== 0 || vv.offsetTop !== 0)) {
+        window.scrollTo(0, 0);
+      }
     };
 
     // Layout actually changed (rotate / window resize): re-baseline from scratch.
@@ -27128,9 +27126,13 @@ function AppInner() {
           )}
         </div>
 
-        {/* BOTTOM NAV */}
+        {/* BOTTOM NAV — floating pill (Instagram-style): inset from the edges and
+            lifted off the bottom so the feed stays liquid and runs underneath it,
+            rather than being cut off by a full-width bar. The safe-area inset becomes
+            the pill's bottom MARGIN instead of internal padding, so the home indicator
+            sits on the app background, not on a slab of nav. */}
         {appState==="main"&&!modal&&(
-          <div className="bs-bottom-nav" style={{ position:"absolute",left:0,right:0,bottom:0,display:"flex",minHeight:"calc(72px + max(env(safe-area-inset-bottom), 10px))",background:C.navFade,paddingBottom:"max(env(safe-area-inset-bottom), 10px)",backdropFilter:"blur(24px)",zIndex:100 }}>
+          <div className="bs-bottom-nav" style={{ position:"absolute",left:12,right:12,bottom:"calc(max(env(safe-area-inset-bottom), 10px) + 6px)",display:"flex",minHeight:64,alignItems:"center",background:C.navPill,borderRadius:30,border:`1px solid ${C.navPillBorder}`,boxShadow:C.navPillShadow,backdropFilter:"blur(28px) saturate(150%)",WebkitBackdropFilter:"blur(28px) saturate(150%)",overflow:"hidden",zIndex:100 }}>
             {NAV.map(n=>{
               const active = tab===n.id;
               const NAV_ICONS = {

@@ -13,9 +13,10 @@ export const DARK_THEME = {
   border:   "#241848",   // plum border
   borderHi: "#32205e",   // highlighted border
   navBg:    "rgba(10,10,22,0.98)",
-  // Nav fades in from transparent instead of sitting behind a hard border line,
-  // so the bar dissolves into the feed rather than cutting it off.
-  navFade:  "linear-gradient(to bottom, rgba(10,10,22,0) 0%, rgba(10,10,22,0.82) 40%, rgba(10,10,22,0.97) 100%)",
+  // Floating pill nav — translucent glass the feed shows through, not an opaque bar.
+  navPill:       "rgba(22,16,42,0.72)",
+  navPillBorder: "rgba(214,189,255,0.16)",
+  navPillShadow: "0 8px 28px rgba(0,0,0,0.44), inset 0 1px 0 rgba(255,255,255,0.07)",
   // ── Primary brand ──────────────────────────────────────────────────────────
   accent:   "#b8a2ff",   // lavender purple
   accentDim:"#6e52cc",   // dim purple
@@ -86,7 +87,9 @@ export const LIGHT_THEME = {
   // the home indicator, and at rgba(255,250,255,.9) that band read as a white
   // slab against the lavender app once the shell reached the true screen bottom.
   navBg:    "rgba(246,238,255,0.92)",
-  navFade:  "linear-gradient(to bottom, rgba(246,238,255,0) 0%, rgba(246,238,255,0.84) 40%, rgba(248,242,255,0.96) 100%)",
+  navPill:       "rgba(255,252,255,0.74)",
+  navPillBorder: "rgba(158,127,224,0.20)",
+  navPillShadow: "0 8px 26px rgba(110,70,190,0.16), inset 0 1px 0 rgba(255,255,255,0.6)",
   // ── Primary brand — deepened for contrast against pale surfaces ────────────
   accent:   "#8e68e8",
   accentDim:"#6b46c1",
