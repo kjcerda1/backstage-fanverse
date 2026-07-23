@@ -15643,7 +15643,10 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
         )}
       </div>
 
-      <Screen ref={feedScrollRef} id="fanverse-feed-scroll" style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }} onScroll={handleFeedScroll}>
+      {/* Gutters 20->12px so cards read wider. Bottom pad only needs to clear the
+          nav (62px + inset) plus breathing room — 120px left a dead band under
+          the last post now that the nav fades instead of sitting on a hard edge. */}
+      <Screen ref={feedScrollRef} id="fanverse-feed-scroll" style={{ padding:"0 12px calc(84px + env(safe-area-inset-bottom))" }} onScroll={handleFeedScroll}>
         {/* Pass rail — hidden when sticky header provides it (Fanverse context) */}
         {!hideStoryRail && <FanStories user={user} />}
 
@@ -15656,14 +15659,14 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
         {/* Posts — translucent glass panels over the cosmic backdrop */}
         {(() => {
           const renderPost = (p) => (
-          <div key={p.id} style={{ position:"relative", overflow:"hidden", background:C.feedCard, border:`1px solid ${C.feedCardBorder}`, borderRadius:18, padding:"12px 14px", marginBottom:10, boxShadow:C.feedCardShadow, backdropFilter:"blur(14px)", animation:"up .3s ease" }}>
+          <div key={p.id} style={{ position:"relative", overflow:"hidden", background:C.feedCard, border:`1px solid ${C.feedCardBorder}`, borderRadius:20, padding:"14px 16px", marginBottom:12, boxShadow:C.feedCardShadow, backdropFilter:"blur(14px)", animation:"up .3s ease" }}>
             {/* Inner top highlight — the "polished edge" */}
             <div style={{ position:"absolute", top:0, left:14, right:14, height:1, background:"linear-gradient(90deg,transparent,rgba(214,189,255,0.35),transparent)", pointerEvents:"none" }} />
             <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:8, position:"relative" }}>
               <div style={{ width:38,height:38,borderRadius:"50%",background:`linear-gradient(150deg,${p.color}ee,${p.color}66)`,border:"1px solid rgba(255,255,255,0.22)",boxShadow:`0 3px 10px ${p.color}30, inset 0 1px 0 rgba(255,255,255,0.3)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:"#1a1228",fontSize:14,flexShrink:0 }}>{p.avatar}</div>
               <div style={{ flex:1 }}>
-                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12.5, color:C.text }}>{p.user}</p>
-                <p style={{ fontSize:9.5, color:C.textMid }}>{p.time}</p>
+                <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13.5, color:C.text }}>{p.user}</p>
+                <p style={{ fontSize:10.5, color:C.textMid }}>{p.time}</p>
               </div>
               {/* Topic badges — clean outline pills, no emoji clutter */}
               <div style={{ display:"flex", gap:4, flexShrink:0 }}>
@@ -15672,17 +15675,21 @@ function LiveFeedTab({ user, go, onBack, hideStoryRail=false, onScrollNotify }) 
                 ))}
               </div>
             </div>
-            <p style={{ fontSize:13, lineHeight:1.7, marginBottom:11, color:C.text, position:"relative" }}>{p.text}</p>
-            {/* Post image (Phase 5) */}
-            {p.image&&<img src={p.image} alt="post" style={{ width:"100%",maxHeight:220,objectFit:"cover",borderRadius:14,marginBottom:11,position:"relative" }} />}
+            <p style={{ fontSize:15, lineHeight:1.55, marginBottom:12, color:C.text, position:"relative" }}>{p.text}</p>
+            {/* Post image. Was capped at maxHeight:220 — less than half the size
+                Instagram gives a photo — which is what made the feed read small.
+                Now full-width at natural aspect, capped at 72vh so a very tall
+                image still can't swallow the whole screen. Media is what should
+                be big here; text posts stay compact so the feed doesn't go empty. */}
+            {p.image&&<img src={p.image} alt="post" style={{ width:"100%",height:"auto",maxHeight:"72vh",objectFit:"cover",borderRadius:14,marginBottom:12,position:"relative",display:"block" }} />}
             {(p.venue||p.city)&&<div style={{ marginBottom:11, position:"relative" }}><LocationTag venue={p.venue} city={p.city} checkedIn={p.checkedIn} glass /></div>}
             {/* Social proof — quiet metric, not heavy text */}
             {p.likes>500&&<p style={{ fontSize:9.5, color:C.gold, fontFamily:"'Epilogue',sans-serif", fontWeight:600, marginBottom:8, letterSpacing:"0.01em", position:"relative" }}>🔥 {p.likes.toLocaleString()} fans loved this</p>}
             <div style={{ display:"flex", gap:13, alignItems:"center", position:"relative" }}>
-              <button onClick={()=>toggleLike(p)} className="tap" style={{ background:"none",border:"none",fontSize:12.5,color:p.liked?C.rose:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>
+              <button onClick={()=>toggleLike(p)} className="tap" style={{ background:"none",border:"none",fontSize:14,color:p.liked?C.rose:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:5 }}>
                 {p.liked?"♥":"♡"} {p.likes}
               </button>
-              <button onClick={()=>openComments(p.id)} className="tap" style={{ background:"none",border:"none",fontSize:12.5,color:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>💬 {p.comments}</button>
+              <button onClick={()=>openComments(p.id)} className="tap" style={{ background:"none",border:"none",fontSize:14,color:C.textMid,cursor:"pointer",display:"flex",alignItems:"center",gap:5 }}>💬 {p.comments}</button>
               {/* Counts come straight off post state, which the server owns. Never
                   add a second local toggle on top of the label — that's the
                   double-count bug repost and like both had. */}
