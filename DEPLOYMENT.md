@@ -91,7 +91,7 @@ On Vercel Dashboard → your project → Settings → Environment Variables:
 |---|---|---|
 | `VITE_APP_ENV` | App mode display | `production` |
 | `VITE_APP_VERSION` | Version badge | `1.6.0` |
-| `VITE_API_URL` | Real backend proxy | `https://api.backstageapp.co` |
+| `VITE_API_URL` | Real backend proxy | `https://backstage-api-hxq3.onrender.com` |
 | `VITE_SUPABASE_URL` | Real auth | `https://xxxx.supabase.co` |
 | `VITE_SUPABASE_ANON_KEY` | Real auth | `eyJhbG...` |
 | `VITE_MAPBOX_TOKEN` | Geographic map | `pk.eyJ1...` |
