@@ -26714,36 +26714,40 @@ function AppInner() {
   }, [auth.user?.id, auth.tokenReady]);
 
   // ── Lift the app shell above the on-screen keyboard ────────────────────────
-  // The shell stays full-bleed (top:0;bottom:0) so it always covers the screen —
-  // never sizing off visualViewport.height directly, which UNDER-reports in iOS
-  // standalone PWA and leaves a dead gap below the bottom nav.
-  // Instead we measure only the keyboard: iOS does not shrink the layout
-  // viewport for the keyboard, so innerHeight stays constant while
-  // visualViewport shrinks — the difference IS the keyboard height. With no
-  // keyboard up this is 0, i.e. exactly the original gap-free inset:0.
+  // The shell stays full-bleed (top:0;bottom:0) so it always covers the screen.
+  // --app-kb must be 0 unless a keyboard is genuinely up, or the shell lifts off
+  // the bottom of the screen and leaves a dead gap under the nav.
+  //
+  // Do NOT compute this as (innerHeight - visualViewport.height): on iOS Safari
+  // that difference is the BROWSER TOOLBAR chrome, not the keyboard, so it is
+  // permanently nonzero and produces exactly that gap. Instead measure the
+  // keyboard as a SHRINK from the resting visual-viewport height, and only
+  // while a text field actually holds focus — with nothing focused we always
+  // report 0, i.e. the original gap-free full-bleed shell.
   useEffect(() => {
     const vv = window.visualViewport;
     const root = document.documentElement;
     const apply = () => {
-      const kb = vv
-        ? Math.max(0, window.innerHeight - (vv.height + vv.offsetTop))
-        : 0;
+      if (vv.height > baseline) baseline = vv.height;
+      // Ignore sub-threshold shrink (toolbar collapse, rubber-banding) — a real
+      // keyboard is always far taller than this.
+      const shrink = baseline - vv.height;
+      const kb = isTextFieldFocused() && shrink > 120 ? shrink : 0;
       root.style.setProperty("--app-kb", kb + "px");
     };
     apply();
-    if (vv) {
-      vv.addEventListener("resize", apply);
-      vv.addEventListener("scroll", apply);
-    }
-    window.addEventListener("resize", apply);
-    window.addEventListener("orientationchange", apply);
+    vv.addEventListener("resize", apply);
+    vv.addEventListener("scroll", apply);
+    window.addEventListener("orientationchange", rebaseline);
+    document.addEventListener("focusin", apply);
+    document.addEventListener("focusout", apply);
     return () => {
-      if (vv) {
-        vv.removeEventListener("resize", apply);
-        vv.removeEventListener("scroll", apply);
-      }
-      window.removeEventListener("resize", apply);
-      window.removeEventListener("orientationchange", apply);
+      vv.removeEventListener("resize", apply);
+      vv.removeEventListener("scroll", apply);
+      window.removeEventListener("orientationchange", rebaseline);
+      document.removeEventListener("focusin", apply);
+      document.removeEventListener("focusout", apply);
+      root.style.setProperty("--app-kb", "0px");
     };
   }, []);
 
@@ -26809,13 +26813,33 @@ function AppInner() {
   return(
     <ThemeContext.Provider value={{ themeMode, setThemeMode }}>
     <>
+    if (!vv) return;
       <style>{getCSS()}</style>
+    // Largest visual-viewport height seen at the current layout size = the
+    // no-keyboard resting height (already excludes any browser chrome).
+    let baseline = vv.height;
+
+    const isTextFieldFocused = () => {
+      const el = document.activeElement;
+      if (!el) return false;
+      const tag = el.tagName;
+      return tag === "INPUT" || tag === "TEXTAREA" || el.isContentEditable;
+    };
+
       <div className="cosmic-bg app-shell" style={{ background:`linear-gradient(160deg,${C.cosmic} 0%,${C.bg} 40%,${C.surfaceMid} 100%)`, display:"flex", flexDirection:"column", overflow:"hidden" }}>
 
         {/* OFFLINE BANNER */}
         <OfflineReadyBanner />
 
         {/* IN-APP NOTIF */}
+
+    // Layout actually changed (rotate / window resize): re-baseline from scratch.
+    const rebaseline = () => {
+      baseline = vv.height;
+      root.style.setProperty("--app-kb", "0px");
+      setTimeout(() => { baseline = Math.max(baseline, vv.height); apply(); }, 300);
+    };
+
         {notif&&<NotifBanner notif={notif} onDismiss={()=>setNotif(null)} />}
 
         {/* VIP MODAL */}
