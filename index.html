@@ -21,46 +21,6 @@
   <link rel="manifest" href="/manifest.json" />
   <link rel="icon" type="image/png" href="/logo-orb.png" />
   <link rel="apple-touch-icon" href="/logo-orb.png" />
-  <script>
-    // TEMPORARY nav-geometry probe — remove once the bottom gap is settled.
-    // Installed-PWA only; web visitors never see it. Reports where the nav
-    // actually lands versus the layout viewport and the physical screen, which
-    // is the one thing no desktop browser can reproduce.
-    (function () {
-      var standalone =
-        (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
-        window.navigator.standalone === true;
-      if (!standalone) return;
-      var probe = document.createElement('div');
-      probe.style.cssText = 'position:fixed;left:-9999px;top:0;' +
-        'padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);';
-      document.body.appendChild(probe);
-      var box = document.createElement('div');
-      box.style.cssText =
-        'position:fixed;left:8px;right:8px;top:64px;z-index:2147483647;' +
-        'background:rgba(8,4,20,.93);color:#8fffc8;border:1px solid #b8a2ff;' +
-        'border-radius:10px;padding:8px 10px;pointer-events:none;white-space:pre;' +
-        'font:600 11px/1.45 ui-monospace,Menlo,Consolas,monospace';
-      document.body.appendChild(box);
-      var n = function (v) { return Math.round(v); };
-      setInterval(function () {
-        var ps = getComputedStyle(probe);
-        var shell = document.querySelector('.app-shell');
-        var nav = document.querySelector('.bs-bottom-nav');
-        var sr = shell && shell.getBoundingClientRect();
-        var nr = nav && nav.getBoundingClientRect();
-        box.textContent =
-          'NAV GEOMETRY\n' +
-          'screen.h    ' + n(window.screen.height) + '\n' +
-          'innerHeight ' + n(window.innerHeight) + '\n' +
-          'safe top/bot ' + ps.paddingTop + ' / ' + ps.paddingBottom + '\n' +
-          'shell  ' + (sr ? 'top=' + n(sr.top) + ' bot=' + n(sr.bottom) : '(none)') + '\n' +
-          'nav    ' + (nr ? 'top=' + n(nr.top) + ' bot=' + n(nr.bottom) + ' h=' + n(nr.height) : '(none)') + '\n' +
-          '>> nav bot vs innerHeight : ' + (nr ? n(nr.bottom - window.innerHeight) : '?') + '\n' +
-          '>> nav bot vs screen      : ' + (nr ? n(nr.bottom - window.screen.height) : '?');
-      }, 700);
-    })();
-  </script>
 </head>
 
 <body>

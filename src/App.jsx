@@ -7568,7 +7568,10 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
           mode to stay readable on pale pages — a dark hero band would put
           that darkened text on an equally-dark backdrop and wash it out. */}
       <div style={{ padding:"22px 20px 16px", flexShrink:0, position:"relative", zIndex:1, overflow:"hidden", background:C.mode==="light" ? `linear-gradient(165deg,${C.cosmic} 0%,${C.surfaceMid} 55%,transparent 100%)` : `linear-gradient(165deg,${C.plum}c8 0%,${C.cosmic}f0 55%,transparent 100%)`, borderBottom:`1px solid ${C.glassBorder}` }}>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", position:"relative" }}>
+        {/* paddingRight clears the app-level 💬 + 🔔 pair (top:6, right:14 and 62,
+            40px each) that floats over every tab — without it the VIP badge renders
+            underneath them. Same 108 the Fanverse header already reserves. */}
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", position:"relative", paddingRight:108 }}>
           <div>
             <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.16em",marginBottom:4 }}>My World</p>
             <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontStyle:"italic",fontWeight:800,fontSize:25,background:`linear-gradient(135deg,${C.lavender},${C.blush})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",lineHeight:1.1,filter:C.mode==="light"?"drop-shadow(0 1px 1px rgba(33,17,52,0.18))":"none" }}>My World ✦</h2>
@@ -27160,7 +27163,13 @@ function AppInner() {
                   anchored to the tab container and the app-level copy to the shell — which is
                   why the bubble jumped around when switching tabs. One instance, one
                   containing block, same spot everywhere. */}
-              <FanverseFloatingDock go={go} />
+              {/* Not on My World: that tab has its own "+" action orb at the same
+                  bottom-right corner, and its sheet already offers Ask Backstage AI.
+                  Two orbs stacked on one corner is the collision Kacy reported —
+                  the "+" wins there because it also carries Add Photocard / Start
+                  Binder / Wishlist / Templates, and Messages stays one tap away in
+                  the header 💬. */}
+              {tab!=="collect"&&<FanverseFloatingDock go={go} />}
               {/* Messages + Notifications — on every tab except My Stage (profile), which has
                   its own dense section nav. */}
               {tab!=="profile"&&<FloatingMessagesButton go={go} />}
