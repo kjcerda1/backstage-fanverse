@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import { C } from "../lib/theme.js";
 
 // StatusChip — reusable trust label: COMING SOON | PREVIEW | LIVE | OFFICIAL
@@ -270,18 +270,40 @@ export const Empty = ({ emoji, title, sub, action, onAction }) => (
   </div>
 );
 
-export const NotifBanner = ({ notif, onDismiss }) => (
+export const NotifBanner = ({ notif, onDismiss }) => {
+  // Auto-dismiss after 5s. There was no timer at all, so a banner stayed up until
+  // the ✕ was tapped — and because it renders at AppInner level it survives tab
+  // switches, which is why it read as stuck across the entire app.
+  //
+  // Depend on `notif` ONLY. Every call site passes an inline arrow for onDismiss
+  // (`()=>setNotif(null)`), so a new identity arrives on every render; including it
+  // in the deps would clear and re-arm the timer forever and it would never fire.
+  // The ref keeps the latest callback without retriggering the effect.
+  const dismissRef = useRef(onDismiss);
+  dismissRef.current = onDismiss;
+  useEffect(() => {
+    if (!notif) return undefined;
+    const t = setTimeout(() => dismissRef.current?.(), 5000);
+    return () => clearTimeout(t);
+  }, [notif]);
+
+  return (
   <div style={{ position:"absolute", top:60, left:16, right:16, zIndex:900, animation:"dn .3s ease" }}>
     <div style={{ background:"rgba(20,20,40,0.97)", border:`1.5px solid ${notif.color||C.borderHi}`, borderRadius:16, padding:"12px 14px", backdropFilter:"blur(20px)", display:"flex", gap:12, alignItems:"flex-start", boxShadow:`0 8px 32px rgba(0,0,0,.5), 0 0 0 1px ${notif.color||C.accent}18` }}>
       <div style={{ fontSize:22, flexShrink:0 }}>{notif.icon||"🔔"}</div>
       <div style={{ flex:1 }}>
-        <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13, marginBottom:3, color:C.text }}>{notif.title}</p>
+        {/* Fixed near-white, NOT C.text: this banner's background is always dark
+            (rgba(20,20,40,.97)) in both themes, so C.text rendered the title in
+            near-black on near-black in light mode — the title was invisible and only
+            an emoji inside it showed. */}
+        <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13, marginBottom:3, color:"#f4efff" }}>{notif.title}</p>
         <p style={{ fontSize:11.5, color:C.silver, lineHeight:1.5 }}>{notif.body}</p>
       </div>
       <button onClick={onDismiss} style={{ background:"none", border:"none", color:C.textMid, fontSize:16, cursor:"pointer", paddingLeft:4 }}>✕</button>
     </div>
   </div>
-);
+  );
+};
 
 export const WeatherChip = ({ weather }) => (
   weather ? (

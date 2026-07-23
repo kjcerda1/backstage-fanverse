@@ -27075,7 +27075,12 @@ function AppInner() {
         {modal==="collectmodal"&&<ModalWrapper><div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden" }}><div style={{ padding:"16px 20px",display:"flex",gap:10,alignItems:"center",flexShrink:0 }}><button onClick={()=>setModal(null)} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button><h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19 }}>My Collection 🃏</h2></div><Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}><CollectTab cards={cards} setCards={setCards} isVip={isVip} onUpgrade={openUpgrade} /></Screen></div></ModalWrapper>}
 
         {/* ── MAIN SCREENS ── */}
-        <div style={{ flex:1, overflow:"hidden", position:"relative", paddingBottom:"calc(62px + max(env(safe-area-inset-bottom), 10px))" }}>
+        {/* No bottom padding: the nav is a floating translucent pill, so content runs
+            edge-to-edge to the screen bottom and scrolls UNDERNEATH it (Instagram-style)
+            instead of stopping short and leaving a solid band behind the nav. Each
+            scrollable screen adds its own bottom padding so the last item clears the
+            pill — see the feed's "0 12px calc(96px + env(safe-area-inset-bottom))". */}
+        <div style={{ flex:1, overflow:"hidden", position:"relative" }}>
           {auth.passwordRecovery&&<SetNewPasswordScreen />}
           {!auth.passwordRecovery&&(appState==="auth"||appState==="onboarding")&&<Onboarding onDone={data=>{
             if (!data) { console.error('[App] onDone called with null — skipping'); return; }
