@@ -19879,6 +19879,11 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
   const [gifPickerOpen, setGifPickerOpen] = useState(false);
   const [selectedGif, setSelectedGif] = useState(null); // chosen GIF reaction, queued above send button
   const msgEndRef  = useRef(null);
+  // Scroll container for the DM thread. msgEndRef is attached to TWO sentinels (the
+  // DM list and the group list), so whichever branch unmounts last writes null into
+  // it — msgEndRef.current is frequently null even while a thread is open, which is
+  // why scrolling to the newest message was unreliable. This ref has one owner.
+  const threadListRef = useRef(null);
   const attachRef  = useRef(null);
 
   // ── GROUP CHATS ───────────────────────────────────────────────────────────────
@@ -19930,6 +19935,39 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
   useEffect(()=>{ ls.set(GROUP_KEY, groups); }, [groups]);
   useEffect(()=>{ msgEndRef.current?.scrollIntoView({behavior:"smooth"}); }, [activeConvo?.messages?.length]);
   useEffect(()=>{ msgEndRef.current?.scrollIntoView({behavior:"smooth"}); }, [activeGroup?.messages?.length]);
+
+  // Keep the newest message pinned when the KEYBOARD opens. The two effects above
+  // only fire on message-count changes, so opening the keyboard shrank the thread
+  // without re-scrolling — you'd land mid-conversation and have to scroll down
+  // yourself. The visual viewport shrinking IS the keyboard event here.
+  // Waits for the shell to finish resizing (it is driven by the same event) before
+  // measuring, and jumps instantly rather than smooth-scrolling so the latest
+  // message is simply already there when the keyboard finishes animating in.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return undefined;
+    const threadOpen = !!(activeConvo || activeGroup);
+    if (!threadOpen) return undefined;
+    let timer = 0;
+    const pinToLatest = () => {
+      clearTimeout(timer);
+      // setTimeout, not requestAnimationFrame: rAF callbacks never run while the
+      // page isn't compositing (backgrounded tab, app being resumed), which is
+      // exactly when a keyboard event can arrive. A timer always fires.
+      timer = setTimeout(() => {
+        // Drive the container directly rather than scrollIntoView on a sentinel:
+        // deterministic, and immune to the shared-msgEndRef null problem above.
+        const el = threadListRef.current;
+        if (el) el.scrollTop = el.scrollHeight;
+        else msgEndRef.current?.scrollIntoView({ block: "end" });
+      }, 80);
+    };
+    vv.addEventListener("resize", pinToLatest);
+    return () => {
+      vv.removeEventListener("resize", pinToLatest);
+      clearTimeout(timer);
+    };
+  }, [activeConvo?.id, activeGroup?.id]);
 
   useEffect(() => {
     if (!tokenReady) return;
@@ -20215,7 +20253,7 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
       )}
 
       {/* Messages scroll area */}
-      <div style={{ flex:1,overflowY:"auto",padding:"14px 16px",display:"flex",flexDirection:"column",gap:10,position:"relative" }}>
+      <div ref={threadListRef} style={{ flex:1,overflowY:"auto",padding:"14px 16px",display:"flex",flexDirection:"column",gap:10,position:"relative" }}>
         {activeConvo.messages.length===0&&(
           <div style={{ textAlign:"center",padding:"40px 20px" }}>
             {/* Avatar — tappable profile link */}
