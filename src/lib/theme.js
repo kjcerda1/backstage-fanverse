@@ -13,6 +13,9 @@ export const DARK_THEME = {
   border:   "#241848",   // plum border
   borderHi: "#32205e",   // highlighted border
   navBg:    "rgba(10,10,22,0.98)",
+  // Nav fades in from transparent instead of sitting behind a hard border line,
+  // so the bar dissolves into the feed rather than cutting it off.
+  navFade:  "linear-gradient(to bottom, rgba(10,10,22,0) 0%, rgba(10,10,22,0.82) 40%, rgba(10,10,22,0.97) 100%)",
   // ── Primary brand ──────────────────────────────────────────────────────────
   accent:   "#b8a2ff",   // lavender purple
   accentDim:"#6e52cc",   // dim purple
@@ -83,6 +86,7 @@ export const LIGHT_THEME = {
   // the home indicator, and at rgba(255,250,255,.9) that band read as a white
   // slab against the lavender app once the shell reached the true screen bottom.
   navBg:    "rgba(246,238,255,0.92)",
+  navFade:  "linear-gradient(to bottom, rgba(246,238,255,0) 0%, rgba(246,238,255,0.84) 40%, rgba(248,242,255,0.96) 100%)",
   // ── Primary brand — deepened for contrast against pale surfaces ────────────
   accent:   "#8e68e8",
   accentDim:"#6b46c1",

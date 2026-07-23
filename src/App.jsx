@@ -26980,7 +26980,7 @@ function AppInner() {
 
         {/* BOTTOM NAV */}
         {appState==="main"&&!modal&&(
-          <div className="bs-bottom-nav" style={{ position:"absolute",left:0,right:0,bottom:0,display:"flex",minHeight:"calc(62px + max(env(safe-area-inset-bottom), 10px))",background:C.navBg,borderTop:`1px solid ${C.borderHi}`,paddingBottom:"max(env(safe-area-inset-bottom), 10px)",backdropFilter:"blur(24px)",boxShadow:"0 -1px 0 rgba(184,162,255,0.06)",zIndex:100 }}>
+          <div className="bs-bottom-nav" style={{ position:"absolute",left:0,right:0,bottom:0,display:"flex",minHeight:"calc(62px + max(env(safe-area-inset-bottom), 10px))",background:C.navFade,paddingBottom:"max(env(safe-area-inset-bottom), 10px)",backdropFilter:"blur(24px)",WebkitMaskImage:"linear-gradient(to bottom, transparent 0%, #000 34%)",maskImage:"linear-gradient(to bottom, transparent 0%, #000 34%)",zIndex:100 }}>
             {NAV.map(n=>{
               const active = tab===n.id;
               const NAV_ICONS = {
@@ -27018,7 +27018,7 @@ function AppInner() {
                     {/* DM unread badge on Profile tab */}
                     {n.id==="profile"&&(()=>{const u=ls.get("backstage_dms",[]).reduce((s,c)=>s+c.unread,0); return u>0?<div style={{ position:"absolute",top:-3,right:-3,width:14,height:14,borderRadius:"50%",background:C.rose,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.bg }}>{u}</div>:null; })()}
                   </div>
-                  <span style={{ fontSize:8, fontFamily:"'Epilogue',sans-serif", fontWeight:active?800:500, color:active?C.accent:C.textMid, letterSpacing:"0.04em", transition:"color .18s" }}>{n.label}</span>
+                  <span style={{ fontSize:9.5, fontFamily:"'Epilogue',sans-serif", fontWeight:active?800:500, color:active?C.accent:C.textMid, letterSpacing:"0.04em", transition:"color .18s" }}>{n.label}</span>
                 </button>
               );
             })}
