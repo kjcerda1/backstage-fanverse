@@ -252,18 +252,14 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
    positioning when the browser viewport is wide enough to be a desktop
    preview (not an actual phone). */
 .app-shell{position:fixed;left:0;right:0;top:0;bottom:var(--app-kb,0px);width:100%;box-sizing:border-box;padding-top:calc(env(safe-area-inset-top,0px) + 12px)}
-/* iOS standalone PWA only: the layout viewport is SHORTER than the physical
-   screen by the top safe-area inset, so position:fixed;bottom:0 stops short and
-   the body background shows through under the nav. Measured on device:
-   screen 956, innerHeight 894, safe-top 62 (956-894=62 exactly).
-   Unit probes on that same device:
-     100vh 956 / 100lvh 956  <- span the true screen
-     100dvh 894 / 100svh 894 / -webkit-fill-available 894 / fixed inset:0 894
-   So 100vh is the only thing that reaches the bottom. Scoped to standalone
-   because in Safari 100vh is the LARGE viewport and would run the nav behind
-   the browser toolbar; the default rule above already works there.
-   Keyboard lift still applies via --app-kb. */
-@media (max-width:500px){html[data-standalone="1"] .app-shell{height:calc(100vh - var(--app-kb,0px));bottom:auto}}
+/* NOTE — do not "fix" a standalone-PWA bottom gap by stretching this to 100vh.
+   That was tried: 100vh does measure the full 956 screen while the layout
+   viewport is 894, but iOS renders NOTHING below 894 — content there exists in
+   the DOM at a valid on-screen coordinate and is still invisible (measured: DM
+   composer at bot=942, i.e. 14px inside a 956 screen, yet not painted). It only
+   cut the nav icons off. The gap's real cause was the black-translucent status
+   bar style top-aligning a short viewport; that is fixed in index.html, so
+   bottom:0 above is correct and the viewport now reaches the screen bottom. */
 @media (min-width:501px){.app-shell{position:relative;inset:auto;width:430px;max-width:430px;height:100dvh;margin:0 auto}}
 /* Nav icons scaled up 22->26. Set here rather than on each of the six inline
    SVGs, which hardcode width/height="22". The My World B glyph is a <span>, not

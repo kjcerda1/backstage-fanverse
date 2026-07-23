@@ -20612,15 +20612,18 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
             </div>
             {inboxConvos.map(convo=>(
               <div key={convo.id} onClick={()=>openConvo(convo)} style={{ display:"flex",gap:12,alignItems:"center",padding:"13px 0",borderBottom:`1px solid ${C.border}`,cursor:"pointer" }}>
-                {/* Avatar — tapping opens profile, not convo */}
-                <div onClick={e=>{ e.stopPropagation(); onViewProfile?.(convo.fan); }} className="tap" style={{ position:"relative",flexShrink:0,cursor:"pointer" }}>
+                {/* Avatar and username deliberately do NOT open the profile: they used to
+                    stopPropagation and jump to the profile snapshot, which meant tapping the
+                    most obvious part of a row (the name) never opened the conversation. The
+                    whole row opens the thread now — the profile is still one tap away from
+                    the thread header, which is where every messaging app puts it. */}
+                <div className="tap" style={{ position:"relative",flexShrink:0 }}>
                   <div style={{ width:50,height:50,borderRadius:"50%",background:`linear-gradient(135deg,${convo.fan.color},${convo.fan.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19,color:C.bg,boxShadow:`0 0 12px ${convo.fan.color}28` }}>{convo.fan.avatar}</div>
                   {convo.unread>0&&<div style={{ position:"absolute",top:-2,right:-2,width:18,height:18,borderRadius:"50%",background:`linear-gradient(135deg,${C.rose},${C.berry})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.bg }}>{convo.unread}</div>}
                 </div>
                 <div style={{ flex:1,minWidth:0 }}>
                   <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3 }}>
-                    {/* Username — tapping opens profile */}
-                    <p onClick={e=>{ e.stopPropagation(); onViewProfile?.(convo.fan); }} className="tap" style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:convo.unread>0?800:600,fontSize:13.5,color:convo.unread>0?C.text:C.textMid,cursor:"pointer" }}>{convo.fan.name}</p>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:convo.unread>0?800:600,fontSize:13.5,color:convo.unread>0?C.text:C.textMid }}>{convo.fan.name}</p>
                     <p style={{ fontSize:9.5,color:C.textDim }}>{convo.lastTime}</p>
                   </div>
                   {(()=>{

@@ -5,72 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
   <title>Backstage by Fanverse</title>
   <meta name="description" content="One Universe. Endless Connections. The ultimate app for K-Pop fans." />
-  <meta name="theme-color" content="#07050f" />
+  <meta name="theme-color" content="#f8f2ff" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#07050f" media="(prefers-color-scheme: dark)" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <!-- NOT black-translucent. With that value iOS hands the standalone web view a
+       layout viewport of screen-minus-status-bar (measured on device: 894 for a
+       956 screen) but TOP-ALIGNS it at y=0, so the 62px shortfall lands at the
+       BOTTOM as dead space that only paints the canvas background — anything
+       positioned there (nav, DM composer) renders but is never visible, and the
+       status bar simultaneously overlaps the top of the UI. With "default" the
+       view is placed BELOW the status bar and its bottom sits flush with the
+       screen: no dead strip, no overlap. -->
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Backstage" />
   <link rel="manifest" href="/manifest.json" />
   <link rel="icon" type="image/png" href="/logo-orb.png" />
   <link rel="apple-touch-icon" href="/logo-orb.png" />
-  <script>
-    // Flag the installed standalone PWA before first paint so .app-shell can use
-    // a full-screen height there without affecting Safari. iOS gives a standalone
-    // web view a layout viewport SHORTER than the screen by the top safe-area
-    // inset (measured on device: screen 956, innerHeight 894, inset 62), so
-    // position:fixed;bottom:0 stops 62px short of the bottom. See theme.js.
-    // matchMedia is the standard check; navigator.standalone is the iOS fallback.
-    (function () {
-      var isStandalone =
-        (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
-        window.navigator.standalone === true;
-      if (isStandalone) document.documentElement.setAttribute('data-standalone', '1');
-    })();
-  </script>
-  <script>
-    // TEMPORARY — remove once the missing DM composer is diagnosed.
-    // Only runs in the installed PWA, and only shows itself once a DM thread is
-    // actually open. The composer renders correctly in every desktop-browser
-    // condition tested (including a 1600px-tall message list), so this reports
-    // the one thing that cannot be measured off-device: where the composer
-    // actually sits relative to the visible screen in standalone mode.
-    (function () {
-      var standalone =
-        (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
-        window.navigator.standalone === true;
-      if (!standalone) return;
-      var box = null;
-      function tick() {
-        var input = document.querySelector('input[placeholder="Send a message..."]');
-        if (!input) { if (box) { box.remove(); box = null; } return; }
-        if (!box) {
-          box = document.createElement('div');
-          box.style.cssText =
-            'position:fixed;left:8px;right:8px;top:96px;z-index:2147483647;' +
-            'background:rgba(8,4,20,.93);color:#8fffc8;border:1px solid #b8a2ff;' +
-            'border-radius:10px;padding:8px 10px;pointer-events:none;white-space:pre;' +
-            'font:600 11px/1.45 ui-monospace,Menlo,Consolas,monospace';
-          document.body.appendChild(box);
-        }
-        var r = input.getBoundingClientRect();
-        var shell = document.querySelector('.app-shell');
-        var sr = shell ? shell.getBoundingClientRect() : null;
-        var kb = getComputedStyle(document.documentElement).getPropertyValue('--app-kb').trim();
-        var n = function (v) { return Math.round(v); };
-        box.textContent =
-          'DM COMPOSER DIAGNOSTIC\n' +
-          'screen.h     ' + n(window.screen.height) + '\n' +
-          'innerHeight  ' + n(window.innerHeight) + '\n' +
-          'visualVP.h   ' + (window.visualViewport ? n(window.visualViewport.height) : 'n/a') + '\n' +
-          '--app-kb     ' + kb + '\n' +
-          'shell        ' + (sr ? 'top=' + n(sr.top) + ' bot=' + n(sr.bottom) + ' h=' + n(sr.height) : '(none)') + '\n' +
-          'composer     top=' + n(r.top) + ' bot=' + n(r.bottom) + '\n' +
-          '>> below innerHeight : ' + n(r.bottom - window.innerHeight) + '\n' +
-          '>> below screen      : ' + n(r.bottom - window.screen.height) + '\n' +
-          '   (any value > 0 means it is off-screen)';
-      }
-      setInterval(tick, 700);
-    })();
-  </script>
 </head>
 
 <body>
