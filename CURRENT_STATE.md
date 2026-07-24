@@ -4,7 +4,7 @@
 
 **Snapshot date:** 2026-07-23
 **Branch:** `main` @ `ac0c08d`
-**Version:** `package.json` → `1.6.0` (⚠️ not bumped since the 2026-06-16 snapshot despite 113 commits — the version string is stale, not a real 1.6.0-since-then)
+**Version:** `package.json` → `1.16.0` (normalized 2026-07-24 from a stale `1.6.0` that had sat unbumped across 113 commits; UI badges + `DEPLOYMENT.md` synced to match)
 **Supabase project:** `wshqjxsbwqijodlskrbx` (us-east-1, Postgres 17)
 **Live DB snapshot (queried 2026-07-23):** 17 registered users · 11 VIP · 6 friends rows · 24 DMs · 11 FCM tokens · 132 synced events · 1 post · 3 post comments · 0 meetups · 0 meetup RSVPs · 0 moderation reports · 0 blocks. The zeros on meetups/posts mean those features are wired to real tables but barely exercised in this dev DB — not that they're unbuilt.
 **Build:** `npm run build` last confirmed clean 2026-07-23 (444 modules, main bundle ~1.76 MB / ~415 KB gzipped).
@@ -151,10 +151,11 @@ Status legend: **Real** = wired to live backend/DB (works fully with env vars se
 
 | Issue | Notes |
 |---|---|
-| **Orphaned `Home*` dead code** | `HomeFeed` + ~14 `Home*` components remain in `App.jsx` but `HomeFeed` is never mounted (Home tab removed 2026-07-05). Safe to delete; currently just bloating the bundle. |
+| ~~Orphaned `Home*` dead code~~ | **Resolved 2026-07-24.** All 14 `Home*` components + the `MOCK_OUTFITS` constant removed (−1142 lines from `App.jsx`). `InstallPromptCard` (the PWA install prompt) was mounted only inside `HomeFeed` — it was **preserved, not deleted**, because it's a real feature, not Home dead code. It is now unmounted; re-mount it in a live surface (Explore or app root) to restore the install prompt, or remove as a separate decision. |
 | **Orphaned AI backend routes** | `/api/ai/outfit` and `/api/ai/trip-planner` have no frontend caller since the 2026-07-02 removal. Either gate/remove them or note them as intentionally-parked for the planned re-add. |
-| **`App.jsx` is 27,261 lines / 146 top-level components** | Modularization *started* (Phases 1–4 extracted `src/lib/` theme, storage, telemetry, visualSystem, date/profile helpers; `src/data/` 6 mock files; `src/components/primitives.jsx`; `MapboxMap.jsx`) — but the bulk still lives in one file, which grew (~24k→27k) as features outpaced extraction. No router; still a monolith in practice. |
-| **Version string stale** | `package.json` still `1.6.0` across 113 commits. Bump before any release tagging. |
+| **`App.jsx` is ~26,100 lines / 132 top-level components** | Modularization *started* (Phases 1–4 extracted `src/lib/` theme, storage, telemetry, visualSystem, date/profile helpers; `src/data/` 6 mock files; `src/components/primitives.jsx`; `MapboxMap.jsx`) plus the 2026-07-24 Home removal (−1142 lines) — but the bulk still lives in one file. No router; still a monolith in practice. |
+| ~~Version string stale~~ | **Resolved 2026-07-24** — normalized to `1.16.0` across `package.json`, UI badges, and `DEPLOYMENT.md`. |
+| **Pre-existing unused imports** | 7 imports in `App.jsx` were already unused before the Home cleanup (`DARK_THEME`, `LIGHT_THEME`, `BS_TONE`, `bsToneColor`, `getBadgeStyle`, `getGlassCardStyle`, `parseConcertShowTime`). Left in place — not caused by, or in scope for, the Home removal. Trivially removable in a future tidy pass. |
 | Express route-order footguns | Parameterized routes after the 404 catch-all become silently unreachable — has bitten capsule + trader-stats routes. Audit new routes. |
 | Core DB schema partly un-versioned | 11 migration `.sql` files in-repo, but core tables (`users`, `cards`, `binders`, `trade_listings`, `card_templates`, `moderation_reports`, `user_blocks`, `posts`, `events`) have no migration file — likely created in the dashboard. Export a full schema dump for disaster recovery. |
 | `.env.example` completeness | Now includes PostHog/Sentry. Still verify it lists `STRIPE_PRICE_*`, `RESEND_API_KEY`/`EMAIL_FROM`, GIF provider keys, `APPLE_MUSIC_*`, `ADMIN_EMAILS`, `SYNC_ADMIN_SECRET`. See `PROJECT_OVERVIEW.md` §6. |
@@ -167,7 +168,7 @@ Status legend: **Real** = wired to live backend/DB (works fully with env vars se
 
 1. **Live smoke-test push notifications** end-to-end with real Firebase credentials — code complete, unverified on device.
 2. **Verify Spotify / Apple Music OAuth round-trip** with real credentials.
-3. **Housekeeping the survey surfaced:** delete orphaned `HomeFeed` dead code; resolve the two orphaned AI routes; bump the version string.
+3. **Housekeeping (done 2026-07-24):** removed orphaned Home dead code; normalized the version to 1.16.0; marked the two dormant AI backend routes (`/api/ai/outfit`, `/api/ai/trip-planner`) as intentionally kept. Remaining: decide whether to re-mount or drop `InstallPromptCard`, and clear the 7 pre-existing unused imports.
 4. **Export and commit the real Supabase schema** for the un-versioned core tables.
 5. **AI itinerary preference step** before generation.
 6. **Real-time DMs** (replace polling) and **nightly Ticketmaster sync** when there's appetite.

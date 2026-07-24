@@ -283,6 +283,9 @@ app.get('/api/health', (req, res) => {
 // ── AI: OUTFIT GENERATOR ──────────────────────────────────────────────────────
 // Returns { outfit: { title, subtitle, confidence, items[], colors[], tags[], tip, accessories[] } }
 // V16 FIX: Changed from { looks: [] } to { outfit: {} } to match frontend expectation
+// DORMANT (2026-07-02): no current frontend caller — the Outfit AI UI was removed,
+// planned to return at a higher AI tier. Route kept intentionally; still auth- and
+// rate-limited server-side (does not expose ANTHROPIC_API_KEY). Do not delete.
 app.post('/api/ai/outfit', aiLimiter, requireAuth, async (req, res) => {
   const { group, era, bias, vibe, season, venue, comfort } = req.body;
 
@@ -542,6 +545,9 @@ app.post('/api/ai/chant-helper', aiLimiter, optionalAuth, (req, res) => {
 
 // ── AI: TRIP PLANNER ──────────────────────────────────────────────────────────
 // Called from frontend TripPlanner component — NOT direct from browser to Anthropic
+// DORMANT (2026-07-02): no current frontend caller — the Trip Planner UI was removed,
+// planned to return at a higher AI tier. Route kept intentionally; still auth- and
+// rate-limited server-side (does not expose ANTHROPIC_API_KEY). Do not delete.
 app.post('/api/ai/trip-planner', aiLimiter, requireAuth, async (req, res) => {
   const { city, concertTime, concertDate, duration, groupSize, budget, interests, group } = req.body;
 
