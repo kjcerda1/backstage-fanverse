@@ -701,6 +701,28 @@ function reconcileCircleStatuses(acceptedIds = [], pendingOutgoingIds = []) {
   return next;
 }
 
+// Classifies a POST /api/friends/request result into a single user-facing outcome.
+// api.post NEVER throws on a non-2xx response — it RESOLVES with { error:"<status>" } —
+// so every one of the friend-request entry points has to inspect the result explicitly
+// instead of treating "the promise resolved" as success. Centralising this here is what
+// keeps all six call sites speaking with one voice and stops any of them from painting a
+// fake local relationship the server actually rejected (409/403/500).
+//   • 2xx success        → 'sent'    (or 'already_sent' when the row already existed)
+//   • 409 Already friends → 'friends'
+//   • 403 blocked/not allowed → 'blocked'
+//   • anything else (500, 400, Network error) → 'error'
+function friendRequestOutcome(r) {
+  if (r && r.success && !r.error) {
+    return r.duplicate
+      ? { ok: true, state: 'sent',   message: 'Request already sent',   tone: 'info' }
+      : { ok: true, state: 'sent',   message: 'Request sent ✦',         tone: 'mint' };
+  }
+  const code = String(r?.error ?? '');
+  if (code === '409') return { ok: false, state: 'friends', message: "You're already in each other's Circle", tone: 'mint' };
+  if (code === '403') return { ok: false, state: 'blocked', message: 'Request could not be sent',            tone: 'rose' };
+  return { ok: false, state: 'error', message: 'Something went wrong — try again', tone: 'rose' };
+}
+
 // ─── SKIN SYSTEM — shared between ProfileStudio and the main Profile page ─────
 const SKIN_GRADIENTS = {
   // ── Classic Styles ────────────────────────────────────────────────────────
@@ -2339,6 +2361,30 @@ async function disableNotificationPush(savedToken) {
   await api.del('/api/save-token', savedToken ? { token: savedToken } : {}).catch(()=>{});
 }
 
+// The Settings master toggle read one localStorage flag that only the two enable
+// paths ever write. A device could therefore sit with permission granted, a token
+// saved and test pushes arriving while the toggle still showed OFF — the exact
+// contradiction the Diagnostics card exposed. Reconcile against the two things
+// that actually decide whether push works: OS permission and a registered token.
+// Returns the true on/off state.
+//
+// explicitlyOff (settings.phonePush === false) is honoured — someone who turned
+// push off stays off even though the OS permission is still granted. Everyone
+// else who has already tapped Allow gets flipped on, and re-registers their token
+// while we're here (getToken() never re-prompts once permission is granted, so
+// this is silent).
+async function reconcilePushEnabled(userKey, userId, explicitlyOff = false) {
+  if (!("Notification" in window) || window.Notification.permission !== "granted") return false;
+  if (explicitlyOff) return false;
+  const hasToken = !!ls.get(`backstage_push_token_${userKey}`, null);
+  if (ls.get(`backstage_push_enabled_${userKey}`, false) === true && hasToken) return true;
+  const token = await requestNotificationPermission(userId);
+  if (!token) return false;
+  ls.set(`backstage_push_enabled_${userKey}`, true);
+  ls.set(`backstage_push_token_${userKey}`, token);
+  return true;
+}
+
 // ─── NOTIFICATION DELIVERY HELPER ────────────────────────────────────────────
 // Coordinates all delivery channels for a single notification event.
 //
@@ -2581,19 +2627,23 @@ function InvitePage({ onBack, user, onNotif, isVip, onUpgrade, go, onViewProfile
     // erroring server-side) shows a false "sent" confirmation while nothing was actually
     // created, and the optimistic "Requested" badge silently reverts a few seconds later
     // once the next reconcile finds no real pending request.
-    let r;
-    try {
-      r = await api.post('/api/friends/request', { targetUserId: fu.id });
-    } catch {
-      r = null;
+    const r = await api.post('/api/friends/request', { targetUserId: fu.id });
+    const outcome = friendRequestOutcome(r);
+    if (outcome.state === 'friends') {
+      // Already friends — mark as such rather than pretending a new request was sent.
+      const accepted = {...ls.get("backstage_circle_statuses",{}), [fu.id]:"accepted"};
+      setUserStatuses(accepted); ls.set("backstage_circle_statuses", accepted);
+      setPendingReqs(pendingReqs.filter(x=>x.userId!==fu.id));
+      onNotif({title:"Already connected",body:outcome.message,icon:"💜",color:C.mint});
+      return;
     }
-    if (!r || r.error) {
+    if (!outcome.ok) {
       const reverted = {...ls.get("backstage_circle_statuses",{})};
       delete reverted[fu.id];
       setUserStatuses(reverted); ls.set("backstage_circle_statuses", reverted);
       setPendingReqs(pendingReqs.filter(x=>x.userId!==fu.id));
       ls.set("backstage_friend_requests", { ...readFriendRequestStore(), outgoing:pendingReqs.filter(x=>x.userId!==fu.id) });
-      onNotif({title:"Couldn't send request",body:"Something went wrong — try again in a moment.",icon:"⚠️",color:C.rose});
+      onNotif({title:"Couldn't send request",body:outcome.message,icon:"⚠️",color:C.rose});
       return;
     }
     if (r?.request?.id) {
@@ -10036,9 +10086,17 @@ function FanDiscoverySection({ user, fans, loading, onViewProfile }) {
     const next = {...statuses, [fan.id]:"sent"};
     setStatuses(next);
     ls.set("backstage_circle_statuses", next);
-    api.post('/api/friends/request', { targetUserId: fan.id }).then(r => {
+    // Classify the result — a non-2xx resolves (never throws), so without this the
+    // optimistic "Requested" pill would stick on a rejected/failed request.
+    const r = await api.post('/api/friends/request', { targetUserId: fan.id });
+    const outcome = friendRequestOutcome(r);
+    if (outcome.ok) {
       if (r?.request?.id) setRequestIds(prev => ({ ...prev, [fan.id]: r.request.id }));
-    }).catch(()=>{});
+    } else if (outcome.state === 'friends') {
+      setStatuses(prev => { const n = {...prev, [fan.id]:"accepted"}; ls.set("backstage_circle_statuses", n); return n; });
+    } else {
+      setStatuses(prev => { const n = {...prev}; delete n[fan.id]; ls.set("backstage_circle_statuses", n); return n; });
+    }
   };
 
   const cancelCircleRequest = (fan) => {
@@ -10509,7 +10567,21 @@ function FanverseTab({ go, user, isVip, onUpgrade, onViewProfile }) {
     const store = readFriendRequestStore();
     const entry = { id:`req-${Date.now()}`, userId:fan.id, username:fan.username||fan.handle, displayName:fan.display_name||fan.displayName, avatar:fan.avatar, color:C.accent, fandoms:fan.fandoms||[], sentAt:Date.now() };
     ls.set("backstage_friend_requests", { ...store, outgoing:[entry, ...store.outgoing.filter(r=>r.userId!==fan.id)] });
-    api.post('/api/friends/request', { targetUserId: fan.id }).catch(() => {});
+    // Classify the result (a non-2xx resolves, never throws) so a rejected request
+    // doesn't leave a fake pending row + "Requested" pill behind.
+    const outcome = friendRequestOutcome(await api.post('/api/friends/request', { targetUserId: fan.id }));
+    if (outcome.ok) { showCToast(outcome.message); return; }
+    if (outcome.state === 'friends') {
+      setDiscoverStatuses(prev => ({ ...prev, [fan.id]: "accepted" }));
+      ls.set("backstage_circle_statuses", { ...ls.get("backstage_circle_statuses", {}), [fan.id]: "accepted" });
+    } else {
+      // Revert both the status map and the optimistic pending row.
+      setDiscoverStatuses(prev => { const n = { ...prev }; delete n[fan.id]; return n; });
+      const cs = { ...ls.get("backstage_circle_statuses", {}) }; delete cs[fan.id]; ls.set("backstage_circle_statuses", cs);
+      const s2 = readFriendRequestStore();
+      ls.set("backstage_friend_requests", { ...s2, outgoing: s2.outgoing.filter(r => r.userId !== fan.id) });
+    }
+    showCToast(outcome.message);
   };
 
   // Social story rail — personal/social bubbles, NOT pass categories (those live in Backstage Passes)
@@ -17905,65 +17977,209 @@ function GroupDetailEditor({ group, initial={}, statusOptions=[], statusColors={
   );
 }
 
+// ─── SHARED RELATIONSHIP CONTROL ─────────────────────────────────────────────
+// ONE control for the entire friend-relationship lifecycle, dropped onto every
+// public profile no matter how it was opened (Direct Messages, Fanverse search,
+// My Circle, feed, Explore, notifications, trade). It owns the authoritative
+// relationship from GET /api/profile/:id and every mutation, which is what lets us:
+//   • never show a state the backend didn't confirm (no optimistic "Friends"),
+//   • keep add / accept / decline / cancel / remove logic in a single place
+//     instead of the near-identical copies that used to live on each profile view,
+//   • block duplicate requests from rapid taps (busy guard).
+// States → rendered control:
+//   self       → nothing (you can't friend yourself)
+//   none       → "Add to Circle"
+//   sent       → "Requested" (tap → "Tap to cancel" → cancel; never re-sends)
+//   incoming   → "Accept" + "Decline"
+//   accepted   → "In My Circle ✓" (tap → manage sheet: Remove from Circle)
+// Renders as a flex:1 slot containing 1–2 buttons so a host can place a Message
+// button beside it. onChanged(relationship) fires after any confirmed change so the
+// host can refresh surrounding UI.
+function RelationshipControl({ fanId, fanName = "this fan", seedRelationship, seedRequestId = null, onChanged, go }) {
+  const seeded = seedRelationship !== undefined ? relationshipToStatus(seedRelationship) : undefined;
+  const [status, setStatus]         = useState(seeded);        // undefined = still loading
+  const [requestId, setRequestId]   = useState(seedRequestId);
+  const [busy, setBusy]             = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);   // armed by first tap on "Requested"
+  const [manageOpen, setManageOpen] = useState(false);
+  const [notice, setNotice]         = useState(null);          // { text, tone }
+
+  const flash = (text, tone = "info") => {
+    setNotice({ text, tone });
+    setTimeout(() => setNotice(n => (n && n.text === text ? null : n)), 3200);
+  };
+
+  // Always reconcile against the backend on mount / id change — the seed only
+  // prevents a flash of the wrong label while this resolves.
+  useEffect(() => {
+    if (!fanId) { setStatus('self'); return; }
+    let alive = true;
+    api.get(`/api/profile/${fanId}`).then(d => {
+      if (!alive || !d || d.error) return;
+      setStatus(relationshipToStatus(d.relationship));
+      setRequestId(d.requestId || null);
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [fanId]);
+
+  const refresh = async () => {
+    const d = await api.get(`/api/profile/${fanId}`);
+    if (d && !d.error) {
+      setStatus(relationshipToStatus(d.relationship));
+      setRequestId(d.requestId || null);
+      onChanged?.(d.relationship);
+    }
+    return d;
+  };
+
+  // Mirror the app-wide circle-status cache so other surfaces (badges, discovery
+  // cards) reflect the change immediately instead of waiting for the next poll.
+  const cacheStatus = (val) => {
+    const map = { ...ls.get("backstage_circle_statuses", {}) };
+    if (val) map[fanId] = val; else delete map[fanId];
+    ls.set("backstage_circle_statuses", map);
+  };
+
+  const add = async () => {
+    if (busy) return;
+    setBusy(true);
+    const prev = status;
+    setStatus('sent'); cacheStatus('sent');       // optimistic
+    const r = await api.post('/api/friends/request', { targetUserId: fanId });
+    const outcome = friendRequestOutcome(r);
+    if (outcome.ok) {
+      if (r?.request?.id) setRequestId(r.request.id);
+      flash(outcome.message, outcome.tone);
+      await refresh();                             // authoritative reconcile
+    } else if (outcome.state === 'friends') {
+      setStatus('accepted'); cacheStatus('accepted');
+      flash(outcome.message, outcome.tone);
+      onChanged?.('friends');
+    } else {
+      setStatus(prev || 'none'); cacheStatus(prev === 'sent' ? 'sent' : null);
+      flash(outcome.message, outcome.tone);
+    }
+    setBusy(false);
+  };
+
+  const accept = async () => {
+    if (busy) return;
+    setBusy(true);
+    const rid = requestId;
+    if (!rid) { await refresh(); setBusy(false); return; }
+    const r = await api.post('/api/friends/accept', { requestId: rid });
+    if (r && !r.error) { setStatus('accepted'); cacheStatus('accepted'); flash('Added to your Circle ✦', 'mint'); onChanged?.('friends'); }
+    else flash('Could not accept — try again', 'rose');
+    setBusy(false);
+  };
+
+  const decline = async () => {
+    if (busy) return;
+    setBusy(true);
+    const rid = requestId;
+    if (rid) await api.post('/api/friends/decline', { requestId: rid });
+    setStatus('none'); cacheStatus(null); setRequestId(null); onChanged?.('none');
+    setBusy(false);
+  };
+
+  const cancel = async () => {
+    if (busy) return;
+    setBusy(true);
+    setConfirmCancel(false);
+    const rid = requestId;
+    if (rid) await api.post('/api/friends/cancel', { requestId: rid });
+    setStatus('none'); cacheStatus(null); setRequestId(null); onChanged?.('none');
+    setBusy(false);
+  };
+
+  const remove = async () => {
+    if (busy) return;
+    setBusy(true);
+    const r = await api.del(`/api/friends/${fanId}`);
+    if (r && !r.error) {
+      setStatus('none'); cacheStatus(null); setRequestId(null); setManageOpen(false); onChanged?.('none');
+      // Keep the local friends list in sync so My Circle drops them without a reload.
+      const friends = ls.get("backstage_friends", []).filter(f => (f.id || f.profileId) !== fanId);
+      ls.set("backstage_friends", friends);
+      flash(`Removed from your Circle`, 'info');
+    } else { flash('Could not remove — try again', 'rose'); setManageOpen(false); }
+    setBusy(false);
+  };
+
+  // Self or not-yet-loaded → render nothing / a quiet placeholder.
+  if (status === 'self') return null;
+
+  const noticeColor = notice?.tone === 'mint' ? C.mint : notice?.tone === 'rose' ? C.rose : C.accent;
+  const BTN = { flex:1, padding:"12px", borderRadius:14, fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:12, cursor:"pointer", border:"none" };
+
+  let inner;
+  if (status === undefined) {
+    inner = <button disabled style={{ ...BTN, background:C.surfaceHi, color:C.textDim, border:`1px solid ${C.border}`, cursor:"default" }}>…</button>;
+  } else if (status === 'incoming') {
+    inner = (
+      <>
+        <button onClick={accept} disabled={busy} style={{ ...BTN, background:`linear-gradient(140deg,${C.accent},${C.pink})`, color:C.bg }}>Accept</button>
+        <button onClick={decline} disabled={busy} style={{ ...BTN, background:"transparent", color:C.textMid, border:`1.5px solid ${C.border}` }}>Decline</button>
+      </>
+    );
+  } else if (status === 'accepted') {
+    inner = <button onClick={()=>setManageOpen(true)} disabled={busy} style={{ ...BTN, background:`${C.mint}18`, color:C.mint, border:`1.5px solid ${C.mint}` }}>In My Circle ✓</button>;
+  } else if (status === 'sent') {
+    inner = (
+      <button
+        onClick={()=>{ if (confirmCancel) cancel(); else { setConfirmCancel(true); setTimeout(()=>setConfirmCancel(false), 2500); } }}
+        disabled={busy}
+        style={{ ...BTN, background:confirmCancel?`${C.rose}18`:`${C.accent}12`, color:confirmCancel?C.rose:C.accent, border:`1.5px solid ${confirmCancel?C.rose+'44':C.accent+'44'}` }}
+      >{confirmCancel ? "Tap to cancel" : "Requested"}</button>
+    );
+  } else {
+    inner = <button onClick={add} disabled={busy} style={{ ...BTN, background:`linear-gradient(140deg,${C.accent},${C.pink})`, color:C.bg }}>Add to Circle</button>;
+  }
+
+  return (
+    <div style={{ flex:1, display:"flex", gap:8, position:"relative" }}>
+      {inner}
+      {/* Inline outcome toast — self-contained so the control works on any host */}
+      {notice && (
+        <div style={{ position:"absolute", bottom:"calc(100% + 8px)", left:0, right:0, background:"rgba(20,20,40,0.97)", border:`1.5px solid ${noticeColor}55`, borderRadius:12, padding:"9px 12px", boxShadow:"0 8px 28px rgba(0,0,0,0.5)", zIndex:30 }}>
+          <p style={{ fontSize:11.5, color:"#f4efff", fontFamily:"'Epilogue',sans-serif", fontWeight:600, lineHeight:1.4 }}>{notice.text}</p>
+        </div>
+      )}
+      {/* Manage sheet for accepted friends — Remove from Circle */}
+      {manageOpen && (
+        <div onClick={()=>setManageOpen(false)} style={{ position:"fixed", inset:0, zIndex:940, background:"rgba(6,6,15,0.88)", display:"flex", alignItems:"flex-end", animation:"in .2s ease" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ width:"100%", background:`linear-gradient(160deg,${C.surfaceMid},${C.cosmic})`, borderRadius:"24px 24px 0 0", padding:"16px 20px calc(28px + env(safe-area-inset-bottom))", border:`1.5px solid ${C.borderHi}`, borderBottom:"none", animation:"slideUp .26s ease" }}>
+            <div style={{ width:36, height:4, borderRadius:99, background:C.border, margin:"0 auto 16px" }} />
+            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:16, marginBottom:4 }}>Manage @{String(fanName).replace(/^@/,"")}</p>
+            <p style={{ fontSize:11.5, color:C.textMid, marginBottom:16 }}>They're in your Circle. Remove them to undo the connection on both sides.</p>
+            <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+              <button onClick={remove} disabled={busy} className="tap" style={{ width:"100%", padding:"13px", borderRadius:13, background:`${C.rose}18`, border:`1.5px solid ${C.rose}55`, color:C.rose, fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:13, cursor:"pointer" }}>Remove from Circle</button>
+              <button onClick={()=>setManageOpen(false)} className="tap" style={{ width:"100%", padding:"13px", borderRadius:13, background:"transparent", border:`1.5px solid ${C.border}`, color:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13, cursor:"pointer" }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── PUBLIC PROFILE PREVIEW ──────────────────────────────────────────────────
 // Compact profile card opened from DM avatar/name taps.
 // Fetches real data from GET /api/profile/:id. Clean identity card — not a passport form.
 function PublicProfilePreview({ fan, onBack, onBackToMessage, onViewFullProfile, onMessage, go }) {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading]  = useState(true);
-  // Relationship status — seeded from the server's fresh `relationship` field (never
-  // trust the localStorage cache here, it can drift after acceptance/decline/cancel on
-  // another device — see reconcileCircleStatuses).
-  const [circleStatus, setCircleStatus] = useState(null);
-  const [requestId, setRequestId] = useState(null);
-  const [sentConfirm, setSentConfirm] = useState(false);
-  const [confirmCancel, setConfirmCancel] = useState(false); // armed by a first tap on "Requested"
+  // Relationship state + every mutation is owned by the shared <RelationshipControl>
+  // below — seeded from this fetch's `relationship` field so the button never flashes
+  // the wrong label, then reconciled authoritatively by the control itself.
 
   useEffect(() => {
     if (!fan?.id) { setLoading(false); return; }
     api.get(`/api/profile/${fan.id}`).then(data => {
-      if (data && !data.error) {
-        setProfile(data);
-        setCircleStatus(relationshipToStatus(data.relationship));
-        setRequestId(data.requestId || null);
-      }
+      if (data && !data.error) setProfile(data);
       setLoading(false);
     });
   }, [fan?.id]);
-
-  const addToCircle = async () => {
-    const next = {...ls.get("backstage_circle_statuses",{}), [fan.id]:"sent"};
-    ls.set("backstage_circle_statuses", next);
-    setCircleStatus("sent");
-    // api.post never rejects on a non-2xx response — must check r.error explicitly or a
-    // real backend failure shows a false "sent" confirmation (see InvitePage.sendRequest).
-    let r;
-    try { r = await api.post('/api/friends/request', { targetUserId: fan.id }); } catch { r = null; }
-    if (!r || r.error) {
-      const reverted = {...ls.get("backstage_circle_statuses",{})};
-      delete reverted[fan.id];
-      ls.set("backstage_circle_statuses", reverted);
-      setCircleStatus(null);
-      return;
-    }
-    if (r?.request?.id) setRequestId(r.request.id);
-    setSentConfirm(true);
-  };
-
-  const acceptCircleRequest = () => {
-    setCircleStatus("accepted");
-    const next = {...ls.get("backstage_circle_statuses",{}), [fan.id]:"accepted"};
-    ls.set("backstage_circle_statuses", next);
-    if (profile?.requestId) api.post('/api/friends/accept', { requestId: profile.requestId }).catch(()=>{});
-  };
-
-  const cancelCircleRequest = () => {
-    setCircleStatus(null);
-    const next = {...ls.get("backstage_circle_statuses",{})};
-    delete next[fan.id];
-    ls.set("backstage_circle_statuses", next);
-    if (requestId) api.post('/api/friends/cancel', { requestId }).catch(()=>{});
-  };
 
   const username = profile?.username ? `@${profile.username}` : fan.name;
   const dispName = profile?.display_name;
@@ -18032,59 +18248,28 @@ function PublicProfilePreview({ fan, onBack, onBackToMessage, onViewFullProfile,
         )}
       </div>
 
-      {/* CTAs — pinned to bottom */}
+      {/* CTAs — pinned to bottom. The relationship control shows on EVERY entry path
+          now, including from a DM (fan.fromDM) — previously the DM path had no way to
+          add or remove a friend at all. */}
       <div style={{ padding:"12px 20px",paddingBottom:"max(16px, calc(env(safe-area-inset-bottom) + 12px))",borderTop:`1px solid ${C.border}`,flexShrink:0,position:"relative",zIndex:1,background:C.bg,display:"flex",flexDirection:"column",gap:8 }}>
-        {fan.fromDM ? (
-          <>
-            <button onClick={()=>onViewFullProfile?.(fan)} style={{ width:"100%",padding:"12px",borderRadius:14,background:`linear-gradient(140deg,${C.accent},${C.pink})`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer" }}>
-              View Full Profile →
-            </button>
-            <button onClick={onBackToMessage} style={{ width:"100%",padding:"10px",borderRadius:14,background:"transparent",border:`1px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}>
-              Back to Message
-            </button>
-          </>
-        ) : (
-          <>
-            <div style={{ display:"flex",gap:8 }}>
-              <button
-                onClick={()=>{
-                  if (circleStatus==="incoming") acceptCircleRequest();
-                  else if (circleStatus==="sent") { if (confirmCancel) { cancelCircleRequest(); setConfirmCancel(false); } else { setConfirmCancel(true); setTimeout(()=>setConfirmCancel(false),2500); } }
-                  else if (!circleStatus) addToCircle();
-                }}
-                disabled={circleStatus==="accepted"||circleStatus==="self"}
-                style={{ flex:1,padding:"12px",borderRadius:14,background:confirmCancel?`${C.rose}18`:circleStatus==="sent"?`${C.accent}12`:circleStatus==="accepted"?`${C.mint}18`:circleStatus==="self"?C.surfaceHi:`linear-gradient(140deg,${C.accent},${C.pink})`,border:confirmCancel?`1.5px solid ${C.rose}44`:circleStatus==="sent"?`1.5px solid ${C.accent}44`:circleStatus==="accepted"?`1.5px solid ${C.mint}`:circleStatus==="self"?`1px solid ${C.border}`:"none",color:confirmCancel?C.rose:circleStatus==="sent"?C.accent:circleStatus==="accepted"?C.mint:circleStatus==="self"?C.textMid:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,cursor:(circleStatus==="accepted"||circleStatus==="self")?"default":"pointer" }}
-              >
-                {confirmCancel?"Tap to cancel":circleStatus==="sent"?"Requested ✕":circleStatus==="accepted"?"Friends ✦":circleStatus==="incoming"?"Accept Request":circleStatus==="self"?"This is you":"Add to Circle"}
-              </button>
-              <button
-                onClick={()=>onMessage?.(fan)}
-                style={{ flex:1,padding:"12px",borderRadius:14,background:`${C.accent}18`,border:`1.5px solid ${C.accent}33`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}
-              >
-                💬 Message
-              </button>
-            </div>
-            <button onClick={()=>onViewFullProfile?.(fan)} style={{ width:"100%",padding:"10px",borderRadius:14,background:"transparent",border:`1px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}>
-              View Stage →
-            </button>
-          </>
+        <div style={{ display:"flex",gap:8 }}>
+          <RelationshipControl fanId={fan.id} fanName={username} seedRelationship={profile?.relationship} seedRequestId={profile?.requestId} go={go} />
+          <button
+            onClick={()=>onMessage?.(fan)}
+            style={{ flex:1,padding:"12px",borderRadius:14,background:`${C.accent}18`,border:`1.5px solid ${C.accent}33`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}
+          >
+            💬 Message
+          </button>
+        </div>
+        <button onClick={()=>onViewFullProfile?.(fan)} style={{ width:"100%",padding:"10px",borderRadius:14,background:"transparent",border:`1px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}>
+          {fan.fromDM ? "View Full Profile →" : "View Stage →"}
+        </button>
+        {fan.fromDM && (
+          <button onClick={onBackToMessage} style={{ width:"100%",padding:"10px",borderRadius:14,background:"transparent",border:`1px solid ${C.border}`,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}>
+            Back to Message
+          </button>
         )}
       </div>
-
-      {/* Friend request sent confirmation — premium bottom sheet, not a browser alert */}
-      {sentConfirm && (
-        <div onClick={()=>setSentConfirm(false)} style={{ position:"fixed",inset:0,zIndex:920,background:"rgba(6,6,15,0.88)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
-          <div onClick={e=>e.stopPropagation()} style={{ width:"100%",background:`linear-gradient(160deg,${C.surfaceMid},${C.cosmic})`,borderRadius:"24px 24px 0 0",padding:"16px 20px calc(28px + env(safe-area-inset-bottom))",border:`1.5px solid ${C.borderHi}`,borderBottom:"none",animation:"slideUp .26s ease" }}>
-            <div style={{ width:36,height:4,borderRadius:99,background:C.border,margin:"0 auto 16px" }} />
-            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:16,marginBottom:4 }}>Friend request sent ✦</p>
-            <p style={{ fontSize:11.5,color:C.textMid,marginBottom:16 }}>You'll see {username} in Pending until they accept.</p>
-            <div style={{ display:"flex",gap:10 }}>
-              <button onClick={()=>{ setSentConfirm(false); go&&go("friends"); }} className="tap" style={{ flex:1,padding:"13px",borderRadius:13,background:`linear-gradient(135deg,${C.accent},${C.berry})`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer" }}>View Pending Requests</button>
-              <button onClick={()=>setSentConfirm(false)} className="tap" style={{ flex:1,padding:"13px",borderRadius:13,background:"transparent",border:`1.5px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer" }}>Done</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -18098,56 +18283,14 @@ function PublicProfileFull({ fan, onBack, onBackToMessage, onMessage, go }) {
   const isSelf = fan?.isSelf || false;
   const [apiData, setApiData] = useState(null);
   const [loading, setLoading] = useState(true);
-  // Seeded from the server's fresh `relationship` field once the profile loads — see
-  // relationshipToStatus/reconcileCircleStatuses for why the old localStorage-only read
-  // could show "Requested" for someone who'd already been accepted.
-  const [circleStatus, setCircleStatus] = useState(null);
-  const [requestId, setRequestId] = useState(null);
-  const [sentConfirm, setSentConfirm] = useState(false);
-  const [confirmCancel, setConfirmCancel] = useState(false); // armed by a first tap on "Requested"
-
-  const addToCircle = async () => {
-    const next = {...ls.get("backstage_circle_statuses",{}), [fan.id]:"sent"};
-    ls.set("backstage_circle_statuses", next);
-    setCircleStatus("sent");
-    // api.post never rejects on a non-2xx response — must check r.error explicitly or a
-    // real backend failure shows a false "sent" confirmation (see InvitePage.sendRequest).
-    let r;
-    try { r = await api.post('/api/friends/request', { targetUserId: fan.id }); } catch { r = null; }
-    if (!r || r.error) {
-      const reverted = {...ls.get("backstage_circle_statuses",{})};
-      delete reverted[fan.id];
-      ls.set("backstage_circle_statuses", reverted);
-      setCircleStatus(null);
-      return;
-    }
-    if (r?.request?.id) setRequestId(r.request.id);
-    setSentConfirm(true);
-  };
-
-  const acceptCircleRequest = () => {
-    setCircleStatus("accepted");
-    const next = {...ls.get("backstage_circle_statuses",{}), [fan.id]:"accepted"};
-    ls.set("backstage_circle_statuses", next);
-    if (apiData?.requestId) api.post('/api/friends/accept', { requestId: apiData.requestId }).catch(()=>{});
-  };
-
-  const cancelCircleRequest = () => {
-    setCircleStatus(null);
-    const next = {...ls.get("backstage_circle_statuses",{})};
-    delete next[fan.id];
-    ls.set("backstage_circle_statuses", next);
-    const rid = requestId || apiData?.requestId;
-    if (rid) api.post('/api/friends/cancel', { requestId: rid }).catch(()=>{});
-  };
+  // Relationship state + add/accept/decline/cancel/remove all live in the shared
+  // <RelationshipControl> below (seeded from apiData.relationship). This view no longer
+  // keeps its own copy — that duplication is exactly what let two profile screens drift.
 
   useEffect(() => {
     if (!fan?.id) { setLoading(false); return; }
     api.get(`/api/profile/${fan.id}`).then(data => {
-      if (data && !data.error) {
-        setApiData(data);
-        setCircleStatus(relationshipToStatus(data.relationship));
-      }
+      if (data && !data.error) setApiData(data);
       setLoading(false);
     });
   }, [fan?.id]);
@@ -18187,20 +18330,12 @@ function PublicProfileFull({ fan, onBack, onBackToMessage, onMessage, go }) {
         onBackToMessage={fan.fromDM ? onBackToMessage : undefined}
         overrideFan={overrideFan}
       />
-      {/* Sticky social actions — shown for non-DM, non-self taps */}
-      {!fan.fromDM && !isSelf && (
+      {/* Sticky social actions — shown for every non-self tap, INCLUDING profiles
+          opened from a DM (fan.fromDM). Previously fromDM hid this bar entirely, so a
+          fan viewed from a message had no way to add or remove them from the Circle. */}
+      {!isSelf && (
         <div style={{ position:"absolute",bottom:0,left:0,right:0,padding:"12px 20px",paddingBottom:"max(16px, calc(env(safe-area-inset-bottom) + 12px))",background:"rgba(6,6,15,0.92)",backdropFilter:"blur(20px)",borderTop:"1px solid rgba(255,255,255,0.08)",display:"flex",gap:8,zIndex:10 }}>
-          <button
-            onClick={()=>{
-              if (circleStatus==="incoming") acceptCircleRequest();
-              else if (circleStatus==="sent") { if (confirmCancel) { cancelCircleRequest(); setConfirmCancel(false); } else { setConfirmCancel(true); setTimeout(()=>setConfirmCancel(false),2500); } }
-              else if (!circleStatus) addToCircle();
-            }}
-            disabled={circleStatus==="accepted"||circleStatus==="self"}
-            style={{ flex:1,padding:"12px",borderRadius:14,background:confirmCancel?`${C.rose}18`:circleStatus==="sent"?`${C.accent}12`:circleStatus==="accepted"?`${C.mint}18`:circleStatus==="self"?C.surfaceHi:`linear-gradient(140deg,${C.accent},${C.pink})`,border:confirmCancel?`1.5px solid ${C.rose}44`:circleStatus==="sent"?`1.5px solid ${C.accent}44`:circleStatus==="accepted"?`1.5px solid ${C.mint}`:circleStatus==="self"?`1px solid ${C.border}`:"none",color:confirmCancel?C.rose:circleStatus==="sent"?C.accent:circleStatus==="accepted"?C.mint:circleStatus==="self"?C.textMid:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,cursor:(circleStatus==="accepted"||circleStatus==="self")?"default":"pointer" }}
-          >
-            {confirmCancel?"Tap to cancel":circleStatus==="sent"?"Requested ✕":circleStatus==="accepted"?"Friends ✦":circleStatus==="incoming"?"Accept Request":circleStatus==="self"?"This is you":"Add to Circle"}
-          </button>
+          <RelationshipControl fanId={fan.id} fanName={overrideFan.username} seedRelationship={apiData?.relationship} seedRequestId={apiData?.requestId} go={go} />
           <button
             onClick={()=>onMessage?.(fan)}
             style={{ flex:1,padding:"12px",borderRadius:14,background:`${C.accent}18`,border:`1.5px solid ${C.accent}33`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}
@@ -18213,21 +18348,6 @@ function PublicProfileFull({ fan, onBack, onBackToMessage, onMessage, go }) {
       {isSelf && (
         <div style={{ position:"absolute",bottom:0,left:0,right:0,padding:"10px 20px",paddingBottom:"max(12px, calc(env(safe-area-inset-bottom) + 10px))",background:"rgba(6,6,15,0.88)",backdropFilter:"blur(20px)",borderTop:`1px solid ${C.accent}22`,textAlign:"center",zIndex:10 }}>
           <p style={{ fontSize:10.5,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,letterSpacing:"0.04em" }}>👁 Public Preview — how fans see your Stage</p>
-        </div>
-      )}
-
-      {/* Friend request sent confirmation — premium bottom sheet, not a browser alert */}
-      {sentConfirm && (
-        <div onClick={()=>setSentConfirm(false)} style={{ position:"fixed",inset:0,zIndex:920,background:"rgba(6,6,15,0.88)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
-          <div onClick={e=>e.stopPropagation()} style={{ width:"100%",background:`linear-gradient(160deg,${C.surfaceMid},${C.cosmic})`,borderRadius:"24px 24px 0 0",padding:"16px 20px calc(28px + env(safe-area-inset-bottom))",border:`1.5px solid ${C.borderHi}`,borderBottom:"none",animation:"slideUp .26s ease" }}>
-            <div style={{ width:36,height:4,borderRadius:99,background:C.border,margin:"0 auto 16px" }} />
-            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:16,marginBottom:4 }}>Friend request sent ✦</p>
-            <p style={{ fontSize:11.5,color:C.textMid,marginBottom:16 }}>You'll see @{overrideFan.username} in Pending until they accept.</p>
-            <div style={{ display:"flex",gap:10 }}>
-              <button onClick={()=>{ setSentConfirm(false); go&&go("friends"); }} className="tap" style={{ flex:1,padding:"13px",borderRadius:13,background:`linear-gradient(135deg,${C.accent},${C.berry})`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer" }}>View Pending Requests</button>
-              <button onClick={()=>setSentConfirm(false)} className="tap" style={{ flex:1,padding:"13px",borderRadius:13,background:"transparent",border:`1.5px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer" }}>Done</button>
-            </div>
-          </div>
         </div>
       )}
     </div>
@@ -19000,13 +19120,23 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
     if((!msgDraft.trim() && !attachPreview && !selectedGif)||!activeConvo) return;
     const msg = { from:"me", type:selectedGif?"gif":"text", text:msgDraft, time:"now", image:attachPreview||null, gif:selectedGif||null };
     if (activeConvo.backend && (msgDraft.trim() || selectedGif)) {
-      try {
-        const payload = { body: msgDraft.trim() || undefined };
-        if (selectedGif) payload.gif = selectedGif;
-        const saved = await api.post(`/api/messages/thread/${encodeURIComponent(activeConvo.id)}/send`, payload);
-        msg.id = saved?.message?.id || msg.id;
-        msg.time = saved?.message?.created_at ? new Date(saved.message.created_at).toLocaleTimeString([], { hour:"numeric", minute:"2-digit" }) : "now";
-      } catch {}
+      const payload = { body: msgDraft.trim() || undefined };
+      if (selectedGif) payload.gif = selectedGif;
+      const saved = await api.post(`/api/messages/thread/${encodeURIComponent(activeConvo.id)}/send`, payload);
+      // api.post RESOLVES with {error:"<status>"} on a non-2xx — it never throws —
+      // so the old try/catch never fired: a rejected send still rendered in the
+      // thread as if it had gone through while nothing reached the server and the
+      // recipient got no message and no push. Fail loudly instead.
+      if (!saved?.message?.id) {
+        setDmNotif({
+          title: "Message didn't send",
+          body: saved?.error === '403' ? "You can't message this fan right now." : "Couldn't reach Backstage — check your connection and try again.",
+          icon: "⚠️", color: C.rose,
+        });
+        return;
+      }
+      msg.id = saved.message.id;
+      msg.time = saved.message.created_at ? new Date(saved.message.created_at).toLocaleTimeString([], { hour:"numeric", minute:"2-digit" }) : "now";
     }
     if (selectedGif) {
       const sentGifs = ls.get(GIF_LS_MESSAGE_GIFS, []);
@@ -20048,6 +20178,8 @@ function MyCircleSection({ go, user, onViewProfile }) {
   const [searchError, setSearchError] = useState(false);
   const [searchRetryCircle, setSearchRetryCircle] = useState(0);
   const [copied, setCopied] = useState(false);
+  const [addError, setAddError] = useState("");   // inline error when a request is rejected
+  const [addBusy, setAddBusy]   = useState(false); // dedupe rapid taps on Add to Circle
   const [incomingReqCount, setIncomingReqCount] = useState(()=>readFriendRequestStore().incoming.length);
   useEffect(()=>{
     const iv=setInterval(()=>setIncomingReqCount(readFriendRequestStore().incoming.length),2000);
@@ -20084,22 +20216,32 @@ function MyCircleSection({ go, user, onViewProfile }) {
   }, [adding, query, tokenReady, searchRetryCircle]);
 
   const addFriend = async () => {
-    if(!selectedProfile?.id) return;
+    if(!selectedProfile?.id || addBusy) return;
+    setAddBusy(true); setAddError("");
     const groups = selectedProfile.favorite_groups || selectedProfile.fandoms || [];
     const name = selectedProfile.handle ? `@${selectedProfile.handle}` : selectedProfile.display_name || "Backstage fan";
     const avatar = selectedProfile.avatar || (selectedProfile.display_name || selectedProfile.handle || "B").trim()[0].toUpperCase();
-    const newF = { id:selectedProfile.id, profileId:selectedProfile.id, name, displayName:selectedProfile.display_name || name, avatar, color:C.accent, type:"moot", groups, trust:5.0, concerts:0, status:"sent", realProfile:true };
-    try {
-      const r = await api.post('/api/friends/request', { targetUserId:selectedProfile.id });
+    // Classify the result — api.post resolves (never throws) on a non-2xx, so the old
+    // try/catch never fired and a rejected request still added a local "friend" and
+    // closed the sheet as if it had worked.
+    const r = await api.post('/api/friends/request', { targetUserId:selectedProfile.id });
+    const outcome = friendRequestOutcome(r);
+    setAddBusy(false);
+    if (!outcome.ok && outcome.state !== 'friends') {
+      // Real failure — surface it, keep the sheet open, add NOTHING locally.
+      setAddError(outcome.message);
+      return;
+    }
+    const status = outcome.state === 'friends' ? "accepted" : "sent";
+    if (outcome.state !== 'friends') {
       const store = readFriendRequestStore();
       const outgoingReq = { id:r?.request?.id || `req-${Date.now()}`, user:selectedProfile, receiver_id:selectedProfile.id, status:"pending", created_at:new Date().toISOString() };
       ls.set("backstage_friend_requests", { ...store, outgoing:upsertById(store.outgoing, outgoingReq) });
-    } catch {
-      // Keep the local pending request visible if the social tables are not installed yet.
     }
-    const next = [newF, ...friends];
+    const newF = { id:selectedProfile.id, profileId:selectedProfile.id, name, displayName:selectedProfile.display_name || name, avatar, color:C.accent, type:"moot", groups, trust:5.0, concerts:0, status, realProfile:true };
+    const next = [newF, ...friends.filter(f => (f.id||f.profileId) !== selectedProfile.id)];
     setFriends(next); ls.set("backstage_friends", next);
-    setForm({name:"",fandom:"",avatar:""}); setResults([]); setSelectedProfile(null); setAdding(false);
+    setForm({name:"",fandom:"",avatar:""}); setResults([]); setSelectedProfile(null); setAddError(""); setAdding(false);
   };
 
   return (
@@ -20155,50 +20297,66 @@ function MyCircleSection({ go, user, onViewProfile }) {
         </div>
       )}
 
-      {/* Add friend sheet */}
+      {/* Add friend sheet.
+          KEYBOARD FIX: the overlay's bottom is pinned to --app-kb (the app-wide
+          on-screen-keyboard height, measured from window.visualViewport — see the
+          AppInner effect that sets it). Anchoring to inset:0 meant the sheet sat at
+          the bottom of the LAYOUT viewport, which iOS does not shrink for the keyboard,
+          so the sheet slid behind the keyboard and only the darkened backdrop showed.
+          The sheet is now a flex column capped to the visible area with the results
+          list scrolling inside it, so the input + results + Add button stay reachable
+          with the keyboard open. */}
       {adding && (
-        <div onClick={()=>setAdding(false)} style={{ position:"fixed",inset:0,zIndex:400,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
-          <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:24,paddingBottom:"max(24px, calc(env(safe-area-inset-bottom) + 24px))",width:"100%",animation:"slideUp .25s ease" }}>
-            <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 20px" }} />
-            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17,marginBottom:18 }}>Add to My Circle</p>
-            <div style={{ marginBottom:12 }}>
-              <Input label="Search users" value={form.name} onChange={e=>{ setForm({...form,name:e.target.value}); setSelectedProfile(null); }} placeholder="Search username, stan name, or email…" />
+        <div onClick={()=>{ setAdding(false); setAddError(""); }} style={{ position:"fixed",top:0,left:0,right:0,bottom:"var(--app-kb,0px)",zIndex:400,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:"20px 24px 0",width:"100%",maxHeight:"92%",display:"flex",flexDirection:"column",animation:"slideUp .25s ease",boxSizing:"border-box" }}>
+            <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 16px",flexShrink:0 }} />
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17,marginBottom:14,flexShrink:0 }}>Add to My Circle</p>
+            <div style={{ marginBottom:12,flexShrink:0 }}>
+              <Input label="Search users" value={form.name} onChange={e=>{ setForm({...form,name:e.target.value}); setSelectedProfile(null); setAddError(""); }} placeholder="Search username, stan name, or email…" />
             </div>
-            {query.length >= 2 && (
-              <div style={{ marginBottom:14 }}>
-                {searching && <p style={{ fontSize:11, color:C.textMid, marginBottom:8 }}>Searching…</p>}
-                {!searching && results.map(r => {
-                  const groups = r.favorite_groups || r.fandoms || [];
-                  const active = selectedProfile?.id === r.id;
-                  return (
-                    <button key={r.id} onClick={()=>setSelectedProfile(r)} style={{ width:"100%", textAlign:"left", marginBottom:8, padding:"10px 12px", borderRadius:12, background:active?`${C.accent}18`:C.surface, border:`1.5px solid ${active?C.accent:C.border}`, color:C.text, cursor:"pointer" }}>
-                      <p style={{ fontFamily:"’Epilogue’,sans-serif", fontWeight:800, fontSize:12.5 }}>@{r.handle || r.username || "fan"} {groups[0]?`— ${groups[0]}`:""}</p>
-                      <p style={{ fontSize:11, color:C.textMid, marginTop:3 }}>{r.display_name || r.backstage_name || "Backstage fan"}{groups.length?` — ${groups.join(", ")} fan`:""}</p>
-                    </button>
-                  );
-                })}
-                {!searching && searchError && (
-                  <div style={{ padding:"12px", borderRadius:12, background:C.surface, border:`1px solid ${C.border}`, display:"flex", gap:10, alignItems:"center" }}>
-                    <p style={{ flex:1, fontSize:11, color:C.textMid }}>Search unavailable — couldn't reach Backstage.</p>
-                    <button onClick={()=>{ setSearchError(false); setSearchRetryCircle(r=>r+1); }} style={{ padding:"5px 12px",borderRadius:99,background:`${C.accent}18`,border:`1px solid ${C.accent}44`,color:C.accent,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",whiteSpace:"nowrap" }}>Try again</button>
-                  </div>
-                )}
-                {!searching && !searchError && results.length === 0 && (
-                  <div style={{ padding:"12px", borderRadius:12, background:C.surface, border:`1px solid ${C.border}` }}>
-                    <p style={{ fontFamily:"’Epilogue’,sans-serif", fontWeight:800, fontSize:12.5, marginBottom:5 }}>No Backstage profile found for that search.</p>
-                    <p style={{ fontSize:11, color:C.textMid, lineHeight:1.55, marginBottom:10 }}>They might not be on Backstage yet — invite them with your link.</p>
-                    <div style={{ display:"flex", gap:8 }}>
-                      <button onClick={()=>go("invite")} style={{ flex:1, padding:"8px", borderRadius:10, background:`${C.accent}18`, border:`1px solid ${C.accent}44`, color:C.accent, fontFamily:"’Epilogue’,sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>Invite Friend</button>
-                      <button onClick={async()=>{ const link = `${window.location.origin}?ref=${encodeURIComponent(user?.handle || user?.username || "backstage")}`; await navigator.clipboard?.writeText(link); setCopied(true); }} style={{ flex:1, padding:"8px", borderRadius:10, background:"transparent", border:`1px solid ${C.border}`, color:C.textMid, fontFamily:"’Epilogue’,sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>{copied?"Copied":"Copy Link"}</button>
+            {/* Scrollable results region — the ONLY part that scrolls, so the header
+                and footer stay put while the keyboard is up. */}
+            <div style={{ flex:1,minHeight:0,overflowY:"auto",overflowX:"hidden",WebkitOverflowScrolling:"touch",marginBottom:query.length>=2?8:0 }}>
+              {query.length >= 2 && (
+                <>
+                  {searching && <p style={{ fontSize:11, color:C.textMid, marginBottom:8 }}>Searching…</p>}
+                  {!searching && results.map(r => {
+                    const groups = r.favorite_groups || r.fandoms || [];
+                    const active = selectedProfile?.id === r.id;
+                    return (
+                      <button key={r.id} onClick={()=>setSelectedProfile(r)} style={{ width:"100%", textAlign:"left", marginBottom:8, padding:"10px 12px", borderRadius:12, background:active?`${C.accent}18`:C.surface, border:`1.5px solid ${active?C.accent:C.border}`, color:C.text, cursor:"pointer" }}>
+                        <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:12.5 }}>@{r.handle || r.username || "fan"} {groups[0]?`— ${groups[0]}`:""}</p>
+                        <p style={{ fontSize:11, color:C.textMid, marginTop:3 }}>{r.display_name || r.backstage_name || "Backstage fan"}{groups.length?` — ${groups.join(", ")} fan`:""}</p>
+                      </button>
+                    );
+                  })}
+                  {!searching && searchError && (
+                    <div style={{ padding:"12px", borderRadius:12, background:C.surface, border:`1px solid ${C.border}`, display:"flex", gap:10, alignItems:"center" }}>
+                      <p style={{ flex:1, fontSize:11, color:C.textMid }}>Search unavailable — couldn't reach Backstage.</p>
+                      <button onClick={()=>{ setSearchError(false); setSearchRetryCircle(r=>r+1); }} style={{ padding:"5px 12px",borderRadius:99,background:`${C.accent}18`,border:`1px solid ${C.accent}44`,color:C.accent,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",whiteSpace:"nowrap" }}>Try again</button>
                     </div>
-                  </div>
-                )}
+                  )}
+                  {!searching && !searchError && results.length === 0 && (
+                    <div style={{ padding:"12px", borderRadius:12, background:C.surface, border:`1px solid ${C.border}` }}>
+                      <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:12.5, marginBottom:5 }}>No Backstage profile found for that search.</p>
+                      <p style={{ fontSize:11, color:C.textMid, lineHeight:1.55, marginBottom:10 }}>They might not be on Backstage yet — invite them with your link.</p>
+                      <div style={{ display:"flex", gap:8 }}>
+                        <button onClick={()=>go("invite")} style={{ flex:1, padding:"8px", borderRadius:10, background:`${C.accent}18`, border:`1px solid ${C.accent}44`, color:C.accent, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>Invite Friend</button>
+                        <button onClick={async()=>{ const link = `${window.location.origin}?ref=${encodeURIComponent(user?.handle || user?.username || "backstage")}`; await navigator.clipboard?.writeText(link); setCopied(true); }} style={{ flex:1, padding:"8px", borderRadius:10, background:"transparent", border:`1px solid ${C.border}`, color:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>{copied?"Copied":"Copy Link"}</button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+            {/* Pinned footer — QR hint, error, and actions stay visible above the keyboard */}
+            <div style={{ flexShrink:0,paddingTop:4,paddingBottom:"max(20px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+              <p style={{ fontSize:11, color:C.textMid, marginBottom:12 }}>💡 Or use QR Quick Add to connect instantly in person.</p>
+              {addError && <p style={{ fontSize:11.5, color:C.rose, marginBottom:12, fontFamily:"'Epilogue',sans-serif", fontWeight:600 }}>{addError}</p>}
+              <div style={{ display:"flex", gap:10 }}>
+                <Btn onClick={addFriend} disabled={!selectedProfile?.id || addBusy} style={{ flex:1 }} small>{addBusy?"Sending…":"Add to Circle"}</Btn>
+                <Btn ghost color={C.textMid} onClick={()=>{ setAdding(false); setAddError(""); }} style={{ width:82,flex:"none" }} small>Cancel</Btn>
               </div>
-            )}
-            <p style={{ fontSize:11, color:C.textMid, marginBottom:16 }}>💡 Or use QR Quick Add to connect instantly in person.</p>
-            <div style={{ display:"flex", gap:10 }}>
-              <Btn onClick={addFriend} disabled={!selectedProfile?.id} style={{ flex:1 }} small>Add to Circle</Btn>
-              <Btn ghost color={C.textMid} onClick={()=>setAdding(false)} style={{ width:82,flex:"none" }} small>Cancel</Btn>
             </div>
           </div>
         </div>
@@ -20686,12 +20844,16 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
     const perm = window.Notification?.permission;
     return saved === true && perm === "granted";
   });
-  // Re-sync notifOn when user changes (login/logout without full remount)
+  // Re-sync notifOn when user changes (login/logout without full remount), and
+  // reconcile against real permission/token state so a device that already tapped
+  // Allow never shows an OFF toggle (see reconcilePushEnabled).
   useEffect(()=>{
+    let alive = true;
     const key = user?.id || user?.email || "anon";
-    const saved = ls.get(`backstage_push_enabled_${key}`, false);
-    const perm = window.Notification?.permission;
-    setNotifOn(saved === true && perm === "granted");
+    const stored = ls.get(`backstage_notification_settings_${key}`, {});
+    reconcilePushEnabled(key, user?.id || user?.name || "user", stored.phonePush === false)
+      .then(on => { if (alive) setNotifOn(on); });
+    return ()=>{ alive = false; };
   }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const [section, setSection] = useState(()=>{ if(ls.get("backstage_open_studio",false)){ ls.set("backstage_open_studio",false); return "studio"; } return "main"; });
   const [profileStyle, setProfileStyle] = useState(()=>{
@@ -23757,12 +23919,16 @@ function StandaloneNotifCenter({ onBack, onNavigate, user, mode = "inbox" }) {
     const perm = window.Notification?.permission;
     return saved === true && perm === "granted";
   });
-  // Re-sync notifOn when user changes (login/logout without full remount)
+  // Re-sync notifOn when user changes (login/logout without full remount), and
+  // reconcile against real permission/token state so a device that already tapped
+  // Allow never shows an OFF toggle (see reconcilePushEnabled).
   useEffect(()=>{
+    let alive = true;
     const key = user?.id || user?.email || "anon";
-    const saved = ls.get(`backstage_push_enabled_${key}`, false);
-    const perm = window.Notification?.permission;
-    setNotifOn(saved === true && perm === "granted");
+    const stored = ls.get(`backstage_notification_settings_${key}`, {});
+    reconcilePushEnabled(key, user?.id || user?.name || "user", stored.phonePush === false)
+      .then(on => { if (alive) setNotifOn(on); });
+    return ()=>{ alive = false; };
   }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const saveSettings = (v) => { setSettings(v); ls.set(notifSettingsKey, v); syncNotifSettingsToServer(v); };
   const requestNotif = async () => {
@@ -25148,6 +25314,8 @@ function ProfilePublicPage({ username }) {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [added, setAdded] = useState(false);
+  const [addErr, setAddErr] = useState("");
+  const [addBusy, setAddBusy] = useState(false);
   const [copied, setCopied] = useState(false);
 
   // Check if we have a session (simple — just try reading localStorage)
@@ -25174,23 +25342,27 @@ function ProfilePublicPage({ username }) {
       .finally(() => setLoading(false));
   }, [username]);
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     if (!isLoggedIn) {
       // Save the return URL and send to auth
       ls.set('backstage_return_to', window.location.href);
       window.location.href = '/';
       return;
     }
-    if (profile?.id) {
-      // Fire-and-forget request; also persist to localStorage
-      api.post('/api/friends/request', { targetUserId: profile.id }).then(r=>{
-        const store = readFriendRequestStore();
-        const outgoingReq = { id:r?.request?.id || `req-${Date.now()}`, user:profile, receiver_id:profile.id, status:"pending", created_at:new Date().toISOString() };
-        ls.set("backstage_friend_requests", { ...store, outgoing:upsertById(store.outgoing, outgoingReq) });
-      }).catch(()=>{});
-      const statuses = ls.get('backstage_circle_statuses', {});
-      ls.set('backstage_circle_statuses', { ...statuses, [profile.id]: 'sent' });
+    if (!profile?.id || addBusy) return;
+    setAddBusy(true); setAddErr("");
+    // Wait for the server before showing success — this used to setAdded(true)
+    // unconditionally, so a rejected request still read as "Requested".
+    const outcome = friendRequestOutcome(await api.post('/api/friends/request', { targetUserId: profile.id }));
+    setAddBusy(false);
+    if (!outcome.ok && outcome.state !== 'friends') { setAddErr(outcome.message); return; }
+    if (outcome.state !== 'friends') {
+      const store = readFriendRequestStore();
+      const outgoingReq = { id:`req-${Date.now()}`, user:profile, receiver_id:profile.id, status:"pending", created_at:new Date().toISOString() };
+      ls.set("backstage_friend_requests", { ...store, outgoing:upsertById(store.outgoing, outgoingReq) });
     }
+    const statuses = ls.get('backstage_circle_statuses', {});
+    ls.set('backstage_circle_statuses', { ...statuses, [profile.id]: outcome.state === 'friends' ? 'accepted' : 'sent' });
     setAdded(true);
   };
 
@@ -25273,9 +25445,12 @@ function ProfilePublicPage({ username }) {
                 <p style={{ fontSize:11,color:C.textMid,marginTop:4 }}>You'll be connected when they accept.</p>
               </div>
             ) : (
-              <button onClick={handleAdd} style={{ padding:'14px',borderRadius:14,background:`linear-gradient(135deg,${C.accent},${C.berry})`,border:'none',color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:15,cursor:'pointer',boxShadow:`0 0 20px ${C.accent}40` }}>
-                Add @{profile?.username||username} to My Circle ✦
-              </button>
+              <>
+                <button onClick={handleAdd} disabled={addBusy} style={{ padding:'14px',borderRadius:14,background:`linear-gradient(135deg,${C.accent},${C.berry})`,border:'none',color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:15,cursor:addBusy?'default':'pointer',opacity:addBusy?0.7:1,boxShadow:`0 0 20px ${C.accent}40` }}>
+                  {addBusy ? 'Sending…' : `Add @${profile?.username||username} to My Circle ✦`}
+                </button>
+                {addErr && <p style={{ fontSize:11.5,color:C.rose,textAlign:'center' }}>{addErr}</p>}
+              </>
             )}
           </div>
         )}
@@ -26075,7 +26250,11 @@ function AppInner() {
                   </div>
                 ))}
               </div>
-              <Btn onClick={async()=>{ const pushUserKey=user?.id||user?.email||"anon"; ls.set(`backstage_push_prompted_${pushUserKey}`,true); const t=await requestNotificationPermission(user?.id||user?.name||"user"); if(t){ ls.set(`backstage_push_enabled_${pushUserKey}`,true); ls.set(`backstage_push_token_${pushUserKey}`,t); setNotif({title:"Notifications enabled! 🔔",body:"You'll get concert alerts, trade updates, and more.",icon:"🔔",color:C.accent}); }else{ ls.set(`backstage_push_enabled_${pushUserKey}`,false); } setShowNotifPrompt(false); }}>Enable Notifications</Btn>
+              {/* Writes the SAME state the Settings toggle writes — flag, token, and
+                  phonePush synced to the server. Enabling here used to skip the
+                  settings blob entirely, so the two paths disagreed about whether
+                  push was on. */}
+              <Btn onClick={async()=>{ const pushUserKey=user?.id||user?.email||"anon"; const notifKey=`backstage_notification_settings_${pushUserKey}`; ls.set(`backstage_push_prompted_${pushUserKey}`,true); const t=await requestNotificationPermission(user?.id||user?.name||"user"); const next={...DEFAULT_NOTIF_SETTINGS,...ls.get(notifKey,{}),phonePush:!!t}; ls.set(notifKey,next); syncNotifSettingsToServer(next); if(t){ ls.set(`backstage_push_enabled_${pushUserKey}`,true); ls.set(`backstage_push_token_${pushUserKey}`,t); setNotif({title:"Notifications enabled! 🔔",body:"You'll get concert alerts, trade updates, and more.",icon:"🔔",color:C.accent}); }else{ ls.set(`backstage_push_enabled_${pushUserKey}`,false); } setShowNotifPrompt(false); }}>Enable Notifications</Btn>
               <div style={{ height:10 }} />
               <Btn ghost color={C.textMid} onClick={()=>{ const pushUserKey=user?.id||user?.email||"anon"; ls.set(`backstage_push_prompted_${pushUserKey}`,true); ls.set("backstage_notif_prompt_dismissed",true); setShowNotifPrompt(false); }}>Not now</Btn>
             </div>

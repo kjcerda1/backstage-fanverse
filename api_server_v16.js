@@ -3896,7 +3896,10 @@ async function deliverNotification({ userId, type, title, body, actorId = null, 
 
   if (channels.includes('push') && await pushAllowedForType(userId, type)) {
     try {
-      await pushToUserTokens(userId, {
+      // Log the outcome: pushToUserTokens uses allSettled, so a push that reaches
+      // zero devices (no token registered, FCM rejected it) is otherwise completely
+      // silent — "I never got the notification" was unfalsifiable from the logs.
+      const { delivered, failed } = await pushToUserTokens(userId, {
         notification: { title, body },
         data: {
           targetModal: targetModal || '',
@@ -3906,6 +3909,7 @@ async function deliverNotification({ userId, type, title, body, actorId = null, 
         },
         webpush: { fcmOptions: { link: process.env.FRONTEND_URL || '/' } },
       });
+      console.log(`[push] ${type} → ${userId}: delivered=${delivered} failed=${failed}`);
     } catch (err) {
       console.warn('[deliverNotification] push failed:', err.message);
     }
