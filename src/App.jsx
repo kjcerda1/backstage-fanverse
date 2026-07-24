@@ -3723,8 +3723,8 @@ function FanverseFloatingDock({ go }) {
               return (
                 <div key={convo.id} onClick={()=>openThread(convo)} className="tap" style={{ display:"flex", gap:8, alignItems:"center", padding:"7px 6px", borderRadius:11, cursor:"pointer" }}>
                   <div style={{ position:"relative", flexShrink:0 }}>
-                    <div style={{ width:32,height:32,borderRadius:"50%",background:`linear-gradient(135deg,${convo.fan.color},${convo.fan.color}66)`,border:"1px solid rgba(255,255,255,0.2)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,color:"#1a1228" }}>{convo.fan.avatar}</div>
-                    {convo.unread>0 && <div style={{ position:"absolute",top:-2,right:-2,width:13,height:13,borderRadius:"50%",background:`linear-gradient(135deg,${C.rose},${C.berry})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:7,color:"#fff",fontFamily:"'Epilogue',sans-serif",fontWeight:800,border:"1.5px solid rgba(10,7,20,0.9)" }}>{convo.unread}</div>}
+                    <Avatar user={convo.fan} size={32} fontSize={12} />
+                    {convo.unread>0 && <div style={{ position:"absolute",top:-2,right:-2,width:13,height:13,borderRadius:"50%",background:`linear-gradient(135deg,${C.rose},${C.berry})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:7,color:"#fff",fontFamily:"'Epilogue',sans-serif",fontWeight:800,border:"1.5px solid rgba(10,7,20,0.9)",zIndex:2 }}>{convo.unread}</div>}
                   </div>
                   <div style={{ flex:1, minWidth:0 }}>
                     <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:convo.unread>0?700:600, fontSize:11, color:convo.unread>0?C.modalText:C.modalTextMid }}>{convo.fan.name}</p>
@@ -18863,6 +18863,12 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
       fan:{
         id:member.id,
         name:`@${String(display).replace(/^@/, "")}`,
+        username:member.username || member.handle || String(display).replace(/^@/, ""),
+        display_name:member.display_name || member.backstage_name || null,
+        // Carry any profile photo through so <Avatar> can prefer it; today the
+        // backend's toPublicCard drops avatar_url so this is null and the resolver
+        // falls back to the gradient initial — but the surface is photo-ready.
+        avatar_url:member.avatar_url || member.avatarUrl || member.photo_url || null,
         avatar:(member.display_name || member.handle || display || "B").slice(0,1).toUpperCase(),
         color:C.accent,
       },
@@ -19183,7 +19189,7 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
         <button onClick={()=>setActiveConvo(null)} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
         {/* Avatar + name — navigates to full public profile at root level */}
         <button onClick={()=>onViewProfile?.(activeConvo.fan)} className="tap" style={{ display:"flex",gap:10,alignItems:"center",background:"none",border:"none",cursor:"pointer",flex:1,textAlign:"left",minWidth:0 }}>
-          <div style={{ width:38,height:38,borderRadius:"50%",background:`linear-gradient(135deg,${activeConvo.fan.color},${activeConvo.fan.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,color:C.bg,flexShrink:0 }}>{activeConvo.fan.avatar}</div>
+          <Avatar user={activeConvo.fan} size={38} />
           <div style={{ flex:1,minWidth:0 }}>
             <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:15,color:C.text }}>{activeConvo.fan.name}</p>
             <div style={{ display:"flex",alignItems:"center",gap:5 }}>
@@ -19213,7 +19219,7 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
         {activeConvo.messages.length===0&&(
           <div style={{ textAlign:"center",padding:"40px 20px" }}>
             {/* Avatar — tappable profile link */}
-            <div onClick={()=>onViewProfile?.(activeConvo.fan)} className="tap" style={{ width:64,height:64,borderRadius:"50%",background:`linear-gradient(135deg,${activeConvo.fan.color},${activeConvo.fan.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:24,color:C.bg,margin:"0 auto 14px",cursor:"pointer" }}>{activeConvo.fan.avatar}</div>
+            <Avatar user={activeConvo.fan} size={64} onClick={()=>onViewProfile?.(activeConvo.fan)} className="tap" style={{ display:"block",margin:"0 auto 14px" }} />
             {/* Username — tappable profile link */}
             <p onClick={()=>onViewProfile?.(activeConvo.fan)} className="tap" style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14,marginBottom:5,cursor:"pointer",display:"inline-block" }}>{activeConvo.fan.name}</p>
             <p style={{ fontSize:11.5,color:C.textMid }}>Start a conversation. Fan-to-fan, private and safe.</p>
@@ -19248,7 +19254,7 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
 
               {/* ── MESSAGE ROW ── */}
               <div style={{ display:"flex",gap:8,alignItems:"flex-end",flexDirection:isMe?"row-reverse":"row",width:"100%" }}>
-                {!isMe&&<div style={{ width:28,height:28,borderRadius:"50%",background:`linear-gradient(135deg,${activeConvo.fan.color},${activeConvo.fan.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:11,color:C.bg,flexShrink:0 }}>{activeConvo.fan.avatar}</div>}
+                {!isMe&&<Avatar user={activeConvo.fan} size={28} />}
                 {isCharm ? (
                   <div
                     onClick={()=>setReactionPicker(isPickerOpen?null:{convoId:activeConvo.id,msgIdx:i})}
@@ -19452,7 +19458,7 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
             </div>
             {/* Fan identity */}
             <div style={{ display:"flex",gap:14,alignItems:"center",marginBottom:20 }}>
-              <div style={{ width:60,height:60,borderRadius:"50%",background:`linear-gradient(135deg,${viewProfileFan.color||C.accent},${viewProfileFan.color||C.accent}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:22,color:C.bg,flexShrink:0 }}>{viewProfileFan.avatar||"?"}</div>
+              <Avatar user={viewProfileFan} size={60} />
               <div style={{ flex:1,minWidth:0 }}>
                 <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17,marginBottom:3 }}>{viewProfileFan.name||viewProfileFan.username}</p>
                 <p style={{ fontSize:11,color:C.textMid }}>Backstage fan</p>
@@ -19497,7 +19503,7 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
         <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18 }}>Messages</p>
       </div>
       <div style={{ flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"32px 28px",textAlign:"center" }}>
-        <div style={{ width:64,height:64,borderRadius:"50%",background:`linear-gradient(135deg,${circleGuard.color||C.accent},${circleGuard.color||C.accent}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:24,color:C.bg,margin:"0 auto 16px" }}>{circleGuard.avatar||"?"}</div>
+        <Avatar user={circleGuard} size={64} style={{ display:"block",margin:"0 auto 16px" }} />
         <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:15,marginBottom:8 }}>{circleGuard.name||circleGuard.username}</p>
         <p style={{ fontSize:13.5,color:C.textMid,lineHeight:1.7,marginBottom:6 }}>You can't message this fan.</p>
         <p style={{ fontSize:11,color:C.textDim,lineHeight:1.6 }}>A block between you and this account is in the way — unblock them in Notification Settings or Reports to reopen messaging.</p>
@@ -19514,7 +19520,7 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
         {/* Stacked member avatars */}
         <div style={{ position:"relative",width:40,height:38,flexShrink:0 }}>
           {activeGroup.members.slice(0,3).map((m,i)=>(
-            <div key={i} style={{ position:"absolute",left:i*10,top:i===1?4:0,width:26,height:26,borderRadius:"50%",background:`linear-gradient(135deg,${m.color||C.accent},${m.color||C.accent}66)`,border:`2px solid ${C.bg}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:10,color:C.bg,zIndex:3-i }}>{m.avatar||m.name?.[1]||"?"}</div>
+            <div key={i} style={{ position:"absolute",left:i*10,top:i===1?4:0,borderRadius:"50%",border:`2px solid ${C.bg}`,zIndex:3-i,lineHeight:0 }}><Avatar user={m} size={26} fontSize={10} /></div>
           ))}
         </div>
         <div style={{ flex:1,minWidth:0 }}>
@@ -19607,7 +19613,7 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
                   {dmSearching && <p style={{ padding:"12px",fontSize:11,color:C.textMid }}>Searching Backstage profiles...</p>}
                   {!dmSearching && dmSearchResults.map(profile => (
                     <button key={profile.id} onClick={()=>startThreadWithProfile(profile)} style={{ width:"100%",display:"flex",gap:10,alignItems:"center",padding:"10px 12px",background:"transparent",border:"none",borderBottom:`1px solid ${C.border}`,color:C.text,textAlign:"left",cursor:"pointer" }}>
-                      <span style={{ width:34,height:34,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},${C.accent}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.bg }}>{(profile.display_name || profile.handle || "B").slice(0,1).toUpperCase()}</span>
+                      <Avatar user={profile} size={34} />
                       <span style={{ flex:1,minWidth:0 }}>
                         <span style={{ display:"block",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5 }}>@{profile.handle || profile.username || "fan"}</span>
                         <span style={{ display:"block",fontSize:10.5,color:C.textMid,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{profile.display_name || profile.backstage_name || "Backstage fan"}</span>
@@ -19636,8 +19642,8 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
                     whole row opens the thread now — the profile is still one tap away from
                     the thread header, which is where every messaging app puts it. */}
                 <div className="tap" style={{ position:"relative",flexShrink:0 }}>
-                  <div style={{ width:50,height:50,borderRadius:"50%",background:`linear-gradient(135deg,${convo.fan.color},${convo.fan.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:19,color:C.bg,boxShadow:`0 0 12px ${convo.fan.color}28` }}>{convo.fan.avatar}</div>
-                  {convo.unread>0&&<div style={{ position:"absolute",top:-2,right:-2,width:18,height:18,borderRadius:"50%",background:`linear-gradient(135deg,${C.rose},${C.berry})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.bg }}>{convo.unread}</div>}
+                  <Avatar user={convo.fan} size={50} glow />
+                  {convo.unread>0&&<div style={{ position:"absolute",top:-2,right:-2,width:18,height:18,borderRadius:"50%",background:`linear-gradient(135deg,${C.rose},${C.berry})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:C.bg,zIndex:2 }}>{convo.unread}</div>}
                 </div>
                 <div style={{ flex:1,minWidth:0 }}>
                   <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3 }}>
@@ -19647,8 +19653,19 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
                   {(()=>{
                     const last = convo.messages[convo.messages.length-1];
                     const isLastCharm = last?.type==="charm"||last?.type==="sticker";
-                    const preview = isLastCharm ? `${last?.charmEmoji||"✦"} ${last?.charmLabel||"charm"}` : last?.text||"Start a conversation 💜";
-                    return <p style={{ fontSize:11.5,color:convo.unread>0?C.textMid:C.textDim,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{preview}</p>;
+                    // Instagram-style: when the latest message is media, show a small
+                    // rounded thumbnail + a labelled preview instead of blank text.
+                    const thumb = last?.image || last?.gif?.previewUrl || last?.gif?.fullUrl || null;
+                    const preview = isLastCharm ? `${last?.charmEmoji||"✦"} ${last?.charmLabel||"charm"}`
+                      : last?.image ? "📷 Photo"
+                      : last?.gif ? (last?.gif?.mediaType==="sticker" ? "✨ Sticker" : "🎬 GIF")
+                      : last?.text || "Start a conversation 💜";
+                    return (
+                      <div style={{ display:"flex",alignItems:"center",gap:6,minWidth:0 }}>
+                        {thumb&&<img src={thumb} alt="" style={{ width:22,height:22,borderRadius:6,objectFit:"cover",flexShrink:0,border:`1px solid ${C.border}` }} />}
+                        <p style={{ flex:1,minWidth:0,fontSize:11.5,color:convo.unread>0?C.textMid:C.textDim,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{preview}</p>
+                      </div>
+                    );
                   })()}
                 </div>
                 {convo.unread>0&&<div style={{ width:8,height:8,borderRadius:"50%",background:C.lavender,flexShrink:0 }} />}
@@ -19676,9 +19693,7 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
               return (
                 <div key={convo.id} style={{ padding:"13px 0",borderBottom:`1px solid ${C.border}` }}>
                   <div style={{ display:"flex",gap:12,alignItems:"center",marginBottom:10 }}>
-                    <div onClick={()=>onViewProfile?.(convo.fan)} className="tap" style={{ cursor:"pointer",flexShrink:0 }}>
-                      <div style={{ width:46,height:46,borderRadius:"50%",background:`linear-gradient(135deg,${convo.fan.color},${convo.fan.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:17,color:C.bg }}>{convo.fan.avatar}</div>
-                    </div>
+                    <Avatar user={convo.fan} size={46} onClick={()=>onViewProfile?.(convo.fan)} className="tap" />
                     <div style={{ flex:1,minWidth:0 }}>
                       <p onClick={()=>onViewProfile?.(convo.fan)} className="tap" style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5,cursor:"pointer" }}>{convo.fan.name}</p>
                       <p style={{ fontSize:11,color:C.textMid,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{preview}</p>
