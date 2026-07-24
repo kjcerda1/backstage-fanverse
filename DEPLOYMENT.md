@@ -131,8 +131,8 @@ vercel rollback              # Roll back to previous deployment
 |---|---|---|
 | All data is localStorage | Medium | Data lost if user clears browser/switches device. Acceptable for user testing. |
 | Image uploads are text-only | Low | Concert Capsule + Passes show gradient placeholders, not real photos. |
-| Fanverse Map is an SVG stub | Low | No real geography. Mapbox integration flagged for next sprint. |
-| No real push notifications | Low | Permission is requested but notifications don't deliver (no backend). |
+| ~~Fanverse Map is an SVG stub~~ | — | **Outdated as of 2026-06.** Real Mapbox GL integration now ships in `src/MapboxMap.jsx`. City-level only, no exact GPS. |
+| ~~No real push notifications~~ | — | **Outdated as of 2026-06.** Real FCM `getToken()` + `public/firebase-messaging-sw.js` now ship. Needs a live smoke test with real Firebase credentials, but the code path is real, not mocked. |
 | Bundle is 766KB (181KB gzipped) | Low | Larger than ideal. Fine for prototype. Acceptable TTI on modern phones. |
 | No rate limiting on feedback email | Low | mailto: link — can't be abused server-side. |
 | Supabase CDN import is dynamic | Low | Line 54 dynamically imports Supabase from CDN. Only loads if env vars present. |

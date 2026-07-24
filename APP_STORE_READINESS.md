@@ -140,7 +140,7 @@ Wrapping path: Capacitor (iOS + Android) — future phase
 | Block user | ✅ Done | SafetyCenter + POST `/api/moderation/block` + localStorage |
 | Unblock user | ✅ Done | SafetyCenter → Blocked Users list + DELETE `/api/moderation/block/:id` |
 | Moderation database tables | ✅ Done | `moderation_reports` + `user_blocks` created 2026-06-07, RLS enabled (own-row insert/select/delete policies) |
-| Human review queue | 🔜 Future | Build admin dashboard for reviewing `moderation_reports` |
+| Human review queue | ✅ Done | `ModerationQueue` admin component + `GET/PATCH /api/admin/moderation/reports`, gated by `ADMIN_EMAILS` |
 | Auto-moderation | 🔜 Future | Consider profanity filter or AI moderation (Perspective API) |
 | DMCA / copyright process | ✅ Done | Terms Section 6, email flow |
 
