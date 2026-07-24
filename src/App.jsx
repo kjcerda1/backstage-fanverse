@@ -3435,17 +3435,20 @@ function ViralTicker() {
 }
 
 // ─── PWA INSTALL PROMPT ───────────────────────────────────────────────────────
-// NOTE: currently unmounted. It was only ever rendered inside HomeFeed, which was
-// removed with the rest of the dead Home surface (Home tab retired 2026-07-05 for
-// Explore). Preserved intentionally — it's a real PWA-install feature, not Home
-// dead code. Re-mount it in a live surface (e.g. Explore or the app root) to
-// restore the install prompt, or remove deliberately as a separate decision.
+// Mounted app-level in AppInner's main render as a flex-shrink:0 top banner above
+// the active tab (2026-07-24). Its previous and only mount was the Home surface,
+// removed 2026-07-05; it was preserved through that cleanup and re-attached here so
+// the install prompt shows on every tab. Self-dismisses via ls (returns null).
 function InstallPromptCard() {
   const [dismissed, setDismissed] = useState(() => ls.get("backstage_install_prompt_dismissed", false));
   const [open, setOpen] = useState(false);
   if (dismissed) return null;
   return (
-    <div style={{ margin:"0 18px 16px", background:`linear-gradient(140deg,${C.surfaceMid},${C.surface})`, border:`1.5px solid ${C.borderHi}`, borderRadius:18, padding:16 }}>
+    // margin-top 52 clears the app-level floating Messages + Notifications buttons
+    // (top:6, 40px tall) that overlay the top-right on every tab — same reason the
+    // page headers reserve paddingRight:108. Kept in the card's own margin so the
+    // whole row collapses to zero when dismissed (component returns null above).
+    <div style={{ margin:"52px 18px 16px", background:`linear-gradient(140deg,${C.surfaceMid},${C.surface})`, border:`1.5px solid ${C.borderHi}`, borderRadius:18, padding:16 }}>
       <div style={{ display:"flex", gap:12, alignItems:"flex-start" }}>
         <div style={{ width:38, height:38, borderRadius:12, background:`${C.accent}18`, border:`1.5px solid ${C.accent}44`, display:"flex", alignItems:"center", justifyContent:"center", color:C.accent, fontSize:18, flexShrink:0 }}>✦</div>
         <div style={{ flex:1 }}>
@@ -26009,14 +26012,24 @@ function AppInner() {
               {(()=>{
                 const effectiveIsVip = isVip || hasVipEntitlement(user) || getCachedVip(user);
                 return (
-                  <>
+                  <div style={{ position:"absolute", inset:0, display:"flex", flexDirection:"column" }}>
+                    {/* PWA install prompt — re-mounted app-level (its only prior mount was the
+                        removed Home surface). A flex-shrink:0 top banner that PUSHES the active
+                        tab down rather than floating, so it never collides with the bottom-right
+                        AI dock or the top-right bell/messages. Shows on every tab; self-dismisses
+                        via ls → InstallPromptCard returns null, collapsing this row to 0 height.
+                        The app-shell already supplies the safe-area top inset, so no extra clearance
+                        is needed here. */}
+                    <div style={{ flexShrink:0 }}><InstallPromptCard /></div>
+                    <div style={{ flex:1, minHeight:0, position:"relative" }}>
               {tab==="concerts"&&<ConcertsPage go={go} isVip={effectiveIsVip} onUpgrade={openUpgrade} user={user} />}
               {tab==="community"&&<FanverseTab go={go} user={user} isVip={effectiveIsVip} onUpgrade={openUpgrade} onViewProfile={setFullProfileFan} />}
               {tab==="explore"&&<ExploreTab user={user} go={go} onViewProfile={setFullProfileFan} />}
               {tab==="collect"&&<LibraryTab cards={cards} setCards={setCards} patchCard={patchCard} deleteCard={deleteCard} addCard={addCard} cardsLoading={cardsLoading} refreshCards={refreshCards} isVip={effectiveIsVip} onUpgrade={openUpgrade} go={go} user={user} weather={weatherData} />}
               {tab==="fanverse"&&<ToolsTab user={user} weather={weatherData} isVip={effectiveIsVip} onUpgrade={openUpgrade} go={go} cards={cards} patchCard={patchCard} addCard={addCard} />}
               {tab==="profile"&&<ProfileTab user={user} cards={cards} go={go} isVip={effectiveIsVip} onUpgrade={openUpgrade} onReplayTour={()=>setShowVipTour(true)} onAccountRefresh={handleAccountRefresh} onViewProfile={setFullProfileFan} />}
-                  </>
+                    </div>
+                  </div>
                 );
               })()}
               {/* Ask Backstage AI dock — rendered HERE for every tab, never inside a tab.
