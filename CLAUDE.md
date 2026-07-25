@@ -6,6 +6,42 @@ Repo-local rules for any Claude session working in this repo. Follow them exactl
 
 **Backstage** (also **Fanverse**) — a mobile-first, single-page **React + Vite PWA** for K-pop concert-goers and fandom. Frontend is a client-rendered SPA (custom `go()` / modal-stack navigation, no router library). Backend is a single Express server (`api_server_v16.js`). Data + auth via Supabase; payments via Stripe; push via Firebase; maps via Mapbox.
 
+## Mandatory session preflight
+
+Before starting **any** coding, editing, merge, QA, or deployment task, Claude must do this **automatically, without being reminded**:
+
+1. **Confirm current branch and worktree:**
+   - `git branch --show-current`
+   - `git status --short`
+   - `git worktree list` if multiple worktrees may be involved
+
+2. **Fetch latest remote state:**
+   - `git fetch origin`
+
+3. **Confirm whether local `main` is behind `origin/main`:**
+   - Compare local `main` to `origin/main`.
+   - If local `main` is behind and can be safely fast-forwarded, sync it before creating new branches or starting work.
+   - If `main` is checked out in another worktree or cannot be safely updated, **stop and report** instead of guessing.
+
+4. **Before creating any new feature branch:**
+   - Start from latest `origin/main` or a verified up-to-date local `main`.
+   - Confirm the base commit.
+
+5. **Never start coding from a stale branch** unless the user explicitly approves it.
+
+6. **Never overwrite, reset, clean, or delete untracked user files** without explicit approval.
+
+7. **If there are uncommitted changes or untracked folders, report them clearly and ask** before touching anything.
+
+### Start-of-task checklist
+
+- [ ] Read PROJECT_MAP.md
+- [ ] Read CURRENT_STATE.md
+- [ ] Check branch / status
+- [ ] Fetch origin
+- [ ] Confirm latest `main`
+- [ ] Then start the requested task
+
 ## Read first, in this order
 
 1. **PROJECT_MAP.md** — where every feature lives + line anchors into App.jsx
