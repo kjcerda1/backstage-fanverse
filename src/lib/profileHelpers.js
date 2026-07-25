@@ -121,6 +121,10 @@ export function mergeStoredProfile(localProfile, remoteProfile, fallbackProfile 
         vip_expires_at:    remote.vip_expires_at,
         vip_since:         remote.vip_since,
         stripe_customer_id: remote.stripe_customer_id,
+        // Profile photo is backend-authoritative too. Prefer the remote avatar_url so a
+        // richer local (onboarding) profile never hides a photo saved on the server,
+        // but keep the local value when remote has none (don't erase an offline photo).
+        avatar_url:        remote.avatar_url ?? local.avatar_url,
       });
     }
     return local;
