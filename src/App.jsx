@@ -20663,7 +20663,11 @@ function Top5Section({ top5: top5Prop, setTop5, onBack }) {
 function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccountRefresh, onViewProfile }) {
   const { session } = useAuth();
   const { themeMode, setThemeMode } = useContext(ThemeContext);
-  const [pfp, setPfp] = useState(null);
+  // Seed the profile photo from the saved avatar so it shows on load, not just after
+  // a fresh upload. resolveAvatarUrl accepts a real image URL or a data: URL.
+  const [pfp, setPfp] = useState(() => resolveAvatarUrl(user) || null);
+  const [pfpBusy, setPfpBusy] = useState(false);
+  const [pfpErr, setPfpErr] = useState("");
   const npKey = `backstage_now_playing_${user?.id || 'anon'}`;
   const [nowPlaying, setNowPlaying] = useState(() => ls.get(npKey, {title:"Whiplash",artist:"aespa",source:"mock"}));
   const [top5, setTop5] = useState(ls.get("backstage_top5",["Stray Kids","BTS","aespa","NewJeans","BLACKPINK"]));
@@ -20746,6 +20750,9 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
   }, [top5]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(()=>{ ls.set("backstage_profile_style", profileStyle); }, [profileStyle]);
   useEffect(()=>{ ls.set("backstage_privacy_settings", privacySettings); }, [privacySettings]);
+  // Reflect an avatar_url that lands after mount (async /api/users/me, account
+  // refresh) so the editor circle matches the saved photo without a remount.
+  useEffect(()=>{ const u = resolveAvatarUrl(user); if (u) setPfp(u); }, [user?.avatar_url, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(()=>{ ls.set(notifSettingsKey, notifSettings); syncNotifSettingsToServer(notifSettings); }, [notifSettingsKey, notifSettings]);
 
   const requestNotif = async () => {
@@ -20810,6 +20817,44 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
       if (user?.id) ls.set(`backstage_city_meta_${user.id}`, { ...locationPayload });
     }
     if (API_URL) api.post('/api/profile/update', locationPayload).catch(()=>{});
+  };
+
+  // ── PROFILE PHOTO ──
+  // Instant local preview, then upload to the avatars bucket. On success, push the
+  // real URL up via onAccountRefresh so the global user — and the My Stage bottom-nav
+  // avatar — update immediately and the photo survives reload. In mock/offline mode
+  // (no API_URL) we persist the data URL locally as avatar_url so it still shows.
+  const persistAvatar = (url) => {
+    setPfp(url);
+    onAccountRefresh?.({ profile: { avatar_url: url, avatarUrl: url } });
+  };
+  const handlePfpUpload = async (e) => {
+    const f = e.target.files?.[0];
+    e.target.value = "";                       // allow re-selecting the same file
+    if (!f) return;
+    setPfpErr("");
+    if (!/^image\//.test(f.type)) { setPfpErr("Please choose an image file."); return; }
+    if (f.size > 5 * 1024 * 1024) { setPfpErr("Image must be under 5MB."); return; }
+    const dataUrl = await new Promise((resolve) => {
+      const r = new FileReader();
+      r.onload = ev => resolve(ev.target.result);
+      r.onerror = () => resolve(null);
+      r.readAsDataURL(f);
+    });
+    if (!dataUrl) { setPfpErr("Couldn't read that image."); return; }
+    setPfp(dataUrl);                           // optimistic preview
+    if (!API_URL) { persistAvatar(dataUrl); return; }   // mock/offline — keep it local
+    setPfpBusy(true);
+    const resp = await api.post('/api/profile/avatar', { imageBase64: dataUrl, filename: f.name, mimeType: f.type });
+    setPfpBusy(false);
+    if (resp?.avatar_url) {
+      persistAvatar(resp.avatar_url);          // real, stable URL
+    } else {
+      // Upload failed — don't lose the user's choice: keep the preview and persist
+      // it locally so it survives reload; note it isn't synced to other devices.
+      persistAvatar(dataUrl);
+      setPfpErr("Saved on this device — couldn't reach the server.");
+    }
   };
 
   // ── SECTION: TOP 5 ──
@@ -20937,10 +20982,10 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
         <div style={{ display:"flex", gap:14, alignItems:"center", marginBottom:20 }}>
           <div style={{ position:"relative" }}>
             <div onClick={()=>fileRef.current?.click()} className="tap" style={{ width:76,height:76,borderRadius:"50%",background:pfp?`url(${pfp}) center/cover`:`linear-gradient(135deg,${C.accent},${C.pink})`,border:`2px solid ${C.borderHi}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",overflow:"hidden",flexShrink:0 }}>
-              {!pfp&&<span style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:28, color:C.bg }}>{(user?.name||"S")[0].toUpperCase()}</span>}
+              {!pfp&&<span style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:28, color:C.bg }}>{avatarInitial(user)}</span>}
             </div>
-            <div style={{ position:"absolute",bottom:0,right:0,width:24,height:24,borderRadius:"50%",background:C.accent,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12 }}>📷</div>
-            <input ref={fileRef} type="file" accept="image/*" onChange={e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>setPfp(ev.target.result);r.readAsDataURL(f);}} style={{ display:"none" }} />
+            <div style={{ position:"absolute",bottom:0,right:0,width:24,height:24,borderRadius:"50%",background:C.accent,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12 }}>{pfpBusy?"⏳":"📷"}</div>
+            <input ref={fileRef} type="file" accept="image/*" onChange={handlePfpUpload} style={{ display:"none" }} />
           </div>
           <div style={{ flex:1 }}>
             <div style={{ display:"flex", gap:6, alignItems:"center", marginBottom:3, flexWrap:"wrap" }}>
@@ -20958,6 +21003,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
             </div>
           </div>
         </div>
+        {pfpErr && <p style={{ fontSize:10, color:C.textMid, marginTop:-12, marginBottom:14 }}>{pfpErr}</p>}
 
         {/* ── DISPLAY CITY ───────────────────────────────────────────────────── */}
         <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:14, padding:"11px 14px", marginBottom:16 }}>

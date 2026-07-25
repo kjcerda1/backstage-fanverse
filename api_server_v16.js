@@ -3293,6 +3293,62 @@ app.patch('/api/users/me', requireAuth, async (req, res) => {
   }
 });
 
+// ─── POST /api/profile/avatar ─────────────────────────────────────────────────
+// Uploads a profile photo to the PUBLIC `avatars` storage bucket and saves the
+// resulting URL to users.avatar_url. Accepts a base64 data URL — the exact shape
+// the My Stage editor already produces via FileReader. Mirrors the
+// /api/memories/upload-image pattern, EXCEPT the avatars bucket is PUBLIC: the URL
+// is persisted and shown to other users (DMs, inbox, requests), so a short-lived
+// private signed URL would break. Requires the `avatars` bucket to exist —
+// see supabase-avatars-bucket-migration.sql. The backend uses the service-role
+// client, which bypasses storage RLS, so only the bucket must be present.
+app.post('/api/profile/avatar', requireAuth, async (req, res) => {
+  const { imageBase64, mimeType } = req.body;
+
+  // Mock/no-DB: echo the data URL back so the client persists it locally.
+  if (MOCK_MODE) return res.json({ success: true, mock: true, avatar_url: imageBase64 || null, avatarUrl: imageBase64 || null });
+
+  try {
+    if (!imageBase64 || !mimeType) {
+      return res.status(400).json({ error: 'Missing imageBase64 or mimeType' });
+    }
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    if (!allowedTypes.includes(String(mimeType).toLowerCase())) {
+      return res.status(400).json({ error: 'Only JPG, PNG, and WebP images are allowed' });
+    }
+    const base64Data = String(imageBase64).replace(/^data:image\/\w+;base64,/, '');
+    const buffer = Buffer.from(base64Data, 'base64');
+    if (buffer.byteLength > 5 * 1024 * 1024) {
+      return res.status(400).json({ error: 'Image must be under 5MB' });
+    }
+    const ext = (String(mimeType).toLowerCase().split('/')[1] || 'jpg').replace('jpeg', 'jpg');
+    // Stable per-user path — upsert overwrites the previous avatar so storage never
+    // accumulates orphaned files for a user who re-uploads.
+    const storagePath = `${req.userId}/avatar.${ext}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('avatars')
+      .upload(storagePath, buffer, { contentType: mimeType, upsert: true });
+    if (uploadError) throw uploadError;
+
+    // Public bucket → stable public URL. Cache-bust with ?v= so re-uploads to the
+    // same path are picked up immediately instead of serving the CDN-cached old image.
+    const { data: pub } = supabase.storage.from('avatars').getPublicUrl(storagePath);
+    const avatarUrl = `${pub.publicUrl}?v=${Date.now()}`;
+
+    const { error: updateError } = await supabase
+      .from('users')
+      .update({ avatar_url: avatarUrl })
+      .eq('id', req.userId);
+    if (updateError) throw updateError;
+
+    res.json({ success: true, avatar_url: avatarUrl, avatarUrl });
+  } catch (err) {
+    console.error('[POST /api/profile/avatar]', err.message);
+    res.status(500).json({ error: err.message || 'Avatar upload failed' });
+  }
+});
+
 // ─── DELETE /api/users/me ─────────────────────────────────────────────────────
 // Permanently deletes all user data. Required for App Store compliance.
 // Deletes from all tables in dependency order, then removes the auth user.
@@ -3694,6 +3750,12 @@ function toPublicCard(u) {
     now_playing: np,
     proof_score: u.proof_score || null,
     is_vip: u.is_vip || false,
+    // Real profile photo (or null). `avatar` above stays the initial-letter fallback;
+    // the frontend <Avatar> resolver prefers avatar_url/avatarUrl and only falls back
+    // to the initial when neither is a real image URL. Both aliases are provided
+    // because some frontend surfaces read camelCase. Never a private field.
+    avatar_url: u.avatar_url || null,
+    avatarUrl: u.avatar_url || null,
   };
 }
 
