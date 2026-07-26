@@ -61,14 +61,14 @@ One monolith, ~238 top-level components. Grouped by feature area:
 | 16346–16888 | **Concert day mode** | `EventDiscovery`, `VenueCrowdTips`, `ConcertDayBanner(Active)`, `ConcertDayMode` |
 | 16889–17884 | Misc fan tools (small) | `ValueTracker`, `FanProjects`, `CreatorMode`, `BackupExport`, `FanIdentity`, `SmartNotifs`, `AIAssistant`, `TicketWallet`, `MiniGames`, `ConcertPrep`, `KWorldHub`, `KDramaTracker`, `AfterglowPage` |
 | 17885–19811 | **Profiles (public) + DMs** | `PublicProfilePreview`, `PublicProfileFull`, `PublicFanPassport`, `ProfilePreview`, `DirectMessages` (DMs alone ~1,010 lines) |
-| 19812–21311 | **Profile tab + settings** | `FanAnniversaryWidget`, `TopBiasesSection`, `MyCircleSection`, `AccountSettings`, `Top5Section`, `ProfileTab` |
-| 21312–21801 | **Music connect** | `NpSourceBadge`, `NowPlayingCard`, `MusicConnect` |
-| 21802–23004 | **Concert Capsule + Passes** | `ConcertCapsule`, `PassPreviewCard`, `PassTextLayer`, `BackstagePasses` |
-| 23005–24080 | **Profile Studio / skins / notifs** | `SkinThemeTab`, `ProfileStudio`, `PrivacySettings`, `StandaloneNotifCenter`, `NotificationCenter` |
-| 24081–24721 | Shows / scrapbook | `MyShowsPage`, `ScrapbookTab`, `ScrapbookDetail` |
-| 24722–24873 | Search / capsule landing | `FandomSearch`, `CapsuleLandingPage` |
-| 24874–25313 | **Legal + public pages** | `LegalNav`, `DeleteAccountPage`, `PrivacyPage`, `TermsPage`, `SupportPage`, `ProfilePublicPage` |
-| 25314–26246 | **App shell (root)** | `ModalWrapper`, `AppInner` — nav, modal stack, `go()` routing, top-level state |
+| 19812–21357 | **Profile tab + settings** | `FanAnniversaryWidget`, `TopBiasesSection`, `MyCircleSection`, `AccountSettings`, `Top5Section`, `ProfileTab` |
+| 21358–21847 | **Music connect** | `NpSourceBadge`, `NowPlayingCard`, `MusicConnect` |
+| 21848–23050 | **Concert Capsule + Passes** | `ConcertCapsule`, `PassPreviewCard`, `PassTextLayer`, `BackstagePasses` |
+| 23051–24126 | **Profile Studio / skins / notifs** | `SkinThemeTab`, `ProfileStudio`, `PrivacySettings`, `StandaloneNotifCenter`, `NotificationCenter` |
+| 24127–24767 | Shows / scrapbook | `MyShowsPage`, `ScrapbookTab`, `ScrapbookDetail` |
+| 24768–24919 | Search / capsule landing | `FandomSearch`, `CapsuleLandingPage` |
+| 24920–25359 | **Legal + public pages** | `LegalNav`, `DeleteAccountPage`, `PrivacyPage`, `TermsPage`, `SupportPage`, `ProfilePublicPage` |
+| 25360–26292 | **App shell (root)** | `ModalWrapper`, `AppInner` — nav, modal stack, `go()` routing, top-level state |
 
 > **Navigation note:** bottom nav is 5 tabs, but internal `tab` ids do **not** match their labels. See CURRENT_STATE.md §0 before reasoning about routing.
 
