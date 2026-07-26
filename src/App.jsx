@@ -2376,8 +2376,13 @@ async function disableNotificationPush(savedToken) {
 async function reconcilePushEnabled(userKey, userId, explicitlyOff = false) {
   if (!("Notification" in window) || window.Notification.permission !== "granted") return false;
   if (explicitlyOff) return false;
-  const hasToken = !!ls.get(`backstage_push_token_${userKey}`, null);
-  if (ls.get(`backstage_push_enabled_${userKey}`, false) === true && hasToken) return true;
+  // ALWAYS re-register — do not short-circuit just because a token is cached locally.
+  // Web FCM tokens rotate/expire, and the server only ever stored whatever token was
+  // captured the first time push was enabled. Without a refresh, that row goes stale
+  // within weeks and every push to it silently fails: the recipient still gets the
+  // in-app notification but no device alert (exactly the "I wasn't notified" symptom).
+  // getToken() returns the CURRENT token without re-prompting once permission is
+  // granted, and /api/save-token upserts it — so this keeps the stored token live.
   const token = await requestNotificationPermission(userId);
   if (!token) return false;
   ls.set(`backstage_push_enabled_${userKey}`, true);
@@ -25963,6 +25968,19 @@ function AppInner() {
   // the page, so they die with the tab — a device that granted permission weeks ago
   // still needs this wired up before a focused app can display anything.
   useEffect(()=>{ attachForegroundMessageHandler(); }, [user?.id]);
+
+  // Refresh this device's FCM token on every app load for the signed-in user. The
+  // token is only otherwise written when push is first enabled, so it rots — a stale
+  // token means real events (likes, comments, DMs) create the in-app notification but
+  // never reach the device. reconcilePushEnabled re-runs getToken()/save-token, which
+  // is silent once permission is granted and skips users who explicitly turned push off.
+  useEffect(()=>{
+    if (!user?.id) return;
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+    const key = user.id || user.email || "anon";
+    const stored = ls.get(`backstage_notification_settings_${key}`, {});
+    reconcilePushEnabled(key, user.id, stored.phonePush === false).catch(()=>{});
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Ask for notification permission once per device. Previously showNotifPrompt was
   // never set true anywhere, so the only path to a push token was finding the toggle
