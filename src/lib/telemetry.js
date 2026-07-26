@@ -24,7 +24,10 @@ import * as Sentry from '@sentry/react';
 let posthog = null;
 const preloadQueue = [];
 
-const PH_KEY  = import.meta.env.VITE_POSTHOG_KEY;
+// PostHog's dashboard issues the token as VITE_POSTHOG_PROJECT_TOKEN — that is the
+// canonical name. VITE_POSTHOG_KEY is the older name kept only for backward compat;
+// remove it once no environment sets it. Do NOT hardcode a token here.
+const PH_KEY  = import.meta.env.VITE_POSTHOG_PROJECT_TOKEN || import.meta.env.VITE_POSTHOG_KEY;
 const PH_HOST = import.meta.env.VITE_POSTHOG_HOST || 'https://us.i.posthog.com';
 const SENTRY_DSN = import.meta.env.VITE_SENTRY_DSN;
 const APP_ENV = import.meta.env.VITE_APP_ENV || (import.meta.env.DEV ? 'development' : 'production');
@@ -123,6 +126,7 @@ export function initTelemetry() {
         },
       });
       sentryReady = true;
+      console.info('[Sentry] frontend error monitoring enabled');
     } catch (err) {
       console.warn('[telemetry] Sentry init failed:', err?.message);
     }
@@ -131,7 +135,7 @@ export function initTelemetry() {
   if (PH_KEY && !phReady) loadPostHogWhenIdle();
 
   if (!SENTRY_DSN && !PH_KEY && import.meta.env.DEV) {
-    console.info('[telemetry] no VITE_SENTRY_DSN / VITE_POSTHOG_KEY set — telemetry disabled (this is fine locally)');
+    console.info('[telemetry] no VITE_SENTRY_DSN / VITE_POSTHOG_PROJECT_TOKEN set — telemetry disabled (this is fine locally)');
   }
 }
 

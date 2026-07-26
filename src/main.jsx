@@ -4,7 +4,7 @@ import App from "./App.jsx";
 import { initTelemetry } from "./lib/telemetry.js";
 
 // Before render, so Sentry catches errors thrown during the first paint.
-// No-ops when VITE_SENTRY_DSN / VITE_POSTHOG_KEY are unset.
+// No-ops when VITE_SENTRY_DSN / VITE_POSTHOG_PROJECT_TOKEN are unset.
 initTelemetry();
 
 ReactDOM.createRoot(document.getElementById("root")).render(
