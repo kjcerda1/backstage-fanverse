@@ -6389,6 +6389,7 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
   const softBlueGlow = 'rgba(120,168,255,0.28)';
   const [section, setSection] = useState('albums');
   const [albumSubView, setAlbumSubView] = useState('binders');
+  const [scrapbookSubView, setScrapbookSubView] = useState('books'); // books | memories | capsules
   const [bindersNoticeDismissed, setBindersNoticeDismissed] = useState(()=>ls.get("backstage_my_binders_notice_dismissed", false));
   const [showTradeHub, setShowTradeHub] = useState(false);
   const [groupFilter, setGroupFilter] = useState("all");
@@ -6551,16 +6552,16 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
     {key:"biasMoment", label:"Favorite Bias Moment",   emoji:"💜", placeholder:"Karina eye contact fancam", color:C.rose    },
   ];
 
+  // Primary My World collector sections only. Saved/Reposts are social/feed
+  // utilities (moved out of My World); Memories + Capsule Memories now live as
+  // subviews inside Scrapbooks; Era Rooms open from the group binder cross-link;
+  // Achievements belong on My Stage. Keeping this to four keeps the collector
+  // model coherent instead of a row of overlapping stores.
   const SECTIONS = [
-    { id:'albums', label:'Binders', icon:'' },
-    { id:'saved', label:'Saved', icon:'' },
+    { id:'albums', label:'Collection', icon:'' },
     { id:'wishlist', label:'Wishlist', icon:'' },
     { id:'trades', label:'Trades', icon:'' },
     { id:'scrapbook', label:'Scrapbooks', icon:'' },
-    { id:'memories', label:'Memories', icon:'' },
-    { id:'capsule-memories', label:'Capsule Memories', icon:'' },
-    { id:'eraboards', label:'Era Rooms', icon:'' },
-    { id:'achievements', label:'Achievements', icon:'' },
   ];
 
   return (
@@ -6686,6 +6687,18 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
             <div style={{ display:"inline-flex", alignItems:"center", gap:6, color:softBlue2, fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:10, marginTop:9 }}>View binder progress <span style={{ fontSize:15, lineHeight:1 }}>&rsaquo;</span></div>
           </div>
         </div>
+
+        {/* Compact Trade Hub shortcut — reachable from the Collection home
+            without first opening the Trades tab. Kept intentionally small so it
+            doesn't become another oversized promo card. */}
+        <button onClick={()=>setShowTradeHub(true)} className="tap" style={{ width:"100%", marginBottom:12, padding:"11px 14px", borderRadius:14, background:C.mode==="light"?`${C.lavender}18`:`${C.iris||C.accent}12`, border:`1px solid ${C.accent}33`, display:"flex", alignItems:"center", gap:11, cursor:"pointer", textAlign:"left" }}>
+          <span style={{ width:30, height:30, borderRadius:10, flexShrink:0, background:`${C.accent}1f`, border:`1px solid ${C.accent}3a`, display:"flex", alignItems:"center", justifyContent:"center", color:C.accent, fontSize:15 }}>⇄</span>
+          <div style={{ flex:1, minWidth:0 }}>
+            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:12, color:C.text, lineHeight:1.15 }}>Trade Hub</p>
+            <p style={{ fontSize:9.5, color:C.textMid }}>Find matches, list dupes, make offers</p>
+          </div>
+          <span style={{ color:C.accent, fontSize:16, fontWeight:800 }}>→</span>
+        </button>
 
         {/* Smart nudge — polished collector alert */}
         {wishlistTotal > 0 && (
@@ -6982,26 +6995,17 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
                 <span style={{ color:softBlue,fontSize:16 }}>→</span>
               </div>
             )}
-            {/* My Binders / All Cards — two plain segmented views, no nested dropdown.
-                Wishlist and Trades moved to their own top-level My World tabs. */}
-            <div style={{ display:"flex",gap:0,background:C.surfaceHi,borderRadius:13,padding:3,marginBottom:14 }}>
-              {[["binders","My Binders"],["photocards","All Cards"]].map(([id,label])=>(
-                <span key={id} onClick={()=>setAlbumSubView(id)} style={{ flex:1,textAlign:"center",padding:"8px 4px",borderRadius:10,fontSize:11.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:albumSubView===id?softBlue:"transparent",color:albumSubView===id?C.bg:C.textMid,transition:"all .18s" }}>{label}</span>
-              ))}
+            {/* Single collection nav: My Binders is primary; "All Cards" is a
+                small secondary destination (the same collection without binder
+                organization — formerly the redundant "My Cards"). Folders are no
+                longer a global tab — they live inside a group binder. */}
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
+              <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:13.5, color:C.text }}>{albumSubView==="photocards" ? "All Cards" : "My Binders"}</p>
+              <button onClick={()=>setAlbumSubView(albumSubView==="photocards" ? "binders" : "photocards")} className="tap" style={{ background:`${softBlue}14`, border:`1px solid ${softBlue}33`, borderRadius:99, padding:"5px 12px", color:softBlue2, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10.5, cursor:"pointer", whiteSpace:"nowrap" }}>{albumSubView==="photocards" ? "← My Binders" : "View All Cards →"}</button>
             </div>
             {albumSubView==="binders" && <CollectTab cards={cards} setCards={setCards} patchCard={patchCard} deleteCard={deleteCard} addCard={addCard} cardsLoading={cardsLoading} refreshCards={refreshCards} isVip={isVip} onUpgrade={onUpgrade} user={user} onAddMemory={()=>setSection("scrapbook")} hideNav defaultView="binders" />}
             {albumSubView==="photocards" && (
-              <div>
-                <div style={{ display:"flex",gap:0,background:C.surfaceHi,borderRadius:13,padding:3,marginBottom:14 }}>
-                  {[["cards","My Cards"],["sets","Folders"]].map(([id,label])=>(
-                    <span key={id} onClick={()=>setPcView(id)} style={{ flex:1,textAlign:"center",padding:"8px 4px",borderRadius:10,fontSize:11.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:pcView===id?softBlue:"transparent",color:pcView===id?C.bg:C.textMid,transition:"all .18s" }}>{label}</span>
-                  ))}
-                </div>
-                {pcView==="sets"
-                  ? <PhotocardSetsView pcSetData={pcSetData} groupFilter={groupFilter} setGroupFilter={setGroupFilter} cards={allCards} patchCard={patchCard} addCard={addCard} binders={binders} />
-                  : <PhotocardGrid cards={filteredCards} groups={GROUPS} groupFilter={groupFilter} setGroupFilter={setGroupFilter} go={go} onAddCard={()=>setShowAddCard(true)} onOpenDetail={setPcDetailCard} rarityColors={RARITY_COLORS} rarityGlow={RARITY_GLOW} rarityBg={RARITY_BG} rarityBadge={RARITY_BADGE} />
-                }
-              </div>
+              <PhotocardGrid cards={filteredCards} groups={GROUPS} groupFilter={groupFilter} setGroupFilter={setGroupFilter} go={go} onAddCard={()=>setShowAddCard(true)} onOpenDetail={setPcDetailCard} rarityColors={RARITY_COLORS} rarityGlow={RARITY_GLOW} rarityBg={RARITY_BG} rarityBadge={RARITY_BADGE} />
             )}
           </div>
         )}
@@ -7043,7 +7047,7 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
                     <div style={{ fontSize:8.5, color:C.textDim, padding:"3px 7px", borderRadius:99, background:C.surfaceHi }}>Set</div>
                   </div>
                 </div>
-                <button onClick={()=>{ setSection("albums"); setAlbumSubView("photocards"); setPcView("sets"); }} style={{ background:`${w.color}18`, border:`1.5px solid ${w.color}44`, borderRadius:10, padding:"7px 12px", color:w.color, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10, cursor:"pointer" }}>Folders →</button>
+                <button onClick={()=>{ setSection("albums"); setAlbumSubView("photocards"); }} style={{ background:`${w.color}18`, border:`1.5px solid ${w.color}44`, borderRadius:10, padding:"7px 12px", color:w.color, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10, cursor:"pointer" }}>All cards →</button>
               </div>
             ))}
             {isVip ? (
@@ -7099,12 +7103,18 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
           </div>
         )}
 
-        {section==="scrapbook" && <ScrapbookTab isVip={isVip} onUpgrade={onUpgrade} />}
-
-        {section==="saved" && <SavedPostsSection go={go} />}
-        {section==="memories" && <CollectTab cards={cards} setCards={setCards} patchCard={patchCard} deleteCard={deleteCard} addCard={addCard} cardsLoading={cardsLoading} refreshCards={refreshCards} isVip={isVip} onUpgrade={onUpgrade} user={user} onAddMemory={()=>setSection("scrapbook")} hideNav defaultView="shelf" />}
-
-        {section==="capsule-memories" && (() => {
+        {section==="scrapbook" && (
+          <div style={{ paddingTop:4 }}>
+            {/* Scrapbooks hub — Memories and Capsule Memories are subviews here
+                now, not competing top-level tabs. Saved/Reposts left My World. */}
+            <div style={{ display:"flex", gap:0, background:C.surfaceHi, borderRadius:13, padding:3, marginBottom:14 }}>
+              {[["books","Scrapbooks"],["memories","Memories"],["capsules","Capsule Memories"]].map(([id,label])=>(
+                <span key={id} onClick={()=>setScrapbookSubView(id)} style={{ flex:1, textAlign:"center", padding:"8px 4px", borderRadius:10, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:scrapbookSubView===id?C.accent:"transparent", color:scrapbookSubView===id?C.bg:C.textMid, transition:"all .18s", whiteSpace:"nowrap" }}>{label}</span>
+              ))}
+            </div>
+            {scrapbookSubView==="books" && <ScrapbookTab isVip={isVip} onUpgrade={onUpgrade} />}
+            {scrapbookSubView==="memories" && <CollectTab cards={cards} setCards={setCards} patchCard={patchCard} deleteCard={deleteCard} addCard={addCard} cardsLoading={cardsLoading} refreshCards={refreshCards} isVip={isVip} onUpgrade={onUpgrade} user={user} onAddMemory={()=>setScrapbookSubView("books")} hideNav defaultView="shelf" />}
+            {scrapbookSubView==="capsules" && (() => {
           // Group every saved-to-Capsule/Era-Memory entry by concert, across
           // ALL concerts — unlike ConcertCapsule which only ever shows the
           // single current concert. Entries can come from either the Pass
@@ -7151,6 +7161,8 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
             </div>
           );
         })()}
+          </div>
+        )}
 
         {section==="achievements" && (
           <div style={{ paddingTop:4 }}>
@@ -9514,28 +9526,20 @@ function CollectTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
         )}
         {view==="binders" && (
           <div>
-            {/* Create Binder CTAs */}
-            <div style={{ display:"flex", gap:10, marginBottom:16 }}>
-              <button onClick={()=>setShowBinderCreate(true)} className="tap" style={{ flex:1, minWidth:0, padding:"12px 10px", borderRadius:20, textAlign:"left", cursor:"pointer", background:`linear-gradient(145deg,${C.accent}18,${C.pink}10)`, border:`1.5px solid ${C.accent}38`, position:"relative", overflow:"hidden" }}>
+            {/* One primary Start-a-Binder CTA. Catalog-vs-Custom is chosen inside
+                the flow (BinderCreate), not as two competing home cards. Hidden
+                when there are no binders — the empty state below has its own CTA. */}
+            {binders.length > 0 && (
+              <button onClick={()=>setShowBinderCreate(true)} className="tap" style={{ width:"100%", marginBottom:16, padding:"13px 16px", borderRadius:18, textAlign:"left", cursor:"pointer", background:`linear-gradient(145deg,${C.accent}18,${C.pink}10)`, border:`1.5px solid ${C.accent}38`, position:"relative", overflow:"hidden", display:"flex", alignItems:"center", gap:12 }}>
                 <div style={{ position:"absolute",top:-10,right:-10,width:60,height:60,borderRadius:"50%",background:`radial-gradient(circle,${C.accent}18,transparent 65%)`,pointerEvents:"none" }} />
-                <div style={{ position:"relative", display:"flex", gap:8, alignItems:"center", minWidth:0 }}>
-                  <div style={{ width:32,height:32,borderRadius:11,flexShrink:0,background:`${C.accent}22`,border:`1.5px solid ${C.accent}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16 }}>🃏</div>
-                  <div style={{ minWidth:0 }}>
-                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,color:C.text,marginBottom:1,lineHeight:1.15 }}>Start from Catalog</p>
-                    <p style={{ fontSize:9.5,color:C.textMid,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>BTS, SKZ, aespa + more</p>
-                  </div>
+                <div style={{ width:34,height:34,borderRadius:11,flexShrink:0,background:`${C.accent}22`,border:`1.5px solid ${C.accent}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:C.accent,position:"relative" }}>+</div>
+                <div style={{ minWidth:0, position:"relative", flex:1 }}>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,color:C.text,marginBottom:1,lineHeight:1.15 }}>Start a Binder</p>
+                  <p style={{ fontSize:10,color:C.textMid,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>Pick a catalog album or build a custom one</p>
                 </div>
+                <span style={{ color:C.accent, fontSize:16, fontWeight:800, position:"relative" }}>→</span>
               </button>
-              <button onClick={()=>setShowCustomBinder(true)} className="tap" style={{ flex:1, minWidth:0, padding:"12px 10px", borderRadius:20, textAlign:"left", cursor:"pointer", background:`linear-gradient(145deg,${C.pink}14,${C.rose}08)`, border:`1.5px solid ${C.pink}38`, position:"relative", overflow:"hidden" }}>
-                <div style={{ position:"relative", display:"flex", gap:8, alignItems:"center", minWidth:0 }}>
-                  <div style={{ width:32,height:32,borderRadius:11,flexShrink:0,background:`${C.pink}22`,border:`1.5px solid ${C.pink}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16 }}>✨</div>
-                  <div style={{ minWidth:0 }}>
-                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,color:C.text,marginBottom:1,whiteSpace:"nowrap" }}>Custom</p>
-                    <p style={{ fontSize:9.5,color:C.textMid,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>Any group / era</p>
-                  </div>
-                </div>
-              </button>
-            </div>
+            )}
 
             {bindersLoading && <div style={{ textAlign:"center",padding:32,color:C.textMid,fontSize:12 }}>Loading binders...</div>}
 
