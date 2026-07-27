@@ -156,20 +156,44 @@ function useAnnouncements({ fandom, city, group_name } = {}) {
   return items.filter(n => !n.expires_at || new Date(n.expires_at).getTime() > Date.now());
 }
 
-// useBinders — fetches /api/binders for the signed-in user.
+// Local-binder fallback (Demo / MOCK_MODE / no-backend). Binders created while
+// there's no real backend are stored here and MERGED into useBinders below, so
+// the hook stays the single source of truth — this is the same offline-fallback
+// pattern Meetups use, not a second storage system. In authenticated Supabase
+// mode nothing is written here (a real binder row is returned instead).
+const LOCAL_BINDERS_KEY = "backstage_binders";
+const readLocalBinders = () => { const v = ls.get(LOCAL_BINDERS_KEY, []); return Array.isArray(v) ? v : []; };
+const saveLocalBinder = (binder) => {
+  const list = readLocalBinders();
+  if (!list.some(b => b.id === binder.id)) { list.unshift(binder); ls.set(LOCAL_BINDERS_KEY, list); }
+  return binder;
+};
+
+// useBinders — fetches /api/binders for the signed-in user, merged with any
+// locally-created (demo/offline) binders so the count/list never disagree.
 function useBinders() {
   const [binders, setBinders] = useState([]);
   const [loading, setLoading] = useState(true);
   const { tokenReady } = useAuth();
 
   const refresh = useCallback(async () => {
-    const d = await api.get('/api/binders');
-    setBinders(d?.binders || []);
-    setLoading(false);
+    // try/finally so a rejected fetch can never leave the list stuck on
+    // "Loading binders…" (previously it hung whenever the request didn't resolve).
+    try {
+      const d = await api.get('/api/binders');
+      const remote = Array.isArray(d?.binders) ? d.binders : [];
+      const remoteIds = new Set(remote.map(b => b.id));
+      const local = readLocalBinders().filter(b => !remoteIds.has(b.id));
+      setBinders([...local, ...remote]);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-    if (!tokenReady) return;
+    // Demo / no-backend mode has no auth token to wait for — load immediately so
+    // the list resolves instead of hanging. With a real backend, wait for the token.
+    if (API_URL && !tokenReady) return;
     refresh();
   }, [tokenReady, refresh]);
 
@@ -7812,15 +7836,28 @@ function BinderCreate({ onBack, onCustom, onCreatedBinder }) {
 function CustomBinderForm({ onBack, onSaved }) {
   const [form, setForm] = useState({ name:"", group_name:"", emoji:"🃏", cover_color:C.accent });
   const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
   const EMOJI_OPTIONS = ["🃏","💜","🖤","⭐","💛","🌸","🎤","💙","🌟","🎭","✨","🔥"];
   const COLOR_OPTIONS = [C.accent, C.pink, C.mint, C.gold, C.rose, C.sky, C.silver, C.lavender];
 
   const save = async () => {
-    if (!form.name.trim() || saving) return;
-    setSaving(true);
+    if (!form.name.trim() || saving) return;   // guard also blocks double-tap
+    setSaving(true); setErr("");
     const d = await api.post('/api/binders', form);
-    if (d?.binder) { ls.set('backstage_has_binder', true); onSaved(d.binder); }
-    else setSaving(false);
+    // Real binder row (authenticated Supabase mode).
+    if (d?.binder) { ls.set('backstage_has_binder', true); onSaved(d.binder); return; }
+    // Demo / MOCK_MODE fallback: no backend (API_URL empty) or the backend
+    // explicitly returned a mock body (not a real error). Persist through the
+    // same store useBinders merges from, so it shows up immediately + on reload.
+    if (!API_URL || (d?.mock && !d?.error)) {
+      const local = saveLocalBinder({ id:`local-${Date.now()}`, ...form, local:true, created_at:new Date().toISOString() });
+      ls.set('backstage_has_binder', true);
+      onSaved(local);
+      return;
+    }
+    // Real backend error — keep the form data and tell the user.
+    setErr("Couldn't create binder. Please try again.");
+    setSaving(false);
   };
 
   return (
@@ -7860,6 +7897,7 @@ function CustomBinderForm({ onBack, onSaved }) {
             </div>
           </div>
 
+          {err && <p style={{ fontSize:11.5, color:C.rose, textAlign:"center", margin:"-4px 0 0" }}>{err}</p>}
           <Btn onClick={save} disabled={saving||!form.name.trim()}>{saving?"Creating...":"Create Binder ✦"}</Btn>
         </div>
       </Screen>
