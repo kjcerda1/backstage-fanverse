@@ -168,6 +168,39 @@ const saveLocalBinder = (binder) => {
   if (!list.some(b => b.id === binder.id)) { list.unshift(binder); ls.set(LOCAL_BINDERS_KEY, list); }
   return binder;
 };
+const updateLocalBinder = (id, patch) => {
+  const list = readLocalBinders().map(b => b.id === id ? { ...b, ...patch } : b);
+  ls.set(LOCAL_BINDERS_KEY, list);
+  return list.find(b => b.id === id) || null;
+};
+
+// Shared cover-image upload (used by binder covers; reusable for other covers).
+// Validates type/size, compresses via resizeImageForUpload, then either uploads
+// to Supabase Storage through the given presign route and returns the stored
+// URL, or — with no backend / on presign failure — returns a compressed,
+// size-capped local data: URL so demo mode still shows and persists a cover.
+// resizeImageForUpload is a hoisted function declaration defined later in the file.
+const MAX_COVER_BYTES = 8 * 1024 * 1024;
+async function uploadCoverImage(file, presignPath) {
+  if (!file) throw new Error('No file selected.');
+  if (!/^image\//.test(file.type || '')) throw new Error('Please choose an image file.');
+  if (file.size > MAX_COVER_BYTES) throw new Error('Image is too large (max 8MB).');
+  const resized = await resizeImageForUpload(file); // caps longest edge 1280px, JPEG ~0.85
+  if (API_URL) {
+    const presign = await api.post(presignPath, { filename: resized.name, content_type: resized.type }).catch(() => null);
+    if (presign?.signed_url) {
+      const put = await fetch(presign.signed_url, { method: 'PUT', body: resized, headers: { 'Content-Type': resized.type } }).catch(() => null);
+      if (put && put.ok) return presign.public_url;
+    }
+    // fall through to a local data URL if the backend upload didn't succeed
+  }
+  return await new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(new Error('Could not read image.'));
+    r.readAsDataURL(resized);
+  });
+}
 
 // useBinders — fetches /api/binders for the signed-in user, merged with any
 // locally-created (demo/offline) binders so the count/list never disagree.
@@ -5696,11 +5729,18 @@ function CardDetailSheet({ card, groupLabel, onClose, onPatch, onDelete, onListF
           </div>
         </div>
 
-        {card.status==="owned" && (
+        {/* A user photo represents a card the fan physically owns, so uploads are
+            allowed only for possessed statuses (owned / duplicate / for_trade).
+            ISO and Missing keep the honest placeholder — we never pass off a
+            reference/catalog image as the fan's own card photo. */}
+        {!["iso","missing"].includes(card.status) && (
           <div style={{ display:"flex", gap:8, marginBottom:14 }}>
-            <button onClick={()=>photoInputRef.current?.click()} disabled={uploading} style={{ flex:1,padding:"10px",borderRadius:12,background:`${C.accent}14`,border:`1.5px solid ${C.accent}44`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer" }}>{uploading?"⏳ Uploading...":photo?"📷 Replace photo":"📸 Add a photo"}</button>
+            <button onClick={()=>photoInputRef.current?.click()} disabled={uploading} style={{ flex:1,padding:"10px",borderRadius:12,background:`${C.accent}14`,border:`1.5px solid ${C.accent}44`,color:C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer" }}>{uploading?"⏳ Uploading...":photo?"📷 Replace":"📸 Add a photo"}</button>
+            {photo && !uploading && (
+              <button onClick={()=>firePatch({ image_url: null })} style={{ flex:1,padding:"10px",borderRadius:12,background:`${C.rose}12`,border:`1.5px solid ${C.rose}44`,color:C.rose,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer" }}>🗑 Remove</button>
+            )}
             {photo && onAiIdentify && (
-              <button onClick={()=>onAiIdentify(card.id)} disabled={aiIdentifying} style={{ flex:1,padding:"10px",borderRadius:12,background:`${C.mint}14`,border:`1.5px solid ${C.mint}44`,color:C.mint,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer" }}>{aiIdentifying?"🤖 Scanning...":"🤖 AI Identify"}</button>
+              <button onClick={()=>onAiIdentify(card.id)} disabled={aiIdentifying} style={{ flex:1,padding:"10px",borderRadius:12,background:`${C.mint}14`,border:`1.5px solid ${C.mint}44`,color:C.mint,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer" }}>{aiIdentifying?"🤖…":"🤖 AI"}</button>
             )}
             <input ref={photoInputRef} type="file" accept="image/*" onChange={uploadPhoto} style={{ display:"none" }} />
           </div>
@@ -7835,22 +7875,35 @@ function BinderCreate({ onBack, onCustom, onCreatedBinder }) {
 // ─── CUSTOM BINDER FORM ───────────────────────────────────────────────────────
 function CustomBinderForm({ onBack, onSaved }) {
   const [form, setForm] = useState({ name:"", group_name:"", emoji:"🃏", cover_color:C.accent });
+  const [cover, setCover] = useState(null);          // uploaded cover URL / data URL
+  const [uploadingCover, setUploadingCover] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
+  const coverRef = useRef(null);
   const EMOJI_OPTIONS = ["🃏","💜","🖤","⭐","💛","🌸","🎤","💙","🌟","🎭","✨","🔥"];
   const COLOR_OPTIONS = [C.accent, C.pink, C.mint, C.gold, C.rose, C.sky, C.silver, C.lavender];
+
+  const pickCover = async (e) => {
+    const file = e.target.files?.[0]; e.target.value = ''; if (!file) return;
+    if (uploadingCover) return;
+    setUploadingCover(true); setErr("");
+    try { setCover(await uploadCoverImage(file, '/api/binders/upload-url')); }
+    catch (ex) { setErr(ex.message || 'Could not upload cover.'); }
+    setUploadingCover(false);
+  };
 
   const save = async () => {
     if (!form.name.trim() || saving) return;   // guard also blocks double-tap
     setSaving(true); setErr("");
-    const d = await api.post('/api/binders', form);
+    const payload = { ...form, cover_url: cover || null };
+    const d = await api.post('/api/binders', payload);
     // Real binder row (authenticated Supabase mode).
     if (d?.binder) { ls.set('backstage_has_binder', true); onSaved(d.binder); return; }
     // Demo / MOCK_MODE fallback: no backend (API_URL empty) or the backend
     // explicitly returned a mock body (not a real error). Persist through the
     // same store useBinders merges from, so it shows up immediately + on reload.
     if (!API_URL || (d?.mock && !d?.error)) {
-      const local = saveLocalBinder({ id:`local-${Date.now()}`, ...form, local:true, created_at:new Date().toISOString() });
+      const local = saveLocalBinder({ id:`local-${Date.now()}`, ...payload, local:true, created_at:new Date().toISOString() });
       ls.set('backstage_has_binder', true);
       onSaved(local);
       return;
@@ -7871,17 +7924,28 @@ function CustomBinderForm({ onBack, onSaved }) {
           <Input label="Binder Name *" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="e.g. My SKZ Collection" />
           <Input label="Group (optional)" value={form.group_name} onChange={e=>setForm(f=>({...f,group_name:e.target.value}))} placeholder="e.g. Stray Kids" />
 
+          {/* Binder cover photo — the primary identity. Falls back to color + icon. */}
           <div>
-            <p style={{ fontSize:10,color:C.textMid,marginBottom:8,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em" }}>Icon</p>
-            <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-              {EMOJI_OPTIONS.map(e=>(
-                <button key={e} onClick={()=>setForm(f=>({...f,emoji:e}))} style={{ width:40,height:40,borderRadius:12,background:form.emoji===e?`${C.accent}22`:"transparent",border:`1.5px solid ${form.emoji===e?C.accent:C.border}`,fontSize:20,cursor:"pointer" }}>{e}</button>
-              ))}
-            </div>
+            <p style={{ fontSize:10,color:C.textMid,marginBottom:8,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em" }}>Binder cover</p>
+            {cover ? (
+              <div style={{ position:"relative", width:"100%", height:150, borderRadius:16, overflow:"hidden", border:`1.5px solid ${form.cover_color}55` }}>
+                <img src={cover} alt="Binder cover preview" style={{ width:"100%", height:"100%", objectFit:"cover", objectPosition:"center" }} />
+                <div style={{ position:"absolute", bottom:8, right:8, display:"flex", gap:6 }}>
+                  <button onClick={()=>coverRef.current?.click()} disabled={uploadingCover} style={{ padding:"6px 11px", borderRadius:10, background:"rgba(10,8,20,0.72)", border:"1px solid rgba(255,255,255,0.28)", color:"#fff", fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10.5, cursor:"pointer" }}>{uploadingCover?"…":"Replace"}</button>
+                  <button onClick={()=>setCover(null)} disabled={uploadingCover} style={{ padding:"6px 11px", borderRadius:10, background:"rgba(10,8,20,0.72)", border:`1px solid ${C.rose}66`, color:C.rose, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10.5, cursor:"pointer" }}>Remove</button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={()=>coverRef.current?.click()} disabled={uploadingCover} style={{ width:"100%", height:120, borderRadius:16, border:`1.5px dashed ${C.border}`, background:`${form.cover_color}0c`, color:C.textMid, cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:5 }}>
+                <span style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13, color:C.text }}>{uploadingCover ? "Uploading…" : "＋ Add cover photo"}</span>
+                <span style={{ fontSize:9.5, color:C.textDim }}>Optional · JPG or PNG · up to 8MB</span>
+              </button>
+            )}
+            <input ref={coverRef} type="file" accept="image/*" onChange={pickCover} style={{ display:"none" }} />
           </div>
 
           <div>
-            <p style={{ fontSize:10,color:C.textMid,marginBottom:8,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em" }}>Color</p>
+            <p style={{ fontSize:10,color:C.textMid,marginBottom:8,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em" }}>Accent color</p>
             <div style={{ display:"flex", gap:8 }}>
               {COLOR_OPTIONS.map(col=>(
                 <button key={col} onClick={()=>setForm(f=>({...f,cover_color:col}))} style={{ width:30,height:30,borderRadius:"50%",background:col,border:`3px solid ${form.cover_color===col?"white":"transparent"}`,cursor:"pointer",transition:"border-color .15s" }} />
@@ -7889,8 +7953,20 @@ function CustomBinderForm({ onBack, onSaved }) {
             </div>
           </div>
 
+          <div>
+            <p style={{ fontSize:10,color:C.textMid,marginBottom:8,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em" }}>Fallback icon <span style={{ textTransform:"none", letterSpacing:0, color:C.textDim, fontWeight:600 }}>· shown when there's no cover photo</span></p>
+            <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+              {EMOJI_OPTIONS.map(e=>(
+                <button key={e} onClick={()=>setForm(f=>({...f,emoji:e}))} style={{ width:36,height:36,borderRadius:11,background:form.emoji===e?`${C.accent}22`:"transparent",border:`1.5px solid ${form.emoji===e?C.accent:C.border}`,fontSize:18,cursor:"pointer" }}>{e}</button>
+              ))}
+            </div>
+          </div>
+
+          {/* Live preview — cover photo when present, else color + icon default */}
           <div style={{ background:`linear-gradient(140deg,${form.cover_color}18,${form.cover_color}06)`,border:`1.5px solid ${form.cover_color}44`,borderRadius:18,padding:16,display:"flex",gap:12,alignItems:"center" }}>
-            <div style={{ width:52,height:52,borderRadius:16,background:`${form.cover_color}22`,border:`1.5px solid ${form.cover_color}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26 }}>{form.emoji||"🃏"}</div>
+            <div style={{ width:52,height:52,borderRadius:16,overflow:"hidden",flexShrink:0,background:`${form.cover_color}22`,border:`1.5px solid ${form.cover_color}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26 }}>
+              {cover ? <img src={cover} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }} /> : (form.emoji||"🃏")}
+            </div>
             <div>
               <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14.5,color:C.text }}>{form.name||"Binder Name"}</p>
               <p style={{ fontSize:11,color:C.textMid }}>{form.group_name||"Custom collection"}</p>
@@ -7898,7 +7974,7 @@ function CustomBinderForm({ onBack, onSaved }) {
           </div>
 
           {err && <p style={{ fontSize:11.5, color:C.rose, textAlign:"center", margin:"-4px 0 0" }}>{err}</p>}
-          <Btn onClick={save} disabled={saving||!form.name.trim()}>{saving?"Creating...":"Create Binder ✦"}</Btn>
+          <Btn onClick={save} disabled={saving||uploadingCover||!form.name.trim()}>{saving?"Creating...":"Create Binder ✦"}</Btn>
         </div>
       </Screen>
     </div>
@@ -8101,9 +8177,20 @@ function TradeListingForm({ card, onBack, onSaved }) {
 }
 
 // ─── BINDER DETAIL ─────────────────────────────────────────────────────────────
-function BinderDetail({ binder, onBack, cards: allCards, cardsLoading, setCards, patchCard, deleteCard, addCard }) {
+function BinderDetail({ binder, onBack, onCoverChange, cards: allCards, cardsLoading, setCards, patchCard, deleteCard, addCard }) {
   const STATUS_ORDER = CARD_STATUS_ORDER;
   const STATUS_META  = CARD_STATUS_META;
+  const coverRef = useRef(null);
+  const [coverBusy, setCoverBusy] = useState(false);
+  const [coverErr, setCoverErr]   = useState("");
+  const pickCover = async (e) => {
+    const file = e.target.files?.[0]; e.target.value = ''; if (!file || coverBusy) return;
+    setCoverBusy(true); setCoverErr("");
+    try { const url = await uploadCoverImage(file, '/api/binders/upload-url'); onCoverChange?.(url); }
+    catch (ex) { setCoverErr(ex.message || 'Could not upload cover.'); }
+    setCoverBusy(false);
+  };
+  const removeCover = () => { if (!coverBusy) onCoverChange?.(null); };
 
   // Detect linked Era Board — match by realBinderId first, then by name pattern
   const linkedEraBoard = (() => {
@@ -8161,6 +8248,21 @@ function BinderDetail({ binder, onBack, cards: allCards, cardsLoading, setCards,
           <p style={{ fontSize:10,color:C.textMid }}>{owned}/{cards.length} owned · {dupes} dupes · {missing} missing</p>
         </div>
         <button onClick={()=>setShowAddCard(true)} style={{ background:`linear-gradient(140deg,${C.accent}cc,${C.accentDim})`,border:"none",borderRadius:11,padding:"8px 13px",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,cursor:"pointer",flexShrink:0 }}>+ Add</button>
+      </div>
+
+      {/* Binder cover — photo when set, else color + fallback icon; editable */}
+      <div style={{ padding:"0 20px 10px", flexShrink:0 }}>
+        <div style={{ position:"relative", width:"100%", height: binder.cover_url ? 128 : 72, borderRadius:16, overflow:"hidden", border:`1.5px solid ${(binder.cover_color||C.accent)}44`, background:`linear-gradient(140deg,${(binder.cover_color||C.accent)}26,${(binder.cover_color||C.accent)}08)`, display:"flex", alignItems:"center", justifyContent:"center" }}>
+          {binder.cover_url
+            ? <img src={binder.cover_url} alt={`${binder.name} cover`} style={{ width:"100%", height:"100%", objectFit:"cover", objectPosition:"center" }} />
+            : <span style={{ fontSize:30, opacity:0.9 }}>{binder.emoji||"🃏"}</span>}
+          <div style={{ position:"absolute", bottom:8, right:8, display:"flex", gap:6 }}>
+            <button onClick={()=>coverRef.current?.click()} disabled={coverBusy} style={{ padding:"6px 11px", borderRadius:10, background:"rgba(10,8,20,0.72)", border:"1px solid rgba(255,255,255,0.28)", color:"#fff", fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10.5, cursor:"pointer" }}>{coverBusy?"…":(binder.cover_url?"Change":"＋ Add cover")}</button>
+            {binder.cover_url && <button onClick={removeCover} disabled={coverBusy} style={{ padding:"6px 11px", borderRadius:10, background:"rgba(10,8,20,0.72)", border:`1px solid ${C.rose}66`, color:C.rose, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10.5, cursor:"pointer" }}>Remove</button>}
+          </div>
+        </div>
+        {coverErr && <p style={{ fontSize:11, color:C.rose, marginTop:6 }}>{coverErr}</p>}
+        <input ref={coverRef} type="file" accept="image/*" onChange={pickCover} style={{ display:"none" }} />
       </div>
 
       {/* Legend */}
@@ -9322,10 +9424,20 @@ function CollectTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
     setTracking({ status:"In Transit", statusDetail:"Package departed sorting facility", location:"Memphis, TN", estimatedDelivery:"Apr 29" });
   };
 
+  // Set/clear a binder's cover photo. Optimistic (updates the open binder + list
+  // immediately), then persists via PATCH (real) or the local store (demo/offline).
+  const patchBinderCover = async (cover_url) => {
+    const b = selectedBinder; if (!b) return;
+    setSelectedBinder(sb => sb ? { ...sb, cover_url } : sb);
+    if (b.local || !API_URL) { updateLocalBinder(b.id, { cover_url }); refreshBinders(); return; }
+    await api.patch(`/api/binders/${b.id}`, { cover_url }).catch(() => {});
+    refreshBinders();
+  };
+
   if (showBinderCreate) return <BinderCreate onBack={()=>{ setShowBinderCreate(false); refreshBinders(); }} onCustom={()=>{ setShowBinderCreate(false); setShowCustomBinder(true); }} onCreatedBinder={b=>{ setShowBinderCreate(false); refreshBinders(); refreshCards(); setSelectedBinder(b); }} />;
   if (showCustomBinder) return <CustomBinderForm onBack={()=>setShowCustomBinder(false)} onSaved={b=>{ setShowCustomBinder(false); refreshBinders(); setSelectedBinder(b); }} />;
   if (showTradeHub) return <TradeHub onBack={()=>setShowTradeHub(false)} user={user} />;
-  if (selectedBinder) return <BinderDetail binder={selectedBinder} cards={cards} cardsLoading={cardsLoading} setCards={setCards} patchCard={patchCard} deleteCard={deleteCard} addCard={addCard} onBack={()=>setSelectedBinder(null)} />;
+  if (selectedBinder) return <BinderDetail binder={selectedBinder} onCoverChange={patchBinderCover} cards={cards} cardsLoading={cardsLoading} setCards={setCards} patchCard={patchCard} deleteCard={deleteCard} addCard={addCard} onBack={()=>setSelectedBinder(null)} />;
 
   return (
     <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
@@ -9423,7 +9535,11 @@ function CollectTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
                     <div style={VS.shimmerLine(col)} />
                     <div style={VS.innerGlow(col)} />
                     <div style={{ position:"relative", display:"flex", gap:12, alignItems:"center" }}>
-                      {total>0 ? (
+                      {b.cover_url ? (
+                        <div style={{ width:52,height:52,borderRadius:16,overflow:"hidden",flexShrink:0,border:`1.5px solid ${col}55`,boxShadow:`0 0 16px ${col}18` }}>
+                          <img src={b.cover_url} alt="" style={{ width:"100%",height:"100%",objectFit:"cover",objectPosition:"center" }} />
+                        </div>
+                      ) : total>0 ? (
                         <RingProgress value={pct} size={44} thickness={4} color={col} color2={col}>
                           <span style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:10, color:C.text }}>{pct}%</span>
                         </RingProgress>
@@ -9435,6 +9551,7 @@ function CollectTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
                         {b.group_name&&<div style={VS.activePill(col)}>{b.group_name}</div>}
                         {total>0 ? (
                           <div style={{ display:"flex", gap:8, marginTop:6, flexWrap:"wrap" }}>
+                            {b.cover_url && <span style={{ fontSize:10, color:col, fontFamily:"'Epilogue',sans-serif", fontWeight:800 }}>{pct}%</span>}
                             <span style={{ fontSize:10, color:C.textMid }}><b style={{ color:C.text }}>{owned}</b>/{total} owned</span>
                             {iso>0 && <span style={{ fontSize:10, color:C.accent }}>♡ {iso} ISO</span>}
                             {trade>0 && <span style={{ fontSize:10, color:C.rose }}>⇄ {trade} tradeable</span>}

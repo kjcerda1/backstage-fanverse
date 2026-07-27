@@ -6035,6 +6035,27 @@ app.post('/api/cards/upload-url', requireAuth, async (req, res) => {
   }
 });
 
+// Binder cover upload — reuses the shared card-images bucket + the same signed-URL
+// helper, but is its own binder-appropriate route (covers go under a binders/
+// path prefix, not the card-photo endpoint) so the intent stays honest.
+app.post('/api/binders/upload-url', requireAuth, async (req, res) => {
+  if (!supabase) return res.json({ url: null, mock: true });
+  const { filename } = req.body;
+  if (!filename) return res.status(400).json({ error: 'filename required' });
+  const ext = (filename.split('.').pop() || 'jpg').toLowerCase();
+  const path = `${req.userId}/binders/${Date.now()}.${ext}`;
+  try {
+    const { data, error } = await supabase.storage
+      .from('card-images')
+      .createSignedUploadUrl(path);
+    if (error) throw error;
+    res.json({ signed_url: data.signedUrl, path, public_url: supabase.storage.from('card-images').getPublicUrl(path).data.publicUrl });
+  } catch (err) {
+    console.error('[Binder Upload URL]', err.message);
+    res.status(500).json({ error: 'Failed to generate upload URL' });
+  }
+});
+
 // ═════════════════════════════════════════════════════════════════════════════
 // CARD TEMPLATES — /api/card-templates | /api/binders/from-template
 // ═════════════════════════════════════════════════════════════════════════════
