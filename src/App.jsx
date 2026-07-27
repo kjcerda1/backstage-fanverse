@@ -7088,7 +7088,7 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
               <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:13.5, color:C.text }}>{albumSubView==="photocards" ? "All Cards" : "My Binders"}</p>
               <button onClick={()=>setAlbumSubView(albumSubView==="photocards" ? "binders" : "photocards")} className="tap" style={{ background:`${softBlue}14`, border:`1px solid ${softBlue}33`, borderRadius:99, padding:"5px 12px", color:softBlue2, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10.5, cursor:"pointer", whiteSpace:"nowrap" }}>{albumSubView==="photocards" ? "← My Binders" : "View All Cards →"}</button>
             </div>
-            {albumSubView==="binders" && <CollectTab cards={cards} setCards={setCards} patchCard={patchCard} deleteCard={deleteCard} addCard={addCard} cardsLoading={cardsLoading} refreshCards={refreshCards} isVip={isVip} onUpgrade={onUpgrade} user={user} onAddMemory={()=>setSection("scrapbook")} hideNav defaultView="binders" />}
+            {albumSubView==="binders" && <CollectTab cards={cards} setCards={setCards} patchCard={patchCard} deleteCard={deleteCard} addCard={addCard} cardsLoading={cardsLoading} refreshCards={refreshCards} isVip={isVip} onUpgrade={onUpgrade} user={user} onAddMemory={()=>setSection("scrapbook")} onStartBinder={()=>setShowStartBinder(true)} hideNav defaultView="binders" />}
             {albumSubView==="photocards" && (
               <PhotocardGrid cards={filteredCards} groups={GROUPS} groupFilter={groupFilter} setGroupFilter={setGroupFilter} go={go} onAddCard={()=>setShowAddCard(true)} onOpenDetail={setPcDetailCard} rarityColors={RARITY_COLORS} rarityGlow={RARITY_GLOW} rarityBg={RARITY_BG} rarityBadge={RARITY_BADGE} />
             )}
@@ -7690,9 +7690,155 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
 
 const BINDER_STATUS_TO_DB = { missing:"missing", owned:"owned", wishlist:"iso", dupe:"duplicate", tradeable:"for_trade" };
 
+// Reusable group catalog page — the group-first destination for Start a Binder
+// (and, later, the group tile in Binder Progress). Everything here is built from
+// REAL data only: the collection summary comes from the signed-in fan's own
+// user_cards, and "Releases in the catalog" are the verified card_templates for
+// this group. Categories that aren't in the catalog yet (POBs, Japanese, custom)
+// show honest empty states — never fabricated "not yet verified" cards.
+// `templates` are the normalized catalog rows for this group; onOpenTemplate gets
+// the row back so the caller can open the real DB template or the mock fallback.
+function GroupCatalog({ groupName, templates=[], onOpenTemplate, onBack }) {
+  const { cards: allCards } = useUserCards();
+  const groupCards = (allCards||[]).filter(c => (c.group_name||c.group)===groupName);
+  const owned     = groupCards.filter(c=>c.status==='owned').length;
+  const iso       = groupCards.filter(c=>c.status==='iso').length;
+  const dupes     = groupCards.filter(c=>c.status==='duplicate').length;
+  const tradeable = groupCards.filter(c=>c.status==='duplicate'||c.status==='for_trade').length;
+  const total     = groupCards.length;
+  const completion= total ? Math.round((owned/total)*100) : 0;
+  const members   = [...new Set(groupCards.map(c=>c.member||c.member_name).filter(Boolean))].sort();
+  const [memberFilter, setMemberFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [browseTab, setBrowseTab]       = useState('albums');
+
+  const STATUS = [['all','All'],['owned','Owned'],['iso','ISO'],['duplicate','Dupe'],['for_trade','Tradeable']];
+  // One shared, universal category set for every group. Categories that have no
+  // verified catalog data yet render an honest empty state — never invented cards.
+  const BROWSE = [['albums','Albums & Releases'],['photocards','Photocards'],['pobs','POBs & Exclusives'],['japanese','Japanese / Regional'],['members','Member Versions'],['special','Special / Limited'],['custom','Custom']];
+  const EMPTY_COPY = {
+    photocards: `Individual photocard sets for ${groupName} aren't in the verified catalog yet.`,
+    pobs:       `No verified POB / store-exclusive sets for ${groupName} yet.`,
+    japanese:   `No verified Japanese or regional releases for ${groupName} yet.`,
+    members:    `Member-version breakdowns for ${groupName} aren't in the verified catalog yet.`,
+    special:    `No verified special / limited editions for ${groupName} yet.`,
+    custom:     `You haven't added any custom folders for ${groupName} yet.`,
+  };
+  const matchStatus = (c) => statusFilter==='all' || c.status===statusFilter || (statusFilter==='for_trade' && (c.status==='for_trade'||c.status==='duplicate'));
+  const filteredCards = groupCards.filter(c => (memberFilter==='all' || (c.member||c.member_name)===memberFilter) && matchStatus(c));
+
+  const StatTile = ({ val, label, color }) => (
+    <div style={{ flex:"1 1 0", minWidth:58, background:C.mode==="light"?"rgba(33,17,52,0.04)":"rgba(255,255,255,0.04)", border:`1px solid ${C.border}`, borderRadius:13, padding:"9px 6px", textAlign:"center" }}>
+      <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:16, color, lineHeight:1 }}>{val}</p>
+      <p style={{ fontSize:8.5, color:C.textMid, marginTop:3, textTransform:"uppercase", letterSpacing:"0.04em" }}>{label}</p>
+    </div>
+  );
+
+  return (
+    <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
+      <div style={{ padding:"16px 20px 12px", flexShrink:0, display:"flex", alignItems:"center", gap:10 }}>
+        <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
+        <div style={{ minWidth:0 }}>
+          <p style={{ fontSize:9, color:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.14em" }}>Group Catalog</p>
+          <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:20, margin:0, lineHeight:1.1 }}>{groupName}</h2>
+        </div>
+      </div>
+      <Screen style={{ padding:"0 18px calc(120px + env(safe-area-inset-bottom))" }}>
+        {/* Collection summary — from YOUR collection (real user_cards) */}
+        <p style={{ fontSize:9.5, color:C.textDim, marginBottom:8, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em" }}>Your collection</p>
+        <div style={{ display:"flex", gap:6, marginBottom:6 }}>
+          <StatTile val={owned} label="Owned" color={C.text} />
+          <StatTile val={iso} label="ISO" color={C.gold} />
+          <StatTile val={dupes} label="Dupes" color={C.lavender} />
+          <StatTile val={tradeable} label="Trade" color={C.rose} />
+          <StatTile val={`${completion}%`} label="Owned" color={C.accent} />
+        </div>
+        <p style={{ fontSize:9.5, color:C.textDim, marginBottom:16 }}>{total>0 ? `${completion}% of your ${total} tracked ${groupName} card${total!==1?'s':''} owned.` : `No ${groupName} cards tracked yet — start a binder below.`}</p>
+
+        {/* Browse categories */}
+        <div style={{ display:"flex", gap:6, overflowX:"auto", scrollbarWidth:"none", marginBottom:14, paddingBottom:2 }}>
+          {BROWSE.map(([id,label])=>(
+            <span key={id} onClick={()=>setBrowseTab(id)} className="tap" style={{ flexShrink:0, padding:"6px 12px", borderRadius:99, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", whiteSpace:"nowrap", background:browseTab===id?C.accent:C.surfaceHi, color:browseTab===id?C.bg:C.textMid, border:`1px solid ${browseTab===id?"transparent":C.border}` }}>{label}</span>
+          ))}
+        </div>
+
+        {browseTab==='albums' && (
+          templates.length>0 ? (
+            <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:18 }}>
+              {templates.map(t=>(
+                <button key={t.id} onClick={()=>onOpenTemplate(t)} className="tap" style={{ padding:"13px 15px", borderRadius:18, textAlign:"left", cursor:"pointer", background:C.surfaceHi, border:`1px solid ${(t.color||C.accent)}33`, display:"flex", alignItems:"center", gap:12 }}>
+                  <div style={{ width:44,height:44,borderRadius:13,flexShrink:0,background:`${(t.color||C.accent)}1e`,border:`1.5px solid ${(t.color||C.accent)}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:21 }}>{t.emoji||"🃏"}</div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:13.5, color:C.text, marginBottom:2 }}>{t.album}</p>
+                    <div style={{ display:"flex", gap:5, flexWrap:"wrap", alignItems:"center" }}>
+                      {t.era && <span style={{ ...VS.activePill(t.color||C.accent), fontSize:8 }}>{t.era}</span>}
+                      <span style={{ ...VS.activePill(C.gold), fontSize:8 }}>⚠ {t.completenessLabel||"May include gaps"}</span>
+                      <span style={{ ...VS.activePill(C.silver), fontSize:8 }}>{t.count} cards</span>
+                    </div>
+                  </div>
+                  <span style={{ color:t.color||C.accent, fontSize:16, flexShrink:0 }}>→</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div style={{ textAlign:"center", padding:"30px 18px", background:`${C.accent}08`, border:`1.5px dashed ${C.border}`, borderRadius:16, marginBottom:18 }}>
+              <p style={{ fontSize:12, color:C.textMid, lineHeight:1.6 }}>No verified releases for {groupName} in the catalog yet.</p>
+            </div>
+          )
+        )}
+        {browseTab!=='albums' && (
+          <div style={{ textAlign:"center", padding:"30px 18px", background:`${C.accent}08`, border:`1.5px dashed ${C.border}`, borderRadius:16, marginBottom:18 }}>
+            <p style={{ fontSize:12, color:C.textMid, lineHeight:1.6 }}>{EMPTY_COPY[browseTab]}</p>
+            <p style={{ fontSize:10, color:C.textDim, marginTop:6 }}>Coming as the verified catalog grows.</p>
+          </div>
+        )}
+
+        {/* Your cards in this group — member + status filters over REAL data only */}
+        {groupCards.length>0 && (
+          <>
+            <p style={{ fontSize:9.5, color:C.textDim, marginBottom:8, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em" }}>Your {groupName} cards</p>
+            {members.length>0 && (
+              <div style={{ display:"flex", gap:6, overflowX:"auto", scrollbarWidth:"none", marginBottom:8, paddingBottom:2 }}>
+                {[['all','All members'],...members.map(m=>[m,m])].map(([id,label])=>(
+                  <span key={id} onClick={()=>setMemberFilter(id)} className="tap" style={{ flexShrink:0, padding:"5px 11px", borderRadius:99, fontSize:10, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", whiteSpace:"nowrap", background:memberFilter===id?C.lavender:C.surfaceHi, color:memberFilter===id?C.bg:C.textMid, border:`1px solid ${memberFilter===id?"transparent":C.border}` }}>{label}</span>
+                ))}
+              </div>
+            )}
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:12 }}>
+              {STATUS.map(([id,label])=>(
+                <span key={id} onClick={()=>setStatusFilter(id)} className="tap" style={{ padding:"5px 11px", borderRadius:99, fontSize:10, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:statusFilter===id?C.accent:C.surfaceHi, color:statusFilter===id?C.bg:C.textMid, border:`1px solid ${statusFilter===id?"transparent":C.border}` }}>{label}</span>
+              ))}
+            </div>
+            {filteredCards.length>0 ? (
+              <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
+                {filteredCards.map(c=>(
+                  <div key={c.id} style={{ display:"flex", alignItems:"center", gap:10, background:C.surfaceHi, border:`1px solid ${C.border}`, borderRadius:12, padding:"8px 11px" }}>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, color:C.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{c.member||c.member_name||c.card_name||"Card"}</p>
+                      <p style={{ fontSize:9.5, color:C.textMid }}>{[c.album||c.album_name, c.era].filter(Boolean).join(" · ")}</p>
+                    </div>
+                    <span style={{ ...VS.activePill(c.status==='owned'?C.mint:c.status==='iso'?C.gold:c.status==='for_trade'?C.rose:C.lavender), fontSize:8 }}>{c.status==='for_trade'?'For trade':c.status==='iso'?'ISO':c.status==='duplicate'?'Dupe':c.status==='owned'?'Owned':c.status}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p style={{ fontSize:11, color:C.textMid, textAlign:"center", padding:"14px 0" }}>No cards match this filter.</p>
+            )}
+          </>
+        )}
+        {groupCards.length===0 && (
+          <p style={{ fontSize:11, color:C.textMid, textAlign:"center", padding:"6px 10px 0", lineHeight:1.6 }}>You don't have any {groupName} cards yet. Start a binder from a release above to begin tracking.</p>
+        )}
+      </Screen>
+    </div>
+  );
+}
+
 function BinderCreate({ onBack, onCustom, onCreatedBinder }) {
-  const [step, setStep] = useState("search"); // search | preview | slots
+  const [step, setStep] = useState("search"); // search | group | preview | slots
   const [groupSearch, setGroupSearch] = useState("");
+  const [selectedGroupName, setSelectedGroupName] = useState(null);
+  const [groupTemplates, setGroupTemplates] = useState([]);
   const [selectedTemplate, setSelectedTemplate] = useState(null);   // DB template
   const [selectedMock, setSelectedMock] = useState(null);           // mock template (legacy slots flow)
   const [slots, setSlots] = useState([]);
@@ -7726,6 +7872,15 @@ function BinderCreate({ onBack, onCustom, onCreatedBinder }) {
 
   const openDbTemplate = (t) => { setSelectedTemplate(t); setSelectedMock(null); setDuplicateErr(null); setStep("preview"); };
   const openMockTemplate = (t) => { setSelectedMock(t); setSelectedTemplate(null); const initSlots = t.cards.map((name,i)=>({id:i,name,status:"missing"})); setSlots(initSlots); setStep("slots"); };
+  // Open a normalized catalog row (from group-first search or GroupCatalog),
+  // dispatching to the real DB-template flow or the mock-fallback slots flow.
+  const openCatalogTemplate = (t) => { if (t?._db) openDbTemplate(t._db); else if (t?._mock) openMockTemplate(t._mock); };
+  // Normalize DB + mock templates into one shape so the group-first sections and
+  // GroupCatalog work identically whether or not the backend catalog is reachable.
+  const catalog = showingDb
+    ? dbTemplates.map(t=>({ id:t.id, group:t.group_name, album:t.album_name, era:t.era, count:t.card_count, color:t.cover_color||C.accent, emoji:t.cover_emoji||"🃏", completenessLabel:t.completeness_label||"May include gaps", _db:t }))
+    : MOCK_COLLECTION_TEMPLATES.map(t=>({ id:t.id, group:t.group, album:t.album, era:t.era, count:t.total, color:t.color, emoji:t.emoji, completenessLabel:"May include gaps", _mock:t }));
+  const openGroup = (g, ts) => { setSelectedGroupName(g); setGroupTemplates(ts); setStep("group"); };
 
   const cycleStatus = (id) => {
     const order = ["missing", "owned", "wishlist", "dupe", "tradeable"];
@@ -7781,6 +7936,12 @@ function BinderCreate({ onBack, onCustom, onCreatedBinder }) {
 
   const STATUS_COLORS = { missing: C.textDim, owned: C.mint, wishlist: C.accent, dupe: C.gold, tradeable: C.rose };
   const STATUS_LABELS = { missing: "—", owned: "✓", wishlist: "♡", dupe: "×2", tradeable: "⇄" };
+
+  // Group destination — reachable from the group-first search. A specific release
+  // can still be opened directly from search, but the group page is the primary path.
+  if (step === "group" && selectedGroupName) return (
+    <GroupCatalog groupName={selectedGroupName} templates={groupTemplates} onOpenTemplate={openCatalogTemplate} onBack={()=>setStep("search")} />
+  );
 
   if (saved) return (
     <div style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:40, textAlign:"center" }}>
@@ -7912,72 +8073,71 @@ function BinderCreate({ onBack, onCustom, onCreatedBinder }) {
         <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:19 }}>Start a Binder</h2>
       </div>
       <Screen style={{ padding:"0 18px calc(120px + env(safe-area-inset-bottom))" }}>
-        <p style={{ fontSize:12, color:C.textMid, marginBottom:12, lineHeight:1.6 }}>Choose an album template to create a binder, or build a custom one for any group.</p>
-        <Input value={groupSearch} onChange={e=>setGroupSearch(e.target.value)} placeholder="Search group or album..." style={{ marginBottom:14 }} />
+        <p style={{ fontSize:12, color:C.textMid, marginBottom:12, lineHeight:1.6 }}>Search for your group to open its collection catalog, or pick a release directly.</p>
+        <Input value={groupSearch} onChange={e=>setGroupSearch(e.target.value)} placeholder="Search a group (ATEEZ, BTS, Stray Kids…)" style={{ marginBottom:14 }} />
 
         {/* Loading indicator */}
-        {dbLoading && <p style={{ textAlign:"center", fontSize:12, color:C.textMid, padding:"12px 0" }}>Loading templates...</p>}
+        {dbLoading && <p style={{ textAlign:"center", fontSize:12, color:C.textMid, padding:"12px 0" }}>Loading catalog…</p>}
 
-        {/* DB templates */}
-        {!dbLoading && showingDb && (
-          <>
-            {!dbError && <p style={{ fontSize:9.5, color:C.textDim, marginBottom:4, fontFamily:"'Epilogue',sans-serif", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.08em" }}>Backstage Starter Folders</p>}
-            {!dbError && <p style={{ fontSize:10.5, color:C.textDim, marginBottom:10, lineHeight:1.6 }}>Starter templates help you begin — not a complete discography. Add or customize albums and versions anytime.</p>}
-            <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:14 }}>
-              {(filteredDb.length ? filteredDb : dbTemplates).map(t => {
-                const col = t.cover_color || C.accent;
-                return (
-                  <button key={t.id} onClick={()=>openDbTemplate(t)} className="tap" style={{ padding:"14px 16px", borderRadius:22, textAlign:"left", cursor:"pointer", ...VS.glowCard(col) }}>
-                    <div style={VS.shimmerLine(col)} />
-                    <div style={VS.innerGlow(col)} />
-                    <div style={{ display:"flex", alignItems:"center", gap:12, position:"relative" }}>
-                      <div style={{ width:50,height:50,borderRadius:15,background:`${col}20`,border:`1.5px solid ${col}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,flexShrink:0 }}>{t.cover_emoji||"🃏"}</div>
-                      <div style={{ flex:1,minWidth:0 }}>
-                        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14.5,color:C.text,marginBottom:2 }}>{t.group_name}</p>
-                        <p style={{ fontSize:11.5,color:C.textMid,marginBottom:5 }}>{t.album_name}</p>
-                        <div style={{ display:"flex",gap:5,flexWrap:"wrap",alignItems:"center" }}>
-                          <div style={{ ...VS.activePill(col),fontSize:8 }}>{t.status_label||t.status}</div>
-                          <div style={{ ...VS.activePill(C.gold),fontSize:8 }}>⚠ {t.completeness_label||"May include gaps"}</div>
-                          <div style={{ ...VS.activePill(C.silver),fontSize:8 }}>{t.card_count} cards</div>
-                        </div>
-                      </div>
-                      <span style={{ color:col,fontSize:18,flexShrink:0 }}>→</span>
-                    </div>
-                  </button>
-                );
-              })}
-              {filteredDb.length===0 && groupSearch && <p style={{ fontSize:12,color:C.textMid,textAlign:"center",padding:"10px 0" }}>No folders match "{groupSearch}"</p>}
-            </div>
-          </>
-        )}
-
-        {/* Mock fallback (when DB unavailable) */}
-        {!dbLoading && !showingDb && (
-          <>
-            <p style={{ fontSize:9.5, color:C.textDim, marginBottom:4, fontFamily:"'Epilogue',sans-serif", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.08em" }}>Starter Folders</p>
-            <p style={{ fontSize:10.5, color:C.textDim, marginBottom:10, lineHeight:1.6 }}>Starter folders help you begin — not a complete discography. Add or customize albums and versions anytime.</p>
-            <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:14 }}>
-              {filteredMock.map(t => (
-                <button key={t.id} onClick={()=>openMockTemplate(t)} className="tap" style={{ padding:"14px 16px", borderRadius:22, textAlign:"left", cursor:"pointer", ...VS.glowCard(t.color) }}>
-                  <div style={VS.shimmerLine(t.color)} />
-                  <div style={VS.innerGlow(t.color)} />
-                  <div style={{ display:"flex", alignItems:"center", gap:12, position:"relative" }}>
-                    <div style={{ width:50,height:50,borderRadius:15,background:`${t.color}20`,border:`1.5px solid ${t.color}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,flexShrink:0 }}>{t.emoji}</div>
-                    <div style={{ flex:1 }}>
-                      <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14.5,color:C.text,marginBottom:2 }}>{t.group}</p>
-                      <p style={{ fontSize:11.5,color:C.textMid,marginBottom:5 }}>{t.album}</p>
-                      <div style={{ display:"flex",gap:5 }}>
-                        <div style={{ ...VS.activePill(t.color),fontSize:8 }}>{t.total} cards</div>
-                        <div style={{ ...VS.activePill(C.gold),fontSize:8 }}>⚠ May include gaps</div>
-                      </div>
-                    </div>
-                    <span style={{ color:t.color,fontSize:18 }}>→</span>
+        {/* Group-first results: Groups (primary) → Albums/Releases (secondary,
+            only when the query matches an album) → Custom (the CTA below). */}
+        {!dbLoading && (() => {
+          const ql = groupSearch.trim().toLowerCase();
+          const groupMap = {};
+          catalog.forEach(t => { (groupMap[t.group] ||= []).push(t); });
+          const groupNames = Object.keys(groupMap).sort();
+          const matchedGroups = groupNames.filter(g => !ql || g.toLowerCase().includes(ql));
+          const matchedAlbums = ql ? catalog.filter(t => (t.album||'').toLowerCase().includes(ql) || (t.era||'').toLowerCase().includes(ql)) : [];
+          const nothing = matchedGroups.length===0 && matchedAlbums.length===0;
+          return (
+            <>
+              {matchedGroups.length>0 && (
+                <>
+                  <p style={{ fontSize:9.5, color:C.textDim, marginBottom:8, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em" }}>Groups</p>
+                  <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:16 }}>
+                    {matchedGroups.map(g => {
+                      const ts = groupMap[g]; const col = ts[0].color || C.accent;
+                      return (
+                        <button key={g} onClick={()=>openGroup(g, ts)} className="tap" style={{ padding:"14px 16px", borderRadius:20, textAlign:"left", cursor:"pointer", background:C.surfaceHi, border:`1px solid ${col}38`, display:"flex", alignItems:"center", gap:12 }}>
+                          <div style={{ width:48,height:48,borderRadius:14,flexShrink:0,background:`${col}1e`,border:`1.5px solid ${col}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:23 }}>{ts[0].emoji||"🃏"}</div>
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,color:C.text,marginBottom:2 }}>{g}</p>
+                            <p style={{ fontSize:10.5,color:C.textMid }}>{ts.length} release{ts.length!==1?'s':''} in catalog · View collection catalog →</p>
+                          </div>
+                          <span style={{ color:col,fontSize:18,flexShrink:0 }}>→</span>
+                        </button>
+                      );
+                    })}
                   </div>
-                </button>
-              ))}
-            </div>
-          </>
-        )}
+                </>
+              )}
+
+              {matchedAlbums.length>0 && (
+                <>
+                  <p style={{ fontSize:9.5, color:C.textDim, marginBottom:4, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em" }}>Albums / Releases</p>
+                  <p style={{ fontSize:10, color:C.textDim, marginBottom:10, lineHeight:1.6 }}>Starter templates — not a complete discography. Customize albums and versions anytime.</p>
+                  <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:16 }}>
+                    {matchedAlbums.map(t => (
+                      <button key={t.id} onClick={()=>openCatalogTemplate(t)} className="tap" style={{ padding:"13px 15px", borderRadius:18, textAlign:"left", cursor:"pointer", background:C.surfaceHi, border:`1px solid ${(t.color||C.accent)}33`, display:"flex", alignItems:"center", gap:12 }}>
+                        <div style={{ width:44,height:44,borderRadius:13,flexShrink:0,background:`${(t.color||C.accent)}1e`,border:`1.5px solid ${(t.color||C.accent)}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:21 }}>{t.emoji||"🃏"}</div>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13.5,color:C.text,marginBottom:2 }}>{t.group} — {t.album}</p>
+                          <div style={{ display:"flex",gap:5,flexWrap:"wrap",alignItems:"center" }}>
+                            <span style={{ ...VS.activePill(C.gold),fontSize:8 }}>⚠ {t.completenessLabel}</span>
+                            <span style={{ ...VS.activePill(C.silver),fontSize:8 }}>{t.count} cards</span>
+                          </div>
+                        </div>
+                        <span style={{ color:t.color||C.accent,fontSize:16,flexShrink:0 }}>→</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {nothing && <p style={{ fontSize:12,color:C.textMid,textAlign:"center",padding:"14px 0" }}>No groups or releases match “{groupSearch}”. Try a custom binder below.</p>}
+            </>
+          );
+        })()}
 
         {/* Custom binder CTA */}
         <div style={{ background:`${C.accent}0a`, border:`1.5px dashed ${C.border}`, borderRadius:22, padding:18, textAlign:"center" }}>
@@ -9532,7 +9692,11 @@ function TradeHub({ onBack, onNotif, user }) {
   );
 }
 
-function CollectTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoading, refreshCards, isVip, onUpgrade, user, onAddMemory, hideNav=false, defaultView=null }) {
+function CollectTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoading, refreshCards, isVip, onUpgrade, user, onAddMemory, hideNav=false, defaultView=null, onStartBinder=null }) {
+  // When embedded in the Collection home, defer "Start a Binder" to the parent's
+  // full-screen overlay so the group-first flow / GroupCatalog isn't rendered
+  // underneath the Collection-home chrome. Standalone, it uses its own state.
+  const startBinder = () => onStartBinder ? onStartBinder() : setShowBinderCreate(true);
   const [view, setView] = useState(defaultView || "shelf");
   const [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState(null);
@@ -9615,7 +9779,7 @@ function CollectTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
                 the flow (BinderCreate), not as two competing home cards. Hidden
                 when there are no binders — the empty state below has its own CTA. */}
             {binders.length > 0 && (
-              <button onClick={()=>setShowBinderCreate(true)} className="tap" style={{ width:"100%", marginBottom:16, padding:"13px 16px", borderRadius:18, textAlign:"left", cursor:"pointer", background:`linear-gradient(145deg,${C.accent}18,${C.pink}10)`, border:`1.5px solid ${C.accent}38`, position:"relative", overflow:"hidden", display:"flex", alignItems:"center", gap:12 }}>
+              <button onClick={startBinder} className="tap" style={{ width:"100%", marginBottom:16, padding:"13px 16px", borderRadius:18, textAlign:"left", cursor:"pointer", background:`linear-gradient(145deg,${C.accent}18,${C.pink}10)`, border:`1.5px solid ${C.accent}38`, position:"relative", overflow:"hidden", display:"flex", alignItems:"center", gap:12 }}>
                 <div style={{ position:"absolute",top:-10,right:-10,width:60,height:60,borderRadius:"50%",background:`radial-gradient(circle,${C.accent}18,transparent 65%)`,pointerEvents:"none" }} />
                 <div style={{ width:34,height:34,borderRadius:11,flexShrink:0,background:`${C.accent}22`,border:`1.5px solid ${C.accent}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:C.accent,position:"relative" }}>+</div>
                 <div style={{ minWidth:0, position:"relative", flex:1 }}>
@@ -9635,7 +9799,7 @@ function CollectTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
                 <div style={{ width:34,height:34,borderRadius:"50%",margin:"0 auto 12px",display:"flex",alignItems:"center",justifyContent:"center",background:`${C.accent}14`,border:`1px solid ${C.accent}30`,color:C.accent,fontSize:15 }}>✦</div>
                 <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:14,marginBottom:5 }}>Start your first binder</p>
                 <p style={{ fontSize:12,color:C.textMid,marginBottom:16,lineHeight:1.6 }}>Create a binder to track every card in an album or era, one member at a time.</p>
-                <Btn small onClick={()=>setShowBinderCreate(true)}>+ Start a Binder</Btn>
+                <Btn small onClick={startBinder}>+ Start a Binder</Btn>
               </div>
             )}
 
