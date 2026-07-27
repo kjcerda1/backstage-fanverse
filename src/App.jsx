@@ -6740,22 +6740,22 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
           // Dark mode keeps the shared VS.premiumHeroCard look untouched.
           ...(C.mode==="light" ? { background:`linear-gradient(150deg,${C.lavender}26 0%,${C.blush}16 45%,${C.surfaceHi} 100%)` } : {}),
         }}>
-          <div style={VS.orbitAccent(C.accent, 120)} />
-          <div style={VS.shimmerLine(C.accent)} />
           <RingProgress value={completion} size={76} color={C.accent} color2={C.pink}>
             <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:18, color:C.text, lineHeight:1, position:"relative" }}>{completion}%</p>
             <p style={{ fontSize:7, color:C.textMid, marginTop:1, position:"relative" }}>snapshot</p>
           </RingProgress>
           <div style={{ flex:1, minWidth:0, position:"relative" }}>
             <p style={{ fontSize:9, color:C.lavender, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.13em", marginBottom:9 }}>✦ Binder Progress</p>
-            <div style={{ display:"flex", gap:6, overflowX:"auto", scrollbarWidth:"none", paddingBottom:1 }}>
+            {/* wrap (not horizontal-scroll) so all four metrics stay visible at
+                375px — the last pill was being clipped on the right before. */}
+            <div style={{ display:"flex", flexWrap:"wrap", gap:6, paddingBottom:1 }}>
               {[
                 { val:totalOwned, label:"Owned", color:C.text },
                 { val:wishlistTotal, label:"Wanted", color:C.gold },
                 { val:tradeableTotal, label:"Tradeable", color:C.rose },
                 { val:binders.length, label:"Binders", color:C.accent },
               ].map(s=>(
-                <div key={s.label} style={{ flexShrink:0, background:C.mode==="light"?"rgba(33,17,52,0.05)":"rgba(255,255,255,0.045)", border:C.mode==="light"?"1px solid rgba(33,17,52,0.09)":"1px solid rgba(255,255,255,0.07)", borderRadius:99, padding:"5px 11px", whiteSpace:"nowrap" }}>
+                <div key={s.label} style={{ flexShrink:0, background:C.mode==="light"?"rgba(33,17,52,0.05)":"rgba(255,255,255,0.045)", border:C.mode==="light"?"1px solid rgba(33,17,52,0.09)":"1px solid rgba(255,255,255,0.07)", borderRadius:99, padding:"5px 10px", whiteSpace:"nowrap" }}>
                   <span style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:12, color:s.color }}>{s.val}</span>
                   <span style={{ fontSize:8.5, color:C.textMid, marginLeft:4 }}>{s.label}</span>
                 </div>
@@ -6780,9 +6780,8 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
 
         {/* Smart nudge — polished collector alert */}
         {wishlistTotal > 0 && (
-          <div style={{ background:`linear-gradient(140deg,${C.rose}20,${C.rose}08,${C.surface})`, border:`1.5px solid ${C.rose}48`, borderRadius:16, padding:"11px 14px", marginBottom:12, display:"flex", gap:10, alignItems:"center", boxShadow:`0 8px 22px ${C.rose}1c, inset 0 1px 0 rgba(255,255,255,0.08)`, backdropFilter:"blur(10px)", position:"relative", overflow:"hidden" }}>
-            <div style={VS.orbitAccent(C.rose, 80)} />
-            <span style={{ fontSize:18, position:"relative", filter:`drop-shadow(0 0 8px ${C.rose}99)` }}>🔥</span>
+          <div style={{ background:`linear-gradient(140deg,${C.rose}18,${C.rose}08,${C.surface})`, border:`1px solid ${C.rose}3a`, borderRadius:16, padding:"11px 14px", marginBottom:12, display:"flex", gap:10, alignItems:"center", boxShadow:"inset 0 1px 0 rgba(255,255,255,0.06)", backdropFilter:"blur(10px)", position:"relative", overflow:"hidden" }}>
+            <span style={{ fontSize:18, position:"relative" }}>🔥</span>
             <div style={{ flex:1, position:"relative" }}>
               <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, color:C.text }}>So close! <span style={{ color:C.rose, textShadow:`0 0 12px ${C.rose}66` }}>{wishlistTotal} card{wishlistTotal>1?"s":""}</span> away</p>
               <p style={{ fontSize:10, color:C.textMid }}>Finish your collection — check Trade Hub</p>
@@ -6793,14 +6792,22 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
 
         {/* VIP upsell */}
         {!isVip && (
-          <div onClick={onUpgrade} className="tap" style={{ background:`linear-gradient(140deg,${C.gold}22,${C.gold}08,${C.surface})`, border:`1.5px solid ${C.gold}50`, borderRadius:16, padding:"11px 14px", marginBottom:14, display:"flex", gap:10, alignItems:"center", cursor:"pointer", boxShadow:`0 8px 24px ${C.gold}1e, inset 0 1px 0 rgba(255,255,255,0.08)`, backdropFilter:"blur(10px)", position:"relative", overflow:"hidden" }}>
-            <div style={VS.orbitAccent(C.gold, 90)} />
-            <span style={{ fontSize:18, position:"relative", filter:`drop-shadow(0 0 8px ${C.gold}99)` }}>✦</span>
-            <div style={{ flex:1, position:"relative" }}>
-              <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, color:C.gold }}>Unlock Backstage VIP</p>
-              <p style={{ fontSize:10, color:C.textMid }}>Unlimited binders · Trade analytics · Priority matches</p>
+          // Clean, restrained premium card — translucent glass, subtle gold
+          // border, no orbit/line decoration, no harsh glow. Consistent with the
+          // Monthly/Annual pricing-card family.
+          <div onClick={onUpgrade} className="tap" style={{
+            background: C.mode==="light" ? "rgba(255,255,255,0.55)" : "rgba(255,255,255,0.035)",
+            border:`1px solid ${C.gold}3a`, borderRadius:16, padding:"13px 15px", marginBottom:14,
+            display:"flex", gap:12, alignItems:"center", cursor:"pointer",
+            boxShadow:"inset 0 1px 0 rgba(255,255,255,0.08)",
+            backdropFilter:"blur(14px) saturate(1.2)",
+          }}>
+            <span style={{ width:30, height:30, borderRadius:10, flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", background:`${C.gold}18`, border:`1px solid ${C.gold}3a`, color:C.gold, fontSize:15 }}>✦</span>
+            <div style={{ flex:1, minWidth:0 }}>
+              <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:12, color:C.text, lineHeight:1.2 }}>Backstage VIP</p>
+              <p style={{ fontSize:9.5, color:C.textMid, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>Unlimited binders · analytics · priority matches</p>
             </div>
-            <div style={{ ...VS.featurePill(C.gold), fontSize:9, position:"relative" }}>Upgrade →</div>
+            <span style={{ flexShrink:0, padding:"6px 13px", borderRadius:99, background:`${C.gold}1e`, border:`1px solid ${C.gold}55`, color:C.gold, fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:10 }}>Upgrade</span>
           </div>
         )}
         </>)}
