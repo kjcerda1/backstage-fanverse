@@ -177,17 +177,17 @@ function useBinders() {
   const { tokenReady } = useAuth();
 
   const refresh = useCallback(async () => {
-    // try/finally so a rejected fetch can never leave the list stuck on
-    // "Loading binders…" (previously it hung whenever the request didn't resolve).
-    try {
-      const d = await api.get('/api/binders');
-      const remote = Array.isArray(d?.binders) ? d.binders : [];
-      const remoteIds = new Set(remote.map(b => b.id));
-      const local = readLocalBinders().filter(b => !remoteIds.has(b.id));
-      setBinders([...local, ...remote]);
-    } finally {
-      setLoading(false);
-    }
+    // .catch(()=>null) is essential: with no backend the dev/preview server answers
+    // GET /api/binders with 200 + HTML, so api.get's r.json() REJECTS. Without the
+    // catch the await would throw before the merge below and the local (demo)
+    // binders would never appear — and the list could hang on "Loading binders…".
+    const d = await api.get('/api/binders').catch(() => null);
+    const remote = Array.isArray(d?.binders) ? d.binders : [];
+    const remoteIds = new Set(remote.map(b => b.id));
+    // Always merge locally-created (demo/offline) binders, even when the API failed.
+    const local = readLocalBinders().filter(b => !remoteIds.has(b.id));
+    setBinders([...local, ...remote]);
+    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -9376,7 +9376,7 @@ function CollectTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
                 <div style={{ position:"relative", display:"flex", gap:8, alignItems:"center", minWidth:0 }}>
                   <div style={{ width:32,height:32,borderRadius:11,flexShrink:0,background:`${C.accent}22`,border:`1.5px solid ${C.accent}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16 }}>🃏</div>
                   <div style={{ minWidth:0 }}>
-                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,color:C.text,marginBottom:1,whiteSpace:"nowrap" }}>Start from Catalog</p>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,color:C.text,marginBottom:1,lineHeight:1.15 }}>Start from Catalog</p>
                     <p style={{ fontSize:9.5,color:C.textMid,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>BTS, SKZ, aespa + more</p>
                   </div>
                 </div>
