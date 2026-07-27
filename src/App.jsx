@@ -3832,6 +3832,30 @@ function AskBackstageButton({ go }) {
   );
 }
 
+// Saved (bookmark) shortcut — floats beside Messages on Fanverse/Explore so the
+// private Saved list stays reachable now that it's left My World's collector nav.
+// Clean bookmark-outline glyph (no pushpin), matching the header glass-pill style.
+function FloatingSavedButton({ go }) {
+  return (
+    <button
+      onClick={()=>go?.("saved")}
+      className="tap"
+      title="Saved"
+      style={{
+        position:"absolute", top:6, right:108, zIndex:300,
+        width:40, height:40, borderRadius:13,
+        background:C.glassBgHi, border:`1px solid ${C.glassBorder}`,
+        color:C.textMid, cursor:"pointer",
+        display:"flex",alignItems:"center",justifyContent:"center",
+        boxShadow:"inset 0 1px 0 rgba(255,255,255,0.05)",
+        backdropFilter:"blur(10px)", transition:"all .2s",
+      }}
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+    </button>
+  );
+}
+
 // ─── FANVERSE FLOATING DOCK ────────────────────────────────────────────────────
 // Single glass orb consolidating Messages + Ask Backstage AI — replaces the old
 // stacked Messages-pill-above-AI-orb layout. Resting = one orb; tap expands a
@@ -6277,9 +6301,9 @@ function PhotocardGrid({ cards, groups, groupFilter, setGroupFilter, go, onAddCa
 // GET /api/me/saves and /api/me/reposts, ordered by when you interacted.
 // Saves are PRIVATE — the copy says so, because a bookmark that people think is
 // public is a privacy surprise waiting to happen.
-function SavedPostsSection({ go }) {
+function SavedPostsSection({ go, onBack, initialView="saved" }) {
   const { tokenReady } = useAuth();
-  const [view, setView]       = useState("saved");   // saved | reposts
+  const [view, setView]       = useState(initialView);   // saved | reposts
   const [posts, setPosts]     = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(false);
@@ -6315,9 +6339,14 @@ function SavedPostsSection({ go }) {
   ];
 
   return (
-    <div style={{ paddingTop:4 }}>
+    <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
+      <div style={{ padding:"14px 20px 10px", flexShrink:0, display:"flex", alignItems:"center", gap:10 }}>
+        {onBack && <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>}
+        <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:18, margin:0 }}>Saved &amp; Reposts</h2>
+      </div>
+      <Screen style={{ padding:"0 20px calc(40px + env(safe-area-inset-bottom))" }}>
       <div style={{ background:`linear-gradient(140deg,${C.plum},${C.cosmic})`,border:`1.5px solid ${C.accent}20`,borderRadius:18,padding:"14px 16px",marginBottom:14 }}>
-        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:C.text,marginBottom:4 }}>🔖 Saved & Reposted</p>
+        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:C.text,marginBottom:4 }}>🔖 Saved &amp; Reposted</p>
         <p style={{ fontSize:11,color:C.textMid,lineHeight:1.6 }}>
           {view==="saved"
             ? "Posts you bookmarked. Private — only you can see this list."
@@ -6379,6 +6408,55 @@ function SavedPostsSection({ go }) {
           </div>
         </div>
       ))}
+      </Screen>
+    </div>
+  );
+}
+
+// Standalone Achievements sheet — re-homed out of My World's collector nav so
+// it's reachable from My Stage. Temporary working entry (not a redesign): it
+// computes unlocked state from the shared card/binder hooks so it stands alone
+// without LibraryTab's locals.
+function AchievementsModal({ onBack, isVip }) {
+  const { cards: allCards } = useUserCards();
+  const { binders } = useBinders();
+  const wishlistTotal  = (allCards||[]).filter(c=>c.status==='iso').length;
+  const tradeableTotal = (allCards||[]).filter(c=>c.status==='duplicate'||c.status==='for_trade').length;
+  const _fanIdentity   = ls.get("backstage_fan_identity",null);
+  const _concertResume = ls.get("backstage_concert_resume",[]);
+  const ACHIEVEMENTS = [
+    {emoji:"📁",label:"First Binder",sub:"Start your first era binder",unlocked:binders.length>0,color:C.accent},
+    {emoji:"🃏",label:"First Photocard",sub:"Log your first card",unlocked:allCards.length>0,color:C.pink},
+    {emoji:"⭐",label:"Wishlist Watcher",sub:"Add a card to ISO",unlocked:wishlistTotal>0,color:C.gold},
+    {emoji:"📸",label:"Memory Keeper",sub:"Save your first concert memory",unlocked:false,color:C.sky},
+    {emoji:"💊",label:"Capsule Keeper",sub:"Drop a moment in a capsule",unlocked:ls.get("backstage_capsules_count",0)>0,color:"#78A8FF"},
+    {emoji:"🏆",label:"Trade Passport",sub:"List a card for trade",unlocked:tradeableTotal>0,color:C.rose},
+    {emoji:"💜",label:"Bias Shrine",sub:"Set your bias in Stage Studio",unlocked:!!_fanIdentity?.bias,color:C.berry},
+    {emoji:"✦",label:"VIP Collector",sub:"Unlock Backstage VIP",unlocked:isVip,color:C.gold},
+    {emoji:"🌟",label:"Founder Fan",sub:"Joined in the founding era",unlocked:isVip,color:C.gold},
+    {emoji:"🎤",label:"First Show",sub:"Log your first concert",unlocked:_concertResume.length>0,color:C.berry},
+    {emoji:"🤝",label:"Local Fan Found",sub:"Connect with a fan nearby",unlocked:false,color:C.sky},
+    {emoji:"🌍",label:"Multi-Era Collector",sub:"Own cards from 3+ eras",unlocked:new Set(allCards.map(c=>c.era).filter(Boolean)).size>=3,color:C.lavender},
+  ];
+  return (
+    <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
+      <div style={{ padding:"14px 20px 10px", flexShrink:0, display:"flex", alignItems:"center", gap:10 }}>
+        <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
+        <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:18, margin:0 }}>🏅 Achievements</h2>
+      </div>
+      <Screen style={{ padding:"0 20px calc(40px + env(safe-area-inset-bottom))" }}>
+        <p style={{ fontSize:11.5,color:C.textMid,marginBottom:18 }}>Your fan milestones, unlocked one era at a time.</p>
+        <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10 }}>
+          {ACHIEVEMENTS.map(a=>(
+            <div key={a.label} style={{ borderRadius:14,padding:"13px 12px",background:a.unlocked?`${a.color}16`:C.surface,border:`1.5px solid ${a.unlocked?a.color+"44":C.border}`,opacity:a.unlocked?1:0.55 }}>
+              <p style={{ fontSize:20,marginBottom:5 }}>{a.unlocked?"✅":a.emoji}</p>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,color:a.unlocked?C.text:C.textMid,marginBottom:3,lineHeight:1.3 }}>{a.label}</p>
+              <p style={{ fontSize:9.5,color:C.textDim,lineHeight:1.4 }}>{a.sub}</p>
+              {a.unlocked&&<div style={{ marginTop:5,...VS.activePill(a.color),fontSize:8 }}>Unlocked</div>}
+            </div>
+          ))}
+        </div>
+      </Screen>
     </div>
   );
 }
@@ -21602,7 +21680,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
         <div style={{ marginBottom:18 }}>
           <SectionHeader title="My Content" />
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:9 }}>
-            {[["📸 My Shows","myshows"],["💬 Messages","chats"],["💸 Budget Tracker","budget"],["🎁 Invite Crew","invite"],["✦ Stage Studio","studio"]].map(([label,dest])=>(
+            {[["🏅 Achievements","achievements"],["🔖 Saved","saved"],["⟲ Reposts","reposts"],["📸 My Shows","myshows"],["💬 Messages","chats"],["💸 Budget Tracker","budget"],["🎁 Invite Crew","invite"],["✦ Stage Studio","studio"]].map(([label,dest])=>(
               <button key={label} onClick={()=>["myshows","studio","kdramas"].includes(dest)?setSection(dest):go(dest)} className="tap" style={{ padding:"13px", borderRadius:16, background:dest==="studio"?`linear-gradient(140deg,${C.gold}26,${C.gold}0e)`:C.surfaceHi, border:`1.5px solid ${dest==="studio"?C.gold+"70":C.border}`, color:dest==="studio"?C.gold:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:600, fontSize:12, cursor:"pointer", textAlign:"center", boxShadow:dest==="studio"?`0 4px 14px ${C.gold}22`:"none" }}>{label}</button>
             ))}
             <button onClick={()=>go("signout")} className="tap" style={{ padding:"13px", borderRadius:16, background:"transparent", border:`1.5px solid ${C.rose}28`, color:C.rose, fontFamily:"'Epilogue',sans-serif", fontWeight:600, fontSize:12, cursor:"pointer", textAlign:"center" }}>🚪 Sign Out</button>
@@ -26146,7 +26224,7 @@ function AppInner() {
     // "+" shortcut on the Your Pass story bubble — jump straight into the Pass
     // composer instead of just opening the Backstage Passes browsing page.
     if(dest==="passes_create"){ ls.set("backstage_open_pass_composer", true); dest = "passes"; }
-    const FULL_MODALS = ["concertprep","myshows","scrapbook","afterglow","friends","chats","qr","safety","events","concertday","timeline","tickets","nearby","trust","games","creator","backup","fanidentity","valuetracks","fanprojects","assistant","invite","contentgen","fanmap","livefeed","budget","capsule","passes","notifications","notif_settings"];
+    const FULL_MODALS = ["concertprep","myshows","scrapbook","afterglow","friends","chats","qr","safety","events","concertday","timeline","tickets","nearby","trust","games","creator","backup","fanidentity","valuetracks","fanprojects","assistant","invite","contentgen","fanmap","livefeed","budget","capsule","passes","notifications","notif_settings","saved","reposts","achievements"];
     if(FULL_MODALS.includes(dest)){
       // Push a new history entry so the browser back button can close this modal
       window.history.pushState({ bsLevel:1, modal:dest }, '');
@@ -26491,6 +26569,9 @@ function AppInner() {
         {modal==="concertprep"&&<ToolModalWrapper title="Concert Prep Guide 📋"><ConcertPrep /></ToolModalWrapper>}
         {modal==="myshows"&&<ModalWrapper><MyShowsPage onBack={()=>setModal(null)} isVip={isVip} onUpgrade={openUpgrade} go={go} /></ModalWrapper>}
         {modal==="scrapbook"&&<ModalWrapper><ScrapbookTab isVip={isVip} onUpgrade={openUpgrade} onBack={()=>setModal(null)} /></ModalWrapper>}
+        {modal==="saved"&&<ModalWrapper><SavedPostsSection go={go} onBack={()=>setModal(null)} initialView="saved" /></ModalWrapper>}
+        {modal==="reposts"&&<ModalWrapper><SavedPostsSection go={go} onBack={()=>setModal(null)} initialView="reposts" /></ModalWrapper>}
+        {modal==="achievements"&&<ModalWrapper><AchievementsModal onBack={()=>setModal(null)} isVip={isVip} /></ModalWrapper>}
         {modal==="friends"&&<ModalWrapper><FriendsPage onBack={()=>setModal(null)} onNotif={showNotif} go={go} onViewProfile={(fan)=>setPublicProfileFan({...fan,fromDM:false})} /></ModalWrapper>}
         {modal==="fanmap"&&<ModalWrapper><FanverseMap onBack={()=>setModal(null)} /></ModalWrapper>}
         {modal==="chats"&&<ModalWrapper><DirectMessages onBack={()=>setModal(null)} user={user} onViewProfile={(fan)=>setPublicProfileFan({...fan,fromDM:true})} /></ModalWrapper>}
@@ -26602,6 +26683,9 @@ function AppInner() {
               {/* Messages + Notifications — on every tab except My Stage (profile), which has
                   its own dense section nav. */}
               {tab!=="profile"&&<FloatingMessagesButton go={go} />}
+              {/* Saved (bookmark) shortcut — Fanverse/Explore only, so it stays out
+                  of My World's collector nav where it no longer belongs. */}
+              {(tab==="community"||tab==="explore")&&<FloatingSavedButton go={go} />}
               {tab!=="profile"&&<NotificationBell onOpen={()=>setModal("notifications")} onOpenSettings={()=>go("notif_settings")} />}
             </>
           )}
