@@ -32,6 +32,26 @@ import { track, trackScreen, identifyUser, resetIdentity, captureError, captureM
 // All AI calls go through the backend proxy (/api/ai/*) — never directly from frontend.
 const API_URL = import.meta.env.VITE_API_URL || "";
 
+// Normalize a fetch Response into a plain data object WITHOUT ever throwing.
+// A dev/preview server — or a static deploy with no /api proxy — can answer an
+// /api/* call with HTTP 200 and the Vite HTML shell. Calling r.json() on that
+// body REJECTS, and because `return r.json()` unwraps its promise OUTSIDE the
+// caller's try/catch, that rejection escapes the api layer and throws in the
+// caller (a create handler with no .catch would hang mid-save). So read the body
+// as text and JSON.parse it defensively: a non-OK status OR an unparseable/HTML
+// body both resolve to a structured { error } object instead of rejecting.
+// `mockOnError` preserves post()'s prior behavior of tagging failures mock:true.
+async function parseApiResponse(r, { mockOnError = false } = {}) {
+  const errBase = mockOnError ? { mock: true } : {};
+  if (!r.ok) return { ...errBase, error: `${r.status}` };
+  let text;
+  try { text = await r.text(); }
+  catch { return { ...errBase, error: 'non_json_response' }; }
+  if (!text) return {};                    // 204 / empty 200 — success, no payload
+  try { return JSON.parse(text); }
+  catch { return { ...errBase, error: 'non_json_response' }; }
+}
+
 const api = {
   _token: null,
   _refreshing: null,
@@ -66,7 +86,7 @@ const api = {
       if (r.status === 401 && await this._refreshToken()) {
         r = await fetch(`${API_URL}${path}`, { method:'POST', headers:this._headers(), body:JSON.stringify(body) });
       }
-      return r.ok ? r.json() : { error: `${r.status}`, mock: true };
+      return await parseApiResponse(r, { mockOnError: true });
     } catch { return { error:'Network error', mock: true }; }
   },
   async get(path) {
@@ -75,7 +95,7 @@ const api = {
       if (r.status === 401 && await this._refreshToken()) {
         r = await fetch(`${API_URL}${path}`, { headers:this._headers() });
       }
-      return r.ok ? r.json() : { error: `${r.status}` };
+      return await parseApiResponse(r);
     } catch { return { error:'Network error' }; }
   },
   async patch(path, body) {
@@ -84,7 +104,7 @@ const api = {
       if (r.status === 401 && await this._refreshToken()) {
         r = await fetch(`${API_URL}${path}`, { method:'PATCH', headers:this._headers(), body:JSON.stringify(body) });
       }
-      return r.ok ? r.json() : { error: `${r.status}` };
+      return await parseApiResponse(r);
     } catch { return { error:'Network error' }; }
   },
   async del(path, body) {
@@ -96,7 +116,7 @@ const api = {
       if (r.status === 401 && await this._refreshToken()) {
         r = await fetch(`${API_URL}${path}`, opts());
       }
-      return r.ok ? r.json() : { error: `${r.status}` };
+      return await parseApiResponse(r);
     } catch { return { error:'Network error' }; }
   },
 };
@@ -210,14 +230,15 @@ function useBinders() {
   const { tokenReady } = useAuth();
 
   const refresh = useCallback(async () => {
-    // .catch(()=>null) is essential: with no backend the dev/preview server answers
-    // GET /api/binders with 200 + HTML, so api.get's r.json() REJECTS. Without the
-    // catch the await would throw before the merge below and the local (demo)
-    // binders would never appear — and the list could hang on "Loading binders…".
+    // api.get now normalizes a non-JSON 200 (the Vite HTML shell when no /api
+    // proxy is present) into { error } instead of rejecting, so this can't throw;
+    // the extra .catch is belt-and-suspenders. Either way we ALWAYS merge the
+    // locally-created (demo/offline) binders below — a failed, rejected, HTML, or
+    // malformed remote fetch (remote defaults to []) must never hide binders the
+    // user already made, and the list must never hang on "Loading binders…".
     const d = await api.get('/api/binders').catch(() => null);
     const remote = Array.isArray(d?.binders) ? d.binders : [];
     const remoteIds = new Set(remote.map(b => b.id));
-    // Always merge locally-created (demo/offline) binders, even when the API failed.
     const local = readLocalBinders().filter(b => !remoteIds.has(b.id));
     setBinders([...local, ...remote]);
     setLoading(false);
@@ -7880,6 +7901,10 @@ function CustomBinderForm({ onBack, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const coverRef = useRef(null);
+  // In-flight lock. `saving` state can't guard a same-tick double-tap (state
+  // updates are async), so a synchronous ref is the real dedupe against creating
+  // two binders from two fast taps.
+  const submittingRef = useRef(false);
   const EMOJI_OPTIONS = ["🃏","💜","🖤","⭐","💛","🌸","🎤","💙","🌟","🎭","✨","🔥"];
   const COLOR_OPTIONS = [C.accent, C.pink, C.mint, C.gold, C.rose, C.sky, C.silver, C.lavender];
 
@@ -7893,24 +7918,32 @@ function CustomBinderForm({ onBack, onSaved }) {
   };
 
   const save = async () => {
-    if (!form.name.trim() || saving) return;   // guard also blocks double-tap
+    if (!form.name.trim() || saving || submittingRef.current) return; // blocks double-tap
+    submittingRef.current = true;
     setSaving(true); setErr("");
     const payload = { ...form, cover_url: cover || null };
     const d = await api.post('/api/binders', payload);
     // Real binder row (authenticated Supabase mode).
     if (d?.binder) { ls.set('backstage_has_binder', true); onSaved(d.binder); return; }
-    // Demo / MOCK_MODE fallback: no backend (API_URL empty) or the backend
-    // explicitly returned a mock body (not a real error). Persist through the
-    // same store useBinders merges from, so it shows up immediately + on reload.
-    if (!API_URL || (d?.mock && !d?.error)) {
+    // Demo / no-backend fallback ONLY: no API configured, no real auth
+    // (MOCK_AUTH), or the backend explicitly returned a mock body (not a real
+    // error). Persist through the same store useBinders merges from, so it shows
+    // up immediately + survives reload. A genuine authenticated-backend failure
+    // (d.error with a real backend) deliberately does NOT land here — we never
+    // silently write local data in production; we surface the error below.
+    if (!API_URL || MOCK_AUTH || (d?.mock && !d?.error)) {
       const local = saveLocalBinder({ id:`local-${Date.now()}`, ...payload, local:true, created_at:new Date().toISOString() });
       ls.set('backstage_has_binder', true);
       onSaved(local);
       return;
     }
-    // Real backend error — keep the form data and tell the user.
-    setErr("Couldn't create binder. Please try again.");
+    // Authenticated production backend failed — keep the form data, show a real
+    // inline error, and let the user retry. Nothing was saved.
+    setErr(d?.error === 'non_json_response'
+      ? "Couldn't reach your collection server, so your binder wasn't saved. Please try again."
+      : "Couldn't save your binder. Please try again.");
     setSaving(false);
+    submittingRef.current = false; // allow retry
   };
 
   return (
