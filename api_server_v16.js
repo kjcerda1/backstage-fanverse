@@ -5760,12 +5760,16 @@ app.get('/api/binders', requireAuth, async (req, res) => {
 
 app.post('/api/binders', requireAuth, async (req, res) => {
   if (!supabase) return res.json({ binder: null, mock: true });
-  const { name, group_name, cover_color, emoji } = req.body;
+  const { name, group_name, cover_color, emoji, cover_url } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
   try {
+    const row = { user_id: req.userId, name, group_name, cover_color, emoji };
+    // Only include cover_url when the client actually sends one, so binder
+    // creation keeps working even before the cover_url column migration is run.
+    if (cover_url !== undefined) row.cover_url = cover_url;
     const { data, error } = await supabase
       .from('binders')
-      .insert({ user_id: req.userId, name, group_name, cover_color, emoji })
+      .insert(row)
       .select()
       .single();
     if (error) throw error;
@@ -5773,6 +5777,33 @@ app.post('/api/binders', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('[Binders POST]', err.message);
     res.status(500).json({ error: 'Failed to create binder' });
+  }
+});
+
+// PATCH — edit an existing binder (rename, recolor, change emoji, or set/clear
+// the cover photo). Scoped to the owner via user_id. Only fields present in the
+// body are updated, so this stays safe before the cover_url column migration is
+// run (a cover_url-less patch never references the new column).
+app.patch('/api/binders/:id', requireAuth, async (req, res) => {
+  if (!supabase) return res.json({ binder: null, mock: true });
+  const allowed = ['name', 'group_name', 'cover_color', 'emoji', 'cover_url'];
+  const updates = {};
+  allowed.forEach(k => { if (req.body[k] !== undefined) updates[k] = req.body[k]; });
+  if (!Object.keys(updates).length) return res.status(400).json({ error: 'no fields to update' });
+  updates.updated_at = new Date().toISOString();
+  try {
+    const { data, error } = await supabase
+      .from('binders')
+      .update(updates)
+      .eq('id', req.params.id)
+      .eq('user_id', req.userId)
+      .select()
+      .single();
+    if (error) throw error;
+    res.json({ binder: data });
+  } catch (err) {
+    console.error('[Binders PATCH]', err.message);
+    res.status(500).json({ error: 'Failed to update binder' });
   }
 });
 
