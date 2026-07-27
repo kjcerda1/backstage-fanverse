@@ -1446,7 +1446,7 @@ function UpgradeModal({ onClose, onUpgrade }) {
 
   return (
     <div onClick={onClose} style={{ position:"fixed",inset:0,zIndex:800,background:"rgba(6,6,15,0.96)",display:"flex",alignItems:"flex-end",animation:"in .25s ease" }}>
-      <button type="button" aria-label="Close VIP modal" onClick={e=>{ e.stopPropagation(); onClose(); }} style={{ position:"fixed",top:"max(16px, env(safe-area-inset-top))",right:"max(16px, env(safe-area-inset-right))",zIndex:802,width:42,height:42,borderRadius:"50%",background:"rgba(10,10,22,0.92)",border:`1.5px solid ${C.borderHi}`,color:C.text,fontSize:24,lineHeight:1,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 18px rgba(0,0,0,0.32)" }}>×</button>
+      <button type="button" aria-label="Close VIP modal" onClick={e=>{ e.stopPropagation(); onClose(); }} style={{ position:"fixed",top:"max(16px, env(safe-area-inset-top))",right:"max(16px, env(safe-area-inset-right))",zIndex:802,width:44,height:44,borderRadius:"50%",background:C.mode==="light"?"rgba(255,255,255,0.96)":"rgba(18,16,34,0.96)",border:`1.5px solid ${C.borderHi}`,color:C.text,fontSize:26,lineHeight:1,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:C.mode==="light"?"0 4px 18px rgba(80,60,140,0.22)":"0 4px 18px rgba(0,0,0,0.45)",backdropFilter:"blur(6px)" }}>×</button>
       <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceMid, borderRadius:"26px 26px 0 0", width:"100%", animation:"slideUp .3s ease", maxHeight:"92dvh", display:"flex", flexDirection:"column", overflow:"hidden", border:`1.5px solid ${C.borderHi}`, boxShadow:"0 -12px 60px rgba(184,162,255,0.12)" }}>
       <div style={{ overflowY:"auto", flex:1, minHeight:0 }}>
 
@@ -1495,7 +1495,7 @@ function UpgradeModal({ onClose, onUpgrade }) {
             const isFounder = p.id==="founder";
             const isAnnual = p.id==="annual";
             return (
-              <div key={p.id} onClick={()=>setPlan(p.id)} className="tap" style={{ position:"relative", background: isActive ? (isFounder?`linear-gradient(140deg,#1a0840,#2d0d60,#1a0640)`:isAnnual?`linear-gradient(140deg,${C.accent}18,${C.gold}08)`:`${C.gold}10`) : C.surface, border:`2px solid ${isActive?(isFounder?"rgba(240,204,136,0.55)":isAnnual?C.accent:C.gold):C.border}`, borderRadius:16, padding:"14px 16px", cursor:"pointer", transition:"all .22s", overflow:"hidden", boxShadow:isActive&&isFounder?"0 0 20px rgba(240,204,136,0.15), 0 0 10px rgba(184,162,255,0.1)":"none" }}>
+              <div key={p.id} onClick={()=>setPlan(p.id)} className="tap" style={{ position:"relative", background: isActive ? (isFounder?`linear-gradient(140deg,${C.gold}22,${C.rose}12)`:isAnnual?`linear-gradient(140deg,${C.accent}18,${C.gold}08)`:`${C.gold}10`) : C.surface, border:`2px solid ${isActive?(isFounder?C.gold:isAnnual?C.accent:C.gold):C.border}`, borderRadius:16, padding:"14px 16px", cursor:"pointer", transition:"all .22s", overflow:"hidden", boxShadow:isActive&&isFounder?`0 0 16px ${C.gold}22`:"none" }}>
 
                 {/* Recommended glow for annual */}
                 {isAnnual&&isActive&&<div style={{ position:"absolute",inset:0,borderRadius:14,background:`radial-gradient(ellipse at top,${C.accent}10,transparent 70%)`,pointerEvents:"none" }} />}
@@ -1542,15 +1542,11 @@ function UpgradeModal({ onClose, onUpgrade }) {
             </button>
           ) : (
             <div style={{ textAlign:"center", padding:"4px 0 6px" }}>
-              <div style={{ display:"inline-flex", alignItems:"center", gap:7, padding:"5px 14px", borderRadius:99, background:`${C.gold}18`, border:`1.5px solid ${C.gold}44`, marginBottom:16 }}>
-                <span style={{ fontSize:11 }}>✦</span>
-                <span style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:9.5, color:C.gold, letterSpacing:"0.08em" }}>FOUNDING FAN PASS — OPENING SOON</span>
-              </div>
-              <p style={{ fontSize:13, color:C.silver, lineHeight:1.65, marginBottom:20, fontFamily:"'Instrument Sans',sans-serif", padding:"0 4px" }}>
-                Backstage VIP is almost ready.<br/>For now, explore the full preview — you'll be first to know when Founder Pass opens.
+              <p style={{ fontSize:12.5, color:C.silver, lineHeight:1.6, marginBottom:16, fontFamily:"'Instrument Sans',sans-serif", padding:"0 4px" }}>
+                VIP checkout isn't available in this preview build. All plans and features shown here are fully explorable.
               </p>
               <button onClick={onClose} className="tap" style={{ width:"100%", padding:"14px", borderRadius:15, background:`linear-gradient(140deg,${C.gold}22,${C.accent}14)`, border:`1.5px solid ${C.gold}50`, color:C.gold, fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:14, cursor:"pointer", letterSpacing:"0.01em", boxShadow:`0 4px 18px ${C.gold}12` }}>
-                ✦ Explore Backstage Preview
+                Continue exploring
               </button>
             </div>
           )}
@@ -5853,8 +5849,8 @@ function PhotocardSetsView({ pcSetData, groupFilter, setGroupFilter, cards, patc
   return (
     <div>
       <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10 }}>
-        <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em" }}>Photocard Sets</p>
-        <button onClick={()=>setShowExplore(true)} style={{ background:`${C.pink}18`,border:`1.5px solid ${C.pink}44`,borderRadius:99,padding:"5px 12px",color:C.pink,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10,cursor:"pointer" }}>+ Add Set</button>
+        <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em" }}>Collection Folders</p>
+        <button onClick={()=>setShowExplore(true)} style={{ background:`${C.pink}18`,border:`1.5px solid ${C.pink}44`,borderRadius:99,padding:"5px 12px",color:C.pink,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10,cursor:"pointer" }}>+ Add Folder</button>
       </div>
       <div style={{ display:"flex",gap:6,marginBottom:14,overflowX:"auto",scrollbarWidth:"none" }}>
         {SET_GROUPS.map(g=>(
@@ -5862,7 +5858,7 @@ function PhotocardSetsView({ pcSetData, groupFilter, setGroupFilter, cards, patc
         ))}
       </div>
 
-      <p style={{ fontSize:8.5,color:C.textDim,marginBottom:12 }}>Starter catalog · add more sets anytime</p>
+      <p style={{ fontSize:8.5,color:C.textDim,marginBottom:12 }}>Starter folders · add more anytime</p>
 
       <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
         {filteredSets.map(set=>{
@@ -6849,7 +6845,7 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
               </div>
             )}
             <div style={{ display:"flex",gap:0,background:C.surfaceHi,borderRadius:13,padding:3,marginBottom:14 }}>
-              {[["sets","📁 Sets"],["cards","🃏 My Cards"]].map(([id,label])=>(
+              {[["sets","📁 Folders"],["cards","🃏 My Cards"]].map(([id,label])=>(
                 <span key={id} onClick={()=>setPcView(id)} style={{ flex:1,textAlign:"center",padding:"8px 4px",borderRadius:10,fontSize:11.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:pcView===id?C.accent:"transparent",color:pcView===id?C.bg:C.textMid,transition:"all .18s" }}>{label}</span>
               ))}
             </div>
@@ -6912,7 +6908,7 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
             {albumSubView==="photocards" && (
               <div>
                 <div style={{ display:"flex",gap:0,background:C.surfaceHi,borderRadius:13,padding:3,marginBottom:14 }}>
-                  {[["cards","My Cards"],["sets","Templates"]].map(([id,label])=>(
+                  {[["cards","My Cards"],["sets","Folders"]].map(([id,label])=>(
                     <span key={id} onClick={()=>setPcView(id)} style={{ flex:1,textAlign:"center",padding:"8px 4px",borderRadius:10,fontSize:11.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:pcView===id?softBlue:"transparent",color:pcView===id?C.bg:C.textMid,transition:"all .18s" }}>{label}</span>
                   ))}
                 </div>
@@ -6962,7 +6958,7 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
                     <div style={{ fontSize:8.5, color:C.textDim, padding:"3px 7px", borderRadius:99, background:C.surfaceHi }}>Set</div>
                   </div>
                 </div>
-                <button onClick={()=>{ setSection("albums"); setAlbumSubView("photocards"); setPcView("sets"); }} style={{ background:`${w.color}18`, border:`1.5px solid ${w.color}44`, borderRadius:10, padding:"7px 12px", color:w.color, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10, cursor:"pointer" }}>Templates →</button>
+                <button onClick={()=>{ setSection("albums"); setAlbumSubView("photocards"); setPcView("sets"); }} style={{ background:`${w.color}18`, border:`1.5px solid ${w.color}44`, borderRadius:10, padding:"7px 12px", color:w.color, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10, cursor:"pointer" }}>Folders →</button>
               </div>
             ))}
             {isVip ? (
@@ -7185,7 +7181,7 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
 
             {/* Segmented control — makes Collection Tracker a real mini control center, not a static readout */}
             <div style={{ display:"flex", gap:6, overflowX:"auto", marginBottom:14, paddingBottom:2, scrollbarWidth:"none" }}>
-              {[["overview","Overview"],["groups","Groups"],["albumVersions","Versions"],["isoWanted","ISO"],["tradeable","Trade"]].map(([id,label])=>(
+              {[["overview","Overview"],["groups","Groups"],["isoWanted","ISO"],["tradeable","Trade"]].map(([id,label])=>(
                 <button key={id} onClick={()=>{ setTrackerView(id); if(id!=="groups") setTrackerGroupFocus(null); }} className="tap" style={{ flexShrink:0, fontSize:11, padding:"7px 13px", borderRadius:99, background: trackerView===id ? `linear-gradient(135deg,${C.accent},${C.pink})` : `${C.modalText}10`, border:`1px solid ${trackerView===id?"rgba(255,255,255,0.28)":C.modalBorder}`, color: trackerView===id ? (C.mode==="light"?"#ffffff":"#1a1228") : C.modalTextMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer" }}>{label}</button>
               ))}
             </div>
@@ -7210,24 +7206,15 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
                 {trackerGroups.length ? (
                   <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
                     {trackerGroups.map(g=>(
-                      <div key={g.group} style={{ borderRadius:13,padding:"10px 11px",background:C.modalSurface,border:`1px solid ${C.modalBorder}` }}><p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,color:C.modalText }}>{g.group}</p><p style={{ fontSize:10,color:C.modalTextMid,marginTop:3 }}>{g.owned} / {g.total} <span style={{ color:softBlue,marginLeft:5 }}>{g.pct}%</span></p></div>
+                      <div key={g.group} onClick={(e)=>{ e.stopPropagation(); setTrackerView("groups"); setTrackerGroupFocus(g.group); }} onKeyDown={(e)=>{ if(e.key==="Enter"||e.key===" "){ e.stopPropagation(); setTrackerView("groups"); setTrackerGroupFocus(g.group); } }} role="button" tabIndex={0} className="tap" style={{ borderRadius:13,padding:"10px 11px",background:C.modalSurface,border:`1px solid ${C.modalBorder}`,cursor:"pointer" }}><p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,color:C.modalText }}>{g.group}</p><p style={{ fontSize:10,color:C.modalTextMid,marginTop:3 }}>{g.owned} / {g.total} <span style={{ color:softBlue,marginLeft:5 }}>{g.pct}%</span></p></div>
                     ))}
                   </div>
                 ) : <p style={{ fontSize:10.5,color:C.modalTextDim,padding:"4px 2px 0" }}>No groups tracked yet.</p>}
               </div>
-              <div onClick={()=>setTrackerView("albumVersions")} className="tap" style={{ border:`1px solid ${C.modalBorder}`,borderRadius:17,padding:12,marginBottom:12,background:`${C.modalText}08`,cursor:"pointer" }}>
-                <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between" }}>
-                  <p style={trackerSectionHeaderStyle}>Album Versions</p>
-                  <span style={{ fontSize:9.5,color:softBlue,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>See all →</span>
-                </div>
-                {Object.values(trackerAlbumVersions).length ? (
-                  <div style={{ display:"flex",gap:8,overflowX:"auto",scrollbarWidth:"none" }}>
-                    {Object.values(trackerAlbumVersions).map(v=>(
-                      <div key={v.version} style={{ flex:"0 0 auto",borderRadius:13,padding:"9px 12px",background:`${softBlue}0d`,border:`1px solid ${softBlue}32` }}><span style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:11,color:C.modalText }}>{v.version}</span><span style={{ marginLeft:8,color:softBlue,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:800 }}>{v.owned} / {v.total}</span></div>
-                    ))}
-                  </div>
-                ) : <p style={{ fontSize:10.5,color:C.modalTextDim,padding:"4px 2px 0" }}>No album versions tracked yet.</p>}
-              </div>
+              {/* Global "Album Versions" section removed (Phase B1). Album versions
+                  are contextless as a global list — they belong only inside
+                  Group -> Release -> Version. trackerAlbumVersions data is kept
+                  (computed above) for that future hierarchy, just not rendered here. */}
               <div onClick={()=>setTrackerView("isoWanted")} className="tap" style={{ border:`1px solid ${C.modalBorder}`,borderRadius:17,padding:12,background:`${C.modalText}08`,cursor:"pointer" }}>
                 <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between" }}>
                   <p style={trackerSectionHeaderStyle}>ISO / Wanted</p>
@@ -7247,7 +7234,12 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
               trackerGroupFocus ? (
                 <div>
                   <button onClick={()=>setTrackerGroupFocus(null)} className="tap" style={{ background:"none",border:"none",color:softBlue,fontSize:12,marginBottom:12,cursor:"pointer",padding:0,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>← All Groups</button>
-                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:16,color:C.modalText,marginBottom:12 }}>{trackerGroupFocus}</p>
+                  {(()=>{ const gs = trackerGroupsFull.find(g=>g.group===trackerGroupFocus); return (
+                    <div style={{ marginBottom:14 }}>
+                      <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:18,color:C.modalText }}>{trackerGroupFocus}</p>
+                      {gs && <p style={{ fontSize:11,color:C.modalTextMid,marginTop:4 }}>{gs.owned} / {gs.total} owned <span style={{ color:softBlue,marginLeft:6,fontFamily:"'Epilogue',sans-serif",fontWeight:800 }}>{gs.pct}%</span></p>}
+                    </div>
+                  ); })()}
                   {groupFocusCards.length ? (
                     <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
                       {groupFocusCards.map(c=>{
@@ -7282,29 +7274,7 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
               )
             )}
 
-            {trackerView==="albumVersions" && (
-              <div>
-                <p style={trackerSectionHeaderStyle}>Album Versions</p>
-                {trackerAlbumVersionsFull.length ? (
-                  <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
-                    {trackerAlbumVersionsFull.map(v=>{
-                      const pct = Math.round((v.owned/Math.max(v.total,1))*100);
-                      return (
-                        <div key={v.version} style={{ borderRadius:13,padding:"12px 14px",background:`${softBlue}0d`,border:`1px solid ${softBlue}32` }}>
-                          <div style={{ display:"flex",justifyContent:"space-between",marginBottom:6 }}>
-                            <span style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,color:C.modalText }}>{v.version}</span>
-                            <span style={{ color:softBlue,fontSize:11,fontFamily:"'Epilogue',sans-serif",fontWeight:800 }}>{v.owned} / {v.total}</span>
-                          </div>
-                          <div style={{ height:6,borderRadius:99,background:`${C.modalText}14`,overflow:"hidden" }}>
-                            <div style={{ height:"100%",width:`${pct}%`,borderRadius:99,background:`linear-gradient(90deg,${softBlue},${C.accent})` }} />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : <p style={{ fontSize:11,color:C.modalTextDim,textAlign:"center",padding:"30px 0" }}>No album versions tracked yet.</p>}
-              </div>
-            )}
+            {/* trackerView==="albumVersions" removed (Phase B1) — see note in Overview. */}
 
             {trackerView==="isoWanted" && (
               <div>
@@ -7362,7 +7332,7 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
                 {emoji:"🃏",label:"Add Photocard",sub:"Upload or log a card you own.",color:C.pink,action:()=>{setAddCardInitialStatus("owned");setShowAddCard(true);setShowQuickAdd(false);}},
                 {emoji:"📁",label:"Start Binder",sub:"Create a tracker for an album, era, or custom set.",color:C.accent,action:()=>{setShowStartBinder(true);setShowQuickAdd(false);}},
                 {emoji:"♡",label:"Add Wishlist / ISO Card",sub:"Save a card you're looking for.",color:C.gold,action:()=>{setAddCardInitialStatus("iso");setShowAddCard(true);setShowQuickAdd(false);}},
-                {emoji:"🎴",label:"Browse Templates",sub:"Start from official or starter templates.",color:softBlue,action:()=>{setSection("albums");setAlbumSubView("photocards");setPcView("sets");setShowQuickAdd(false);}},
+                {emoji:"🎴",label:"Browse Folders",sub:"Start from a catalog folder or starter set.",color:softBlue,action:()=>{setSection("albums");setAlbumSubView("photocards");setPcView("sets");setShowQuickAdd(false);}},
               ].map(opt=>(
                 <div key={opt.label} onClick={opt.action} className="tap" style={{ display:"flex",gap:14,alignItems:"center",padding:"13px 14px",borderRadius:16,background:`${opt.color}12`,border:`1.5px solid ${opt.color}30`,cursor:"pointer" }}>
                   <span style={{ fontSize:22 }}>{opt.emoji}</span>
@@ -7769,7 +7739,7 @@ function BinderCreate({ onBack, onCustom, onCreatedBinder }) {
         {/* DB templates */}
         {!dbLoading && showingDb && (
           <>
-            {!dbError && <p style={{ fontSize:9.5, color:C.textDim, marginBottom:4, fontFamily:"'Epilogue',sans-serif", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.08em" }}>Backstage Starter Templates</p>}
+            {!dbError && <p style={{ fontSize:9.5, color:C.textDim, marginBottom:4, fontFamily:"'Epilogue',sans-serif", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.08em" }}>Backstage Starter Folders</p>}
             {!dbError && <p style={{ fontSize:10.5, color:C.textDim, marginBottom:10, lineHeight:1.6 }}>Starter templates help you begin — not a complete discography. Add or customize albums and versions anytime.</p>}
             <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:14 }}>
               {(filteredDb.length ? filteredDb : dbTemplates).map(t => {
@@ -7794,7 +7764,7 @@ function BinderCreate({ onBack, onCustom, onCreatedBinder }) {
                   </button>
                 );
               })}
-              {filteredDb.length===0 && groupSearch && <p style={{ fontSize:12,color:C.textMid,textAlign:"center",padding:"10px 0" }}>No templates match "{groupSearch}"</p>}
+              {filteredDb.length===0 && groupSearch && <p style={{ fontSize:12,color:C.textMid,textAlign:"center",padding:"10px 0" }}>No folders match "{groupSearch}"</p>}
             </div>
           </>
         )}
@@ -7802,8 +7772,8 @@ function BinderCreate({ onBack, onCustom, onCreatedBinder }) {
         {/* Mock fallback (when DB unavailable) */}
         {!dbLoading && !showingDb && (
           <>
-            <p style={{ fontSize:9.5, color:C.textDim, marginBottom:4, fontFamily:"'Epilogue',sans-serif", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.08em" }}>Starter Templates</p>
-            <p style={{ fontSize:10.5, color:C.textDim, marginBottom:10, lineHeight:1.6 }}>Starter templates help you begin — not a complete discography. Add or customize albums and versions anytime.</p>
+            <p style={{ fontSize:9.5, color:C.textDim, marginBottom:4, fontFamily:"'Epilogue',sans-serif", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.08em" }}>Starter Folders</p>
+            <p style={{ fontSize:10.5, color:C.textDim, marginBottom:10, lineHeight:1.6 }}>Starter folders help you begin — not a complete discography. Add or customize albums and versions anytime.</p>
             <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:14 }}>
               {filteredMock.map(t => (
                 <button key={t.id} onClick={()=>openMockTemplate(t)} className="tap" style={{ padding:"14px 16px", borderRadius:22, textAlign:"left", cursor:"pointer", ...VS.glowCard(t.color) }}>
@@ -9368,7 +9338,7 @@ function CollectTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
                 <div style={{ position:"relative", display:"flex", gap:8, alignItems:"center", minWidth:0 }}>
                   <div style={{ width:32,height:32,borderRadius:11,flexShrink:0,background:`${C.accent}22`,border:`1.5px solid ${C.accent}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16 }}>🃏</div>
                   <div style={{ minWidth:0 }}>
-                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,color:C.text,marginBottom:1,whiteSpace:"nowrap" }}>Use Template</p>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,color:C.text,marginBottom:1,whiteSpace:"nowrap" }}>Start from Catalog</p>
                     <p style={{ fontSize:9.5,color:C.textMid,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>BTS, SKZ, aespa + more</p>
                   </div>
                 </div>
@@ -25924,7 +25894,7 @@ function AppInner() {
     // Guard: no backend configured — prevent silent VIP grant without payment
     const showCheckoutUnavailable = () => {
       setShowUpgradeModal(false);
-      setNotif({ title:"VIP checkout is almost ready.", body:"Please try again soon.", icon:"✦", color:C.gold });
+      setNotif({ title:"VIP checkout isn't available here", body:"Checkout isn't enabled in this preview build.", icon:"✦", color:C.gold });
     };
     if (!API_URL) { showCheckoutUnavailable(); return; }
     track(EV.VIP_CHECKOUT_START, { plan: selectedPlan });
