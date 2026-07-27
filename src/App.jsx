@@ -2055,6 +2055,47 @@ const getSetStatsSummary = (setData={}) => {
   return { owned, wishlist, dupe, trade };
 };
 
+// ─── COLLECTION SUMMARY — single source of truth ──────────────────────────────
+// One place that turns the real user_cards rows + the SANITIZED pcSetData blob
+// into the owned / wanted / tradeable / completion numbers the My World hero ring,
+// the "snapshot" pills, and the Binder Progress modal all display. Before this,
+// each surface derived its own totals: the hero ring used owned/(owned+wanted) —
+// which resolves to 100% whenever the wishlist is empty — while the Binder
+// Progress modal showed a catalog-based per-group %, so the two contradicted each
+// other one tap apart. Routing every headline number through this selector makes
+// them agree by construction.
+//   `cards`            — real user_cards rows (the source of truth).
+//   `sanitizedSetData` — pcSetData with slots already promoted to a real
+//                        user_cards row stripped out (getSanitizedSetData), so
+//                        nothing is double-counted.
+// `completion` is CATALOG-BASED: owned catalog slots / known catalog slots,
+// aggregated exactly like the per-group tracker (owned + still-missing members),
+// so wishing for a card no longer inflates completion. owned/wanted/tradeable are
+// intentionally identical to the previous inline math — only completion changes.
+const computeMyWorldSummary = (cards = [], sanitizedSetData = {}) => {
+  const setStats  = getSetStatsSummary(sanitizedSetData);
+  const owned     = cards.length + setStats.owned;
+  const wanted    = cards.filter(c => c.status === 'iso').length + setStats.wishlist;
+  const tradeable = cards.filter(c => c.status === 'for_trade' || c.status === 'duplicate' || c.tradeable || c.dupe).length + setStats.dupe + setStats.trade;
+
+  const groups = Array.from(new Set([
+    ...cards.map(c => c.group_name || c.group),
+    ...PC_CATALOG_SETS.map(s => s.group),
+  ].filter(Boolean)));
+  let slotsOwned = 0, slotsTotal = 0;
+  groups.forEach(group => {
+    const gOwned = cards.filter(c => (c.group_name || c.group) === group).length
+      + PC_CATALOG_SETS.filter(s => s.group === group).reduce((sum, set) =>
+          sum + Object.values(sanitizedSetData[set.id] || {}).filter(v => v === 'owned').length, 0);
+    const gMembers = PC_CATALOG_SETS.filter(s => s.group === group).reduce((sum, set) => sum + set.members.length, 0);
+    slotsOwned += gOwned;
+    slotsTotal += Math.max(gOwned + gMembers, gOwned || 1);
+  });
+  const completion = Math.round((slotsOwned / Math.max(slotsTotal, 1)) * 100);
+
+  return { owned, wanted, tradeable, completion };
+};
+
 // Phase 3b — content-based identity linking a PhotocardSetsView catalog slot
 // (group/album/version/member) to a real user_cards row. No template_id exists
 // for PC_CATALOG_SETS (it's a hardcoded frontend catalog, not the DB
@@ -6346,10 +6387,15 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
   // count a slot twice once it exists in both places.
   const sanitizedSetData = getSanitizedSetData(pcSetData, allCards);
   const setStats  = getSetStatsSummary(sanitizedSetData);
-  const totalOwned = allCards.length + setStats.owned;
-  const wishlistTotal = wishlist.length + setStats.wishlist;
-  const tradeableTotal = tradeable.length + setStats.dupe + setStats.trade;
-  const completion = Math.round((totalOwned / Math.max(totalOwned + wishlistTotal, 1)) * 100);
+  // Headline numbers now come from the single computeMyWorldSummary() selector so
+  // the hero ring, snapshot pills, and Binder Progress modal can't disagree.
+  // owned/wanted/tradeable are unchanged from the previous inline math; only
+  // `completion` changes — it is now catalog-based instead of owned/(owned+wanted).
+  const summary = computeMyWorldSummary(allCards, sanitizedSetData);
+  const totalOwned = summary.owned;
+  const wishlistTotal = summary.wanted;
+  const tradeableTotal = summary.tradeable;
+  const completion = summary.completion;
   const setWantedCards = PC_CATALOG_SETS.flatMap(s => s.members.filter(m => (sanitizedSetData[s.id] || {})[m] === "wishlist").map(m => ({ setId:s.id, group:s.group, era:s.era, version:s.version, member:m, color:s.color, album:s.album })));
   const trackerGroups = Array.from(new Set([...allCards.map(c => c.group_name || c.group), ...PC_CATALOG_SETS.map(s => s.group)].filter(Boolean))).slice(0, 4).map(group => {
     const owned = allCards.filter(c => (c.group_name || c.group) === group).length + PC_CATALOG_SETS.filter(s => s.group === group).reduce((sum, set) => sum + Object.values(sanitizedSetData[set.id] || {}).filter(v => v === "owned").length, 0);
