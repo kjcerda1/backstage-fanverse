@@ -7700,7 +7700,11 @@ const BINDER_STATUS_TO_DB = { missing:"missing", owned:"owned", wishlist:"iso", 
 // the row back so the caller can open the real DB template or the mock fallback.
 function GroupCatalog({ groupName, templates=[], onOpenTemplate, onBack }) {
   const { cards: allCards } = useUserCards();
-  const groupCards = (allCards||[]).filter(c => (c.group_name||c.group)===groupName);
+  // Case-insensitive group match: user_cards has inconsistent casing (e.g.
+  // "ateez") vs the catalog's "ATEEZ", so an exact match would hide a fan's
+  // own cards on the group page. Normalize on read only — never rewrite data.
+  const gnKey = (groupName||'').trim().toLowerCase();
+  const groupCards = (allCards||[]).filter(c => (String(c.group_name||c.group||'').trim().toLowerCase())===gnKey);
   const owned     = groupCards.filter(c=>c.status==='owned').length;
   const iso       = groupCards.filter(c=>c.status==='iso').length;
   const dupes     = groupCards.filter(c=>c.status==='duplicate').length;
