@@ -194,6 +194,26 @@ const updateLocalBinder = (id, patch) => {
   return list.find(b => b.id === id) || null;
 };
 
+// Folder metadata (client-only, proposed future schema). A "Folder" is a real
+// binder row (existing `binders` table / /api/binders — no schema change), but
+// which bucket it belongs to (Album Tracker / Photocard Tracker / POB Tracker /
+// Custom Folder) plus manual/custom fields the DB doesn't have columns for yet
+// (release_type, region, store_source, pob_type, member, era...) aren't in the
+// schema. Until a real `binders.folder_type` + extension columns migration is
+// approved, that categorization lives here, keyed by binder id, and is additive
+// only — it never blocks a folder from working with zero metadata (legacy
+// binders default to "custom" so nothing existing breaks or disappears).
+const FOLDER_META_KEY = "backstage_folder_meta";
+const readFolderMetaMap = () => { const v = ls.get(FOLDER_META_KEY, {}); return (v && typeof v==='object' && !Array.isArray(v)) ? v : {}; };
+const getFolderMeta = (binderId) => readFolderMetaMap()[binderId] || null;
+const writeFolderMeta = (binderId, meta) => {
+  const map = readFolderMetaMap();
+  map[binderId] = { ...(map[binderId]||{}), ...meta };
+  ls.set(FOLDER_META_KEY, map);
+  return map[binderId];
+};
+const FOLDER_TYPE_LABELS = { album:"Album Tracker", photocard:"Photocard Tracker", pob:"POB Tracker", custom:"Custom Folder" };
+
 // Shared cover-image upload (used by binder covers; reusable for other covers).
 // Validates type/size, compresses via resizeImageForUpload, then either uploads
 // to Supabase Storage through the given presign route and returns the stored
@@ -6627,7 +6647,8 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
       )}
       {showStartBinder && (
         <div style={{ position:"absolute",inset:0,zIndex:50,background:C.bg,overflowY:"auto" }}>
-          <BinderCreate onBack={()=>setShowStartBinder(false)} onCustom={()=>{ setShowStartBinder(false); setShowStartCustomBinder(true); }} onCreatedBinder={()=>{ refreshBinderCount(); refreshCards(); setShowStartBinder(false); setSection("albums"); setAlbumSubView("binders"); }} />
+          <BinderCreate onBack={()=>setShowStartBinder(false)} onCustom={()=>{ setShowStartBinder(false); setShowStartCustomBinder(true); }} onCreatedBinder={()=>{ refreshBinderCount(); refreshCards(); setShowStartBinder(false); setSection("albums"); setAlbumSubView("binders"); }}
+            binders={binders} cards={allCards} cardsLoading={cardsLoading} setCards={setCards} patchCard={patchCard} deleteCard={deleteCard} addCard={addCard} refreshBinders={()=>{ refreshBinderCount(); refreshCards(); }} />
         </div>
       )}
       {showStartCustomBinder && (
@@ -7667,46 +7688,63 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
 
 const BINDER_STATUS_TO_DB = { missing:"missing", owned:"owned", wishlist:"iso", dupe:"duplicate", tradeable:"for_trade" };
 
-// Reusable group catalog page — the group-first destination for Start a Binder
-// (and, later, the group tile in Binder Progress). Everything here is built from
-// REAL data only: the collection summary comes from the signed-in fan's own
-// user_cards, and "Releases in the catalog" are the verified card_templates for
-// this group. Categories that aren't in the catalog yet (POBs, Japanese, custom)
-// show honest empty states — never fabricated "not yet verified" cards.
-// `templates` are the normalized catalog rows for this group; onOpenTemplate gets
-// the row back so the caller can open the real DB template or the mock fallback.
-function GroupCatalog({ groupName, templates=[], onOpenTemplate, onBack }) {
-  const { cards: allCards } = useUserCards();
-  // Case-insensitive group match: user_cards has inconsistent casing (e.g.
-  // "ateez") vs the catalog's "ATEEZ", so an exact match would hide a fan's
-  // own cards on the group page. Normalize on read only — never rewrite data.
+// Reusable Group Binder Home — the group-first destination for Start a Binder.
+// One component for every group, no per-group branches. Defaults to Overview
+// (never auto-opens a single seed release). "Folders" (Album Tracker /
+// Photocard Tracker / POB Tracker / Custom Folder) are real `binders` rows —
+// which bucket a folder belongs to is additive client-side metadata
+// (see FOLDER_META_KEY) until a real `folder_type` column is approved; legacy
+// binders with no metadata default to Custom so nothing existing disappears.
+// Everything here is built from REAL data only: the collection summary comes
+// from the signed-in fan's own user_cards; verified releases are the real
+// card_templates for this group. Categories with no folders yet get a
+// task-oriented empty state (start one / upload a card) — never a
+// dev-status message, and the absence of catalog data never blocks tracking.
+function GroupBinderHome({ groupName, templates=[], onOpenTemplate, onBack, binders=[], cards, cardsLoading, setCards, patchCard, deleteCard, addCard, refreshBinders }) {
   const gnKey = (groupName||'').trim().toLowerCase();
-  const groupCards = (allCards||[]).filter(c => (String(c.group_name||c.group||'').trim().toLowerCase())===gnKey);
+  const groupCards = (cards||[]).filter(c => (String(c.group_name||c.group||'').trim().toLowerCase())===gnKey);
   const owned     = groupCards.filter(c=>c.status==='owned').length;
   const iso       = groupCards.filter(c=>c.status==='iso').length;
   const dupes     = groupCards.filter(c=>c.status==='duplicate').length;
   const tradeable = groupCards.filter(c=>c.status==='duplicate'||c.status==='for_trade').length;
   const total     = groupCards.length;
   const completion= total ? Math.round((owned/total)*100) : 0;
-  const members   = [...new Set(groupCards.map(c=>c.member||c.member_name).filter(Boolean))].sort();
-  const [memberFilter, setMemberFilter] = useState('all');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [browseTab, setBrowseTab]       = useState('albums');
 
-  const STATUS = [['all','All'],['owned','Owned'],['iso','ISO'],['duplicate','Dupe'],['for_trade','Tradeable']];
-  // One shared, universal category set for every group. Categories that have no
-  // verified catalog data yet render an honest empty state — never invented cards.
-  const BROWSE = [['albums','Albums & Releases'],['photocards','Photocards'],['pobs','POBs & Exclusives'],['japanese','Japanese / Regional'],['members','Member Versions'],['special','Special / Limited'],['custom','Custom']];
-  const EMPTY_COPY = {
-    photocards: `Individual photocard sets for ${groupName} aren't in the verified catalog yet.`,
-    pobs:       `No verified POB / store-exclusive sets for ${groupName} yet.`,
-    japanese:   `No verified Japanese or regional releases for ${groupName} yet.`,
-    members:    `Member-version breakdowns for ${groupName} aren't in the verified catalog yet.`,
-    special:    `No verified special / limited editions for ${groupName} yet.`,
-    custom:     `You haven't added any custom folders for ${groupName} yet.`,
+  const groupBinders = binders.filter(b => (b.group_name||'').trim().toLowerCase()===gnKey);
+  const folderType = (b) => getFolderMeta(b.id)?.folderType || 'custom';
+  const albumFolders     = groupBinders.filter(b=>folderType(b)==='album');
+  const photocardFolders = groupBinders.filter(b=>folderType(b)==='photocard');
+  const pobFolders       = groupBinders.filter(b=>folderType(b)==='pob');
+  const customFolders    = groupBinders.filter(b=>folderType(b)==='custom');
+  const hasAnyFolders    = groupBinders.length>0;
+
+  const [screen, setScreen]   = useState('home'); // home|startFolder|more|albumForm|photocardForm|pobForm|customForm|folderDetail
+  const [activeTab, setActiveTab] = useState('overview'); // overview|albums|photocards|pobs|japanese|members|special|custom
+  const [selectedFolder, setSelectedFolder] = useState(null);
+
+  const NAV = [['overview','Overview'],['albums','Albums'],['photocards','Photocards']];
+  const MORE_OPTIONS = [['pobs','POBs & Exclusives'],['japanese','Japanese / Regional'],['members','Member Versions'],['special','Special / Limited'],['custom','Custom Folders']];
+  const MORE_IDS = MORE_OPTIONS.map(([id])=>id);
+  const moreActive = MORE_IDS.includes(activeTab);
+  const moreLabel = moreActive ? MORE_OPTIONS.find(([id])=>id===activeTab)[1] : 'More';
+
+  const openFolder = (b) => { setSelectedFolder(b); setScreen('folderDetail'); };
+  const onFolderCreated = (b) => { refreshBinders?.(); setSelectedFolder(b); setScreen('folderDetail'); };
+  const patchFolderCover = async (cover_url) => {
+    const b = selectedFolder; if (!b) return;
+    setSelectedFolder(sb => sb ? { ...sb, cover_url } : sb);
+    if (b.local || !API_URL) { updateLocalBinder(b.id, { cover_url }); refreshBinders?.(); return; }
+    await api.patch(`/api/binders/${b.id}`, { cover_url }).catch(() => {});
+    refreshBinders?.();
   };
-  const matchStatus = (c) => statusFilter==='all' || c.status===statusFilter || (statusFilter==='for_trade' && (c.status==='for_trade'||c.status==='duplicate'));
-  const filteredCards = groupCards.filter(c => (memberFilter==='all' || (c.member||c.member_name)===memberFilter) && matchStatus(c));
+
+  if (screen === 'folderDetail' && selectedFolder) return (
+    <BinderDetail binder={selectedFolder} onCoverChange={patchFolderCover} cards={cards} cardsLoading={cardsLoading} setCards={setCards} patchCard={patchCard} deleteCard={deleteCard} addCard={addCard} onBack={()=>{ setScreen('home'); setSelectedFolder(null); }} />
+  );
+  if (screen === 'albumForm') return <AlbumTrackerForm groupName={groupName} templates={templates} onOpenTemplate={onOpenTemplate} onBack={()=>setScreen('home')} onCreatedFolder={onFolderCreated} />;
+  if (screen === 'photocardForm') return <PhotocardFolderForm groupName={groupName} onBack={()=>setScreen('home')} onCreatedFolder={onFolderCreated} />;
+  if (screen === 'pobForm') return <PobTrackerForm groupName={groupName} onBack={()=>setScreen('home')} onCreatedFolder={onFolderCreated} />;
+  if (screen === 'customForm') return <CustomBinderForm title="Custom Folder" initialGroupName={groupName} lockGroup onBack={()=>setScreen('home')} onSaved={(b)=>{ writeFolderMeta(b.id, { folderType:'custom' }); onFolderCreated(b); }} />;
 
   const StatTile = ({ val, label, color }) => (
     <div style={{ flex:"1 1 0", minWidth:58, background:C.mode==="light"?"rgba(33,17,52,0.04)":"rgba(255,255,255,0.04)", border:`1px solid ${C.border}`, borderRadius:13, padding:"9px 6px", textAlign:"center" }}>
@@ -7715,107 +7753,185 @@ function GroupCatalog({ groupName, templates=[], onOpenTemplate, onBack }) {
     </div>
   );
 
+  const FolderRow = ({ b }) => {
+    const meta = getFolderMeta(b.id);
+    const col = b.cover_color || C.accent;
+    const binderCards = (cards||[]).filter(c=>c.binder_id===b.id);
+    const bOwned = binderCards.filter(c=>c.status==='owned').length;
+    const bTotal = binderCards.length;
+    const pct = bTotal ? Math.round((bOwned/bTotal)*100) : 0;
+    return (
+      <div key={b.id} onClick={()=>openFolder(b)} className="tap" style={{ display:"flex", alignItems:"center", gap:10, background:C.surfaceHi, border:`1px solid ${col}33`, borderRadius:14, padding:"10px 12px", marginBottom:8, cursor:"pointer" }}>
+        {b.cover_url ? (
+          <div style={{ width:38,height:38,borderRadius:11,overflow:"hidden",flexShrink:0,border:`1.5px solid ${col}44` }}>
+            <img src={b.cover_url} alt="" style={{ width:"100%",height:"100%",objectFit:"cover" }} />
+          </div>
+        ) : (
+          <div style={{ width:38,height:38,borderRadius:11,background:`${col}1e`,border:`1.5px solid ${col}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:col,flexShrink:0 }}>{(b.name||groupName||'?').trim().charAt(0).toUpperCase()}</div>
+        )}
+        <div style={{ flex:1, minWidth:0 }}>
+          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12.5, color:C.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{b.name}</p>
+          <p style={{ fontSize:9.5, color:C.textMid }}>{bTotal>0 ? `${bOwned}/${bTotal} owned` : 'No cards yet'}{meta?.isCustom ? ' · Custom' : ''}</p>
+        </div>
+        <span style={{ color:col, fontSize:15, flexShrink:0 }}>→</span>
+      </div>
+    );
+  };
+
+  const FolderSection = ({ title, folders, emptyLabel, ctaLabel, onCta }) => (
+    <div style={{ marginBottom:18 }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+        <p style={{ fontSize:9.5, color:C.textDim, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em" }}>{title}</p>
+        {folders.length>0 && <span onClick={onCta} className="tap" style={{ fontSize:10.5, color:C.accent, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer" }}>+ {ctaLabel}</span>}
+      </div>
+      {folders.length>0 ? folders.map(b=><FolderRow key={b.id} b={b} />) : (
+        <div style={{ textAlign:"center", padding:"18px 14px", background:`${C.accent}06`, border:`1.5px dashed ${C.border}`, borderRadius:14 }}>
+          <p style={{ fontSize:11, color:C.textMid, marginBottom:10, lineHeight:1.6 }}>{emptyLabel}</p>
+          <Btn small onClick={onCta}>+ {ctaLabel}</Btn>
+        </div>
+      )}
+    </div>
+  );
+
   return (
-    <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
+    <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden", position:"relative" }}>
       <div style={{ padding:"16px 20px 12px", flexShrink:0, display:"flex", alignItems:"center", gap:10 }}>
         <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
         <div style={{ minWidth:0 }}>
-          <p style={{ fontSize:9, color:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.14em" }}>Group Catalog</p>
+          <p style={{ fontSize:9, color:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.14em" }}>Group Binder</p>
           <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:20, margin:0, lineHeight:1.1 }}>{groupName}</h2>
         </div>
       </div>
+
+      {/* Category nav — fits at 375px: Overview · Albums · Photocards · More▾ */}
+      <div style={{ padding:"0 20px 12px", flexShrink:0, display:"flex", gap:6 }}>
+        {NAV.map(([id,label])=>(
+          <span key={id} onClick={()=>setActiveTab(id)} className="tap" style={{ flex:1, textAlign:"center", padding:"8px 4px", borderRadius:11, fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:activeTab===id?C.accent:C.surfaceHi, color:activeTab===id?C.bg:C.textMid }}>{label}</span>
+        ))}
+        <span onClick={()=>setScreen('more')} className="tap" style={{ flex:1, textAlign:"center", padding:"8px 4px", borderRadius:11, fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:moreActive?C.accent:C.surfaceHi, color:moreActive?C.bg:C.textMid, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{moreLabel} ▾</span>
+      </div>
+
       <Screen style={{ padding:"0 18px calc(120px + env(safe-area-inset-bottom))" }}>
-        {/* Collection summary — from YOUR collection (real user_cards) */}
-        <p style={{ fontSize:9.5, color:C.textDim, marginBottom:8, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em" }}>Your collection</p>
-        <div style={{ display:"flex", gap:6, marginBottom:6 }}>
-          <StatTile val={owned} label="Owned" color={C.text} />
-          <StatTile val={iso} label="ISO" color={C.gold} />
-          <StatTile val={dupes} label="Dupes" color={C.lavender} />
-          <StatTile val={tradeable} label="Trade" color={C.rose} />
-          <StatTile val={`${completion}%`} label="Owned" color={C.accent} />
-        </div>
-        <p style={{ fontSize:9.5, color:C.textDim, marginBottom:16 }}>{total>0 ? `${completion}% of your ${total} tracked ${groupName} card${total!==1?'s':''} owned.` : `No ${groupName} cards tracked yet — start a binder below.`}</p>
-
-        {/* Browse categories */}
-        <div style={{ display:"flex", gap:6, overflowX:"auto", scrollbarWidth:"none", marginBottom:14, paddingBottom:2 }}>
-          {BROWSE.map(([id,label])=>(
-            <span key={id} onClick={()=>setBrowseTab(id)} className="tap" style={{ flexShrink:0, padding:"6px 12px", borderRadius:99, fontSize:10.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", whiteSpace:"nowrap", background:browseTab===id?C.accent:C.surfaceHi, color:browseTab===id?C.bg:C.textMid, border:`1px solid ${browseTab===id?"transparent":C.border}` }}>{label}</span>
-          ))}
-        </div>
-
-        {browseTab==='albums' && (
-          templates.length>0 ? (
-            <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:18 }}>
-              {templates.map(t=>(
-                <button key={t.id} onClick={()=>onOpenTemplate(t)} className="tap" style={{ padding:"13px 15px", borderRadius:18, textAlign:"left", cursor:"pointer", background:C.surfaceHi, border:`1px solid ${(t.color||C.accent)}33`, display:"flex", alignItems:"center", gap:12 }}>
-                  <div style={{ width:44,height:44,borderRadius:13,flexShrink:0,background:`${(t.color||C.accent)}1e`,border:`1.5px solid ${(t.color||C.accent)}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:21 }}>{t.emoji||"🃏"}</div>
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:13.5, color:C.text, marginBottom:2 }}>{t.album}</p>
-                    <div style={{ display:"flex", gap:5, flexWrap:"wrap", alignItems:"center" }}>
-                      {t.era && <span style={{ ...VS.activePill(t.color||C.accent), fontSize:8 }}>{t.era}</span>}
-                      <span style={{ ...VS.activePill(C.gold), fontSize:8 }}>⚠ {t.completenessLabel||"May include gaps"}</span>
-                      <span style={{ ...VS.activePill(C.silver), fontSize:8 }}>{t.count} cards</span>
-                    </div>
-                  </div>
-                  <span style={{ color:t.color||C.accent, fontSize:16, flexShrink:0 }}>→</span>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div style={{ textAlign:"center", padding:"30px 18px", background:`${C.accent}08`, border:`1.5px dashed ${C.border}`, borderRadius:16, marginBottom:18 }}>
-              <p style={{ fontSize:12, color:C.textMid, lineHeight:1.6 }}>No verified releases for {groupName} in the catalog yet.</p>
-            </div>
-          )
-        )}
-        {browseTab!=='albums' && (
-          <div style={{ textAlign:"center", padding:"30px 18px", background:`${C.accent}08`, border:`1.5px dashed ${C.border}`, borderRadius:16, marginBottom:18 }}>
-            <p style={{ fontSize:12, color:C.textMid, lineHeight:1.6 }}>{EMPTY_COPY[browseTab]}</p>
-            <p style={{ fontSize:10, color:C.textDim, marginTop:6 }}>Coming as the verified catalog grows.</p>
-          </div>
-        )}
-
-        {/* Your cards in this group — member + status filters over REAL data only */}
-        {groupCards.length>0 && (
+        {activeTab==='overview' && (
           <>
-            <p style={{ fontSize:9.5, color:C.textDim, marginBottom:8, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em" }}>Your {groupName} cards</p>
-            {members.length>0 && (
-              <div style={{ display:"flex", gap:6, overflowX:"auto", scrollbarWidth:"none", marginBottom:8, paddingBottom:2 }}>
-                {[['all','All members'],...members.map(m=>[m,m])].map(([id,label])=>(
-                  <span key={id} onClick={()=>setMemberFilter(id)} className="tap" style={{ flexShrink:0, padding:"5px 11px", borderRadius:99, fontSize:10, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", whiteSpace:"nowrap", background:memberFilter===id?C.lavender:C.surfaceHi, color:memberFilter===id?C.bg:C.textMid, border:`1px solid ${memberFilter===id?"transparent":C.border}` }}>{label}</span>
-                ))}
+            <p style={{ fontSize:9.5, color:C.textDim, marginBottom:8, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em" }}>Your collection</p>
+            <div style={{ display:"flex", gap:6, marginBottom:6 }}>
+              <StatTile val={owned} label="Owned" color={C.text} />
+              <StatTile val={iso} label="ISO" color={C.gold} />
+              <StatTile val={dupes} label="Dupes" color={C.lavender} />
+              <StatTile val={tradeable} label="Trade" color={C.rose} />
+              <StatTile val={`${completion}%`} label="Owned" color={C.accent} />
+            </div>
+            <p style={{ fontSize:9.5, color:C.textDim, marginBottom:16 }}>{total>0 ? `${completion}% of your ${total} tracked ${groupName} card${total!==1?'s':''} owned.` : `No ${groupName} cards tracked yet — start a folder below.`}</p>
+
+            <div style={{ display:"flex", gap:8, marginBottom:20 }}>
+              <button onClick={()=>setScreen('startFolder')} className="tap" style={{ flex:1, padding:"11px 8px", borderRadius:14, background:`${C.accent}18`, border:`1.5px solid ${C.accent}44`, color:C.accent, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>+ Start a Folder</button>
+              <button onClick={()=>setScreen('photocardForm')} className="tap" style={{ flex:1, padding:"11px 8px", borderRadius:14, background:C.surfaceHi, border:`1.5px solid ${C.border}`, color:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>Upload a Photocard</button>
+              <button onClick={()=>setActiveTab('photocards')} className="tap" style={{ flex:1, padding:"11px 8px", borderRadius:14, background:C.surfaceHi, border:`1.5px solid ${C.border}`, color:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11, cursor:"pointer" }}>View All Cards</button>
+            </div>
+
+            {!hasAnyFolders && (
+              <div style={{ textAlign:"center", padding:"22px 16px", background:`${C.accent}08`, border:`1.5px dashed ${C.border}`, borderRadius:16, marginBottom:18 }}>
+                <p style={{ fontSize:12, color:C.textMid, lineHeight:1.6, marginBottom:10 }}>No folders yet for {groupName}. Start one to begin tracking — you don't need to wait for the verified catalog.</p>
+                <Btn small onClick={()=>setScreen('startFolder')}>+ Start a Folder</Btn>
               </div>
             )}
-            <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:12 }}>
-              {STATUS.map(([id,label])=>(
-                <span key={id} onClick={()=>setStatusFilter(id)} className="tap" style={{ padding:"5px 11px", borderRadius:99, fontSize:10, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:statusFilter===id?C.accent:C.surfaceHi, color:statusFilter===id?C.bg:C.textMid, border:`1px solid ${statusFilter===id?"transparent":C.border}` }}>{label}</span>
-              ))}
-            </div>
-            {filteredCards.length>0 ? (
-              <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
-                {filteredCards.map(c=>(
-                  <div key={c.id} style={{ display:"flex", alignItems:"center", gap:10, background:C.surfaceHi, border:`1px solid ${C.border}`, borderRadius:12, padding:"8px 11px" }}>
-                    <div style={{ flex:1, minWidth:0 }}>
-                      <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, color:C.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{c.member||c.member_name||c.card_name||"Card"}</p>
-                      <p style={{ fontSize:9.5, color:C.textMid }}>{[c.album||c.album_name, c.era].filter(Boolean).join(" · ")}</p>
+
+            {albumFolders.length>0 && <FolderSection title="Album Trackers" folders={albumFolders} emptyLabel="" ctaLabel="Start Album Tracker" onCta={()=>setScreen('albumForm')} />}
+            {photocardFolders.length>0 && <FolderSection title="Photocard Trackers" folders={photocardFolders} emptyLabel="" ctaLabel="Start Photocard Folder" onCta={()=>setScreen('photocardForm')} />}
+            {pobFolders.length>0 && <FolderSection title="POB / Exclusive Trackers" folders={pobFolders} emptyLabel="" ctaLabel="Start POB Tracker" onCta={()=>setScreen('pobForm')} />}
+            {customFolders.length>0 && <FolderSection title="Custom Folders" folders={customFolders} emptyLabel="" ctaLabel="Create Custom Folder" onCta={()=>setScreen('customForm')} />}
+          </>
+        )}
+
+        {activeTab==='albums' && (
+          <FolderSection title="Album Trackers" folders={albumFolders} emptyLabel="No album folders yet." ctaLabel="Start Album Tracker" onCta={()=>setScreen('albumForm')} />
+        )}
+
+        {activeTab==='photocards' && (
+          <>
+            <FolderSection title="Photocard Trackers" folders={photocardFolders} emptyLabel="No photocard folders yet." ctaLabel="Start Photocard Folder" onCta={()=>setScreen('photocardForm')} />
+            {groupCards.length>0 && (
+              <>
+                <p style={{ fontSize:9.5, color:C.textDim, marginBottom:8, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em" }}>All your {groupName} cards</p>
+                <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
+                  {groupCards.map(c=>(
+                    <div key={c.id} style={{ display:"flex", alignItems:"center", gap:10, background:C.surfaceHi, border:`1px solid ${C.border}`, borderRadius:12, padding:"8px 11px" }}>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, color:C.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{c.member||c.member_name||c.card_name||"Card"}</p>
+                        <p style={{ fontSize:9.5, color:C.textMid }}>{[c.album||c.album_name, c.era].filter(Boolean).join(" · ")}</p>
+                      </div>
+                      <span style={{ ...VS.activePill(c.status==='owned'?C.mint:c.status==='iso'?C.gold:c.status==='for_trade'?C.rose:C.lavender), fontSize:8 }}>{c.status==='for_trade'?'For trade':c.status==='iso'?'ISO':c.status==='duplicate'?'Dupe':c.status==='owned'?'Owned':c.status}</span>
                     </div>
-                    <span style={{ ...VS.activePill(c.status==='owned'?C.mint:c.status==='iso'?C.gold:c.status==='for_trade'?C.rose:C.lavender), fontSize:8 }}>{c.status==='for_trade'?'For trade':c.status==='iso'?'ISO':c.status==='duplicate'?'Dupe':c.status==='owned'?'Owned':c.status}</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p style={{ fontSize:11, color:C.textMid, textAlign:"center", padding:"14px 0" }}>No cards match this filter.</p>
+                  ))}
+                </div>
+              </>
             )}
           </>
         )}
-        {groupCards.length===0 && (
-          <p style={{ fontSize:11, color:C.textMid, textAlign:"center", padding:"6px 10px 0", lineHeight:1.6 }}>You don't have any {groupName} cards yet. Start a binder from a release above to begin tracking.</p>
+
+        {activeTab==='pobs' && (
+          <FolderSection title="POB / Exclusive Trackers" folders={pobFolders} emptyLabel="No POB folders yet." ctaLabel="Start POB Tracker" onCta={()=>setScreen('pobForm')} />
+        )}
+        {activeTab==='japanese' && (
+          <FolderSection title="Japanese / Regional" folders={albumFolders.filter(b=>getFolderMeta(b.id)?.region==='JP')} emptyLabel="No Japanese / Regional folders yet." ctaLabel="Start Album Tracker" onCta={()=>setScreen('albumForm')} />
+        )}
+        {activeTab==='members' && (
+          <FolderSection title="Member Versions" folders={photocardFolders.filter(b=>!!getFolderMeta(b.id)?.member)} emptyLabel="No member-version folders yet." ctaLabel="Start Photocard Folder" onCta={()=>setScreen('photocardForm')} />
+        )}
+        {activeTab==='special' && (
+          <FolderSection title="Special / Limited" folders={[]} emptyLabel="No special / limited folders yet." ctaLabel="Start Album Tracker" onCta={()=>setScreen('albumForm')} />
+        )}
+        {activeTab==='custom' && (
+          <FolderSection title="Custom Folders" folders={customFolders} emptyLabel="No custom folders yet." ctaLabel="Create Custom Folder" onCta={()=>setScreen('customForm')} />
         )}
       </Screen>
+
+      {/* Start a Folder sheet — scrolls internally and clears the floating bottom
+          nav (the nav overlays content rather than shrinking it, same as every
+          other sheet/modal in the app; a non-Screen sheet must add its own
+          clearance or its last option renders reachable-looking but covered). */}
+      {screen==='startFolder' && (
+        <div style={{ position:"absolute", inset:0, background:"rgba(6,4,14,0.6)", display:"flex", alignItems:"flex-end", zIndex:20 }} onClick={()=>setScreen('home')}>
+          <div onClick={e=>e.stopPropagation()} style={{ width:"100%", maxHeight:"75vh", overflowY:"auto", background:C.surface, borderTopLeftRadius:24, borderTopRightRadius:24, border:`1px solid ${C.border}`, padding:"18px 20px calc(100px + env(safe-area-inset-bottom))" }}>
+            <div style={{ width:36,height:4,borderRadius:2,background:C.border,margin:"0 auto 16px" }} />
+            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:16, marginBottom:14 }}>Start a Folder</p>
+            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+              {[
+                ['albumForm','Album / Release Tracker','Track releases, versions, and editions'],
+                ['photocardForm','Photocard Collection Tracker','Track individual cards you own or want'],
+                ['pobForm','POB / Exclusive Tracker','Store exclusives, lucky draws, event cards'],
+                ['customForm','Create Custom Folder','Any other way you want to organize'],
+              ].map(([id,label,sub])=>(
+                <button key={id} onClick={()=>setScreen(id)} className="tap" style={{ textAlign:"left", padding:"12px 14px", borderRadius:14, background:C.surfaceHi, border:`1px solid ${C.border}`, cursor:"pointer" }}>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13, color:C.text, marginBottom:2 }}>{label}</p>
+                  <p style={{ fontSize:10.5, color:C.textMid }}>{sub}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* More categories sheet — same internal-scroll + nav-clearance fix. */}
+      {screen==='more' && (
+        <div style={{ position:"absolute", inset:0, background:"rgba(6,4,14,0.6)", display:"flex", alignItems:"flex-end", zIndex:20 }} onClick={()=>setScreen('home')}>
+          <div onClick={e=>e.stopPropagation()} style={{ width:"100%", maxHeight:"75vh", overflowY:"auto", background:C.surface, borderTopLeftRadius:24, borderTopRightRadius:24, border:`1px solid ${C.border}`, padding:"18px 20px calc(100px + env(safe-area-inset-bottom))" }}>
+            <div style={{ width:36,height:4,borderRadius:2,background:C.border,margin:"0 auto 16px" }} />
+            <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:16, marginBottom:14 }}>More Categories</p>
+            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+              {MORE_OPTIONS.map(([id,label])=>(
+                <button key={id} onClick={()=>{ setActiveTab(id); setScreen('home'); }} className="tap" style={{ textAlign:"left", padding:"12px 14px", borderRadius:14, background:activeTab===id?`${C.accent}18`:C.surfaceHi, border:`1px solid ${activeTab===id?C.accent:C.border}`, color:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:13, cursor:"pointer" }}>{label}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function BinderCreate({ onBack, onCustom, onCreatedBinder }) {
+function BinderCreate({ onBack, onCustom, onCreatedBinder, binders=[], cards, cardsLoading, setCards, patchCard, deleteCard, addCard, refreshBinders }) {
   const [step, setStep] = useState("search"); // search | group | preview | slots
   const [groupSearch, setGroupSearch] = useState("");
   const [selectedGroupName, setSelectedGroupName] = useState(null);
@@ -7853,11 +7969,12 @@ function BinderCreate({ onBack, onCustom, onCreatedBinder }) {
 
   const openDbTemplate = (t) => { setSelectedTemplate(t); setSelectedMock(null); setDuplicateErr(null); setStep("preview"); };
   const openMockTemplate = (t) => { setSelectedMock(t); setSelectedTemplate(null); const initSlots = t.cards.map((name,i)=>({id:i,name,status:"missing"})); setSlots(initSlots); setStep("slots"); };
-  // Open a normalized catalog row (from group-first search or GroupCatalog),
-  // dispatching to the real DB-template flow or the mock-fallback slots flow.
+  // Open a normalized catalog row (from group-first search or the Album Tracker's
+  // browse-verified list), dispatching to the real DB-template flow or the
+  // mock-fallback slots flow.
   const openCatalogTemplate = (t) => { if (t?._db) openDbTemplate(t._db); else if (t?._mock) openMockTemplate(t._mock); };
   // Normalize DB + mock templates into one shape so the group-first sections and
-  // GroupCatalog work identically whether or not the backend catalog is reachable.
+  // GroupBinderHome work identically whether or not the backend catalog is reachable.
   const catalog = showingDb
     ? dbTemplates.map(t=>({ id:t.id, group:t.group_name, album:t.album_name, era:t.era, count:t.card_count, color:t.cover_color||C.accent, emoji:t.cover_emoji||"🃏", completenessLabel:t.completeness_label||"May include gaps", _db:t }))
     : MOCK_COLLECTION_TEMPLATES.map(t=>({ id:t.id, group:t.group, album:t.album, era:t.era, count:t.total, color:t.color, emoji:t.emoji, completenessLabel:"May include gaps", _mock:t }));
@@ -7918,10 +8035,12 @@ function BinderCreate({ onBack, onCustom, onCreatedBinder }) {
   const STATUS_COLORS = { missing: C.textDim, owned: C.mint, wishlist: C.accent, dupe: C.gold, tradeable: C.rose };
   const STATUS_LABELS = { missing: "—", owned: "✓", wishlist: "♡", dupe: "×2", tradeable: "⇄" };
 
-  // Group destination — reachable from the group-first search. A specific release
-  // can still be opened directly from search, but the group page is the primary path.
+  // Group destination — reachable from the group-first search. Opens the Group
+  // Binder Home, defaulting to Overview — never auto-opens a specific release.
   if (step === "group" && selectedGroupName) return (
-    <GroupCatalog groupName={selectedGroupName} templates={groupTemplates} onOpenTemplate={openCatalogTemplate} onBack={()=>setStep("search")} />
+    <GroupBinderHome groupName={selectedGroupName} templates={groupTemplates} onOpenTemplate={openCatalogTemplate} onBack={()=>setStep("search")}
+      binders={binders} cards={cards} cardsLoading={cardsLoading} setCards={setCards} patchCard={patchCard} deleteCard={deleteCard} addCard={addCard}
+      refreshBinders={() => { refreshBinders?.(); }} />
   );
 
   if (saved) return (
@@ -8054,7 +8173,7 @@ function BinderCreate({ onBack, onCustom, onCreatedBinder }) {
         <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:19 }}>Start a Binder</h2>
       </div>
       <Screen style={{ padding:"0 18px calc(120px + env(safe-area-inset-bottom))" }}>
-        <p style={{ fontSize:12, color:C.textMid, marginBottom:12, lineHeight:1.6 }}>Search for your group to open its collection catalog, or pick a release directly.</p>
+        <p style={{ fontSize:12, color:C.textMid, marginBottom:12, lineHeight:1.6 }}>Search for your group to open its binder, or search an album to jump straight to a release.</p>
         <Input value={groupSearch} onChange={e=>setGroupSearch(e.target.value)} placeholder="Search a group (ATEEZ, BTS, Stray Kids…)" style={{ marginBottom:14 }} />
 
         {/* Loading indicator */}
@@ -8077,13 +8196,13 @@ function BinderCreate({ onBack, onCustom, onCreatedBinder }) {
                   <p style={{ fontSize:9.5, color:C.textDim, marginBottom:8, fontFamily:"'Epilogue',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em" }}>Groups</p>
                   <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:16 }}>
                     {matchedGroups.map(g => {
-                      const ts = groupMap[g]; const col = ts[0].color || C.accent;
+                      const ts = groupMap[g]; const col = C.accent;
                       return (
                         <button key={g} onClick={()=>openGroup(g, ts)} className="tap" style={{ padding:"14px 16px", borderRadius:20, textAlign:"left", cursor:"pointer", background:C.surfaceHi, border:`1px solid ${col}38`, display:"flex", alignItems:"center", gap:12 }}>
-                          <div style={{ width:48,height:48,borderRadius:14,flexShrink:0,background:`${col}1e`,border:`1.5px solid ${col}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:23 }}>{ts[0].emoji||"🃏"}</div>
+                          <div style={{ width:48,height:48,borderRadius:14,flexShrink:0,background:`${col}1e`,border:`1.5px solid ${col}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:col }}>{g.trim().charAt(0).toUpperCase()}</div>
                           <div style={{ flex:1, minWidth:0 }}>
                             <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,color:C.text,marginBottom:2 }}>{g}</p>
-                            <p style={{ fontSize:10.5,color:C.textMid }}>{ts.length} release{ts.length!==1?'s':''} in catalog · View collection catalog →</p>
+                            <p style={{ fontSize:10.5,color:C.textMid }}>Open Binder</p>
                           </div>
                           <span style={{ color:col,fontSize:18,flexShrink:0 }}>→</span>
                         </button>
@@ -8131,9 +8250,302 @@ function BinderCreate({ onBack, onCustom, onCreatedBinder }) {
   );
 }
 
+// Shared binder-creation contract for Folder forms (Album/Photocard/POB) — real
+// API first, demo/local fallback second, matching CustomBinderForm.save() so a
+// folder created offline still shows up and survives reload. Never silently
+// swallows an authenticated-backend failure — caller shows d.error to the user.
+async function createFolderBinder(payload) {
+  const d = await api.post('/api/binders', payload);
+  if (d?.binder) { ls.set('backstage_has_binder', true); return { binder: d.binder, ok:true }; }
+  if (!API_URL || MOCK_AUTH || (d?.mock && !d?.error)) {
+    const local = saveLocalBinder({ id:`local-${Date.now()}`, ...payload, local:true, created_at:new Date().toISOString() });
+    ls.set('backstage_has_binder', true);
+    return { binder: local, ok:true };
+  }
+  return { binder:null, ok:false, error: d?.error };
+}
+
+// Writes up to 4 real user_cards rows (one per non-zero quantity) through the
+// existing /api/cards endpoint — owned/ISO/duplicate/tradeable are represented
+// as separate status rows sharing the same card identity, since user_cards has
+// one status+quantity per row today. A single quantity-aware row (own 2, keep 1,
+// trade 1 on ONE record) is Phase D of the collector rework and needs a schema
+// change — out of scope here, not run without approval. The front photo attaches
+// to the first non-zero row so it's never silently dropped.
+async function saveFolderCardQuantities({ binderId, groupName, member, album, version, notes, imageUrl, quantities }) {
+  const STATUS_ORDER = ['owned','duplicate','for_trade','iso'];
+  let imgAttached = false;
+  for (const status of STATUS_ORDER) {
+    const qty = quantities[status];
+    if (!qty || qty <= 0) continue;
+    const payload = { binder_id: binderId, group_name: groupName, member, album, version, status, quantity: qty, notes };
+    if (!imgAttached && imageUrl) { payload.image_url = imageUrl; imgAttached = true; }
+    await api.post('/api/cards', payload).catch(() => {});
+  }
+}
+
+// Small shared "owned / ISO / dupe / tradeable" quantity grid used by the
+// Photocard Folder and POB Tracker creation shells.
+function QuantityGrid({ quantities, setQuantities }) {
+  const FIELDS = [['owned','Owned',C.mint],['iso','ISO / Wanted',C.gold],['duplicate','Duplicate',C.lavender],['for_trade','Tradeable',C.rose]];
+  return (
+    <div>
+      <p style={{ fontSize:10,color:C.textMid,marginBottom:8,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em" }}>Quantities</p>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:9 }}>
+        {FIELDS.map(([key,label,color])=>(
+          <div key={key} style={{ background:C.surfaceHi, border:`1px solid ${color}33`, borderRadius:12, padding:"9px 11px" }}>
+            <p style={{ fontSize:9.5, color, fontFamily:"'Epilogue',sans-serif", fontWeight:700, marginBottom:5 }}>{label}</p>
+            <input type="number" min="0" value={quantities[key]} onChange={e=>setQuantities(q=>({...q,[key]:Math.max(0, parseInt(e.target.value||'0',10))}))}
+              style={{ width:"100%", padding:"7px 9px", borderRadius:9, background:C.bg, border:`1px solid ${C.border}`, color:C.text, fontSize:14, fontWeight:700 }} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── ALBUM / RELEASE TRACKER FORM ──────────────────────────────────────────────
+// Folder type: 'album'. Browses verified card_templates for this group when any
+// exist (routes into the existing DB-template preview → real
+// /api/binders/from-template flow), or collects a manual/custom release —
+// clearly labeled Custom, never presented as official.
+function AlbumTrackerForm({ groupName, templates=[], onOpenTemplate, onBack, onCreatedFolder }) {
+  const [mode, setMode] = useState(templates.length>0 ? 'browse' : 'manual');
+  const RELEASE_TYPES = ['Album','Mini Album','Single','Repackage','Special','Other'];
+  const REGIONS = ['KR','JP','EN','CN','Other'];
+  const [form, setForm] = useState({ title:"", releaseType:"Album", region:"KR", version:"", notes:"" });
+  const [cover, setCover] = useState(null);
+  const [uploadingCover, setUploadingCover] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+  const coverRef = useRef(null);
+
+  const pickCover = async (e) => {
+    const file = e.target.files?.[0]; e.target.value=''; if (!file || uploadingCover) return;
+    setUploadingCover(true); setErr("");
+    try { setCover(await uploadCoverImage(file, '/api/binders/upload-url')); }
+    catch (ex) { setErr(ex.message || 'Could not upload cover.'); }
+    setUploadingCover(false);
+  };
+
+  const save = async () => {
+    if (!form.title.trim() || saving) return;
+    setSaving(true); setErr("");
+    const { binder, ok, error } = await createFolderBinder({ name: form.title.trim(), group_name: groupName, cover_url: cover||null, cover_color: C.accent });
+    if (!ok) { setErr(error==='non_json_response' ? "Couldn't reach your collection server, so this folder wasn't saved. Please try again." : "Couldn't save this folder. Please try again."); setSaving(false); return; }
+    writeFolderMeta(binder.id, { folderType:'album', isCustom:true, releaseType:form.releaseType, region:form.region, version:form.version, notes:form.notes });
+    onCreatedFolder(binder);
+  };
+
+  return (
+    <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden" }}>
+      <div style={{ padding:"14px 20px 12px",flexShrink:0,display:"flex",alignItems:"center",gap:10 }}>
+        <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
+        <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18 }}>Album / Release Tracker</h2>
+      </div>
+      {templates.length>0 && (
+        <div style={{ padding:"0 20px 12px", flexShrink:0, display:"flex", gap:0, background:C.surfaceHi, borderRadius:13, margin:"0 20px 0" }}>
+          {[['browse','Browse Verified'],['manual','Add Manually']].map(([id,label])=>(
+            <span key={id} onClick={()=>setMode(id)} style={{ flex:1,textAlign:"center",padding:"8px 4px",borderRadius:10,fontSize:11.5,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",background:mode===id?C.accent:"transparent",color:mode===id?C.bg:C.textMid }}>{label}</span>
+          ))}
+        </div>
+      )}
+      <Screen style={{ padding:"14px 20px calc(140px + env(safe-area-inset-bottom))" }}>
+        {mode==='browse' ? (
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            <p style={{ fontSize:11, color:C.textMid, marginBottom:2, lineHeight:1.6 }}>Verified releases in the catalog for {groupName}. Tap one to start tracking it.</p>
+            {templates.map(t=>(
+              <button key={t.id} onClick={()=>onOpenTemplate(t)} className="tap" style={{ padding:"13px 15px", borderRadius:18, textAlign:"left", cursor:"pointer", background:C.surfaceHi, border:`1px solid ${(t.color||C.accent)}33`, display:"flex", alignItems:"center", gap:12 }}>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:13.5, color:C.text, marginBottom:2 }}>{t.album}</p>
+                  <div style={{ display:"flex", gap:5, flexWrap:"wrap", alignItems:"center" }}>
+                    {t.era && <span style={{ ...VS.activePill(t.color||C.accent), fontSize:8 }}>{t.era}</span>}
+                    <span style={{ ...VS.activePill(C.silver), fontSize:8 }}>{t.count} cards</span>
+                  </div>
+                </div>
+                <span style={{ color:t.color||C.accent, fontSize:16, flexShrink:0 }}>→</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+            <Input label="Release Title *" value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="e.g. Golden Hour: Part.1" />
+            <div>
+              <p style={{ fontSize:10,color:C.textMid,marginBottom:8,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em" }}>Release Type</p>
+              <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
+                {RELEASE_TYPES.map(rt=>(
+                  <button key={rt} onClick={()=>setForm(f=>({...f,releaseType:rt}))} style={{ padding:"6px 12px",borderRadius:99,fontSize:11,fontFamily:"'Epilogue',sans-serif",fontWeight:700,background:form.releaseType===rt?C.accent:"transparent",color:form.releaseType===rt?C.bg:C.textMid,border:`1.5px solid ${form.releaseType===rt?C.accent:C.border}`,cursor:"pointer" }}>{rt}</button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p style={{ fontSize:10,color:C.textMid,marginBottom:8,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em" }}>Region</p>
+              <div style={{ display:"flex",gap:6 }}>
+                {REGIONS.map(r=>(
+                  <button key={r} onClick={()=>setForm(f=>({...f,region:r}))} style={{ flex:1,padding:"7px 4px",borderRadius:10,fontSize:11,fontFamily:"'Epilogue',sans-serif",fontWeight:700,background:form.region===r?C.accent:"transparent",color:form.region===r?C.bg:C.textMid,border:`1.5px solid ${form.region===r?C.accent:C.border}`,cursor:"pointer",textAlign:"center" }}>{r}</button>
+                ))}
+              </div>
+            </div>
+            <Input label="Album / Version (optional)" value={form.version} onChange={e=>setForm(f=>({...f,version:e.target.value}))} placeholder="e.g. Ver. A, Digipack, Weverse" />
+            <div>
+              <p style={{ fontSize:10,color:C.textMid,marginBottom:8,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em" }}>Cover (optional)</p>
+              {cover ? (
+                <div style={{ position:"relative", width:"100%", height:120, borderRadius:16, overflow:"hidden", border:`1.5px solid ${C.accent}55` }}>
+                  <img src={cover} alt="cover" style={{ width:"100%",height:"100%",objectFit:"cover" }} />
+                  <button onClick={()=>setCover(null)} style={{ position:"absolute",top:8,right:8,padding:"5px 10px",borderRadius:9,background:"rgba(10,8,20,0.72)",border:`1px solid ${C.rose}66`,color:C.rose,fontSize:10.5,fontWeight:700,cursor:"pointer" }}>Remove</button>
+                </div>
+              ) : (
+                <button onClick={()=>coverRef.current?.click()} disabled={uploadingCover} style={{ width:"100%", height:100, borderRadius:16, border:`1.5px dashed ${C.border}`, background:`${C.accent}0c`, color:C.textMid, cursor:"pointer" }}>{uploadingCover?"Uploading…":"＋ Add cover"}</button>
+              )}
+              <input ref={coverRef} type="file" accept="image/*" onChange={pickCover} style={{ display:"none" }} />
+            </div>
+            <Textarea label="Notes (optional)" value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} placeholder="e.g. Editions, where you got it..." style={{ height:64 }} />
+            <div style={{ background:`${C.gold}0a`, border:`1px solid ${C.gold}28`, borderRadius:14, padding:"10px 14px" }}>
+              <p style={{ fontSize:10.5, color:C.gold, fontFamily:"'Epilogue',sans-serif", fontWeight:700, marginBottom:2 }}>Custom / User-added</p>
+              <p style={{ fontSize:10.5, color:C.textMid, lineHeight:1.55 }}>This release isn't in the verified catalog. It's tracked as your own custom entry and can be matched to a verified record later without losing your data.</p>
+            </div>
+            {err && <p style={{ fontSize:11.5, color:C.rose }}>{err}</p>}
+            <Btn onClick={save} disabled={saving||uploadingCover||!form.title.trim()}>{saving?"Creating...":"Create Album Folder ✦"}</Btn>
+          </div>
+        )}
+      </Screen>
+    </div>
+  );
+}
+
+// ─── PHOTOCARD COLLECTION TRACKER FORM ─────────────────────────────────────────
+// Folder type: 'photocard'. Works immediately with zero catalog data — the fan
+// can upload a real photo of their card and log quantities the moment they open it.
+function PhotocardFolderForm({ groupName, onBack, onCreatedFolder }) {
+  const [form, setForm] = useState({ name:"", member:"", album:"", version:"", storeSource:"", notes:"" });
+  const [quantities, setQuantities] = useState({ owned:1, iso:0, duplicate:0, for_trade:0 });
+  const [photoFile, setPhotoFile] = useState(null);
+  const [photoPreview, setPhotoPreview] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+  const photoRef = useRef(null);
+
+  const handlePhoto = (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    setPhotoFile(f);
+    const r = new FileReader();
+    r.onload = ev => setPhotoPreview(ev.target.result);
+    r.readAsDataURL(f);
+  };
+
+  const save = async () => {
+    if (!form.name.trim() || saving) return;
+    setSaving(true); setErr("");
+    try {
+      const { binder, ok, error } = await createFolderBinder({ name: form.name.trim(), group_name: groupName, cover_color: C.accent });
+      if (!ok) { setErr(error==='non_json_response' ? "Couldn't reach your collection server, so this folder wasn't saved. Please try again." : "Couldn't save this folder. Please try again."); setSaving(false); return; }
+      writeFolderMeta(binder.id, { folderType:'photocard', isCustom:true, member:form.member, album:form.album, version:form.version, storeSource:form.storeSource, notes:form.notes });
+      let imageUrl = null;
+      if (photoFile) {
+        const resized = await resizeImageForUpload(photoFile);
+        const urlRes = await api.post('/api/cards/upload-url', { filename: resized.name, content_type: resized.type });
+        if (urlRes?.signed_url) {
+          await fetch(urlRes.signed_url, { method:'PUT', body:resized, headers:{'Content-Type':resized.type} });
+          imageUrl = urlRes.public_url;
+        }
+      }
+      await saveFolderCardQuantities({ binderId: binder.id, groupName, member: form.member, album: form.album, version: form.version, notes: form.notes, imageUrl, quantities });
+      onCreatedFolder(binder);
+    } catch { setErr("Failed to save. Try again."); setSaving(false); }
+  };
+
+  return (
+    <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden" }}>
+      <div style={{ padding:"14px 20px 12px",flexShrink:0,display:"flex",alignItems:"center",gap:10 }}>
+        <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
+        <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18 }}>Photocard Collection Tracker</h2>
+      </div>
+      <Screen style={{ padding:"0 20px calc(140px + env(safe-area-inset-bottom))" }}>
+        <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
+          <Input label="Folder Name *" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="e.g. San / Bias Wrecker Cards" />
+          <div>
+            <p style={{ fontSize:10,color:C.textMid,marginBottom:8,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em" }}>Photo (optional)</p>
+            {photoPreview ? (
+              <div style={{ display:"inline-block",position:"relative" }}>
+                <img src={photoPreview} alt="card" style={{ width:84,height:126,objectFit:"cover",objectPosition:"center",borderRadius:14,border:`2px solid ${C.accent}66` }} />
+                <button onClick={()=>{setPhotoFile(null);setPhotoPreview(null);}} style={{ position:"absolute",top:-8,right:-8,width:20,height:20,borderRadius:"50%",background:C.rose,border:"none",color:C.bg,fontSize:10,cursor:"pointer" }}>×</button>
+              </div>
+            ) : (
+              <button onClick={()=>photoRef.current?.click()} style={{ width:84,height:126,borderRadius:14,background:`${C.accent}10`,border:`2px dashed ${C.accent}44`,color:C.accent,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4 }}>
+                <span style={{ fontSize:22 }}>📸</span><span>Add Photo</span>
+              </button>
+            )}
+            <input ref={photoRef} type="file" accept="image/*" onChange={handlePhoto} style={{ display:"none" }} />
+          </div>
+          <Input label="Member / OT Classification" value={form.member} onChange={e=>setForm(f=>({...f,member:e.target.value}))} placeholder="e.g. Felix, or OT8" />
+          <Input label="Album / Release" value={form.album} onChange={e=>setForm(f=>({...f,album:e.target.value}))} placeholder="e.g. 5-STAR" />
+          <Input label="Version / Set" value={form.version} onChange={e=>setForm(f=>({...f,version:e.target.value}))} placeholder="e.g. Standard, Lucky Draw..." />
+          <Input label="Store / POB Source" value={form.storeSource} onChange={e=>setForm(f=>({...f,storeSource:e.target.value}))} placeholder="e.g. Ktown4u, Weverse..." />
+          <QuantityGrid quantities={quantities} setQuantities={setQuantities} />
+          <Textarea label="Notes (optional)" value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} style={{ height:64 }} />
+          {err && <p style={{ fontSize:11.5, color:C.rose }}>{err}</p>}
+          <Btn onClick={save} disabled={saving||!form.name.trim()}>{saving?"Creating...":"Create Photocard Folder ✦"}</Btn>
+        </div>
+      </Screen>
+    </div>
+  );
+}
+
+// ─── POB / EXCLUSIVE TRACKER FORM ──────────────────────────────────────────────
+// Folder type: 'pob'. The current 5-seed catalog has no verified POB records for
+// any group, so this reliably shows the honest "not in the verified catalog yet"
+// path — never fabricates counts, always offers the custom-entry path instead.
+function PobTrackerForm({ groupName, onBack, onCreatedFolder }) {
+  const POB_TYPES = ['Lucky Draw','Fansign','Broadcast','Event','Tour','Promotional','Other'];
+  const [form, setForm] = useState({ name:"", storeSource:"", pobType:"Lucky Draw", notes:"" });
+  const [quantities, setQuantities] = useState({ owned:1, iso:0, duplicate:0, for_trade:0 });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+
+  const save = async () => {
+    if (!form.name.trim() || saving) return;
+    setSaving(true); setErr("");
+    const { binder, ok, error } = await createFolderBinder({ name: form.name.trim(), group_name: groupName, cover_color: C.rose });
+    if (!ok) { setErr(error==='non_json_response' ? "Couldn't reach your collection server, so this folder wasn't saved. Please try again." : "Couldn't save this folder. Please try again."); setSaving(false); return; }
+    writeFolderMeta(binder.id, { folderType:'pob', isCustom:true, storeSource:form.storeSource, pobType:form.pobType, notes:form.notes });
+    await saveFolderCardQuantities({ binderId: binder.id, groupName, member: form.pobType, album: form.storeSource, version: form.pobType, notes: form.notes, imageUrl:null, quantities });
+    onCreatedFolder(binder);
+  };
+
+  return (
+    <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden" }}>
+      <div style={{ padding:"14px 20px 12px",flexShrink:0,display:"flex",alignItems:"center",gap:10 }}>
+        <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
+        <h2 style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18 }}>POB / Exclusive Tracker</h2>
+      </div>
+      <Screen style={{ padding:"0 20px calc(140px + env(safe-area-inset-bottom))" }}>
+        <div style={{ background:`${C.accent}08`, border:`1.5px dashed ${C.border}`, borderRadius:16, padding:"14px 16px", marginBottom:16 }}>
+          <p style={{ fontSize:11.5, color:C.textMid, lineHeight:1.6 }}>No verified POB / store-exclusive records for {groupName} yet. Add one manually below — it's tracked as your own custom entry.</p>
+        </div>
+        <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
+          <Input label="Folder Name *" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="e.g. Weverse Lucky Draw" />
+          <Input label="Store / Source" value={form.storeSource} onChange={e=>setForm(f=>({...f,storeSource:e.target.value}))} placeholder="e.g. Weverse, Ktown4u, Tour merch..." />
+          <div>
+            <p style={{ fontSize:10,color:C.textMid,marginBottom:8,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em" }}>Type</p>
+            <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
+              {POB_TYPES.map(pt=>(
+                <button key={pt} onClick={()=>setForm(f=>({...f,pobType:pt}))} style={{ padding:"6px 12px",borderRadius:99,fontSize:11,fontFamily:"'Epilogue',sans-serif",fontWeight:700,background:form.pobType===pt?C.rose:"transparent",color:form.pobType===pt?C.bg:C.textMid,border:`1.5px solid ${form.pobType===pt?C.rose:C.border}`,cursor:"pointer" }}>{pt}</button>
+              ))}
+            </div>
+          </div>
+          <QuantityGrid quantities={quantities} setQuantities={setQuantities} />
+          <Textarea label="Notes (optional)" value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} style={{ height:64 }} />
+          {err && <p style={{ fontSize:11.5, color:C.rose }}>{err}</p>}
+          <Btn onClick={save} disabled={saving||!form.name.trim()}>{saving?"Creating...":"Create POB Folder ✦"}</Btn>
+        </div>
+      </Screen>
+    </div>
+  );
+}
+
 // ─── CUSTOM BINDER FORM ───────────────────────────────────────────────────────
-function CustomBinderForm({ onBack, onSaved }) {
-  const [form, setForm] = useState({ name:"", group_name:"", emoji:"🃏", cover_color:C.accent });
+function CustomBinderForm({ onBack, onSaved, initialGroupName=null, lockGroup=false, title="Custom Binder" }) {
+  const [form, setForm] = useState({ name:"", group_name:initialGroupName||"", emoji:"🃏", cover_color:C.accent });
   const [cover, setCover] = useState(null);          // uploaded cover URL / data URL
   const [uploadingCover, setUploadingCover] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -8188,12 +8600,19 @@ function CustomBinderForm({ onBack, onSaved }) {
     <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
       <div style={{ padding:"14px 20px 12px", flexShrink:0, display:"flex", alignItems:"center", gap:10 }}>
         <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
-        <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:18 }}>Custom Binder</h2>
+        <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:18 }}>{title}</h2>
       </div>
       <Screen style={{ padding:"0 20px calc(140px + env(safe-area-inset-bottom))" }}>
         <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
-          <Input label="Binder Name *" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="e.g. My SKZ Collection" />
-          <Input label="Group (optional)" value={form.group_name} onChange={e=>setForm(f=>({...f,group_name:e.target.value}))} placeholder="e.g. Stray Kids" />
+          <Input label="Folder Name *" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="e.g. My SKZ Collection" />
+          {lockGroup ? (
+            <div>
+              <p style={{ fontSize:10,color:C.textMid,marginBottom:6,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em" }}>Group</p>
+              <div style={{ padding:"11px 14px", borderRadius:12, background:C.surfaceHi, border:`1px solid ${C.border}`, fontSize:13, color:C.textMid }}>{form.group_name}</div>
+            </div>
+          ) : (
+            <Input label="Group (optional)" value={form.group_name} onChange={e=>setForm(f=>({...f,group_name:e.target.value}))} placeholder="e.g. Stray Kids" />
+          )}
 
           {/* Binder cover photo — the primary identity. Falls back to color + icon. */}
           <div>
@@ -9709,7 +10128,8 @@ function CollectTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
     refreshBinders();
   };
 
-  if (showBinderCreate) return <BinderCreate onBack={()=>{ setShowBinderCreate(false); refreshBinders(); }} onCustom={()=>{ setShowBinderCreate(false); setShowCustomBinder(true); }} onCreatedBinder={b=>{ setShowBinderCreate(false); refreshBinders(); refreshCards(); setSelectedBinder(b); }} />;
+  if (showBinderCreate) return <BinderCreate onBack={()=>{ setShowBinderCreate(false); refreshBinders(); }} onCustom={()=>{ setShowBinderCreate(false); setShowCustomBinder(true); }} onCreatedBinder={b=>{ setShowBinderCreate(false); refreshBinders(); refreshCards(); setSelectedBinder(b); }}
+    binders={binders} cards={cards} cardsLoading={cardsLoading} setCards={setCards} patchCard={patchCard} deleteCard={deleteCard} addCard={addCard} refreshBinders={()=>{ refreshBinders(); refreshCards(); }} />;
   if (showCustomBinder) return <CustomBinderForm onBack={()=>setShowCustomBinder(false)} onSaved={b=>{ setShowCustomBinder(false); refreshBinders(); setSelectedBinder(b); }} />;
   if (showTradeHub) return <TradeHub onBack={()=>setShowTradeHub(false)} user={user} />;
   if (selectedBinder) return <BinderDetail binder={selectedBinder} onCoverChange={patchBinderCover} cards={cards} cardsLoading={cardsLoading} setCards={setCards} patchCard={patchCard} deleteCard={deleteCard} addCard={addCard} onBack={()=>setSelectedBinder(null)} />;
