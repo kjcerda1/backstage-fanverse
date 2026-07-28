@@ -3832,30 +3832,6 @@ function AskBackstageButton({ go }) {
   );
 }
 
-// Saved (bookmark) shortcut — floats beside Messages on Fanverse/Explore so the
-// private Saved list stays reachable now that it's left My World's collector nav.
-// Clean bookmark-outline glyph (no pushpin), matching the header glass-pill style.
-function FloatingSavedButton({ go }) {
-  return (
-    <button
-      onClick={()=>go?.("saved")}
-      className="tap"
-      title="Saved"
-      style={{
-        position:"absolute", top:6, right:108, zIndex:300,
-        width:40, height:40, borderRadius:13,
-        background:C.glassBgHi, border:`1px solid ${C.glassBorder}`,
-        color:C.textMid, cursor:"pointer",
-        display:"flex",alignItems:"center",justifyContent:"center",
-        boxShadow:"inset 0 1px 0 rgba(255,255,255,0.05)",
-        backdropFilter:"blur(10px)", transition:"all .2s",
-      }}
-    >
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
-    </button>
-  );
-}
-
 // ─── FANVERSE FLOATING DOCK ────────────────────────────────────────────────────
 // Single glass orb consolidating Messages + Ask Backstage AI — replaces the old
 // stacked Messages-pill-above-AI-orb layout. Resting = one orb; tap expands a
@@ -6296,90 +6272,77 @@ function PhotocardGrid({ cards, groups, groupFilter, setGroupFilter, go, onAddCa
   );
 }
 
+// Refined bookmark outline — no pushpin / cheesy imagery. filled = saved/active.
+const BookmarkOutline = ({ size=16, filled=false, color="currentColor" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill={filled?color:"none"} stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display:"block" }}><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+);
+
 // ─── SAVED / REPOSTS ─────────────────────────────────────────────────────────
-// The "place to track them" for the two feed actions that persist per-user.
-// GET /api/me/saves and /api/me/reposts, ordered by when you interacted.
-// Saves are PRIVATE — the copy says so, because a bookmark that people think is
-// public is a privacy surprise waiting to happen.
-function SavedPostsSection({ go, onBack, initialView="saved" }) {
+// One reusable list for the two per-user feed actions, kept cleanly SEPARATE via
+// `mode`: the private Saved page (a My World tab) and public Reposts (My Stage)
+// never mix. Renders inline as a My World section, or full-screen with a back
+// button when `onBack` is given. GET /api/me/saves | /api/me/reposts — Saved is
+// private (the copy says so) and spans posts saved from Fanverse AND Explore.
+function SavedPostsSection({ go, onBack, mode="saved" }) {
   const { tokenReady } = useAuth();
-  const [view, setView]       = useState(initialView);   // saved | reposts
+  const isSaved = mode !== "reposts";
   const [posts, setPosts]     = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(false);
 
-  const load = useCallback(async (which) => {
+  const load = useCallback(async () => {
     setLoading(true); setError(false);
-    const d = await api.get(which === "saved" ? '/api/me/saves' : '/api/me/reposts');
+    const d = await api.get(isSaved ? '/api/me/saves' : '/api/me/reposts');
     if (d?.error || !Array.isArray(d?.posts)) {
       console.warn('[saved] load failed:', d?.error);
       setError(true); setLoading(false); return;
     }
     setPosts(d.posts.map(apiPostToFeed));
     setLoading(false);
-  }, []);
+  }, [isSaved]);
 
-  useEffect(() => { if (tokenReady) load(view); }, [tokenReady, view, load]);
+  useEffect(() => { if (tokenReady) load(); }, [tokenReady, load]);
 
-  // Un-saving / un-reposting from this screen removes the row immediately —
-  // it's the only list where the item disappearing is the expected outcome.
+  // Un-saving / un-reposting removes the row immediately — the expected outcome here.
   const undo = async (post) => {
-    const path = view === "saved" ? `/api/posts/${post.id}/save` : `/api/posts/${post.id}/repost`;
+    const path = isSaved ? `/api/posts/${post.id}/save` : `/api/posts/${post.id}/repost`;
     setPosts(ps => ps.filter(p => p.id !== post.id));
     const r = await api.post(path);
-    if (r?.error) {
-      console.warn('[saved] undo failed:', r.error);
-      load(view);   // put it back by refetching truth
-    }
+    if (r?.error) { console.warn('[saved] undo failed:', r.error); load(); }
   };
 
-  const TABS = [
-    { id:"saved",   label:"🔖 Saved" },
-    { id:"reposts", label:"⟲ Reposts" },
-  ];
-
-  return (
-    <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
-      <div style={{ padding:"14px 20px 10px", flexShrink:0, display:"flex", alignItems:"center", gap:10 }}>
-        {onBack && <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>}
-        <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:18, margin:0 }}>Saved &amp; Reposts</h2>
-      </div>
-      <Screen style={{ padding:"0 20px calc(40px + env(safe-area-inset-bottom))" }}>
-      <div style={{ background:`linear-gradient(140deg,${C.plum},${C.cosmic})`,border:`1.5px solid ${C.accent}20`,borderRadius:18,padding:"14px 16px",marginBottom:14 }}>
-        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,color:C.text,marginBottom:4 }}>🔖 Saved &amp; Reposted</p>
-        <p style={{ fontSize:11,color:C.textMid,lineHeight:1.6 }}>
-          {view==="saved"
-            ? "Posts you bookmarked. Private — only you can see this list."
-            : "Posts you sent back out to the Fanverse."}
-        </p>
+  const title = isSaved ? "Saved" : "Reposts";
+  const body = (
+    <>
+      {/* Clean light-glass header — shared card system, no dark banner, no pushpin. */}
+      <div style={{ display:"flex", alignItems:"center", gap:11, background:C.surfaceHi, border:`1px solid ${C.border}`, borderRadius:16, padding:"12px 14px", marginBottom:14 }}>
+        <span style={{ width:30, height:30, borderRadius:10, flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", background:`${C.accent}18`, border:`1px solid ${C.accent}33`, color:C.accent }}>
+          {isSaved ? <BookmarkOutline size={15} filled /> : <span style={{ fontSize:15 }}>⟲</span>}
+        </span>
+        <div style={{ minWidth:0 }}>
+          <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:13.5, color:C.text }}>{title}</p>
+          <p style={{ fontSize:10.5, color:C.textMid, lineHeight:1.5 }}>{isSaved ? "Private — only you can see this. Posts you bookmarked from across Backstage." : "Posts you sent back out to the Fanverse."}</p>
+        </div>
       </div>
 
-      <div style={{ display:"flex", gap:6, marginBottom:14 }}>
-        {TABS.map(t=>(
-          <span key={t.id} onClick={()=>setView(t.id)} className="tap" style={{ padding:"6px 13px", borderRadius:99, fontSize:11, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer", background:view===t.id?`linear-gradient(135deg,${C.accent},${C.lavender})`:C.chipInactiveBg, color:view===t.id?"#1a1228":C.textMid, border:`1px solid ${view===t.id?"rgba(255,255,255,0.28)":C.glassBorder}` }}>{t.label}</span>
-        ))}
-      </div>
-
-      {loading && (
-        <p style={{ textAlign:"center", fontSize:11, color:C.textDim, padding:"26px 0", fontFamily:"'Epilogue',sans-serif" }}>Loading…</p>
-      )}
+      {loading && <p style={{ textAlign:"center", fontSize:11, color:C.textDim, padding:"26px 0", fontFamily:"'Epilogue',sans-serif" }}>Loading…</p>}
 
       {!loading && error && (
         <div style={{ textAlign:"center", padding:"30px 20px" }}>
-          <p style={{ fontSize:12, color:C.textMid, marginBottom:10 }}>Couldn't load this list.</p>
-          <button onClick={()=>load(view)} className="tap" style={{ background:C.chipInactiveBg,border:`1px solid ${C.glassBorder}`,borderRadius:99,padding:"7px 16px",fontSize:11,color:C.text,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>Retry</button>
+          <p style={{ fontSize:12, color:C.textMid, marginBottom:10 }}>Couldn't load your {isSaved?"saved posts":"reposts"}.</p>
+          <button onClick={load} className="tap" style={{ background:C.surfaceHi, border:`1px solid ${C.border}`, borderRadius:99, padding:"7px 16px", fontSize:11, color:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:700, cursor:"pointer" }}>Retry</button>
         </div>
       )}
 
       {!loading && !error && posts.length===0 && (
         <div style={{ textAlign:"center", padding:"40px 20px", color:C.textDim }}>
-          <p style={{ fontSize:30, marginBottom:12 }}>{view==="saved"?"🔖":"⟲"}</p>
+          <div style={{ display:"flex", justifyContent:"center", marginBottom:12, color:C.textMid }}>{isSaved ? <BookmarkOutline size={30} /> : <span style={{ fontSize:30 }}>⟲</span>}</div>
           <p style={{ fontSize:12.5, lineHeight:1.6 }}>
-            {view==="saved"
-              ? <>Nothing saved yet.<br/>Tap 🏷️ on any Fanverse post to keep it here.</>
-              : <>No reposts yet.<br/>Tap ⟲ on a post to share it with your Fanverse.</>}
+            {isSaved
+              ? <>Nothing saved yet.<br/>Tap the bookmark on any Fanverse or Explore post to keep it here.</>
+              : <>No reposts yet.<br/>Tap repost on a post to share it with your Fanverse.</>}
           </p>
-          <button onClick={()=>go?.("fanverse")} className="tap" style={{ marginTop:16, background:`linear-gradient(135deg,${C.accent},${C.lavender})`, border:"none", borderRadius:99, padding:"9px 20px", color:"#1a1228", fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, cursor:"pointer" }}>Go to the Feed</button>
+          <button onClick={()=>go?.("fanverse")} className="tap" style={{ marginTop:16, background:`${C.accent}18`, border:`1px solid ${C.accent}44`, borderRadius:99, padding:"9px 20px", color:C.accent, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, cursor:"pointer" }}>Go to the Feed</button>
         </div>
       )}
 
@@ -6391,8 +6354,8 @@ function SavedPostsSection({ go, onBack, initialView="saved" }) {
               <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, color:C.text }}>{p.user}</p>
               <p style={{ fontSize:9.5, color:C.textMid }}>{p.time}</p>
             </div>
-            <button onClick={()=>undo(p)} className="tap" title={view==="saved"?"Remove from saved":"Undo repost"} style={{ background:"none", border:"none", fontSize:14, color:view==="saved"?C.gold:C.iris, cursor:"pointer", flexShrink:0 }}>
-              {view==="saved" ? "🔖" : "⟲"}
+            <button onClick={()=>undo(p)} className="tap" title={isSaved?"Remove from saved":"Undo repost"} style={{ background:"none", border:"none", cursor:"pointer", flexShrink:0, display:"flex", alignItems:"center", padding:4 }}>
+              {isSaved ? <BookmarkOutline size={15} filled color={C.accent} /> : <span style={{ fontSize:14, color:C.iris }}>⟲</span>}
             </button>
           </div>
           <p style={{ fontSize:12.5, lineHeight:1.65, color:C.text, wordBreak:"break-word" }}>{p.text}</p>
@@ -6408,9 +6371,19 @@ function SavedPostsSection({ go, onBack, initialView="saved" }) {
           </div>
         </div>
       ))}
-      </Screen>
+    </>
+  );
+
+  if (onBack) return (
+    <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
+      <div style={{ padding:"14px 20px 10px", flexShrink:0, display:"flex", alignItems:"center", gap:10 }}>
+        <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
+        <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:18, margin:0 }}>{title}</h2>
+      </div>
+      <Screen style={{ padding:"0 20px calc(40px + env(safe-area-inset-bottom))" }}>{body}</Screen>
     </div>
   );
+  return <div style={{ paddingTop:4 }}>{body}</div>;
 }
 
 // Standalone Achievements sheet — re-homed out of My World's collector nav so
@@ -6630,16 +6603,16 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
     {key:"biasMoment", label:"Favorite Bias Moment",   emoji:"💜", placeholder:"Karina eye contact fancam", color:C.rose    },
   ];
 
-  // Primary My World collector sections only. Saved/Reposts are social/feed
-  // utilities (moved out of My World); Memories + Capsule Memories now live as
+  // Primary My World collector sections. Memories + Capsule Memories live as
   // subviews inside Scrapbooks; Era Rooms open from the group binder cross-link;
-  // Achievements belong on My Stage. Keeping this to four keeps the collector
-  // model coherent instead of a row of overlapping stores.
+  // Achievements + Reposts belong on My Stage. Saved is the private personal
+  // bookmark destination and sits last, after the collector tabs.
   const SECTIONS = [
     { id:'albums', label:'Collection', icon:'' },
     { id:'wishlist', label:'Wishlist', icon:'' },
     { id:'trades', label:'Trades', icon:'' },
     { id:'scrapbook', label:'Scrapbooks', icon:'' },
+    { id:'saved', label:'Saved', icon:'' },
   ];
 
   return (
@@ -7248,6 +7221,10 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
         })()}
           </div>
         )}
+
+        {/* Saved — private personal bookmarks (posts saved from Fanverse + Explore).
+            Reposts stay on My Stage; they are NOT shown here. */}
+        {section==="saved" && <SavedPostsSection go={go} mode="saved" />}
 
         {section==="achievements" && (
           <div style={{ paddingTop:4 }}>
@@ -21855,7 +21832,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
         <div style={{ marginBottom:18 }}>
           <SectionHeader title="My Content" />
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:9 }}>
-            {[["🏅 Achievements","achievements"],["🔖 Saved","saved"],["⟲ Reposts","reposts"],["📸 My Shows","myshows"],["💬 Messages","chats"],["💸 Budget Tracker","budget"],["🎁 Invite Crew","invite"],["✦ Stage Studio","studio"]].map(([label,dest])=>(
+            {[["🏅 Achievements","achievements"],["⟲ Reposts","reposts"],["📸 My Shows","myshows"],["💬 Messages","chats"],["💸 Budget Tracker","budget"],["🎁 Invite Crew","invite"],["✦ Stage Studio","studio"]].map(([label,dest])=>(
               <button key={label} onClick={()=>["myshows","studio","kdramas"].includes(dest)?setSection(dest):go(dest)} className="tap" style={{ padding:"13px", borderRadius:16, background:dest==="studio"?`linear-gradient(140deg,${C.gold}26,${C.gold}0e)`:C.surfaceHi, border:`1.5px solid ${dest==="studio"?C.gold+"70":C.border}`, color:dest==="studio"?C.gold:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:600, fontSize:12, cursor:"pointer", textAlign:"center", boxShadow:dest==="studio"?`0 4px 14px ${C.gold}22`:"none" }}>{label}</button>
             ))}
             <button onClick={()=>go("signout")} className="tap" style={{ padding:"13px", borderRadius:16, background:"transparent", border:`1.5px solid ${C.rose}28`, color:C.rose, fontFamily:"'Epilogue',sans-serif", fontWeight:600, fontSize:12, cursor:"pointer", textAlign:"center" }}>🚪 Sign Out</button>
@@ -26399,7 +26376,7 @@ function AppInner() {
     // "+" shortcut on the Your Pass story bubble — jump straight into the Pass
     // composer instead of just opening the Backstage Passes browsing page.
     if(dest==="passes_create"){ ls.set("backstage_open_pass_composer", true); dest = "passes"; }
-    const FULL_MODALS = ["concertprep","myshows","scrapbook","afterglow","friends","chats","qr","safety","events","concertday","timeline","tickets","nearby","trust","games","creator","backup","fanidentity","valuetracks","fanprojects","assistant","invite","contentgen","fanmap","livefeed","budget","capsule","passes","notifications","notif_settings","saved","reposts","achievements"];
+    const FULL_MODALS = ["concertprep","myshows","scrapbook","afterglow","friends","chats","qr","safety","events","concertday","timeline","tickets","nearby","trust","games","creator","backup","fanidentity","valuetracks","fanprojects","assistant","invite","contentgen","fanmap","livefeed","budget","capsule","passes","notifications","notif_settings","reposts","achievements"];
     if(FULL_MODALS.includes(dest)){
       // Push a new history entry so the browser back button can close this modal
       window.history.pushState({ bsLevel:1, modal:dest }, '');
@@ -26744,8 +26721,7 @@ function AppInner() {
         {modal==="concertprep"&&<ToolModalWrapper title="Concert Prep Guide 📋"><ConcertPrep /></ToolModalWrapper>}
         {modal==="myshows"&&<ModalWrapper><MyShowsPage onBack={()=>setModal(null)} isVip={isVip} onUpgrade={openUpgrade} go={go} /></ModalWrapper>}
         {modal==="scrapbook"&&<ModalWrapper><ScrapbookTab isVip={isVip} onUpgrade={openUpgrade} onBack={()=>setModal(null)} /></ModalWrapper>}
-        {modal==="saved"&&<ModalWrapper><SavedPostsSection go={go} onBack={()=>setModal(null)} initialView="saved" /></ModalWrapper>}
-        {modal==="reposts"&&<ModalWrapper><SavedPostsSection go={go} onBack={()=>setModal(null)} initialView="reposts" /></ModalWrapper>}
+        {modal==="reposts"&&<ModalWrapper><SavedPostsSection go={go} onBack={()=>setModal(null)} mode="reposts" /></ModalWrapper>}
         {modal==="achievements"&&<ModalWrapper><AchievementsModal onBack={()=>setModal(null)} isVip={isVip} /></ModalWrapper>}
         {modal==="friends"&&<ModalWrapper><FriendsPage onBack={()=>setModal(null)} onNotif={showNotif} go={go} onViewProfile={(fan)=>setPublicProfileFan({...fan,fromDM:false})} /></ModalWrapper>}
         {modal==="fanmap"&&<ModalWrapper><FanverseMap onBack={()=>setModal(null)} /></ModalWrapper>}
@@ -26858,9 +26834,6 @@ function AppInner() {
               {/* Messages + Notifications — on every tab except My Stage (profile), which has
                   its own dense section nav. */}
               {tab!=="profile"&&<FloatingMessagesButton go={go} />}
-              {/* Saved (bookmark) shortcut — Fanverse/Explore only, so it stays out
-                  of My World's collector nav where it no longer belongs. */}
-              {(tab==="community"||tab==="explore")&&<FloatingSavedButton go={go} />}
               {tab!=="profile"&&<NotificationBell onOpen={()=>setModal("notifications")} onOpenSettings={()=>go("notif_settings")} />}
             </>
           )}
