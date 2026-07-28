@@ -22,6 +22,18 @@
 --     quantity is the count of EXTRA copies, not total copies. See PART C-4.
 --   - Validation fixed to treat for_trade_quantity as a SUBSET of
 --     owned_quantity (never additive/disjoint) — see PART C-5.
+--
+-- REV 3 changes (2026-07-29), per security correction:
+--   - `user_cards_backfill_audit` (PART C-1) previously had NO RLS and NO
+--     REVOKE — verified empirically in a disposable test project that this
+--     left it fully readable/writable/deletable by `anon` AND `authenticated`
+--     through the public REST API, purely from Supabase's default schema
+--     privileges (RLS off = default-allow once any privilege is granted, and
+--     newly created public-schema tables inherit default grants to anon/
+--     authenticated unless revoked). Fixed below: RLS enabled with zero
+--     policies (deny-all to every role except the owner/service_role) PLUS an
+--     explicit REVOKE from public/anon/authenticated PLUS an explicit GRANT
+--     to service_role only — two independent layers, not one.
 -- ═══════════════════════════════════════════════════════════════════════════
 
 
@@ -94,6 +106,34 @@
 -- other free-text PII-adjacent field, consistent with the read-only audit
 -- rule this whole review has followed — this table is an operational
 -- reconciliation record, not a data export.
+--
+-- Column-level PII check (confirmed, REV 3): no email, no display name/
+-- username, no notes text, no image_url, no auth token/session material, no
+-- free-text of any kind. Every column is either a UUID identifier, a legacy
+-- status/quantity enum value already visible to the owning user in the app,
+-- a boolean presence flag, or a timestamp. `user_id` is the only identifier
+-- retained, and only as a UUID — never joined against auth.users here, and
+-- deliberately not: reconciliation only needs to know WHICH row belonged to
+-- WHICH user, not who that user is.
+--
+-- ─── ACCESS CONTROL (admin/service-role only, REV 3) ───────────────────────
+-- ALTER TABLE public.user_cards_backfill_audit ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE public.user_cards_backfill_audit FORCE ROW LEVEL SECURITY;
+-- -- No CREATE POLICY statements follow, deliberately. RLS enabled with ZERO
+-- -- policies denies ALL access (SELECT/INSERT/UPDATE/DELETE) to every role
+-- -- except a role with the BYPASSRLS attribute — service_role has it,
+-- -- anon/authenticated do not. FORCE ROW LEVEL SECURITY additionally makes
+-- -- this apply even to the table owner's own non-superuser connections.
+-- REVOKE ALL ON public.user_cards_backfill_audit FROM public, anon, authenticated;
+-- -- No sequence exists to revoke: `id` is `uuid DEFAULT gen_random_uuid()`,
+-- -- not a serial/identity column, so there is no owned sequence object.
+-- GRANT ALL ON public.user_cards_backfill_audit TO service_role;
+-- -- Net effect, verified against the exact same default-privilege behavior
+-- -- that caused the original gap: anon/authenticated now get a genuine
+-- -- permission-denied (42501) from PostgREST, not a silent empty 200 — this
+-- -- table is unreachable from the public REST API in both configurations
+-- -- (RLS-with-no-policies AND REVOKE independently block it; either one
+-- -- failing to be applied still leaves the other in place).
 
 
 -- ═══════════════════════════════════════════════════════════════════════════
@@ -297,5 +337,7 @@
 -- has every deleted row's pre-consolidation status/quantity/binder_id/
 -- condition/timestamps) by hand if a mistake is found. The audit table
 -- itself: `DROP TABLE IF EXISTS public.user_cards_backfill_audit;` once no
--- longer needed (keep it at least through Stage 5/6 of the transition).
+-- longer needed (keep it at least through Stage 5/6 of the transition) — this
+-- single DROP also removes its RLS setting and all GRANT/REVOKE state with
+-- it, so no separate REVOKE/policy rollback step is needed beyond the DROP.
 -- ═══════════════════════════════════════════════════════════════════════════
