@@ -237,6 +237,26 @@ function makeUserClient(req) {
   });
 }
 
+// Explicit binder-ownership check for any route that accepts a client-supplied
+// binder_id and writes it onto a user_cards row. Routes that use the bare
+// `supabase` client (service-role in production) get NO protection from RLS
+// here — RLS on user_cards only gates a row by ITS OWN user_id, it says
+// nothing about whether a supplied binder_id belongs to the caller (same gap
+// documented in supabase-user-card-quantities-draft.sql's SECURITY NOTE,
+// which is why save_custom_card validates this itself at the DB layer). This
+// is the equivalent check for the routes that don't go through that RPC.
+async function verifyBinderOwnership(binderId, userId) {
+  if (!binderId) return true; // no binder_id supplied — nothing to validate
+  const { data, error } = await supabase
+    .from('binders')
+    .select('id')
+    .eq('id', binderId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (error) throw error;
+  return !!data;
+}
+
 async function optionalAuth(req, res, next) {
   if (MOCK_MODE) { req.userId = null; req.userToken = null; return next(); }
   const token = req.headers.authorization?.replace('Bearer ', '');
@@ -5857,6 +5877,9 @@ app.post('/api/cards', requireAuth, async (req, res) => {
   const { binder_id, group_name, album, era, member, version, card_type, description, status, quantity, condition, image_url, notes } = req.body;
   if (!group_name || !member) return res.status(400).json({ error: 'group_name and member required' });
   try {
+    if (!(await verifyBinderOwnership(binder_id, req.userId))) {
+      return res.status(403).json({ error: `binder ${binder_id} does not belong to the authenticated user` });
+    }
     const { data, error } = await supabase
       .from('user_cards')
       .insert({ user_id: req.userId, binder_id, group_name, album, era, member, version, card_type, description, status: status || 'owned', quantity: quantity || 1, condition: condition || 'mint', image_url, notes })
@@ -5927,6 +5950,9 @@ app.patch('/api/cards/:id', requireAuth, async (req, res) => {
   allowed.forEach(k => { if (req.body[k] !== undefined) updates[k] = req.body[k]; });
   updates.updated_at = new Date().toISOString();
   try {
+    if (updates.binder_id !== undefined && !(await verifyBinderOwnership(updates.binder_id, req.userId))) {
+      return res.status(403).json({ error: `binder ${updates.binder_id} does not belong to the authenticated user` });
+    }
     const { error } = await supabase
       .from('user_cards')
       .update(updates)
