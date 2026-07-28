@@ -5758,15 +5758,23 @@ app.get('/api/binders', requireAuth, async (req, res) => {
   }
 });
 
+const FOLDER_TYPES = ['album', 'photocard', 'pob', 'custom'];
+
 app.post('/api/binders', requireAuth, async (req, res) => {
   if (!supabase) return res.json({ binder: null, mock: true });
-  const { name, group_name, cover_color, emoji, cover_url } = req.body;
+  const { name, group_name, cover_color, emoji, cover_url, folder_type } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
   try {
     const row = { user_id: req.userId, name, group_name, cover_color, emoji };
     // Only include cover_url when the client actually sends one, so binder
     // creation keeps working even before the cover_url column migration is run.
     if (cover_url !== undefined) row.cover_url = cover_url;
+    // Same guard for folder_type — whitelisted to the 4 supported values, and
+    // omitted entirely (not coerced to a default) so a caller not yet sending
+    // it, or a DB that hasn't run the Part A1 migration yet, is unaffected.
+    // An invalid/omitted value leaves the column NULL — unclassified, never
+    // silently treated as 'custom'.
+    if (folder_type !== undefined && FOLDER_TYPES.includes(folder_type)) row.folder_type = folder_type;
     const { data, error } = await supabase
       .from('binders')
       .insert(row)
@@ -5859,6 +5867,56 @@ app.post('/api/cards', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('[Cards POST]', err.message);
     res.status(500).json({ error: 'Failed to add card' });
+  }
+});
+
+// POST /api/cards/custom — custom/unlisted card creation via the B4A
+// save_custom_card RPC: one row carries owned/tradeable/wanted quantities
+// together, replacing the old multi-status-row write pattern. Goes through
+// makeUserClient(req) (not the bare `supabase` client) so auth.uid() resolves
+// to the real caller — the RPC's own binder-ownership check is the actual
+// enforcement here, since RLS on user_cards/binders does not by itself stop a
+// supplied binder_id from belonging to another user (see
+// supabase-user-card-quantities-draft.sql SECURITY NOTE). Catalog-linked
+// cards (catalog_card_id present) are NOT accepted on this route — that path
+// stays blocked on B4B (upsert_catalog_card_quantity) until it exists.
+app.post('/api/cards/custom', requireAuth, async (req, res) => {
+  if (!supabase) return res.json({ card: null, mock: true });
+  const {
+    idempotency_key, group_name, member, album, version, era, card_type,
+    description, condition, image_url, notes, binder_id,
+    owned_quantity, for_trade_quantity, wanted_quantity,
+  } = req.body;
+  if (!idempotency_key) return res.status(400).json({ error: 'idempotency_key required' });
+  if (!group_name || !member) return res.status(400).json({ error: 'group_name and member required' });
+  try {
+    const db = makeUserClient(req);
+    const { data, error } = await db.rpc('save_custom_card', {
+      p_idempotency_key: idempotency_key,
+      p_group_name: group_name,
+      p_member: member,
+      p_album: album ?? null,
+      p_version: version ?? null,
+      p_era: era ?? null,
+      p_card_type: card_type ?? null,
+      p_description: description ?? null,
+      p_condition: condition || 'mint',
+      p_image_url: image_url ?? null,
+      p_notes: notes ?? null,
+      p_binder_id: binder_id ?? null,
+      p_owned_quantity: owned_quantity ?? 0,
+      p_for_trade_quantity: for_trade_quantity ?? 0,
+      p_wanted_quantity: wanted_quantity ?? 0,
+    });
+    if (error) throw error;
+    res.json({ card: data });
+  } catch (err) {
+    console.error('[Cards Custom POST]', err.message);
+    // Surface the RPC's own RAISE EXCEPTION text (written to be shown to a
+    // developer/QA account — see the migration file's API CONTRACT NOTES),
+    // not a raw Postgres error code.
+    const status = err.code === '28000' ? 401 : (err.code === '42501' ? 403 : 400);
+    res.status(status).json({ error: err.message || 'Failed to save custom card' });
   }
 });
 

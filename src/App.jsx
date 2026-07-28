@@ -2149,6 +2149,54 @@ const getSetStatsSummary = (setData={}) => {
   return { owned, wishlist, dupe, trade };
 };
 
+// ─── DUAL-READ QUANTITY SELECTORS ──────────────────────────────────────────────
+// user_cards is mid-migration: owned_quantity/for_trade_quantity/wanted_quantity
+// are NULL on every pre-existing row (legacy status/quantity model) and NOT NULL
+// on any row written through the new save_custom_card RPC (B4A) — a migrated
+// owned_quantity of 0 is valid and must never be mistaken for "legacy." Every
+// screen that counts cards routes through these instead of reading c.status
+// directly, so a legacy row and a new-model row for the same fan add up the
+// same way everywhere (see supabase-user-card-quantities-draft.sql PART B1).
+const isLegacyCard = (c) => c?.owned_quantity == null;
+// Owned identities = owned_quantity > 0 (new model) / status owned|duplicate|for_trade (legacy).
+const cardOwnedCount = (c) => isLegacyCard(c)
+  ? ((c?.status === 'owned' || c?.status === 'duplicate' || c?.status === 'for_trade') ? (c.quantity || 1) : 0)
+  : (c.owned_quantity || 0);
+// Wanted copies = SUM(wanted_quantity) (new model) / status iso (legacy).
+const cardWantedCount = (c) => isLegacyCard(c)
+  ? (c?.status === 'iso' ? (c.quantity || 1) : 0)
+  : (c.wanted_quantity || 0);
+// Tradeable copies = SUM(for_trade_quantity) (new model) / status duplicate|for_trade, or the
+// legacy c.tradeable/c.dupe flags some non-DB card-like objects carry (legacy).
+const cardTradeableCount = (c) => isLegacyCard(c)
+  ? ((c?.status === 'duplicate' || c?.status === 'for_trade' || c?.tradeable || c?.dupe) ? (c.quantity || 1) : 0)
+  : (c.for_trade_quantity || 0);
+// Duplicate copies = SUM(GREATEST(owned_quantity-1,0)) (new model) / status duplicate, or c.dupe (legacy).
+const cardDuplicateCount = (c) => isLegacyCard(c)
+  ? ((c?.status === 'duplicate' || c?.dupe) ? (c.quantity || 1) : 0)
+  : Math.max((c.owned_quantity || 0) - 1, 0);
+const isOwnedIdentity    = (c) => cardOwnedCount(c) > 0;
+const isWishlistIdentity = (c) => cardWantedCount(c) > 0;
+// Single-badge display label for a card row — legacy rows keep their literal
+// status; new-model rows (no status, quantity fields only) derive the closest
+// equivalent label instead of rendering a blank/undefined badge.
+const cardDisplayStatus = (c) => {
+  if (!isLegacyCard(c)) {
+    if (cardTradeableCount(c) > 0) return { label: 'For trade', color: C.rose };
+    if (cardDuplicateCount(c) > 0) return { label: 'Dupe', color: C.lavender };
+    if (cardWantedCount(c) > 0 && !isOwnedIdentity(c)) return { label: 'ISO', color: C.gold };
+    if (isOwnedIdentity(c)) return { label: 'Owned', color: C.mint };
+    return { label: 'Wanted', color: C.gold };
+  }
+  const LEGACY = {
+    for_trade: { label: 'For trade', color: C.rose },
+    iso:       { label: 'ISO',       color: C.gold },
+    duplicate: { label: 'Dupe',      color: C.lavender },
+    owned:     { label: 'Owned',     color: C.mint },
+  };
+  return LEGACY[c?.status] || { label: c?.status, color: C.lavender };
+};
+
 // ─── COLLECTION SUMMARY — single source of truth ──────────────────────────────
 // One place that turns the real user_cards rows + the SANITIZED pcSetData blob
 // into the owned / wanted / tradeable / completion numbers the My World hero ring,
@@ -2169,8 +2217,8 @@ const getSetStatsSummary = (setData={}) => {
 const computeMyWorldSummary = (cards = [], sanitizedSetData = {}) => {
   const setStats  = getSetStatsSummary(sanitizedSetData);
   const owned     = cards.length + setStats.owned;
-  const wanted    = cards.filter(c => c.status === 'iso').length + setStats.wishlist;
-  const tradeable = cards.filter(c => c.status === 'for_trade' || c.status === 'duplicate' || c.tradeable || c.dupe).length + setStats.dupe + setStats.trade;
+  const wanted    = cards.filter(isWishlistIdentity).length + setStats.wishlist;
+  const tradeable = cards.filter(c => cardTradeableCount(c) > 0).length + setStats.dupe + setStats.trade;
 
   const groups = Array.from(new Set([
     ...cards.map(c => c.group_name || c.group),
@@ -7703,15 +7751,20 @@ const BINDER_STATUS_TO_DB = { missing:"missing", owned:"owned", wishlist:"iso", 
 function GroupBinderHome({ groupName, templates=[], onOpenTemplate, onBack, binders=[], cards, cardsLoading, setCards, patchCard, deleteCard, addCard, refreshBinders }) {
   const gnKey = (groupName||'').trim().toLowerCase();
   const groupCards = (cards||[]).filter(c => (String(c.group_name||c.group||'').trim().toLowerCase())===gnKey);
-  const owned     = groupCards.filter(c=>c.status==='owned').length;
-  const iso       = groupCards.filter(c=>c.status==='iso').length;
-  const dupes     = groupCards.filter(c=>c.status==='duplicate').length;
-  const tradeable = groupCards.filter(c=>c.status==='duplicate'||c.status==='for_trade').length;
+  const owned     = groupCards.filter(isOwnedIdentity).length;
+  const iso       = groupCards.filter(isWishlistIdentity).length;
+  const dupes     = groupCards.reduce((s,c)=>s+cardDuplicateCount(c), 0);
+  const tradeable = groupCards.filter(c=>cardTradeableCount(c) > 0).length;
   const total     = groupCards.length;
   const completion= total ? Math.round((owned/total)*100) : 0;
 
   const groupBinders = binders.filter(b => (b.group_name||'').trim().toLowerCase()===gnKey);
-  const folderType = (b) => getFolderMeta(b.id)?.folderType || 'custom';
+  // Authenticated reads prefer the real binders.folder_type column (Part A1);
+  // the local folder-meta cache is Demo/mock fallback only, never production
+  // source of truth. NULL on a real binder is genuinely unclassified — it still
+  // falls through to the local cache, then 'custom' as the last resort bucket,
+  // purely so every folder has somewhere to render (never asserted as its type).
+  const folderType = (b) => b?.folder_type || getFolderMeta(b.id)?.folderType || 'custom';
   const albumFolders     = groupBinders.filter(b=>folderType(b)==='album');
   const photocardFolders = groupBinders.filter(b=>folderType(b)==='photocard');
   const pobFolders       = groupBinders.filter(b=>folderType(b)==='pob');
@@ -7744,7 +7797,7 @@ function GroupBinderHome({ groupName, templates=[], onOpenTemplate, onBack, bind
   if (screen === 'albumForm') return <AlbumTrackerForm groupName={groupName} templates={templates} onOpenTemplate={onOpenTemplate} onBack={()=>setScreen('home')} onCreatedFolder={onFolderCreated} />;
   if (screen === 'photocardForm') return <PhotocardFolderForm groupName={groupName} onBack={()=>setScreen('home')} onCreatedFolder={onFolderCreated} />;
   if (screen === 'pobForm') return <PobTrackerForm groupName={groupName} onBack={()=>setScreen('home')} onCreatedFolder={onFolderCreated} />;
-  if (screen === 'customForm') return <CustomBinderForm title="Custom Folder" initialGroupName={groupName} lockGroup onBack={()=>setScreen('home')} onSaved={(b)=>{ writeFolderMeta(b.id, { folderType:'custom' }); onFolderCreated(b); }} />;
+  if (screen === 'customForm') return <CustomBinderForm title="Custom Folder" initialGroupName={groupName} lockGroup folderType="custom" onBack={()=>setScreen('home')} onSaved={(b)=>{ writeFolderMeta(b.id, { folderType:'custom' }); onFolderCreated(b); }} />;
 
   const StatTile = ({ val, label, color }) => (
     <div style={{ flex:"1 1 0", minWidth:58, background:C.mode==="light"?"rgba(33,17,52,0.04)":"rgba(255,255,255,0.04)", border:`1px solid ${C.border}`, borderRadius:13, padding:"9px 6px", textAlign:"center" }}>
@@ -7757,7 +7810,7 @@ function GroupBinderHome({ groupName, templates=[], onOpenTemplate, onBack, bind
     const meta = getFolderMeta(b.id);
     const col = b.cover_color || C.accent;
     const binderCards = (cards||[]).filter(c=>c.binder_id===b.id);
-    const bOwned = binderCards.filter(c=>c.status==='owned').length;
+    const bOwned = binderCards.filter(isOwnedIdentity).length;
     const bTotal = binderCards.length;
     const pct = bTotal ? Math.round((bOwned/bTotal)*100) : 0;
     return (
@@ -7861,7 +7914,7 @@ function GroupBinderHome({ groupName, templates=[], onOpenTemplate, onBack, bind
                         <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:11.5, color:C.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{c.member||c.member_name||c.card_name||"Card"}</p>
                         <p style={{ fontSize:9.5, color:C.textMid }}>{[c.album||c.album_name, c.era].filter(Boolean).join(" · ")}</p>
                       </div>
-                      <span style={{ ...VS.activePill(c.status==='owned'?C.mint:c.status==='iso'?C.gold:c.status==='for_trade'?C.rose:C.lavender), fontSize:8 }}>{c.status==='for_trade'?'For trade':c.status==='iso'?'ISO':c.status==='duplicate'?'Dupe':c.status==='owned'?'Owned':c.status}</span>
+                      <span style={{ ...VS.activePill(cardDisplayStatus(c).color), fontSize:8 }}>{cardDisplayStatus(c).label}</span>
                     </div>
                   ))}
                 </div>
@@ -8265,29 +8318,35 @@ async function createFolderBinder(payload) {
   return { binder:null, ok:false, error: d?.error };
 }
 
-// Writes up to 4 real user_cards rows (one per non-zero quantity) through the
-// existing /api/cards endpoint — owned/ISO/duplicate/tradeable are represented
-// as separate status rows sharing the same card identity, since user_cards has
-// one status+quantity per row today. A single quantity-aware row (own 2, keep 1,
-// trade 1 on ONE record) is Phase D of the collector rework and needs a schema
-// change — out of scope here, not run without approval. The front photo attaches
-// to the first non-zero row so it's never silently dropped.
-async function saveFolderCardQuantities({ binderId, groupName, member, album, version, notes, imageUrl, quantities }) {
-  const STATUS_ORDER = ['owned','duplicate','for_trade','iso'];
-  let imgAttached = false;
-  for (const status of STATUS_ORDER) {
-    const qty = quantities[status];
-    if (!qty || qty <= 0) continue;
-    const payload = { binder_id: binderId, group_name: groupName, member, album, version, status, quantity: qty, notes };
-    if (!imgAttached && imageUrl) { payload.image_url = imageUrl; imgAttached = true; }
-    await api.post('/api/cards', payload).catch(() => {});
-  }
+// Single custom/unlisted card write via the B4A save_custom_card RPC — one row
+// carries owned/tradeable/wanted together, replacing the old multi-status-row
+// helper (saveFolderCardQuantities) that wrote up to 4 separate rows for one
+// card identity. idempotencyKey must be generated once per creation attempt on
+// the caller side and reused verbatim on any retry of that SAME attempt — see
+// supabase-user-card-quantities-draft.sql PART B4A.
+async function saveCustomCard({ idempotencyKey, binderId, groupName, member, album, version, era, cardType, description, condition, imageUrl, notes, quantities }) {
+  return api.post('/api/cards/custom', {
+    idempotency_key: idempotencyKey,
+    binder_id: binderId,
+    group_name: groupName,
+    member, album, version, era,
+    card_type: cardType,
+    description,
+    condition,
+    image_url: imageUrl,
+    notes,
+    owned_quantity: quantities.owned || 0,
+    for_trade_quantity: quantities.for_trade || 0,
+    wanted_quantity: quantities.wanted || 0,
+  });
 }
 
-// Small shared "owned / ISO / dupe / tradeable" quantity grid used by the
-// Photocard Folder and POB Tracker creation shells.
+// Small shared "owned / tradeable / wanted" quantity grid used by the
+// Photocard Folder and POB Tracker creation shells — matches the new
+// save_custom_card fields 1:1 (no separate "duplicate" input: duplicate copies
+// are derived as GREATEST(owned_quantity-1,0), never entered directly).
 function QuantityGrid({ quantities, setQuantities }) {
-  const FIELDS = [['owned','Owned',C.mint],['iso','ISO / Wanted',C.gold],['duplicate','Duplicate',C.lavender],['for_trade','Tradeable',C.rose]];
+  const FIELDS = [['owned','Owned',C.mint],['for_trade','Tradeable',C.rose],['wanted','ISO / Wanted',C.gold]];
   return (
     <div>
       <p style={{ fontSize:10,color:C.textMid,marginBottom:8,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em" }}>Quantities</p>
@@ -8331,7 +8390,7 @@ function AlbumTrackerForm({ groupName, templates=[], onOpenTemplate, onBack, onC
   const save = async () => {
     if (!form.title.trim() || saving) return;
     setSaving(true); setErr("");
-    const { binder, ok, error } = await createFolderBinder({ name: form.title.trim(), group_name: groupName, cover_url: cover||null, cover_color: C.accent });
+    const { binder, ok, error } = await createFolderBinder({ name: form.title.trim(), group_name: groupName, cover_url: cover||null, cover_color: C.accent, folder_type:'album' });
     if (!ok) { setErr(error==='non_json_response' ? "Couldn't reach your collection server, so this folder wasn't saved. Please try again." : "Couldn't save this folder. Please try again."); setSaving(false); return; }
     writeFolderMeta(binder.id, { folderType:'album', isCustom:true, releaseType:form.releaseType, region:form.region, version:form.version, notes:form.notes });
     onCreatedFolder(binder);
@@ -8418,12 +8477,17 @@ function AlbumTrackerForm({ groupName, templates=[], onOpenTemplate, onBack, onC
 // can upload a real photo of their card and log quantities the moment they open it.
 function PhotocardFolderForm({ groupName, onBack, onCreatedFolder }) {
   const [form, setForm] = useState({ name:"", member:"", album:"", version:"", storeSource:"", notes:"" });
-  const [quantities, setQuantities] = useState({ owned:1, iso:0, duplicate:0, for_trade:0 });
+  const [quantities, setQuantities] = useState({ owned:1, for_trade:0, wanted:0 });
   const [photoFile, setPhotoFile] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const photoRef = useRef(null);
+  // One idempotency key per creation attempt — generated once on mount, reused
+  // verbatim if save() is retried (e.g. after a network failure); a fresh
+  // mount (a genuinely new folder) always gets a fresh key.
+  const idemKeyRef = useRef(null);
+  if (!idemKeyRef.current) idemKeyRef.current = crypto.randomUUID();
 
   const handlePhoto = (e) => {
     const f = e.target.files[0]; if (!f) return;
@@ -8435,9 +8499,10 @@ function PhotocardFolderForm({ groupName, onBack, onCreatedFolder }) {
 
   const save = async () => {
     if (!form.name.trim() || saving) return;
+    if (quantities.for_trade > quantities.owned) { setErr("Tradeable can't exceed how many you own."); return; }
     setSaving(true); setErr("");
     try {
-      const { binder, ok, error } = await createFolderBinder({ name: form.name.trim(), group_name: groupName, cover_color: C.accent });
+      const { binder, ok, error } = await createFolderBinder({ name: form.name.trim(), group_name: groupName, cover_color: C.accent, folder_type:'photocard' });
       if (!ok) { setErr(error==='non_json_response' ? "Couldn't reach your collection server, so this folder wasn't saved. Please try again." : "Couldn't save this folder. Please try again."); setSaving(false); return; }
       writeFolderMeta(binder.id, { folderType:'photocard', isCustom:true, member:form.member, album:form.album, version:form.version, storeSource:form.storeSource, notes:form.notes });
       let imageUrl = null;
@@ -8449,7 +8514,10 @@ function PhotocardFolderForm({ groupName, onBack, onCreatedFolder }) {
           imageUrl = urlRes.public_url;
         }
       }
-      await saveFolderCardQuantities({ binderId: binder.id, groupName, member: form.member, album: form.album, version: form.version, notes: form.notes, imageUrl, quantities });
+      if (!binder.local && API_URL) {
+        const cardRes = await saveCustomCard({ idempotencyKey: idemKeyRef.current, binderId: binder.id, groupName, member: form.member, album: form.album, version: form.version, imageUrl, notes: form.notes, quantities });
+        if (cardRes?.error) { setErr("Folder created, but the card couldn't be saved. Open the folder to try again."); setSaving(false); return; }
+      }
       onCreatedFolder(binder);
     } catch { setErr("Failed to save. Try again."); setSaving(false); }
   };
@@ -8498,17 +8566,23 @@ function PhotocardFolderForm({ groupName, onBack, onCreatedFolder }) {
 function PobTrackerForm({ groupName, onBack, onCreatedFolder }) {
   const POB_TYPES = ['Lucky Draw','Fansign','Broadcast','Event','Tour','Promotional','Other'];
   const [form, setForm] = useState({ name:"", storeSource:"", pobType:"Lucky Draw", notes:"" });
-  const [quantities, setQuantities] = useState({ owned:1, iso:0, duplicate:0, for_trade:0 });
+  const [quantities, setQuantities] = useState({ owned:1, for_trade:0, wanted:0 });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
+  const idemKeyRef = useRef(null);
+  if (!idemKeyRef.current) idemKeyRef.current = crypto.randomUUID();
 
   const save = async () => {
     if (!form.name.trim() || saving) return;
+    if (quantities.for_trade > quantities.owned) { setErr("Tradeable can't exceed how many you own."); return; }
     setSaving(true); setErr("");
-    const { binder, ok, error } = await createFolderBinder({ name: form.name.trim(), group_name: groupName, cover_color: C.rose });
+    const { binder, ok, error } = await createFolderBinder({ name: form.name.trim(), group_name: groupName, cover_color: C.rose, folder_type:'pob' });
     if (!ok) { setErr(error==='non_json_response' ? "Couldn't reach your collection server, so this folder wasn't saved. Please try again." : "Couldn't save this folder. Please try again."); setSaving(false); return; }
     writeFolderMeta(binder.id, { folderType:'pob', isCustom:true, storeSource:form.storeSource, pobType:form.pobType, notes:form.notes });
-    await saveFolderCardQuantities({ binderId: binder.id, groupName, member: form.pobType, album: form.storeSource, version: form.pobType, notes: form.notes, imageUrl:null, quantities });
+    if (!binder.local && API_URL) {
+      const cardRes = await saveCustomCard({ idempotencyKey: idemKeyRef.current, binderId: binder.id, groupName, member: form.pobType, album: form.storeSource, version: form.pobType, notes: form.notes, quantities });
+      if (cardRes?.error) { setErr("Folder created, but the card couldn't be saved. Open the folder to try again."); setSaving(false); return; }
+    }
     onCreatedFolder(binder);
   };
 
@@ -8544,7 +8618,7 @@ function PobTrackerForm({ groupName, onBack, onCreatedFolder }) {
 }
 
 // ─── CUSTOM BINDER FORM ───────────────────────────────────────────────────────
-function CustomBinderForm({ onBack, onSaved, initialGroupName=null, lockGroup=false, title="Custom Binder" }) {
+function CustomBinderForm({ onBack, onSaved, initialGroupName=null, lockGroup=false, title="Custom Binder", folderType=null }) {
   const [form, setForm] = useState({ name:"", group_name:initialGroupName||"", emoji:"🃏", cover_color:C.accent });
   const [cover, setCover] = useState(null);          // uploaded cover URL / data URL
   const [uploadingCover, setUploadingCover] = useState(false);
@@ -8572,6 +8646,7 @@ function CustomBinderForm({ onBack, onSaved, initialGroupName=null, lockGroup=fa
     submittingRef.current = true;
     setSaving(true); setErr("");
     const payload = { ...form, cover_url: cover || null };
+    if (folderType) payload.folder_type = folderType;
     const d = await api.post('/api/binders', payload);
     // Real binder row (authenticated Supabase mode).
     if (d?.binder) { ls.set('backstage_has_binder', true); onSaved(d.binder); return; }
