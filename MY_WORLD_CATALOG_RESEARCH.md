@@ -103,7 +103,7 @@ group during ingestion; do not treat these numbers as authoritative.**
 | Group | In catalog | Est. KR releases | JP line? | Coverage flag |
 |---|---|---|---|---|
 | **aespa** | 1 (MY WORLD) | ~8–10 EPs/albums | yes (JP) | ~1/9 KR; JP 0%; strong user demand (21 user_cards) |
-| **BTS** | 1 (FACE — a j-hope solo? verify) | large (group + many solo works) | yes | **Flag: FACE is a *j-hope solo* album — must be `is_solo=true` and NOT mixed into the BTS group catalog unless opted in.** Group vs solo separation critical. |
+| **BTS** | 1 (FACE — misclassified as BTS group data; corrected 2026-07-28 to Jimin's first solo album, pending official-source re-verification) | large (group + many solo works) | yes | **Flag: FACE is Jimin's solo debut album — must be `is_solo=true`, `soloist_member_id` → Jimin, and NOT mixed into the BTS group catalog unless opted in.** This was previously misattributed to j-hope in this document; corrected on read-only DB audit, not yet confirmed against the ≥2-source workflow in §1. Group vs solo separation critical. |
 | **Stray Kids** | 1 (5-STAR) | ~12–15 incl. repackages | yes (JP) | ~1/13 KR; JP 0% |
 | **NewJeans** | 1 (Get Up) | ~4–6 | yes (JP) | newer group, smaller but active catalog |
 | **BLACKPINK** | **0 (MISSING)** | ~6–8 (group) + heavy soloist work | yes | **Not in catalog at all despite 4 user_cards. Add canonical group in Phase-1 ingestion. Keep member soloist releases (Lisa/Rosé/Jennie/Jisoo) `is_solo=true`, separate.** |
@@ -132,7 +132,7 @@ group during ingestion; do not treat these numbers as authoritative.**
    status. Newly-debuted groups may be `incomplete` and labeled as such.
 
 ## 5. Recommended research order
-- **Phase 1 (now):** aespa · ATEEZ (full pilot) · BTS (group vs j-hope solo split) ·
+- **Phase 1 (now):** aespa · ATEEZ (full pilot) · BTS (group vs Jimin solo split) ·
   Stray Kids · NewJeans · **BLACKPINK (add group)** — groups already in Backstage
   and/or collected by users.
 - **Phase 2:** SEVENTEEN, TWICE, ENHYPEN, TXT, IVE, LE SSERAFIM, (G)I-DLE, ITZY,
@@ -146,7 +146,10 @@ group during ingestion; do not treat these numbers as authoritative.**
 ## 6. Handoff to next session
 - Verify ATEEZ §2b/2c/2d/2e against the §2a source map (≥2 sources/row); promote
   confirmed rows out of `draft`.
-- Confirm the **BTS FACE = j-hope solo** finding and set the group/solo split rule.
+- Confirm the **BTS FACE = Jimin solo** finding against ≥2 official-tier sources
+  (this document previously and incorrectly said j-hope — corrected 2026-07-28
+  during a read-only DB audit, not yet run through the §1 verification
+  workflow) and set the group/solo split rule.
 - Build the same source map + preliminary spine for aespa, Stray Kids, NewJeans,
   BLACKPINK.
 - Still gated: no schema run, no ingestion, no write SQL, no push (see

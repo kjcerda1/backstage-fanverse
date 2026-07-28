@@ -1,0 +1,301 @@
+-- ═══════════════════════════════════════════════════════════════════════════
+-- BACKSTAGE / FANVERSE — Legacy user_cards Backfill (draft, OPTIONAL, REV 2)
+-- File: supabase-user-card-legacy-backfill-draft.sql
+--
+-- ⚠️  DRAFT FOR REVIEW — DO NOT RUN. Intentionally separate from
+--     supabase-user-card-quantities-draft.sql. Run Stage 3 (real code writing
+--     owned_quantity/for_trade_quantity/wanted_quantity via the RPCs) FIRST,
+--     confirm it in production, and only then consider this file.
+--
+-- REV 2 changes (2026-07-28), per review:
+--   - Real transactional consolidation (BEGIN/COMMIT), not a row-by-row
+--     UPDATE. Scoped explicitly to catalog_card_id-linked rows only — custom
+--     rows (catalog_card_id IS NULL) are NEVER touched by this file, by
+--     construction, so there is no risk of merging distinct custom cards on
+--     loose text.
+--   - A persistent (non-temp) reconciliation/staging table,
+--     `user_cards_backfill_audit`, captures every pre-consolidation row
+--     before anything is deleted, so a mistake can be manually reversed from
+--     that saved snapshot.
+--   - Corrected `duplicate` mapping per the two real rows reviewed (both
+--     quantity=1, no image, no notes, `condition='mint'`): legacy duplicate
+--     quantity is the count of EXTRA copies, not total copies. See PART C-4.
+--   - Validation fixed to treat for_trade_quantity as a SUBSET of
+--     owned_quantity (never additive/disjoint) — see PART C-5.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- AUDIT SUMMARY THIS FILE IS BASED ON (read-only, aggregate-only, 2026-07-28)
+-- ═══════════════════════════════════════════════════════════════════════════
+--   Total user_cards rows: 28. Every row has quantity = 1.
+--   By legacy status: missing 13 / iso 7 / owned 5 / duplicate 2 / for_trade 1.
+--   Identity collisions (natural key user_id+group+member+album+version, the
+--   only option before catalog_card_id exists): 4 identities with 2 rows,
+--   BOTH status='missing'; 1 identity with 2 rows, one 'missing' + one
+--   'owned'. All 5 pairs share the exact same created_at timestamp down to
+--   the microsecond, confirming a single bulk-insert (from-template seeding)
+--   artifact, not a double-submit — the aespa "MY WORLD" template has 18
+--   template_cards rows, more than one sharing the same member_name with
+--   version/card_name often blank, which collapses two distinct template
+--   cards into one under this coarse natural key. NONE of owned+duplicate,
+--   owned+for_trade, owned+iso, or iso+owned+for_trade combinations exist.
+--   No identity currently spans more than one binder_id. trade_listings: 0
+--   rows in production.
+--   The two real `duplicate` rows (safe fields only, no PII): both
+--   quantity=1, condition='mint', card_type present, image_url NULL,
+--   notes NULL. One was created in the same batch-insert timestamp as the
+--   aespa template seed (16:56:07.022574), then its `updated_at` moved to
+--   23:44:20 the same day — consistent with a seeded 'missing' row having
+--   its status later flipped to 'duplicate' via the Card Detail Sheet's
+--   status buttons, not a fresh separate row.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- PART C-0 · SCOPE — THIS FILE ONLY TOUCHES CATALOG-LINKED ROWS
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Everything below operates on rows where catalog_card_id IS NOT NULL (i.e.
+-- AFTER the catalog-provenance migration's matching step has run and
+-- populated that column for rows it can confidently match). Rows that remain
+-- catalog_card_id IS NULL — whether genuinely custom, or template-linked-
+-- but-not-yet-matched-to-a-catalog_cards-row — are explicitly OUT OF SCOPE
+-- for this consolidation. Template-linked-but-not-catalog-linked rows (the
+-- current state of every real row today, since catalog-provenance hasn't run
+-- yet) get NO automated backfill here; they are handled by Stage 3 code
+-- going forward (new writes) and by PART D (below) for the specific
+-- 'missing' placeholder cleanup, never by a blind text-based merge.
+
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- PART C-1 · STEP 1 — RECONCILIATION / STAGING TABLE (persistent, reviewed
+-- before anything else happens; this alone changes nothing in user_cards)
+-- ═══════════════════════════════════════════════════════════════════════════
+-- CREATE TABLE IF NOT EXISTS public.user_cards_backfill_audit (
+--   id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+--   run_at              timestamptz NOT NULL DEFAULT now(),
+--   original_row_id     uuid NOT NULL,
+--   user_id             uuid NOT NULL,
+--   catalog_card_id     uuid,
+--   legacy_status       text,
+--   legacy_quantity     int,
+--   binder_id           uuid,
+--   condition           text,
+--   had_image           boolean,
+--   had_notes           boolean,
+--   created_at          timestamptz,
+--   updated_at          timestamptz,
+--   is_survivor         boolean NOT NULL,
+--   consolidated_owned_quantity     int,
+--   consolidated_for_trade_quantity int,
+--   consolidated_wanted_quantity    int
+-- );
+-- Deliberately excludes image_url/notes CONTENT (only booleans) and any
+-- other free-text PII-adjacent field, consistent with the read-only audit
+-- rule this whole review has followed — this table is an operational
+-- reconciliation record, not a data export.
+
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- PART C-2 · STEP 2/3 — PREVIEW: GROUP BY IDENTITY, COMPUTE CONSOLIDATED
+-- STATE (SELECT-only — safe to run any time, changes nothing). Run this and
+-- read the output before Part C-3 (the transaction) is even drafted further.
+-- ═══════════════════════════════════════════════════════════════════════════
+-- WITH per_identity AS (
+--   SELECT
+--     user_id, catalog_card_id,
+--     -- Survivor selection, deterministic: prefer a row with real content
+--     -- (image or notes) over one without; among ties, prefer the row whose
+--     -- status is NOT 'missing' (a placeholder is never a better survivor
+--     -- than a real inventory row); among remaining ties, prefer the OLDEST
+--     -- row (first acquisition wins as the canonical record).
+--     (array_agg(id ORDER BY
+--       (image_url IS NOT NULL OR (notes IS NOT NULL AND notes <> '')) DESC,
+--       (status <> 'missing') DESC,
+--       created_at ASC
+--     ))[1] AS survivor_id,
+--     (array_agg(binder_id ORDER BY (binder_id IS NOT NULL) DESC, created_at ASC))[1] AS preserved_binder_id,
+--     min(created_at) AS preserved_created_at,
+--     -- Consolidated quantities. See PART C-4 for the 'duplicate' mapping
+--     -- reasoning encoded here.
+--     sum(CASE status
+--           WHEN 'owned'     THEN quantity
+--           WHEN 'duplicate' THEN quantity + 1   -- legacy duplicate qty = EXTRA copies (PART C-4)
+--           WHEN 'for_trade' THEN quantity
+--           ELSE 0 END) AS consolidated_owned_quantity,
+--     sum(CASE status
+--           WHEN 'duplicate' THEN quantity        -- the extras are the tradeable portion
+--           WHEN 'for_trade' THEN quantity
+--           ELSE 0 END) AS consolidated_for_trade_quantity,
+--     sum(CASE status WHEN 'iso' THEN quantity ELSE 0 END) AS consolidated_wanted_quantity,
+--     count(*) AS legacy_row_count,
+--     array_agg(id) AS all_row_ids
+--   FROM user_cards
+--   WHERE catalog_card_id IS NOT NULL
+--   GROUP BY user_id, catalog_card_id
+-- )
+-- SELECT * FROM per_identity WHERE legacy_row_count > 1 ORDER BY user_id, catalog_card_id;
+--
+-- Review this output. For each group: confirm consolidated_for_trade_quantity
+-- <= consolidated_owned_quantity (it always will be, by construction, but
+-- confirm no CASE branch was miscounted), confirm preserved_binder_id looks
+-- right, and confirm survivor_id is the row you'd expect to keep.
+
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- PART C-3 · STEP 4/5/6 — THE ACTUAL TRANSACTION (illustrative — DO NOT RUN
+-- without: Stage 3 code shipped and confirmed, the PART C-4 decision
+-- confirmed, and PART C-2's preview reviewed for THIS specific dataset)
+-- ═══════════════════════════════════════════════════════════════════════════
+-- BEGIN;
+--
+--   -- 4. Archive every row that will be touched, before touching anything.
+--   INSERT INTO public.user_cards_backfill_audit (
+--     original_row_id, user_id, catalog_card_id, legacy_status, legacy_quantity,
+--     binder_id, condition, had_image, had_notes, created_at, updated_at, is_survivor
+--   )
+--   SELECT uc.id, uc.user_id, uc.catalog_card_id, uc.status, uc.quantity,
+--     uc.binder_id, uc.condition, (uc.image_url IS NOT NULL), (uc.notes IS NOT NULL AND uc.notes <> ''),
+--     uc.created_at, uc.updated_at,
+--     (uc.id = pi.survivor_id)
+--   FROM user_cards uc
+--   JOIN (
+--     -- same per_identity CTE as PART C-2, restated here for the real run
+--     SELECT user_id, catalog_card_id,
+--       (array_agg(id ORDER BY (image_url IS NOT NULL OR (notes IS NOT NULL AND notes<>'')) DESC, (status<>'missing') DESC, created_at ASC))[1] AS survivor_id
+--     FROM user_cards WHERE catalog_card_id IS NOT NULL GROUP BY user_id, catalog_card_id HAVING count(*) > 1
+--   ) pi ON pi.user_id = uc.user_id AND pi.catalog_card_id = uc.catalog_card_id;
+--
+--   -- 5. Update the survivor row with the consolidated state.
+--   UPDATE user_cards uc SET
+--     owned_quantity     = consolidated.consolidated_owned_quantity,
+--     for_trade_quantity = consolidated.consolidated_for_trade_quantity,
+--     wanted_quantity     = consolidated.consolidated_wanted_quantity,
+--     binder_id          = consolidated.preserved_binder_id,
+--     updated_at          = now()
+--   FROM (
+--     -- same consolidation CTE as PART C-2
+--     SELECT user_id, catalog_card_id,
+--       (array_agg(id ORDER BY (image_url IS NOT NULL OR (notes IS NOT NULL AND notes<>'')) DESC, (status<>'missing') DESC, created_at ASC))[1] AS survivor_id,
+--       (array_agg(binder_id ORDER BY (binder_id IS NOT NULL) DESC, created_at ASC))[1] AS preserved_binder_id,
+--       sum(CASE status WHEN 'owned' THEN quantity WHEN 'duplicate' THEN quantity+1 WHEN 'for_trade' THEN quantity ELSE 0 END) AS consolidated_owned_quantity,
+--       sum(CASE status WHEN 'duplicate' THEN quantity WHEN 'for_trade' THEN quantity ELSE 0 END) AS consolidated_for_trade_quantity,
+--       sum(CASE status WHEN 'iso' THEN quantity ELSE 0 END) AS consolidated_wanted_quantity
+--     FROM user_cards WHERE catalog_card_id IS NOT NULL GROUP BY user_id, catalog_card_id HAVING count(*) > 1
+--   ) consolidated
+--   WHERE uc.id = consolidated.survivor_id;
+--
+--   -- 6. Delete the now-redundant rows (everything in the group except the
+--   -- survivor) — only after the audit insert above and the survivor update
+--   -- above are both in the SAME transaction, so a ROLLBACK before COMMIT
+--   -- undoes all three steps together.
+--   DELETE FROM user_cards uc
+--   USING (
+--     SELECT user_id, catalog_card_id,
+--       (array_agg(id ORDER BY (image_url IS NOT NULL OR (notes IS NOT NULL AND notes<>'')) DESC, (status<>'missing') DESC, created_at ASC))[1] AS survivor_id
+--     FROM user_cards WHERE catalog_card_id IS NOT NULL GROUP BY user_id, catalog_card_id HAVING count(*) > 1
+--   ) pi
+--   WHERE uc.user_id = pi.user_id AND uc.catalog_card_id = pi.catalog_card_id AND uc.id <> pi.survivor_id;
+--
+--   -- Do NOT COMMIT automatically. Run the PART C-5 validation queries here,
+--   -- inside the same still-open transaction, and only issue COMMIT by hand
+--   -- after they pass. Issue ROLLBACK instead if anything looks wrong.
+--
+-- -- COMMIT;   -- only after manual validation, never automatic
+
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- PART C-4 · THE 'duplicate' MAPPING — CORRECTED PER REVIEW OF THE 2 REAL ROWS
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Original proposal (superseded): duplicate quantity 1 → owned_quantity 1,
+-- for_trade_quantity 1. This was WRONG: it would make
+-- duplicate_quantity = GREATEST(owned_quantity-1, 0) = 0 for a row that was
+-- explicitly recorded as a duplicate — contradicting the very status being
+-- migrated.
+-- Corrected interpretation (matches the app's own "ready to trade" caption
+-- shown for BOTH duplicate and for_trade rows, and is consistent with the 2
+-- real rows reviewed — both quantity=1, nothing to suggest a different
+-- reading): legacy duplicate quantity = the count of EXTRA copies beyond an
+-- implied first/kept copy.
+--   owned_quantity     = quantity + 1
+--   for_trade_quantity = quantity
+--   wanted_quantity    = 0
+-- Worked example (matches the review's own example): legacy duplicate
+-- quantity 1 → owned_quantity 2, for_trade_quantity 1 → available_to_keep
+-- (derived) = 1, duplicate_quantity (derived) = GREATEST(2-1,0) = 1. Both
+-- derived numbers are now internally consistent with the original status.
+-- This is encoded in PART C-2/C-3 above. Still presented for confirmation,
+-- not run — the two real rows have no additional data (no image, no notes)
+-- that could contradict this reading, but you asked not to finalize until
+-- reviewed, and this is that review's conclusion, not an executed decision.
+
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- PART C-5 · VALIDATION — SUBSET-AWARE, NOT ADDITIVE
+-- ═══════════════════════════════════════════════════════════════════════════
+-- for_trade_quantity is a SUBSET of owned_quantity (the tradeable copies are
+-- SOME of the owned copies, not separate from them). The correct validation
+-- is a per-row containment check, never a sum-of-disjoint-buckets check:
+--
+--   -- Must return 0 rows (would indicate a corrupted consolidation):
+--   SELECT id FROM user_cards WHERE for_trade_quantity > owned_quantity;
+--
+--   -- Total REAL inventory units preserved (owned copies only — do NOT add
+--   -- for_trade_quantity to this, it would double-count):
+--   SELECT sum(owned_quantity) FROM user_cards WHERE owned_quantity IS NOT NULL;
+--   -- compare against the pre-backfill legacy total, computed the SAME way
+--   -- the consolidation formula computes it (not a raw legacy quantity sum):
+--   SELECT sum(CASE status WHEN 'owned' THEN quantity WHEN 'duplicate' THEN quantity+1 WHEN 'for_trade' THEN quantity ELSE 0 END)
+--   FROM user_cards_backfill_audit WHERE run_at = '<this run>';
+--   -- these two numbers must match exactly.
+--
+--   -- Wanted units preserved:
+--   SELECT sum(wanted_quantity) FROM user_cards WHERE wanted_quantity IS NOT NULL;
+--   -- vs: SELECT sum(legacy_quantity) FROM user_cards_backfill_audit WHERE legacy_status='iso' AND run_at='<this run>';
+--
+-- The PREVIOUS draft's validation ("sum owned+tradeable+wanted and compare
+-- against 28 legacy units") was wrong for exactly the reason above — it
+-- treated for_trade_quantity as if it were disjoint from owned_quantity,
+-- which double-counts every tradeable copy. Removed; replaced with the
+-- containment + per-bucket-vs-source checks above.
+
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- PART D · SEEDED 'missing' PLACEHOLDERS — SEPARATE, LATER, REVIEWED STEP
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Per PART C-1 of the original audit: 'missing' rows contribute 0 to every
+-- quantity bucket by definition and need NO merge logic — they are simply
+-- excluded from the consolidation above (the CASE expressions never assign
+-- them anything). Deleting the 13 real seeded 'missing' rows entirely is NOT
+-- part of this file. It would be its own, later, explicitly-approved step,
+-- taken only after /api/binders/from-template has been corrected to stop
+-- creating them (so they can't reappear) and the derived-missing calculation
+-- (catalog scope minus owned rows, read at query time) is confirmed correct
+-- in production. Not proposed here as SQL — a decision to make later, on its
+-- own.
+
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- FINAL STEP · UNIQUE INDEX
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Only after PART C-3's transaction has been committed and PART C-5's
+-- validation passes:
+--   -- verify zero collisions remain:
+--   SELECT user_id, catalog_card_id, count(*) FROM user_cards
+--   WHERE catalog_card_id IS NOT NULL GROUP BY 1,2 HAVING count(*) > 1;
+--   -- must return 0 rows, THEN (from supabase-user-card-quantities-draft.sql):
+--   -- CREATE UNIQUE INDEX ... user_cards_one_row_per_catalog_card ...
+
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- ROLLBACK
+-- ═══════════════════════════════════════════════════════════════════════════
+-- The PART C-3 transaction is fully reversible with a plain ROLLBACK any
+-- time before COMMIT (all three DML steps — audit insert, survivor update,
+-- redundant-row delete — are in one transaction). After COMMIT, the DELETEs
+-- are not DDL-reversible; restore from `user_cards_backfill_audit` (which
+-- has every deleted row's pre-consolidation status/quantity/binder_id/
+-- condition/timestamps) by hand if a mistake is found. The audit table
+-- itself: `DROP TABLE IF EXISTS public.user_cards_backfill_audit;` once no
+-- longer needed (keep it at least through Stage 5/6 of the transition).
+-- ═══════════════════════════════════════════════════════════════════════════
