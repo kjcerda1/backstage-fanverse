@@ -193,6 +193,7 @@ const updateLocalBinder = (id, patch) => {
   ls.set(LOCAL_BINDERS_KEY, list);
   return list.find(b => b.id === id) || null;
 };
+const removeLocalBinder = (id) => { ls.set(LOCAL_BINDERS_KEY, readLocalBinders().filter(b => b.id !== id)); };
 
 // Folder metadata (client-only, proposed future schema). A "Folder" is a real
 // binder row (existing `binders` table / /api/binders — no schema change), but
@@ -5760,8 +5761,14 @@ function CardDetailSheet({ card, groupLabel, onClose, onPatch, onDelete, onListF
   const [uploading, setUploading] = useState(false);
   const [notesDraft, setNotesDraft] = useState(card.notes || "");
   const [savedFlash, setSavedFlash] = useState(false);
+  const [showMove, setShowMove] = useState(false);
+  const [moveSearch, setMoveSearch] = useState("");
+  const [showEdit, setShowEdit] = useState(false);
+  const [editDraft, setEditDraft] = useState({ member: card.member||"", album: card.album||card.era||"", version: card.version||"" });
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const photoInputRef = useRef(null);
   const savedTimerRef = useRef(null);
+  const { binders: myFolders } = useBinders();
   useEffect(() => { setNotesDraft(card.notes || ""); }, [card.id]);
   useEffect(() => () => { if (savedTimerRef.current) clearTimeout(savedTimerRef.current); }, []);
 
@@ -5871,10 +5878,60 @@ function CardDetailSheet({ card, groupLabel, onClose, onPatch, onDelete, onListF
         <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8 }}>Notes</p>
         <textarea value={notesDraft} onChange={e=>setNotesDraft(e.target.value)} onBlur={()=>{ if(notesDraft!==(card.notes||"")) firePatch({notes:notesDraft}); }} placeholder="e.g. Pulled from unsealed pack, concert freebie..." style={{ width:"100%",height:60,background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:10,color:C.text,fontSize:12,padding:"9px 12px",resize:"none",outline:"none",fontFamily:"'Instrument Sans',sans-serif",marginBottom:16,boxSizing:"border-box" }} />
 
+        {/* Card management — visible menu, no hidden long-press. Move/Remove
+            operate purely through the existing PATCH /api/cards/:id (binder_id),
+            so the row never gets cloned — same identity, new location or none. */}
+        <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8 }}>Manage</p>
+        <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:16 }}>
+          <button onClick={()=>{ setShowEdit(v=>!v); setShowMove(false); }} className="tap" style={{ width:"100%",padding:"10px",borderRadius:11,background:"transparent",border:`1.5px solid ${C.border}`,color:C.text,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer",textAlign:"left" }}>✎ Edit details</button>
+          {showEdit && (
+            <div style={{ display:"flex", flexDirection:"column", gap:8, padding:"10px 12px", background:C.surface, border:`1px solid ${C.border}`, borderRadius:12 }}>
+              <Input label="Member / Card Name" value={editDraft.member} onChange={e=>setEditDraft(d=>({...d,member:e.target.value}))} onBlur={()=>{ if(editDraft.member!==(card.member||"")) firePatch({member:editDraft.member}); }} />
+              <Input label="Album / Release" value={editDraft.album} onChange={e=>setEditDraft(d=>({...d,album:e.target.value}))} onBlur={()=>{ if(editDraft.album!==(card.album||card.era||"")) firePatch({album:editDraft.album}); }} />
+              <Input label="Version / Type" value={editDraft.version} onChange={e=>setEditDraft(d=>({...d,version:e.target.value}))} onBlur={()=>{ if(editDraft.version!==(card.version||"")) firePatch({version:editDraft.version}); }} />
+            </div>
+          )}
+
+          <button onClick={()=>{ setShowMove(v=>!v); setShowEdit(false); }} className="tap" style={{ width:"100%",padding:"10px",borderRadius:11,background:"transparent",border:`1.5px solid ${C.border}`,color:C.text,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer",textAlign:"left" }}>📁 Move to another folder</button>
+          {showMove && (
+            <div style={{ padding:"10px 12px", background:C.surface, border:`1px solid ${C.border}`, borderRadius:12 }}>
+              <input value={moveSearch} onChange={e=>setMoveSearch(e.target.value)} placeholder="Search your folders..." style={{ width:"100%",boxSizing:"border-box",padding:"8px 10px",borderRadius:9,background:C.surfaceHi,border:`1.5px solid ${C.border}`,color:C.text,fontSize:11.5,fontFamily:"'Instrument Sans',sans-serif",outline:"none",marginBottom:8 }} />
+              <div style={{ maxHeight:180, overflowY:"auto", display:"flex", flexDirection:"column", gap:5 }}>
+                {[...myFolders]
+                  .filter(b=>b.id!==card.binder_id)
+                  .filter(b=>!moveSearch.trim() || b.name.toLowerCase().includes(moveSearch.toLowerCase()) || (b.group_name||"").toLowerCase().includes(moveSearch.toLowerCase()))
+                  .sort((a,b)=>{
+                    const aSame = (a.group_name||"").trim().toLowerCase()===(card.group_name||"").trim().toLowerCase();
+                    const bSame = (b.group_name||"").trim().toLowerCase()===(card.group_name||"").trim().toLowerCase();
+                    return (bSame?1:0)-(aSame?1:0);
+                  })
+                  .map(b=>(
+                    <button key={b.id} onClick={()=>{ firePatch({binder_id:b.id}); setShowMove(false); setMoveSearch(""); }} className="tap" style={{ textAlign:"left", padding:"8px 10px", borderRadius:9, background:C.surfaceHi, border:`1px solid ${C.border}`, cursor:"pointer" }}>
+                      <p style={{ fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.text }}>{b.name}</p>
+                      {b.group_name && <p style={{ fontSize:9.5, color:C.textMid, marginTop:1 }}>{b.group_name}</p>}
+                    </button>
+                  ))}
+                {myFolders.filter(b=>b.id!==card.binder_id).length===0 && <p style={{ fontSize:11, color:C.textMid, padding:"6px 2px" }}>No other folders yet.</p>}
+              </div>
+            </div>
+          )}
+
+          {card.binder_id && (
+            <button onClick={()=>{ firePatch({binder_id:null}); setShowMove(false); }} className="tap" style={{ width:"100%",padding:"10px",borderRadius:11,background:"transparent",border:`1.5px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer",textAlign:"left" }}>⊘ Remove from this folder (keeps card, unfiled)</button>
+          )}
+        </div>
+
         {card.status==="for_trade" && onListForTrade && (
           <button onClick={()=>onListForTrade(card)} className="tap" style={{ width:"100%",marginBottom:10,padding:"11px",borderRadius:12,background:C.rose,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12,cursor:"pointer" }}>List for Trade →</button>
         )}
-        <button onClick={()=>onDelete(card.id)} className="tap" style={{ width:"100%",padding:"11px",borderRadius:12,background:"transparent",border:`1.5px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer" }}>Remove card</button>
+        {!confirmDelete ? (
+          <button onClick={()=>setConfirmDelete(true)} className="tap" style={{ width:"100%",padding:"11px",borderRadius:12,background:"transparent",border:`1.5px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer" }}>Delete card permanently</button>
+        ) : (
+          <div style={{ display:"flex", gap:8 }}>
+            <button onClick={()=>setConfirmDelete(false)} className="tap" style={{ flex:1,padding:"11px",borderRadius:12,background:"transparent",border:`1.5px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer" }}>Cancel</button>
+            <button onClick={()=>onDelete(card.id)} className="tap" style={{ flex:1,padding:"11px",borderRadius:12,background:C.rose,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:11.5,cursor:"pointer" }}>Confirm delete — can't be undone</button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -7788,6 +7845,7 @@ function GroupBinderHome({ groupName, templates=[], onOpenTemplate, onBack, bind
   const moreActive = MORE_IDS.includes(activeTab);
   const moreLabel = moreActive ? MORE_OPTIONS.find(([id])=>id===activeTab)[1] : 'More';
 
+  const [manageFolder, setManageFolder] = useState(null);
   const openFolder = (b) => { setSelectedFolder(b); setScreen('folderDetail'); };
   const onFolderCreated = (b) => { refreshBinders?.(); setSelectedFolder(b); setScreen('folderDetail'); };
   const patchFolderCover = async (cover_url) => {
@@ -7821,7 +7879,7 @@ function GroupBinderHome({ groupName, templates=[], onOpenTemplate, onBack, bind
     const bTotal = binderCards.length;
     const pct = bTotal ? Math.round((bOwned/bTotal)*100) : 0;
     return (
-      <div key={b.id} onClick={()=>openFolder(b)} className="tap" style={{ display:"flex", alignItems:"center", gap:10, background:C.surfaceHi, border:`1px solid ${col}33`, borderRadius:14, padding:"10px 12px", marginBottom:8, cursor:"pointer" }}>
+      <div key={b.id} onClick={()=>openFolder(b)} className="tap" style={{ display:"flex", alignItems:"center", gap:10, background:C.surfaceHi, border:`1px solid ${col}33`, borderRadius:14, padding:"10px 40px 10px 12px", marginBottom:8, cursor:"pointer", position:"relative" }}>
         {b.cover_url ? (
           <div style={{ width:38,height:38,borderRadius:11,overflow:"hidden",flexShrink:0,border:`1.5px solid ${col}44` }}>
             <img src={b.cover_url} alt="" style={{ width:"100%",height:"100%",objectFit:"cover" }} />
@@ -7834,6 +7892,7 @@ function GroupBinderHome({ groupName, templates=[], onOpenTemplate, onBack, bind
           <p style={{ fontSize:9.5, color:C.textMid }}>{bTotal>0 ? `${bOwned}/${bTotal} owned` : 'No cards yet'}{meta?.isCustom ? ' · Custom' : ''}</p>
         </div>
         <span style={{ color:col, fontSize:15, flexShrink:0 }}>→</span>
+        <button onClick={e=>{ e.stopPropagation(); setManageFolder(b); }} aria-label="Folder options" style={{ position:"absolute", top:8, right:6, width:26, height:26, borderRadius:8, background:"transparent", border:"none", color:C.textMid, fontSize:15, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>⋮</button>
       </div>
     );
   };
@@ -7986,6 +8045,15 @@ function GroupBinderHome({ groupName, templates=[], onOpenTemplate, onBack, bind
             </div>
           </div>
         </div>
+      )}
+      {manageFolder && (
+        <FolderManageSheet
+          binder={manageFolder}
+          cards={cards}
+          patchCard={patchCard}
+          onClose={()=>setManageFolder(null)}
+          onChanged={()=>refreshBinders?.()}
+        />
       )}
     </div>
   );
@@ -8758,6 +8826,7 @@ function AddCardForm({ binder, initialStatus, onBack, onSaved }) {
   const STATUSES = ["owned","missing","iso","duplicate","for_trade"];
   const STATUS_LABELS = {owned:"✓ Owned",missing:"— Missing",iso:"♡ ISO",duplicate:"×2 Duplicate",for_trade:"⇄ For Trade"};
   const STATUS_COLORS = {owned:C.mint,missing:C.textDim,iso:C.accent,duplicate:C.gold,for_trade:C.rose};
+  const norm = s => (s||"").trim().toLowerCase();
 
   const [form, setForm] = useState({ group_name:binder?.group_name||"", member:"", album:binder?.name||"", era:"", version:"", condition:"mint", status:initialStatus||"owned", notes:"" });
   const [photoFile, setPhotoFile] = useState(null);
@@ -8765,6 +8834,14 @@ function AddCardForm({ binder, initialStatus, onBack, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const photoRef = useRef(null);
+  const { binders: myFolders } = useBinders();
+  // Destination folder — this form never creates a folder; it only offers to
+  // attach the new card to one that already exists (or leaves it unfiled).
+  // Preselected + effectively locked when opened from inside a folder, exactly
+  // like before; otherwise it's an explicit, searchable choice.
+  const [destBinderId, setDestBinderId] = useState(binder?.id || null);
+  const [folderSearch, setFolderSearch] = useState("");
+  const [showFolderPicker, setShowFolderPicker] = useState(false);
 
   const update = k => e => setForm(f=>({...f,[k]:e.target.value}));
 
@@ -8775,6 +8852,28 @@ function AddCardForm({ binder, initialStatus, onBack, onSaved }) {
     r.onload = ev => setPhotoPreview(ev.target.result);
     r.readAsDataURL(f);
   };
+
+  // Group suggestions — normalized, de-duplicated, drawn from the fan's own
+  // existing folders (there's no global Groups table yet — see the catalog
+  // coverage spec). Selecting one fills the exact casing already in use.
+  const groupSuggestions = [...new Map(myFolders.filter(b=>b.group_name).map(b=>[norm(b.group_name), b.group_name])).values()]
+    .filter(g => form.group_name.trim() && norm(g)!==norm(form.group_name) && norm(g).includes(norm(form.group_name)));
+
+  const sameGroupFolders = myFolders.filter(b => form.group_name.trim() ? norm(b.group_name)===norm(form.group_name) : true);
+  const folderResults = [...myFolders]
+    .filter(b => !folderSearch.trim() || b.name.toLowerCase().includes(folderSearch.toLowerCase()) || norm(b.group_name).includes(norm(folderSearch)))
+    .sort((a,b) => {
+      const aSame = norm(a.group_name)===norm(form.group_name), bSame = norm(b.group_name)===norm(form.group_name);
+      return (bSame?1:0)-(aSame?1:0);
+    });
+  const selectedFolder = myFolders.find(b=>b.id===destBinderId) || null;
+
+  // Duplicate-folder nudge — only when the fan typed an Album/Release that
+  // closely matches a folder they already have in the same group but hasn't
+  // selected it. Never auto-creates or auto-merges; just offers the match.
+  const albumMatch = !destBinderId && form.album.trim()
+    ? sameGroupFolders.find(b => norm(b.name).includes(norm(form.album)) || norm(form.album).includes(norm(b.name)))
+    : null;
 
   const save = async () => {
     if (!form.group_name.trim()||!form.member.trim()) { setErr("Group and member name are required."); return; }
@@ -8789,7 +8888,7 @@ function AddCardForm({ binder, initialStatus, onBack, onSaved }) {
           image_url = urlRes.public_url;
         }
       }
-      const d = await api.post('/api/cards', { ...form, binder_id: binder?.id, image_url });
+      const d = await api.post('/api/cards', { ...form, binder_id: destBinderId, image_url });
       if (d?.card) onSaved(d.card);
       else { setErr("Failed to save. Try again."); setSaving(false); }
     } catch { setErr("Failed to save. Try again."); setSaving(false); }
@@ -8818,9 +8917,59 @@ function AddCardForm({ binder, initialStatus, onBack, onSaved }) {
             <input ref={photoRef} type="file" accept="image/*" onChange={handlePhoto} style={{ display:"none" }} />
           </div>
 
-          <Input label="Group *" value={form.group_name} onChange={update("group_name")} placeholder="e.g. Stray Kids" />
+          <div>
+            <Input label="Group *" value={form.group_name} onChange={update("group_name")} placeholder="e.g. Stray Kids" />
+            {groupSuggestions.length>0 && (
+              <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginTop:6 }}>
+                {groupSuggestions.slice(0,4).map(g=>(
+                  <button key={g} onClick={()=>setForm(f=>({...f,group_name:g}))} className="tap" style={{ padding:"4px 10px", borderRadius:99, background:`${C.accent}14`, border:`1px solid ${C.accent}33`, color:C.accent, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:10, cursor:"pointer" }}>{g}</button>
+                ))}
+              </div>
+            )}
+          </div>
+
           <Input label="Member / Card Name *" value={form.member} onChange={update("member")} placeholder="e.g. Felix (Standard)" />
-          <Input label="Album / Era" value={form.album} onChange={update("album")} placeholder="e.g. 5-STAR" />
+
+          {/* Destination Folder — existing folders only, never auto-created. */}
+          <div>
+            <p style={{ fontSize:10,color:C.textMid,marginBottom:8,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em" }}>Destination Folder</p>
+            {binder ? (
+              <div style={{ padding:"10px 12px", borderRadius:11, background:C.surfaceHi, border:`1.5px solid ${C.accent}44`, display:"flex", alignItems:"center", gap:8 }}>
+                <span style={{ fontSize:14 }}>📁</span>
+                <p style={{ fontSize:12, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.text }}>{binder.name}{binder.group_name?` · ${binder.group_name}`:""}</p>
+              </div>
+            ) : (
+              <>
+                <button onClick={()=>setShowFolderPicker(v=>!v)} className="tap" style={{ width:"100%", textAlign:"left", padding:"10px 12px", borderRadius:11, background:C.surfaceHi, border:`1.5px solid ${C.border}`, color:selectedFolder?C.text:C.textMid, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, cursor:"pointer" }}>
+                  {selectedFolder ? `📁 ${selectedFolder.name}${selectedFolder.group_name?` · ${selectedFolder.group_name}`:""}` : "No folder — leave Unfiled"}
+                </button>
+                {showFolderPicker && (
+                  <div style={{ marginTop:8, padding:"10px 12px", background:C.surface, border:`1px solid ${C.border}`, borderRadius:12 }}>
+                    <input value={folderSearch} onChange={e=>setFolderSearch(e.target.value)} placeholder="Search your folders..." style={{ width:"100%",boxSizing:"border-box",padding:"8px 10px",borderRadius:9,background:C.surfaceHi,border:`1.5px solid ${C.border}`,color:C.text,fontSize:11.5,fontFamily:"'Instrument Sans',sans-serif",outline:"none",marginBottom:8 }} />
+                    <div style={{ maxHeight:180, overflowY:"auto", display:"flex", flexDirection:"column", gap:5 }}>
+                      <button onClick={()=>{ setDestBinderId(null); setShowFolderPicker(false); }} className="tap" style={{ textAlign:"left", padding:"8px 10px", borderRadius:9, background:!destBinderId?`${C.accent}18`:C.surfaceHi, border:`1px solid ${!destBinderId?C.accent:C.border}`, cursor:"pointer", color:C.textMid, fontSize:11.5 }}>No folder — leave Unfiled</button>
+                      {folderResults.map(b=>(
+                        <button key={b.id} onClick={()=>{ setDestBinderId(b.id); setShowFolderPicker(false); }} className="tap" style={{ textAlign:"left", padding:"8px 10px", borderRadius:9, background:destBinderId===b.id?`${C.accent}18`:C.surfaceHi, border:`1px solid ${destBinderId===b.id?C.accent:C.border}`, cursor:"pointer" }}>
+                          <p style={{ fontSize:11.5, fontFamily:"'Epilogue',sans-serif", fontWeight:700, color:C.text }}>{b.name}</p>
+                          {b.group_name && <p style={{ fontSize:9.5, color:C.textMid, marginTop:1 }}>{b.group_name}</p>}
+                        </button>
+                      ))}
+                      {folderResults.length===0 && <p style={{ fontSize:11, color:C.textMid, padding:"6px 2px" }}>No folders yet.</p>}
+                    </div>
+                  </div>
+                )}
+                {albumMatch && (
+                  <div style={{ marginTop:8, padding:"9px 11px", borderRadius:11, background:`${C.gold}10`, border:`1px solid ${C.gold}33`, display:"flex", alignItems:"center", gap:8 }}>
+                    <p style={{ flex:1, fontSize:11, color:C.textMid, lineHeight:1.5 }}>Use existing folder: <b style={{ color:C.text }}>{albumMatch.name}</b>?</p>
+                    <button onClick={()=>setDestBinderId(albumMatch.id)} className="tap" style={{ padding:"6px 10px", borderRadius:9, background:C.gold, border:"none", color:C.bg, fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:10, cursor:"pointer", flexShrink:0 }}>Use folder</button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          <Input label="Album / Release" value={form.album} onChange={update("album")} placeholder="e.g. 5-STAR" />
+          <Input label="Era / Comeback (optional)" value={form.era} onChange={update("era")} placeholder="e.g. MANIAC era" />
           <Input label="Version / Type" value={form.version} onChange={update("version")} placeholder="e.g. Weverse POB, Lucky Draw..." />
 
           <div>
@@ -8948,6 +9097,157 @@ function TradeListingForm({ card, onBack, onSaved }) {
   );
 }
 
+// ─── FOLDER MANAGE SHEET ────────────────────────────────────────────────────
+// One shared overflow menu for a folder (binder row): Edit / Move to another
+// group binder / Delete folder only (safe default) / Delete folder + cards
+// (destructive, separately confirmed). Used from CollectTab's binder list,
+// GroupBinderHome's FolderRow, and BinderDetail's header so the three
+// surfaces can't drift out of sync with three separate implementations.
+// "Delete folder only" relies on user_cards.binder_id's real ON DELETE SET
+// NULL foreign key (confirmed live) — cards are never lost, just unfiled.
+// "Move" updates the existing binder row's group_name (no clone), then
+// cascades group_name onto its cards through the same PATCH /api/cards/:id
+// every other card edit already uses — no new endpoint required.
+function FolderManageSheet({ binder, cards, patchCard, onClose, onChanged }) {
+  const binderCards = (cards||[]).filter(c => c.binder_id === binder.id);
+  const cardCount = binderCards.length;
+  const [mode, setMode] = useState('menu'); // menu | edit | move | deleteOnly | deleteAll
+  const [nameDraft, setNameDraft] = useState(binder.name || "");
+  const [groupDraft, setGroupDraft] = useState(binder.group_name || "");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const { binders: allBinders } = useBinders();
+  const existingGroups = [...new Set(allBinders.map(b => (b.group_name || "").trim()).filter(Boolean))]
+    .filter(g => g.toLowerCase() !== (binder.group_name || "").trim().toLowerCase());
+
+  const persistOrLocal = async (patch) => {
+    if (!binder.local && API_URL) {
+      const d = await api.patch(`/api/binders/${binder.id}`, patch);
+      return d?.binder || null;
+    }
+    return updateLocalBinder(binder.id, patch);
+  };
+
+  const saveName = async () => {
+    if (!nameDraft.trim() || busy) return;
+    setBusy(true); setErr("");
+    const updated = await persistOrLocal({ name: nameDraft.trim() });
+    setBusy(false);
+    if (updated) { onChanged(updated); onClose(); } else setErr("Couldn't rename. Try again.");
+  };
+
+  const saveMove = async () => {
+    const newGroup = groupDraft.trim();
+    if (!newGroup || busy) return;
+    setBusy(true); setErr("");
+    const updated = await persistOrLocal({ group_name: newGroup });
+    if (!updated) { setBusy(false); setErr("Couldn't move folder. Try again."); return; }
+    await Promise.all(binderCards.map(c => patchCard(c.id, { group_name: newGroup })));
+    setBusy(false);
+    onChanged(updated);
+    onClose();
+  };
+
+  const deleteFolderOnly = async () => {
+    if (busy) return;
+    setBusy(true); setErr("");
+    if (!binder.local && API_URL) {
+      const d = await api.del(`/api/binders/${binder.id}`);
+      setBusy(false);
+      if (d?.ok) { onChanged(null, { deleted:true }); onClose(); } else setErr("Couldn't delete folder. Try again.");
+    } else {
+      removeLocalBinder(binder.id);
+      setBusy(false);
+      onChanged(null, { deleted:true });
+      onClose();
+    }
+  };
+
+  const deleteFolderAndCards = async () => {
+    if (busy) return;
+    setBusy(true); setErr("");
+    if (!binder.local && API_URL) {
+      const d = await api.del(`/api/binders/${binder.id}?mode=with_cards`);
+      setBusy(false);
+      if (d?.ok) { onChanged(null, { deleted:true, cardsDeleted:true }); onClose(); } else setErr("Couldn't delete folder. Try again.");
+    } else {
+      removeLocalBinder(binder.id);
+      setBusy(false);
+      onChanged(null, { deleted:true, cardsDeleted:true });
+      onClose();
+    }
+  };
+
+  const Row = ({ children, ...p }) => (
+    <button {...p} className="tap" style={{ width:"100%",padding:"12px 14px",borderRadius:12,background:"transparent",border:`1.5px solid ${C.border}`,color:C.text,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer",textAlign:"left" }}>{children}</button>
+  );
+
+  return (
+    <div onClick={onClose} style={{ position:"fixed",inset:0,zIndex:500,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+      <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:"18px 20px calc(28px + env(safe-area-inset-bottom))",width:"100%",maxHeight:"80vh",overflowY:"auto",animation:"slideUp .25s ease" }}>
+        <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 16px" }} />
+        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,color:C.text,marginBottom:2 }}>{binder.name}</p>
+        <p style={{ fontSize:10.5,color:C.textMid,marginBottom:16 }}>{binder.group_name ? `${binder.group_name} · ` : ""}{cardCount} card{cardCount!==1?"s":""}</p>
+
+        {err && <p style={{ fontSize:11, color:C.rose, marginBottom:10 }}>{err}</p>}
+
+        {mode === 'menu' && (
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+            <Row onClick={()=>setMode('edit')}>✎ Edit folder</Row>
+            <Row onClick={()=>setMode('move')}>📁 Move to another group binder</Row>
+            <Row onClick={()=>setMode('deleteOnly')}>Delete folder only <span style={{ color:C.textMid, fontWeight:500 }}>— keeps cards, unfiled</span></Row>
+            <button onClick={()=>setMode('deleteAll')} className="tap" style={{ width:"100%",padding:"12px 14px",borderRadius:12,background:"transparent",border:`1.5px solid ${C.rose}55`,color:C.rose,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer",textAlign:"left" }}>Delete folder and its {cardCount} card{cardCount!==1?"s":""}</button>
+          </div>
+        )}
+
+        {mode === 'edit' && (
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            <Input label="Folder name" value={nameDraft} onChange={e=>setNameDraft(e.target.value)} />
+            <div style={{ display:"flex", gap:8 }}>
+              <button onClick={()=>setMode('menu')} className="tap" style={{ flex:1,padding:"11px",borderRadius:12,background:"transparent",border:`1.5px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer" }}>Cancel</button>
+              <button onClick={saveName} disabled={busy} className="tap" style={{ flex:1,padding:"11px",borderRadius:12,background:C.accent,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:11.5,cursor:"pointer" }}>{busy?"Saving…":"Save"}</button>
+            </div>
+          </div>
+        )}
+
+        {mode === 'move' && (
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            <Input label="Group" value={groupDraft} onChange={e=>setGroupDraft(e.target.value)} placeholder="e.g. BTS" list="folder-move-groups" />
+            <datalist id="folder-move-groups">{existingGroups.map(g=><option key={g} value={g} />)}</datalist>
+            {groupDraft.trim() && groupDraft.trim().toLowerCase() !== (binder.group_name||"").trim().toLowerCase() && (
+              <p style={{ fontSize:11, color:C.textMid, lineHeight:1.6 }}>Move this folder and its {cardCount} card{cardCount!==1?"s":""} from <b style={{ color:C.text }}>{binder.group_name||"Unassigned"}</b> to <b style={{ color:C.text }}>{groupDraft.trim()}</b>? This will update their group association.</p>
+            )}
+            <div style={{ display:"flex", gap:8 }}>
+              <button onClick={()=>setMode('menu')} className="tap" style={{ flex:1,padding:"11px",borderRadius:12,background:"transparent",border:`1.5px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer" }}>Cancel</button>
+              <button onClick={saveMove} disabled={busy || !groupDraft.trim()} className="tap" style={{ flex:1,padding:"11px",borderRadius:12,background:C.accent,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:11.5,cursor:"pointer" }}>{busy?"Moving…":"Move folder"}</button>
+            </div>
+          </div>
+        )}
+
+        {mode === 'deleteOnly' && (
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            <p style={{ fontSize:12, color:C.textMid, lineHeight:1.6 }}>Delete "{binder.name}"? Its {cardCount} card{cardCount!==1?"s":""} will stay in your collection as Unfiled — nothing is deleted.</p>
+            <div style={{ display:"flex", gap:8 }}>
+              <button onClick={()=>setMode('menu')} className="tap" style={{ flex:1,padding:"11px",borderRadius:12,background:"transparent",border:`1.5px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer" }}>Cancel</button>
+              <button onClick={deleteFolderOnly} disabled={busy} className="tap" style={{ flex:1,padding:"11px",borderRadius:12,background:C.rose,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:11.5,cursor:"pointer" }}>{busy?"Deleting…":"Delete folder"}</button>
+            </div>
+          </div>
+        )}
+
+        {mode === 'deleteAll' && (
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            <p style={{ fontSize:12, color:C.rose, lineHeight:1.6, fontWeight:700 }}>Permanently delete "{binder.name}" AND its {cardCount} card{cardCount!==1?"s":""}? This can't be undone.</p>
+            <div style={{ display:"flex", gap:8 }}>
+              <button onClick={()=>setMode('menu')} className="tap" style={{ flex:1,padding:"11px",borderRadius:12,background:"transparent",border:`1.5px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer" }}>Cancel</button>
+              <button onClick={deleteFolderAndCards} disabled={busy} className="tap" style={{ flex:1,padding:"11px",borderRadius:12,background:C.rose,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:11.5,cursor:"pointer" }}>{busy?"Deleting…":"Delete folder + cards"}</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── BINDER DETAIL ─────────────────────────────────────────────────────────────
 function BinderDetail({ binder, onBack, onCoverChange, cards: allCards, cardsLoading, setCards, patchCard, deleteCard, addCard }) {
   const STATUS_ORDER = CARD_STATUS_ORDER;
@@ -8993,6 +9293,12 @@ function BinderDetail({ binder, onBack, onCoverChange, cards: allCards, cardsLoa
   const [showAddCard, setShowAddCard]   = useState(false);
   const [tradingCard, setTradingCard]   = useState(null);
   const [detailCard, setDetailCard]     = useState(null);
+  const [showFolderMenu, setShowFolderMenu] = useState(false);
+  // Local view of name/group so Edit/Move feel immediate without waiting on a
+  // parent re-fetch — everything else (cover, card filtering) still reads the
+  // real `binder` prop, since only display fields can drift here.
+  const [folderView, setFolderView] = useState({ name: binder.name, emoji: binder.emoji, group_name: binder.group_name });
+  useEffect(() => { setFolderView({ name: binder.name, emoji: binder.emoji, group_name: binder.group_name }); }, [binder.id, binder.name, binder.emoji, binder.group_name]);
 
   // Explicit, deliberate updates only — no tap-to-cycle. Used by the Card Detail Sheet
   // for status/condition/notes/quantity/photo changes.
@@ -9016,11 +9322,24 @@ function BinderDetail({ binder, onBack, onCoverChange, cards: allCards, cardsLoa
       <div style={{ padding:"14px 20px 10px",flexShrink:0,display:"flex",alignItems:"center",gap:10 }}>
         <button onClick={onBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
         <div style={{ flex:1,minWidth:0 }}>
-          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,lineHeight:1.2 }}>{binder.emoji||"🃏"} {binder.name}</p>
+          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,lineHeight:1.2 }}>{folderView.emoji||"🃏"} {folderView.name}</p>
           <p style={{ fontSize:10,color:C.textMid }}>{owned}/{cards.length} owned · {dupes} dupes · {missing} missing</p>
         </div>
         <button onClick={()=>setShowAddCard(true)} style={{ background:`linear-gradient(140deg,${C.accent}cc,${C.accentDim})`,border:"none",borderRadius:11,padding:"8px 13px",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:10.5,cursor:"pointer",flexShrink:0 }}>+ Add</button>
+        <button onClick={()=>setShowFolderMenu(true)} aria-label="Folder options" style={{ width:34,height:34,borderRadius:11,background:C.surfaceHi,border:`1px solid ${C.border}`,color:C.textMid,fontSize:16,cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center" }}>⋮</button>
       </div>
+      {showFolderMenu && (
+        <FolderManageSheet
+          binder={{ ...binder, ...folderView }}
+          cards={allCards}
+          patchCard={patchCard}
+          onClose={()=>setShowFolderMenu(false)}
+          onChanged={(updated, opts)=>{
+            if (opts?.deleted) { onBack(); return; }
+            if (updated) setFolderView({ name: updated.name, emoji: updated.emoji, group_name: updated.group_name });
+          }}
+        />
+      )}
 
       {/* Binder cover — photo when set, else color + fallback icon; editable */}
       <div style={{ padding:"0 20px 10px", flexShrink:0 }}>
@@ -10196,6 +10515,7 @@ function CollectTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
   const [showCustomBinder, setShowCustomBinder] = useState(false);
   const [showTradeHub, setShowTradeHub] = useState(false);
   const [selectedBinder, setSelectedBinder] = useState(null);
+  const [manageBinder, setManageBinder] = useState(null);
 
   const { binders, loading: bindersLoading, refresh: refreshBinders } = useBinders();
 
@@ -10337,10 +10657,20 @@ function CollectTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
                       </div>
                       <span style={{ color:col,fontSize:18,flexShrink:0 }}>→</span>
                     </div>
+                    <button onClick={e=>{ e.stopPropagation(); setManageBinder(b); }} aria-label="Folder options" style={{ position:"absolute", top:10, right:10, width:28, height:28, borderRadius:9, background:"rgba(0,0,0,0.18)", border:"none", color:col, fontSize:15, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", zIndex:2 }}>⋮</button>
                   </div>
                 );
               });
             })()}
+            {manageBinder && (
+              <FolderManageSheet
+                binder={manageBinder}
+                cards={cards}
+                patchCard={patchCard}
+                onClose={()=>setManageBinder(null)}
+                onChanged={()=>{ refreshBinders(); refreshCards?.(); }}
+              />
+            )}
           </div>
         )}
         {view==="trackers" && (

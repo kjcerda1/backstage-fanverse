@@ -5835,16 +5835,36 @@ app.patch('/api/binders/:id', requireAuth, async (req, res) => {
   }
 });
 
+// DELETE /api/binders/:id — two modes, both scoped to the authenticated owner:
+//   default            — "delete folder only". user_cards.binder_id has an
+//                         ON DELETE SET NULL foreign key to binders(id) (confirmed
+//                         live on wshqjxsbwqijodlskrbx), so this already detaches
+//                         the folder's cards instead of losing them — no extra
+//                         query needed for the safe path.
+//   ?mode=with_cards   — explicit destructive path. Deletes the user's own
+//                        user_cards rows scoped to this binder FIRST, then the
+//                        binder itself, so a request that dies between the two
+//                        steps still leaves the binder attached to whatever
+//                        cards survived rather than orphaning them silently.
 app.delete('/api/binders/:id', requireAuth, async (req, res) => {
   if (!supabase) return res.json({ ok: true, mock: true });
+  const withCards = req.query.mode === 'with_cards';
   try {
+    if (withCards) {
+      const { error: cardsErr } = await supabase
+        .from('user_cards')
+        .delete()
+        .eq('binder_id', req.params.id)
+        .eq('user_id', req.userId);
+      if (cardsErr) throw cardsErr;
+    }
     const { error } = await supabase
       .from('binders')
       .delete()
       .eq('id', req.params.id)
       .eq('user_id', req.userId);
     if (error) throw error;
-    res.json({ ok: true });
+    res.json({ ok: true, cardsDeleted: withCards });
   } catch (err) {
     console.error('[Binders DELETE]', err.message);
     res.status(500).json({ error: 'Failed to delete binder' });
