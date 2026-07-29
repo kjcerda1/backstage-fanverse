@@ -6884,17 +6884,16 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
           <span style={{ color:C.accent, fontSize:16, fontWeight:800 }}>→</span>
         </button>
 
-        {/* Smart nudge — polished collector alert */}
-        {wishlistTotal > 0 && (
-          <div style={{ background:`linear-gradient(140deg,${C.rose}18,${C.rose}08,${C.surface})`, border:`1px solid ${C.rose}3a`, borderRadius:16, padding:"11px 14px", marginBottom:12, display:"flex", gap:10, alignItems:"center", boxShadow:"inset 0 1px 0 rgba(255,255,255,0.06)", backdropFilter:"blur(10px)", position:"relative", overflow:"hidden" }}>
-            <span style={{ fontSize:18, position:"relative" }}>🔥</span>
-            <div style={{ flex:1, position:"relative" }}>
-              <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, color:C.text }}>So close! <span style={{ color:C.rose, textShadow:`0 0 12px ${C.rose}66` }}>{wishlistTotal} card{wishlistTotal>1?"s":""}</span> away</p>
-              <p style={{ fontSize:10, color:C.textMid }}>Finish your collection — check Trade Hub</p>
-            </div>
-            <button onClick={()=>setSection("wishlist")} style={{ ...VS.glowButton(C.rose, C.gold), padding:"7px 12px", fontSize:10, position:"relative" }}>Trade</button>
-          </div>
-        )}
+        {/* "So Close! N cards away" was removed here (QA finding E) — wishlistTotal
+            is a raw global count of every ISO-status card across the WHOLE
+            collection (computeMyWorldSummary → summary.wanted), not scoped to a
+            verified catalog release or an explicit user-created checklist target.
+            Framing that as "finish your collection" overstated a completion claim
+            that doesn't exist, and its Trade button routed to the unfiltered
+            Wishlist tab, not a real matching workflow. Per the grounding rule, a
+            completion nudge here may only return once it's driven by (a) a
+            verified catalog scope with disclosed completeness, or (b) an explicit
+            user-defined checklist/target — never a raw cross-collection count. */}
 
         {/* VIP upsell */}
         {!isVip && (
@@ -7173,17 +7172,6 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
                     </div>
                   )}
                 </div>
-              </div>
-            )}
-            {/* Era Rooms cross-link */}
-            {eraBoards.length > 0 && (
-              <div onClick={()=>setSection("eraboards")} className="tap" style={{ display:"flex",alignItems:"center",gap:10,background:`${softBlue}0a`,border:`1px solid ${softBlue}28`,borderRadius:13,padding:"10px 14px",marginBottom:14,cursor:"pointer" }}>
-                <span style={{ fontSize:16 }}>🎭</span>
-                <div style={{ flex:1 }}>
-                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,color:C.text }}>You have {eraBoards.length} Era Room{eraBoards.length!==1?"s":""}</p>
-                  <p style={{ fontSize:10,color:C.textMid }}>Your era shrines — favorites, memories, binder progress, and wishlist</p>
-                </div>
-                <span style={{ color:softBlue,fontSize:16 }}>→</span>
               </div>
             )}
             {/* Single collection nav: My Binders is primary; "All Cards" is a
@@ -9264,27 +9252,6 @@ function BinderDetail({ binder, onBack, onCoverChange, cards: allCards, cardsLoa
   };
   const removeCover = () => { if (!coverBusy) onCoverChange?.(null); };
 
-  // Detect linked Era Board — match by realBinderId first, then by name pattern
-  const linkedEraBoard = (() => {
-    try {
-      const all = JSON.parse(localStorage.getItem("backstage_era_boards_v2")||"{}");
-      const byId = Object.values(all).find(b => b.realBinderId === binder.id);
-      if (byId) return byId;
-      if (binder.name && binder.group_name) {
-        const eraGuess = binder.name.replace(`${binder.group_name} — `, "").trim();
-        const byName = all[`${binder.group_name}::${eraGuess}`];
-        if (byName?.binderStarted) return byName;
-      }
-      return null;
-    } catch { return null; }
-  })();
-
-  const openLinkedEraRoom = () => {
-    if (!linkedEraBoard) return;
-    const pal = linkedEraBoard.palette || [];
-    window.dispatchEvent(new CustomEvent("backstage:openEraRoom", { detail:{ group:linkedEraBoard.group, era:linkedEraBoard.era, color:pal[0]||C.accent } }));
-  };
-
   // Derived from the shared cards cache, filtered to this binder — no
   // independent fetch, so a status/photo change made anywhere else (Wishlist,
   // Trades, My Cards) is reflected here immediately, and vice versa.
@@ -9368,90 +9335,14 @@ function BinderDetail({ binder, onBack, onCoverChange, cards: allCards, cardsLoa
       </div>
 
       <Screen style={{ padding:"0 18px calc(120px + env(safe-area-inset-bottom))" }}>
-        {/* ── Linked Era Board header ── */}
-        {linkedEraBoard && (() => {
-          const pal = linkedEraBoard.palette || [C.accent];
-          const savedTmpls = (linkedEraBoard.savedTemplates||[]).length;
-          const savedWish  = (linkedEraBoard.wishlist||[]).length;
-          const savedFits  = (linkedEraBoard.savedOutfits||[]).length;
-          return (
-            <div style={{ marginBottom:14,borderRadius:18,overflow:"hidden",background:C.surface,border:`1.5px solid ${pal[0]}33`,boxShadow:`0 4px 18px ${pal[0]}12` }}>
-              <div style={{ height:5,background:`linear-gradient(90deg,${pal[0]},${pal[1]||pal[0]},${pal[2]||pal[0]})` }} />
-              <div style={{ padding:"12px 14px" }}>
-                <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8 }}>
-                  <div>
-                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:13,color:C.text,lineHeight:1.1 }}>{linkedEraBoard.era}</p>
-                    <p style={{ fontSize:10,color:pal[0],fontFamily:"'Epilogue',sans-serif",fontWeight:700,marginTop:2,textTransform:"uppercase",letterSpacing:"0.05em" }}>{linkedEraBoard.group}</p>
-                  </div>
-                  <span style={{ background:`${pal[0]}18`,border:`1px solid ${pal[0]}44`,borderRadius:99,padding:"3px 9px",fontSize:8.5,color:pal[0],fontFamily:"'Epilogue',sans-serif",fontWeight:700,letterSpacing:"0.04em" }}>🎭 Era Room</span>
-                </div>
-                <div style={{ display:"flex",gap:8,marginBottom:10 }}>
-                  {[[savedTmpls,"templates",C.accent],[savedWish,"wishlist",C.gold],[savedFits,"fits",C.lavender]].map(([val,label,col])=>(
-                    <span key={label} style={{ fontSize:9.5,color:val>0?col:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{val} {label}</span>
-                  ))}
-                </div>
-                <button onClick={openLinkedEraRoom} className="tap" style={{ width:"100%",padding:"8px",borderRadius:11,background:`${pal[0]}14`,border:`1.5px solid ${pal[0]}44`,color:pal[0],fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>
-                  Open Era Room →
-                </button>
-                {/* Saved templates quick-list */}
-                {savedTmpls > 0 && (
-                  <div style={{ marginTop:10,borderTop:`1px solid ${C.border}`,paddingTop:10 }}>
-                    <p style={{ fontSize:9,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6 }}>Saved templates</p>
-                    <div style={{ display:"flex",flexDirection:"column",gap:5 }}>
-                      {(linkedEraBoard.savedTemplates||[]).slice(0,5).map(id => {
-                        const label = id.split("-").slice(2).join(" ");
-                        return (
-                          <div key={id} style={{ display:"flex",alignItems:"center",gap:8,padding:"5px 8px",borderRadius:9,background:`${pal[0]}0a`,border:`1px solid ${pal[0]}20` }}>
-                            <span style={{ fontSize:12 }}>🎴</span>
-                            <p style={{ fontSize:10.5,color:C.text,fontFamily:"'Epilogue',sans-serif",fontWeight:600,flex:1,lineHeight:1.2 }}>{label}</p>
-                          </div>
-                        );
-                      })}
-                      {savedTmpls > 5 && <p style={{ fontSize:9.5,color:C.textDim,paddingLeft:4 }}>+{savedTmpls-5} more in Era Room</p>}
-                    </div>
-                  </div>
-                )}
-                {/* Wishlist quick-list */}
-                {savedWish > 0 && (
-                  <div style={{ marginTop:10,borderTop:`1px solid ${C.border}`,paddingTop:10 }}>
-                    <p style={{ fontSize:9,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6 }}>Wishlist from this era</p>
-                    <div style={{ display:"flex",gap:5,flexWrap:"wrap" }}>
-                      {(linkedEraBoard.wishlist||[]).slice(0,6).map(id => {
-                        const label = typeof id === "string" ? id.split("-").slice(2).join(" ") : (id.label || String(id));
-                        return (
-                          <span key={String(id)} style={{ padding:"3px 9px",borderRadius:8,background:`${C.gold}14`,border:`1px solid ${C.gold}33`,color:C.gold,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>⭐ {label}</span>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })()}
-
         {loading && <div style={{ textAlign:"center",padding:40,color:C.textMid,fontSize:13 }}>Loading...</div>}
 
         {!loading && cards.length===0 && (
           <div style={{ textAlign:"center",padding:"40px 20px" }}>
             <p style={{ fontSize:36,marginBottom:12 }}>🃏</p>
-            {linkedEraBoard ? (
-              <>
-                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:15,marginBottom:6 }}>Binder linked — no cards yet</p>
-                <p style={{ fontSize:12,color:C.textMid,marginBottom:16,lineHeight:1.7 }}>This binder is linked to your {linkedEraBoard.group} {linkedEraBoard.era} Era Room. Open it to save templates or wishlist cards — they'll show up here.</p>
-                <button onClick={openLinkedEraRoom} className="tap" style={{ padding:"10px 18px",borderRadius:12,background:`${linkedEraBoard.palette?.[0]||C.accent}18`,border:`1.5px solid ${linkedEraBoard.palette?.[0]||C.accent}44`,color:linkedEraBoard.palette?.[0]||C.accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer",marginBottom:12 }}>
-                  Open Era Room →
-                </button>
-                <br />
-                <Btn small onClick={()=>setShowAddCard(true)}>+ Add Card Manually</Btn>
-              </>
-            ) : (
-              <>
-                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:15,marginBottom:6 }}>No cards yet</p>
-                <p style={{ fontSize:12,color:C.textMid,marginBottom:20 }}>Tap + Add to start tracking your collection.</p>
-                <Btn small onClick={()=>setShowAddCard(true)}>+ Add First Card</Btn>
-              </>
-            )}
+            <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:15,marginBottom:6 }}>No cards yet</p>
+            <p style={{ fontSize:12,color:C.textMid,marginBottom:20 }}>Tap + Add to start tracking your collection.</p>
+            <Btn small onClick={()=>setShowAddCard(true)}>+ Add First Card</Btn>
           </div>
         )}
 
@@ -10593,7 +10484,7 @@ function CollectTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
                 <div style={{ width:34,height:34,borderRadius:11,flexShrink:0,background:`${C.accent}22`,border:`1.5px solid ${C.accent}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:C.accent,position:"relative" }}>+</div>
                 <div style={{ minWidth:0, position:"relative", flex:1 }}>
                   <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,color:C.text,marginBottom:1,lineHeight:1.15 }}>Start a Binder</p>
-                  <p style={{ fontSize:10,color:C.textMid,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>Pick a catalog album or build a custom one</p>
+                  <p style={{ fontSize:10,color:C.textMid,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>Choose a group and start organizing folders</p>
                 </div>
                 <span style={{ color:C.accent, fontSize:16, fontWeight:800, position:"relative" }}>→</span>
               </button>
@@ -14245,7 +14136,6 @@ function ToolsTab({ user, weather, isVip, onUpgrade, go, onBack, cards, patchCar
   const TOOL_CARDS = [
     { id:"buildday", icon:"🗓️", label:"Build My Day",     sub:"AI-planned fan day with food, cafes & meetups",         color:C.pink,   wide:true, soon:false },
     { id:"chants",   icon:"🎵", label:"Chant Finder",     sub:"Member roll calls, chant practice, and paste guides",   color:C.accent,            soon:false },
-    { id:"eras",     icon:"🎭", label:"Eras Explorer",    sub:"Browse every album & comeback era",                      color:C.pink,              soon:false },
     { id:"prep",     icon:"📋", label:"Concert Prep",     sub:"Packing list & day-of checklist",                        color:C.mint,              soon:false },
     { id:"comebacks",icon:"🔔", label:"Comebacks & Drops",sub:"Announcements for your followed groups",                  color:C.rose,              soon:false },
     { id:"kdramas",  icon:"🎬", label:"K-Dramas",         sub:"Track your watch list",                                  color:C.silver,            soon:false },
