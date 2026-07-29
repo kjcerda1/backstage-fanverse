@@ -5803,7 +5803,14 @@ function CardDetailSheet({ card, groupLabel, onClose, onPatch, onDelete, onListF
 
   return (
     <div onClick={onClose} style={{ position:"fixed",inset:0,zIndex:420,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
-      <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:"22px 20px 36px",width:"100%",maxHeight:"88vh",overflowY:"auto",animation:"slideUp .25s ease" }}>
+      {/* Bottom padding reserves real clearance for .bs-bottom-nav (confirmed via
+          Preview: it renders at a fixed z-index:100 inside a stacking context this
+          sheet's own z-index:420 does not actually out-rank, since an ancestor
+          wrapper caps this subtree's effective stack order — a pre-existing
+          app-shell issue, not something raisable by bumping this sheet's own
+          z-index). Without this, the Manage section's Delete button rendered
+          exactly where the nav intercepts taps instead. */}
+      <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:"22px 20px calc(100px + env(safe-area-inset-bottom))",width:"100%",maxHeight:"88vh",overflowY:"auto",animation:"slideUp .25s ease" }}>
         <div style={{ position:"relative", display:"flex", justifyContent:"center", marginBottom:18 }}>
           <div style={{ width:34,height:4,borderRadius:99,background:C.border }} />
           <span aria-live="polite" style={{ position:"absolute", right:0, top:-2, fontSize:10.5, fontWeight:700, fontFamily:"'Epilogue',sans-serif", color:C.mint, display:"flex", alignItems:"center", gap:4, opacity:savedFlash?1:0, transform:savedFlash?"translateY(0)":"translateY(-3px)", transition:"opacity .25s ease, transform .25s ease", pointerEvents:"none" }}>✓ Saved</span>
@@ -8814,7 +8821,11 @@ function AddCardForm({ binder, initialStatus, onBack, onSaved }) {
   const STATUSES = ["owned","missing","iso","duplicate","for_trade"];
   const STATUS_LABELS = {owned:"✓ Owned",missing:"— Missing",iso:"♡ ISO",duplicate:"×2 Duplicate",for_trade:"⇄ For Trade"};
   const STATUS_COLORS = {owned:C.mint,missing:C.textDim,iso:C.accent,duplicate:C.gold,for_trade:C.rose};
-  const norm = s => (s||"").trim().toLowerCase();
+  // Strips punctuation (not just casing/whitespace) so "aespa — MY WORLD" and
+  // "aespa my world" normalize to the same string — confirmed via Preview that
+  // a plain .trim().toLowerCase() missed exactly this em-dash-vs-space case,
+  // silently skipping the "Use existing folder" duplicate nudge below.
+  const norm = s => (s||"").toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
   const [form, setForm] = useState({ group_name:binder?.group_name||"", member:"", album:binder?.name||"", era:"", version:"", condition:"mint", status:initialStatus||"owned", notes:"" });
   const [photoFile, setPhotoFile] = useState(null);
@@ -9172,7 +9183,10 @@ function FolderManageSheet({ binder, cards, patchCard, onClose, onChanged }) {
 
   return (
     <div onClick={onClose} style={{ position:"fixed",inset:0,zIndex:500,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
-      <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:"18px 20px calc(28px + env(safe-area-inset-bottom))",width:"100%",maxHeight:"80vh",overflowY:"auto",animation:"slideUp .25s ease" }}>
+      {/* Same bottom-nav stacking-context trap as CardDetailSheet — see its
+          comment. Reserved clearance here too, since the destructive
+          "Delete folder + cards" confirm can land at the very bottom. */}
+      <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:"18px 20px calc(100px + env(safe-area-inset-bottom))",width:"100%",maxHeight:"80vh",overflowY:"auto",animation:"slideUp .25s ease" }}>
         <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 16px" }} />
         <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,color:C.text,marginBottom:2 }}>{binder.name}</p>
         <p style={{ fontSize:10.5,color:C.textMid,marginBottom:16 }}>{binder.group_name ? `${binder.group_name} · ` : ""}{cardCount} card{cardCount!==1?"s":""}</p>

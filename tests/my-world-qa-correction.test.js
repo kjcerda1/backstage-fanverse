@@ -3,13 +3,17 @@
 // no framework, source-text audits rather than a live server/DB — run with:
 //   node tests/my-world-qa-correction.test.js
 //
-// Covers two things that must never silently regress:
+// Covers:
 //   1. The unscoped "So close! N cards away" claim (finding E — a raw global
 //      wishlist count with no verified catalog scope or user checklist behind
 //      it) cannot quietly come back without a corresponding scoped rewrite.
 //   2. The decommissioned Era Room entry points (finding D) stay closed —
 //      the My World cross-link, the Tools "Eras Explorer" tool card, and the
 //      BinderDetail "linked Era Room" banner.
+//   3. AddCardForm's duplicate-folder normalization strips punctuation, not
+//      just casing/whitespace — caught live against real Supabase data: typing
+//      "aespa my world" failed to suggest the existing folder "aespa — MY
+//      WORLD" because a plain .trim().toLowerCase() left the em dash in place.
 // (The new DELETE /api/binders/:id?mode=with_cards destructive path is
 // already covered generically by tests/binder-card-ownership.test.js's
 // "no route runs a raw UPDATE/DELETE ... without a user_id scope" check.)
@@ -49,6 +53,42 @@ check('BinderDetail no longer renders a "linked Era Room" banner', () => {
   const end = frontendSrc.indexOf('\nfunction ', start + 10);
   const body = frontendSrc.slice(start, end === -1 ? undefined : end);
   assert.ok(!/linkedEraBoard/.test(body), 'linkedEraBoard still referenced inside BinderDetail');
+});
+
+// ── Add Card duplicate-folder normalization strips punctuation ─────────────
+check('AddCardForm norm() strips punctuation (em dash, etc.), not just casing/whitespace', () => {
+  const start = frontendSrc.indexOf('function AddCardForm(');
+  const end = frontendSrc.indexOf('\nfunction ', start + 10);
+  const body = frontendSrc.slice(start, end === -1 ? undefined : end);
+  const m = body.match(/const norm = s => \(([\s\S]*?)\);/);
+  assert.ok(m, 'norm() definition not found in AddCardForm');
+  assert.ok(/replace\(\/\[\^a-z0-9\]\+\/g/.test(m[0]), 'norm() no longer strips non-alphanumeric characters');
+  // Mirror the exact expression and prove it on the real case that broke live:
+  // "aespa — MY WORLD" (existing folder name) vs "aespa my world" (typed text)
+  // must normalize identically despite the em dash.
+  const norm = s => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  assert.strictEqual(norm('aespa — MY WORLD'), norm('aespa my world'));
+});
+
+// ── Collision-reservation: CardDetailSheet / FolderManageSheet clear the
+// bottom nav's stacking-context trap ────────────────────────────────────────
+// Confirmed live via Preview + elementFromPoint: .bs-bottom-nav sits at
+// z-index:100 in its own ancestor's stacking context, and CardDetailSheet's
+// z-index:420 is capped by an ancestor with z-index:1 — so bumping the
+// sheet's own z-index cannot win. The only reliable fix is enough bottom
+// padding that no actionable content ever renders in the nav's screen band.
+check('CardDetailSheet reserves bottom-nav clearance (not just the original 36px)', () => {
+  const start = frontendSrc.indexOf('function CardDetailSheet(');
+  const end = frontendSrc.indexOf('\nfunction ', start + 10);
+  const body = frontendSrc.slice(start, end === -1 ? undefined : end);
+  assert.ok(/padding:"22px 20px calc\(100px \+ env\(safe-area-inset-bottom\)\)"/.test(body));
+});
+
+check('FolderManageSheet reserves bottom-nav clearance (not just the original 28px)', () => {
+  const start = frontendSrc.indexOf('function FolderManageSheet(');
+  const end = frontendSrc.indexOf('\nfunction ', start + 10);
+  const body = frontendSrc.slice(start, end === -1 ? undefined : end);
+  assert.ok(/padding:"18px 20px calc\(100px \+ env\(safe-area-inset-bottom\)\)"/.test(body));
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

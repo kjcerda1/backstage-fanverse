@@ -187,6 +187,21 @@ function mockSupabase({ returnsRow, calls }) {
     }
   });
 
+  test('PATCH /api/cards/:id whitelist includes group_name (folder-move cascade regression, caught live: moving a folder cross-group updated the folder but silently left its cards on the old group_name until this was added)', () => {
+    const block = routeBlock('patch', '/api/cards/:id');
+    const allowedMatch = block.match(/const allowed = \[([^\]]*)\]/);
+    assert.ok(allowedMatch, 'could not find allowed-fields whitelist');
+    assert.ok(allowedMatch[1].includes("'group_name'"), 'group_name must be PATCH-able so FolderManageSheet can cascade a group move onto child cards');
+  });
+
+  test('DELETE /api/binders/:id with mode=with_cards scopes the card wipe by BOTH binder_id and user_id', () => {
+    const block = routeBlock('delete', '/api/binders/:id');
+    assert.ok(/withCards/.test(block), 'no with_cards branch found');
+    const cardsDeleteBlock = block.slice(block.indexOf('withCards'), block.indexOf("from('binders')"));
+    assert.ok(/\.eq\('binder_id',\s*req\.params\.id\)/.test(cardsDeleteBlock), "card wipe doesn't scope by binder_id");
+    assert.ok(/\.eq\('user_id',\s*req\.userId\)/.test(cardsDeleteBlock), "card wipe doesn't scope by user_id");
+  });
+
   test('POST /api/cards/custom uses makeUserClient(req), not the bare service client', () => {
     const block = routeBlock('post', '/api/cards/custom');
     assert.ok(/makeUserClient\(req\)/.test(block));

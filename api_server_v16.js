@@ -5965,7 +5965,11 @@ app.post('/api/cards/custom', requireAuth, async (req, res) => {
 
 app.patch('/api/cards/:id', requireAuth, async (req, res) => {
   if (!supabase) return res.json({ ok: true, mock: true });
-  const allowed = ['status','condition','image_url','notes','quantity','binder_id','member','album','era','version','description'];
+  // group_name is included so a folder move (FolderManageSheet) can cascade the
+  // new group onto its cards' own group_name field — cards store group_name
+  // independently of binder_id, so without this a moved folder's cards keep
+  // showing the old group everywhere group_name is read from directly.
+  const allowed = ['status','condition','image_url','notes','quantity','binder_id','member','album','era','version','description','group_name'];
   const updates = {};
   allowed.forEach(k => { if (req.body[k] !== undefined) updates[k] = req.body[k]; });
   updates.updated_at = new Date().toISOString();
