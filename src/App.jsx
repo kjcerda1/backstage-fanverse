@@ -6761,10 +6761,17 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
         </div>
       </div>
 
-      {/* Floating action orb — opens the collector action sheet directly (no pre-menu detour) */}
-      <button onClick={()=>setShowQuickAdd(true)} className="tap" aria-label="Add to My World" style={{ position:"absolute", bottom:"calc(96px + env(safe-area-inset-bottom))", right:20, width:54, height:54, borderRadius:18, display:"flex", alignItems:"center", justifyContent:"center", color:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:24, cursor:"pointer", zIndex:7, transition:"transform .2s",
-        background:`radial-gradient(circle at 30% 20%, rgba(255,255,255,0.38), transparent 45%), linear-gradient(150deg, rgba(196,181,253,0.42), rgba(240,168,204,0.32))`,
-        border:"1px solid rgba(255,255,255,0.38)", backdropFilter:"blur(18px) saturate(1.3)", boxShadow:"0 10px 28px rgba(120,90,200,0.28), inset 0 1px 0 rgba(255,255,255,0.35)" }}>+</button>
+      {/* Floating action orb — opens the collector action sheet directly (no
+          pre-menu detour). Hidden on My Binders: that view always shows its
+          own "+ Start a Binder" creation action (top of list, or the empty-
+          state card), which the orb was overlapping — confirmed via a
+          Preview measurement, not assumed (orb occupied x302-356/y663-717 at
+          375px, directly over the empty-state CTA button at x57-318/y696-728). */}
+      {!(section==="albums" && albumSubView==="binders") && (
+        <button onClick={()=>setShowQuickAdd(true)} className="tap" aria-label="Add to My World" style={{ position:"absolute", bottom:"calc(96px + env(safe-area-inset-bottom))", right:20, width:54, height:54, borderRadius:18, display:"flex", alignItems:"center", justifyContent:"center", color:C.text, fontFamily:"'Epilogue',sans-serif", fontWeight:900, fontSize:24, cursor:"pointer", zIndex:7, transition:"transform .2s",
+          background:`radial-gradient(circle at 30% 20%, rgba(255,255,255,0.38), transparent 45%), linear-gradient(150deg, rgba(196,181,253,0.42), rgba(240,168,204,0.32))`,
+          border:"1px solid rgba(255,255,255,0.38)", backdropFilter:"blur(18px) saturate(1.3)", boxShadow:"0 10px 28px rgba(120,90,200,0.28), inset 0 1px 0 rgba(255,255,255,0.35)" }}>+</button>
+      )}
 
       {/* CONTENT — all cards/stats scroll here */}
       <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))", position:"relative", zIndex:1 }}>
@@ -10030,14 +10037,20 @@ function TradeHub({ onBack, onNotif, user }) {
 
   return (
     <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
-      {/* Header */}
+      {/* Header — paddingRight clears the app-level 💬 + 🔔 pair that floats
+          over every tab (top:6/62, 40px each — same 108 reserved by the My
+          World and Fanverse headers). Without it, the "✦ Verified" VIP badge
+          below renders directly underneath the Notifications bubble — a real
+          collision confirmed via Preview, not a hypothetical. */}
       <div style={{ padding:"16px 20px 10px", display:"flex", alignItems:"center", gap:10, flexShrink:0 }}>
         <button onClick={onBack||undefined} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
-        <div style={{ flex:1 }}>
+        <div style={{ flex:1, minWidth:0, paddingRight:108 }}>
           <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:19 }}>Trade Hub 🃏</h2>
-          <p style={{ fontSize:10.5, color:C.textMid }}>{trades.filter(t=>t.stage!=="done").length} active trades</p>
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:2 }}>
+            <p style={{ fontSize:10.5, color:C.textMid }}>{trades.filter(t=>t.stage!=="done").length} active trades</p>
+            {ls.get("backstage_is_vip")&&<div style={{ ...VS.activePill(C.gold),fontSize:9 }}>✦ Verified</div>}
+          </div>
         </div>
-        {ls.get("backstage_is_vip")&&<div style={{ ...VS.activePill(C.gold),fontSize:9 }}>✦ Verified</div>}
       </div>
 
       {/* Tab switcher */}
