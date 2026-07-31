@@ -35,39 +35,39 @@ One monolith, many top-level components (exact count drifts — see `docs/AGENT_
 
 | Lines (verified 2026-07-31) | Area | Key components / contents |
 |---|---|---|
-| 1–409 | **App config / env** | `API_URL`, Supabase env inspection, `MOCK_AUTH` flag, `AuthCtx` |
-| 410–1098 | Auth provider + username/world rules + customization catalogs | `AuthProvider` (session, token, password recovery), `syncMyWorldToServer`, `clearAuthStorage`, `RESERVED_USERNAMES`, `IMPERSONATION_AFFIXES`, `MY_WORLD_KEYS`, `SKIN_GRADIENTS`, `SKIN_CATEGORIES`, `STAGE_DECO/FONTS/EFFECTS`, `SHRINE_LAYOUTS`, `CARD_STYLES` |
-| 1099–1360 | GIF system (`GifPicker` only) | `GifPicker` + its localStorage keys/mood-chip catalog. `GifPreviewBubble`/`GifImg`/`ReactionButton` moved to `src/components/GifSystem.jsx` — see support-files table |
-| 1361–2570 | **VIP / Founder / Upgrade** + inline mock data | `FounderPrestigeCard`, `VipGate`, `UpgradeModal`, `VipCelebrationScreen`, `VipTutorialModal`; `MOCK_CONCERTS`/`MOCK_CARDS`/etc. (audit vs `src/data/` — some may be redundant) |
-| 2571–3229 | Invite / referral | `InvitePage` |
-| 3230–3485 | Small AI/util cards | `ContentGenerator`, `ConcertDayCard`, `IdentityCard`, `MapSnapshot` |
-| 3486–3966 | **App chrome / floating UI** | `FanverseHeatMap`, `ViralTicker`, `InstallPromptCard`, `NotificationBell`, `FloatingMessagesButton`, `AskBackstageButton`, `FanverseFloatingDock` |
-| 3967–4754 | **Onboarding / auth screens** | `Onboarding`, `SetNewPasswordScreen` |
-| 4755–5692 | **Concerts / shows** | `ConcertsPage`, `AiItinerary`, `ShowDetail` |
-| 5693–7742 | **Photocards — Library/Sets** | `CardDetailSheet`, `PhotocardSetsView`, `PhotocardGrid`, `SavedPostsSection`, `AchievementsModal`, `LibraryTab` |
-| 7743–10339 | **Photocards — Binders + Trade** | `GroupBinderHome`, `BinderCreate`, `CustomBinderForm`, `AddCardForm`, `TradeListingForm`, `BinderDetail`, `TradeListingDetail`, `MakeOfferForm`, `OfferThread`, `TradePassportCard`, `TradeHub` |
-| 10340–10795 | Collect / inventory | `CollectTab`, `InventoryTab` |
-| 10796–12746 | **Fanverse social** | `MemeSystem`, `FanBuddyMatcher`, `BudgetTracker`, `FanverseLeaders`, `FanDiscoverySection`, `FanversePulse`, `CityHubDetail`, `FanverseTab`, `CommunityTab`, `BuildMyDay` |
-| 12747–13491 | **Era Room** | `EraRoom` |
-| 13492–14513 | Explore / Tools tabs | `ExploreTab`, `ToolsTab`, `ComebacksEraWatch` |
-| 14514–15338 | Chants / era board / stories | `ChantVault`, `EraBoard`, `FanStories`, `apiPostToFeed`, `topReactions` (small feed-mapping helpers) |
-| 15339–16192 | **Live feed** | `LiveFeedTab` |
-| 16193–16546 | Fanverse map | `FanverseMap` (see also `src/MapboxMap.jsx`) |
-| 16547–17050 | Friends / rooms / QR | `FriendsPage`, `ChatHub`, `ChatRoom`, `QRPage` |
-| 17051–17442 | **Safety / moderation** | `ReportSheet`, `SafetyCenter`, `ModerationReportCard`, `ModerationQueue` |
-| 17443–17985 | **Concert day mode** | `EventDiscovery`, `VenueCrowdTips`, `ConcertDayBanner(Active)`, `ConcertDayMode` |
-| 17986–19193 | Misc fan tools (small) | `ValueTracker`, `FanProjects`, `CreatorMode`, `BackupExport`, `FanIdentity`, `SmartNotifs`, `AIAssistant`, `TicketWallet`, `MiniGames`, `ConcertPrep`, `KWorldHub`, `KDramaTracker`, `AfterglowPage` |
-| 19194–20966 | **Profiles (public) + DMs** | `PublicProfilePreview`, `PublicProfileFull`, `PublicFanPassport`, `ProfilePreview`, `DirectMessages` |
-| 20967–22544 | **Profile tab + settings** | `FanAnniversaryWidget`, `TopBiasesSection`, `MyCircleSection`, `AccountSettings`, `Top5Section`, `ProfileTab` |
-| 22545–23034 | **Music connect** | `NpSourceBadge`, `NowPlayingCard`, `MusicConnect` |
-| 23035–24237 | **Concert Capsule + Passes** | `ConcertCapsule`, `PassPreviewCard`, `PassTextLayer`, `BackstagePasses` |
-| 24238–25317 | **Profile Studio / skins / notifs** | `SkinThemeTab`, `ProfileStudio`, `PrivacySettings`, `StandaloneNotifCenter`, `NotificationCenter` |
-| 25318–25958 | Shows / scrapbook | `MyShowsPage`, `ScrapbookTab`, `ScrapbookDetail` |
-| 25959–26110 | Search / capsule landing | `FandomSearch`, `CapsuleLandingPage` |
-| 26111–26559 | **Legal + public pages** | `LegalNav`, `DeleteAccountPage`, `PrivacyPage`, `TermsPage`, `SupportPage`, `ProfilePublicPage` |
-| 26560–EOF | **App shell (root)** | `ModalWrapper`, `AppInner` — nav, modal stack, `go()` routing, top-level state |
+| 1–410 | **App config / env** | `API_URL`, Supabase env inspection, `MOCK_AUTH` flag, `AuthCtx` |
+| 411–1099 | Auth provider + username/world rules + customization catalogs | `AuthProvider` (session, token, password recovery), `syncMyWorldToServer`, `clearAuthStorage`, `RESERVED_USERNAMES`, `IMPERSONATION_AFFIXES`, `MY_WORLD_KEYS`, `SKIN_GRADIENTS`, `SKIN_CATEGORIES`, `STAGE_DECO/FONTS/EFFECTS`, `SHRINE_LAYOUTS`, `CARD_STYLES` |
+| 1100–1331 | GIF system (`GifPicker` only) | `GifPicker` + its localStorage keys/mood-chip catalog. `GifPreviewBubble`/`GifImg`/`ReactionButton` moved to `src/components/GifSystem.jsx` — see support-files table |
+| 1332–2101 | Inline mock data + notif/push helpers | `MOCK_CONCERTS`, `MOCK_ACTIVE_TRADES_DEFAULT` (audit vs `src/data/` — some may be redundant), `filterActiveNotifs`, `getFirebaseConfig`, `getDeliveryPrefs`. `VipBadge`/`FounderBadge`/`FounderPrestigeCard`/`VipGate`/`UpgradeModal`/`VipCelebrationScreen`/`VipTutorialModal` moved to `src/components/VipSystem.jsx` — see support-files table |
+| 2102–2760 | Invite / referral | `InvitePage` |
+| 2761–3016 | Small AI/util cards | `ContentGenerator`, `ConcertDayCard`, `IdentityCard`, `MapSnapshot` |
+| 3017–3497 | **App chrome / floating UI** | `FanverseHeatMap`, `ViralTicker`, `InstallPromptCard`, `NotificationBell`, `FloatingMessagesButton`, `AskBackstageButton`, `FanverseFloatingDock` |
+| 3498–4285 | **Onboarding / auth screens** | `Onboarding`, `SetNewPasswordScreen` |
+| 4286–5223 | **Concerts / shows** | `ConcertsPage`, `AiItinerary`, `ShowDetail` |
+| 5224–7273 | **Photocards — Library/Sets** | `CardDetailSheet`, `PhotocardSetsView`, `PhotocardGrid`, `SavedPostsSection`, `AchievementsModal`, `LibraryTab` |
+| 7274–9870 | **Photocards — Binders + Trade** | `GroupBinderHome`, `BinderCreate`, `CustomBinderForm`, `AddCardForm`, `TradeListingForm`, `BinderDetail`, `TradeListingDetail`, `MakeOfferForm`, `OfferThread`, `TradePassportCard`, `TradeHub` |
+| 9871–10326 | Collect / inventory | `CollectTab`, `InventoryTab` |
+| 10327–12277 | **Fanverse social** | `MemeSystem`, `FanBuddyMatcher`, `BudgetTracker`, `FanverseLeaders`, `FanDiscoverySection`, `FanversePulse`, `CityHubDetail`, `FanverseTab`, `CommunityTab`, `BuildMyDay` |
+| 12278–13022 | **Era Room** | `EraRoom` |
+| 13023–14044 | Explore / Tools tabs | `ExploreTab`, `ToolsTab`, `ComebacksEraWatch` |
+| 14045–14869 | Chants / era board / stories | `ChantVault`, `EraBoard`, `FanStories`, `apiPostToFeed`, `topReactions` (small feed-mapping helpers) |
+| 14870–15723 | **Live feed** | `LiveFeedTab` |
+| 15724–16077 | Fanverse map | `FanverseMap` (see also `src/MapboxMap.jsx`) |
+| 16078–16581 | Friends / rooms / QR | `FriendsPage`, `ChatHub`, `ChatRoom`, `QRPage` |
+| 16582–16973 | **Safety / moderation** | `ReportSheet`, `SafetyCenter`, `ModerationReportCard`, `ModerationQueue` |
+| 16974–17516 | **Concert day mode** | `EventDiscovery`, `VenueCrowdTips`, `ConcertDayBanner(Active)`, `ConcertDayMode` |
+| 17517–18724 | Misc fan tools (small) | `ValueTracker`, `FanProjects`, `CreatorMode`, `BackupExport`, `FanIdentity`, `SmartNotifs`, `AIAssistant`, `TicketWallet`, `MiniGames`, `ConcertPrep`, `KWorldHub`, `KDramaTracker`, `AfterglowPage` |
+| 18725–20497 | **Profiles (public) + DMs** | `PublicProfilePreview`, `PublicProfileFull`, `PublicFanPassport`, `ProfilePreview`, `DirectMessages` |
+| 20498–22075 | **Profile tab + settings** | `FanAnniversaryWidget`, `TopBiasesSection`, `MyCircleSection`, `AccountSettings`, `Top5Section`, `ProfileTab` |
+| 22076–22565 | **Music connect** | `NpSourceBadge`, `NowPlayingCard`, `MusicConnect` |
+| 22566–23768 | **Concert Capsule + Passes** | `ConcertCapsule`, `PassPreviewCard`, `PassTextLayer`, `BackstagePasses` |
+| 23769–24848 | **Profile Studio / skins / notifs** | `SkinThemeTab`, `ProfileStudio`, `PrivacySettings`, `StandaloneNotifCenter`, `NotificationCenter` |
+| 24849–25489 | Shows / scrapbook | `MyShowsPage`, `ScrapbookTab`, `ScrapbookDetail` |
+| 25490–25641 | Search / capsule landing | `FandomSearch`, `CapsuleLandingPage` |
+| 25642–26090 | **Legal + public pages** | `LegalNav`, `DeleteAccountPage`, `PrivacyPage`, `TermsPage`, `SupportPage`, `ProfilePublicPage` |
+| 26091–EOF | **App shell (root)** | `ModalWrapper`, `AppInner` — nav, modal stack, `go()` routing, top-level state |
 
-> **Extraction log:** 2026-07-31 — `Avatar` (+ `resolveAvatarUrl`/`avatarInitial`/`feedAvatarColor`) moved to `src/components/Avatar.jsx`; `GifPreviewBubble`/`GifImg`/`ReactionButton` (+ mood-gradient constants) moved to `src/components/GifSystem.jsx`, `GifPicker` stayed in App.jsx (depends on the still-monolithic `api` client). Table above re-verified from a fresh `grep -n "^function "` scan after both moves — accurate as of 2026-07-31. **Line numbers in this table are snapshot hints, not durable identifiers** — the durable anchor is always the function/component name; `grep -n "^function ComponentName"` before trusting a number, especially after any future extraction.
+> **Extraction log (2026-07-31):** `Avatar` (+ `resolveAvatarUrl`/`avatarInitial`/`feedAvatarColor`) → `src/components/Avatar.jsx`. `GifPreviewBubble`/`GifImg`/`ReactionButton` (+ mood-gradient constants) → `src/components/GifSystem.jsx`; `GifPicker` stayed in App.jsx (needs the still-monolithic `api` client). `VipBadge`/`FounderBadge`/`FounderPrestigeCard`/`VipGate`/`UpgradeModal`/`VipCelebrationScreen`/`VipTutorialModal` → `src/components/VipSystem.jsx` (only needs `C`, `ls`, and a duplicated one-line `API_URL` read — no `api` dependency, so all of it moved cleanly); the adjacent `MOCK_CONCERTS`/`MOCK_ACTIVE_TRADES_DEFAULT`/notif-helpers did not move. Table re-verified from a fresh `grep -n "^function "` scan after all three moves — accurate as of 2026-07-31. **Line numbers in this table are snapshot hints, not durable identifiers** — the durable anchor is always the function/component name; `grep -n "^function ComponentName"` before trusting a number, especially after any future extraction.
 
 > **Navigation note:** bottom nav is 5 tabs, but internal `tab` ids do **not** match their labels — **"My World" = tab id `collect` = `LibraryTab`** (rows above: Library/Sets, Binders+Trade, Collect/inventory, Era Room); **"My Stage" = tab id `profile` = `ProfileTab`** (Profile tab + settings row); **"Tools" = tab id `fanverse` = `ToolsTab`**. Full tab-id ↔ label table lives in CURRENT_STATE.md §0 — check it before reasoning about routing or searching for a product name that isn't a literal component name above.
 
@@ -82,6 +82,7 @@ One monolith, many top-level components (exact count drifts — see `docs/AGENT_
 | `src/components/primitives.jsx` | Shared UI primitives |
 | `src/components/Avatar.jsx` | `Avatar` component (search anchor: `export function Avatar(`) + its `resolveAvatarUrl`/`avatarInitial`/`feedAvatarColor` helpers — used everywhere (nav, DMs, feed, profiles, friends). Extracted from `App.jsx` 2026-07-31; first module-boundary extraction, template for future ones. |
 | `src/components/GifSystem.jsx` | `GifPreviewBubble`, `GifImg`, `ReactionButton` (search anchor: `export function GifPreviewBubble(` etc.) — pure/presentational GIF-reaction rendering, used in DMs and Notification Center. `GifPicker` (the stateful search/picker) stayed in `App.jsx` — it depends on the still-monolithic `api` client, not yet its own module. Extracted 2026-07-31. |
+| `src/components/VipSystem.jsx` | `VipBadge`, `FounderBadge`, `FounderPrestigeCard`, `VipGate`, `UpgradeModal`, `VipCelebrationScreen`, `VipTutorialModal` (search anchor: `export function VipGate(` etc.) — the full VIP/Founder upgrade-and-celebration UI. Extracted 2026-07-31; only needs `C`, `ls`, and its own `API_URL` read, no `api` client dependency. |
 | `src/lib/theme.js` | `DARK_THEME`, `LIGHT_THEME`, `C`, `applyThemeMode`, `ThemeContext` |
 | `src/lib/visualSystem.js` | `VS`, tone/pill/badge/glass-card style helpers |
 | `src/lib/storage.js` | `ls` localStorage wrapper |
