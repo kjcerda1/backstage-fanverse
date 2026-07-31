@@ -50,6 +50,20 @@ Before starting **any** coding, editing, merge, QA, or deployment task, Claude m
 
 Read those before opening source. They are usually enough to plan a change.
 
+## Document authority
+
+When repository docs disagree, this order wins:
+
+1. **CLAUDE.md** (this file) — durable operating rules
+2. **PROJECT_MAP.md** — feature ownership, file locations, navigation anchors
+3. **CURRENT_STATE.md** — current architecture, deployment, and integration status
+4. **PROJECT_OVERVIEW.md** — product/architecture context for humans, not a coding-session source of truth
+5. **docs/AGENT_CONTEXT_EFFICIENCY_AUDIT.md** — optional audit reference, not required startup reading
+
+For Backstage repository state and code locations, repository-local `CLAUDE.md`, `PROJECT_MAP.md`, and `CURRENT_STATE.md` take precedence over external or global context documents.
+
+**Worktree/branch scope:** use the current task worktree and `origin/main` as truth. Inspect other worktrees only when a named active branch could overlap the requested files — don't survey all worktrees/branches by default.
+
 ## Context discipline (this is the point of this file)
 
 - **Never read all of `src/App.jsx`.** It is ~26,000+ lines / ~2 MB. A full read wastes ~½ million tokens. Read it whole *only* if the user explicitly asks.

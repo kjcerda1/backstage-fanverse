@@ -17,7 +17,7 @@ Tagline in `manifest.json`: *"One Universe. Endless Connections. The ultimate ap
 | Layer | Tech |
 |---|---|
 | Frontend | React 18 + Vite 6, single-page client-rendered app, no router library (custom `go()`/modal-stack navigation) |
-| Backend | Express 5 (`api_server_v16.js`), single file, ~5,000 lines, 110+ REST routes |
+| Backend | Express 5 (`api_server_v16.js`), single file, a large REST route surface (see `PROJECT_MAP.md` for domain groupings, `docs/AGENT_CONTEXT_EFFICIENCY_AUDIT.md` for a dated size snapshot) |
 | Database / Auth | Supabase (Postgres + Auth). App runs in **MOCK_MODE** automatically when `SUPABASE_URL` is unset — no separate dev/prod code paths to maintain |
 | Payments | Stripe (web Checkout + webhooks). VIP tiers: monthly / annual / founder |
 | AI | Anthropic SDK (`@anthropic-ai/sdk`) — outfit suggestions, itinerary builder, chant helper, fan-day planner, general assistant |
@@ -33,10 +33,10 @@ Tagline in `manifest.json`: *"One Universe. Endless Connections. The ultimate ap
 
 ```
 src/
-  App.jsx          ← THE app. ~24,000 lines, ~150 components, all UI screens/pages/modals.
-  MapboxMap.jsx     ← Fanverse Map (Mapbox GL integration), ~660 lines.
-  main.jsx          ← React root mount, 8 lines.
-api_server_v16.js   ← Express backend, ~5,000 lines, 110+ routes, all integrations.
+  App.jsx          ← THE app. A large monolith, all UI screens/pages/modals — see PROJECT_MAP.md for navigation.
+  MapboxMap.jsx     ← Fanverse Map (Mapbox GL integration).
+  main.jsx          ← React root mount.
+api_server_v16.js   ← Express backend, single file, all integrations — see PROJECT_MAP.md for route domains.
 public/
   manifest.json, firebase-messaging-sw.js, logo/icon assets
 *.sql                ← Hand-written Supabase migrations (NOT exhaustive — see §5)

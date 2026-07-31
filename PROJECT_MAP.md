@@ -16,7 +16,7 @@ That's enough to orient. Do **not** open App.jsx just to "get a feel for it."
 
 ## 🚫 Do NOT read all of App.jsx
 
-`src/App.jsx` is **~26,250 lines / ~2 MB** — a full read is ~½ million tokens and will blow your context for no benefit. Instead:
+`src/App.jsx` remains a large single-file monolith — a full read is roughly half a million tokens and will blow your context for no benefit. Exact current size/component counts drift every session; if you need a number, see `docs/AGENT_CONTEXT_EFFICIENCY_AUDIT.md` rather than trusting a figure here. Instead:
 
 1. Find the feature in the map below → get the line anchor.
 2. `grep -n "function TheComponent" src/App.jsx` to confirm the current line.
@@ -29,48 +29,46 @@ Only read App.jsx end-to-end if the user **explicitly** asks for a whole-file pa
 
 ## `src/App.jsx` — feature → line anchor
 
-One monolith, ~238 top-level components. Grouped by feature area:
+One monolith, many top-level components (exact count drifts — see `docs/AGENT_CONTEXT_EFFICIENCY_AUDIT.md` for a dated snapshot). Grouped by feature area.
 
-| Lines (approx) | Area | Key components / contents |
+**Anchors verified 2026-07-31** via `grep -n "^function "` (whole-file declaration scan, no ranges opened) — treat these as accurate as of that date, re-grep the component name if it's been a while since.
+
+| Lines (verified 2026-07-31) | Area | Key components / contents |
 |---|---|---|
-| 33–300 | **App config / env** | `API_URL`, Supabase env inspection, `MOCK_AUTH` flag |
-| 105 | Auth context | `AuthCtx` |
-| 309–450 | Auth provider | `AuthProvider` (session, token, password recovery) |
-| 454–700 | Username / world rules | `RESERVED_USERNAMES`, `IMPERSONATION_AFFIXES`, `MY_WORLD_KEYS` |
-| 705–978 | **Customization catalogs** | `SKIN_GRADIENTS`, `SKIN_CATEGORIES`, `STAGE_DECO/FONTS/EFFECTS`, `SHRINE_LAYOUTS`, `CARD_STYLES`, `SECTION_EFFECTS` |
-| 979–1277 | **GIF system** | `GifPicker`, `GifImg`, `GifPreviewBubble`, `ReactionButton`, GIF mood constants |
-| 1278–1765 | **VIP / Founder / Upgrade** | `VipBadge`, `FounderBadge`, `FounderPrestigeCard`, `VipGate`, `UpgradeModal`, `VipCelebrationScreen`, `VipTutorialModal` |
-| 1766–2402 | **Inline mock data** | `MOCK_CONCERTS`, `MOCK_CARDS`, `MOCK_FEED`, `MOCK_CHANTS`, etc. (audit vs `src/data/` — some may be redundant) |
-| 2403–3057 | Invite / referral | `InvitePage` |
-| 3058–3313 | Small AI/util cards | `ContentGenerator`, `ConcertDayCard`, `IdentityCard`, `MapSnapshot` |
-| 3314–3794 | **App chrome / floating UI** | `FanverseHeatMap`, `ViralTicker`, `InstallPromptCard`, `NotificationBell`, `FloatingMessagesButton`, `AskBackstageButton`, `FanverseFloatingDock` |
-| 3795–4582 | **Onboarding / auth screens** | `Onboarding`, `SetNewPasswordScreen` |
-| 4583–5520 | **Concerts / shows** | `ConcertsPage`, `AiItinerary`, `ShowDetail` |
-| 5521–7439 | **Photocards — Library/Sets** | `CardDetailSheet`, `PhotocardSetsView`, `PhotocardGrid`, `SavedPostsSection`, `LibraryTab` (LibraryTab alone ~1,230 lines) |
-| 7440–9193 | **Photocards — Binders + Trade** | `BinderCreate`, `CustomBinderForm`, `AddCardForm`, `TradeListingForm`, `BinderDetail`, `TradeListingDetail`, `MakeOfferForm`, `OfferThread`, `TradePassportCard`, `TradeHub` |
-| 9194–9626 | Collect / inventory | `CollectTab`, `InventoryTab` |
-| 9627–11555 | **Fanverse social** | `MemeSystem`, `FanBuddyMatcher`, `BudgetTracker`, `FanverseLeaders`, `FanDiscoverySection`, `FanversePulse`, `CityHubDetail`, `FanverseTab`, `CommunityTab`, `BuildMyDay` |
-| 11556–12300 | **Era Room** | `EraRoom` |
-| 12301–13323 | Explore / Tools tabs | `ExploreTab`, `ToolsTab`, `ComebacksEraWatch` |
-| 13324–14159 | Chants / era board / stories | `ChantVault`, `EraBoard`, `FanStories` |
-| 14160–14241 | **Avatar (shared)** | `Avatar` — used everywhere; prime extraction candidate |
-| 14242–15095 | **Live feed** | `LiveFeedTab` |
-| 15096–15449 | Fanverse map | `FanverseMap` (see also `src/MapboxMap.jsx`) |
-| 15450–15953 | Friends / rooms / QR | `FriendsPage`, `ChatHub`, `ChatRoom`, `QRPage` |
-| 15954–16345 | **Safety / moderation** | `ReportSheet`, `SafetyCenter`, `ModerationReportCard`, `ModerationQueue` |
-| 16346–16888 | **Concert day mode** | `EventDiscovery`, `VenueCrowdTips`, `ConcertDayBanner(Active)`, `ConcertDayMode` |
-| 16889–17884 | Misc fan tools (small) | `ValueTracker`, `FanProjects`, `CreatorMode`, `BackupExport`, `FanIdentity`, `SmartNotifs`, `AIAssistant`, `TicketWallet`, `MiniGames`, `ConcertPrep`, `KWorldHub`, `KDramaTracker`, `AfterglowPage` |
-| 17885–19811 | **Profiles (public) + DMs** | `PublicProfilePreview`, `PublicProfileFull`, `PublicFanPassport`, `ProfilePreview`, `DirectMessages` (DMs alone ~1,010 lines) |
-| 19812–21357 | **Profile tab + settings** | `FanAnniversaryWidget`, `TopBiasesSection`, `MyCircleSection`, `AccountSettings`, `Top5Section`, `ProfileTab` |
-| 21358–21847 | **Music connect** | `NpSourceBadge`, `NowPlayingCard`, `MusicConnect` |
-| 21848–23050 | **Concert Capsule + Passes** | `ConcertCapsule`, `PassPreviewCard`, `PassTextLayer`, `BackstagePasses` |
-| 23051–24126 | **Profile Studio / skins / notifs** | `SkinThemeTab`, `ProfileStudio`, `PrivacySettings`, `StandaloneNotifCenter`, `NotificationCenter` |
-| 24127–24767 | Shows / scrapbook | `MyShowsPage`, `ScrapbookTab`, `ScrapbookDetail` |
-| 24768–24919 | Search / capsule landing | `FandomSearch`, `CapsuleLandingPage` |
-| 24920–25359 | **Legal + public pages** | `LegalNav`, `DeleteAccountPage`, `PrivacyPage`, `TermsPage`, `SupportPage`, `ProfilePublicPage` |
-| 25360–26292 | **App shell (root)** | `ModalWrapper`, `AppInner` — nav, modal stack, `go()` routing, top-level state |
+| 1–407 | **App config / env** | `API_URL`, Supabase env inspection, `MOCK_AUTH` flag, `AuthCtx` |
+| 408–1115 | Auth provider + username/world rules + customization catalogs | `AuthProvider` (session, token, password recovery), `syncMyWorldToServer`, `clearAuthStorage`, `RESERVED_USERNAMES`, `IMPERSONATION_AFFIXES`, `MY_WORLD_KEYS`, `SKIN_GRADIENTS`, `SKIN_CATEGORIES`, `STAGE_DECO/FONTS/EFFECTS`, `SHRINE_LAYOUTS`, `CARD_STYLES` |
+| 1116–1427 | **GIF system** | `GifPreviewBubble`, `GifImg`, `ReactionButton`, `GifPicker` |
+| 1428–2637 | **VIP / Founder / Upgrade** + inline mock data | `FounderPrestigeCard`, `VipGate`, `UpgradeModal`, `VipCelebrationScreen`, `VipTutorialModal`; `MOCK_CONCERTS`/`MOCK_CARDS`/etc. (audit vs `src/data/` — some may be redundant) |
+| 2638–3296 | Invite / referral | `InvitePage` |
+| 3297–3552 | Small AI/util cards | `ContentGenerator`, `ConcertDayCard`, `IdentityCard`, `MapSnapshot` |
+| 3553–4033 | **App chrome / floating UI** | `FanverseHeatMap`, `ViralTicker`, `InstallPromptCard`, `NotificationBell`, `FloatingMessagesButton`, `AskBackstageButton`, `FanverseFloatingDock` |
+| 4034–4821 | **Onboarding / auth screens** | `Onboarding`, `SetNewPasswordScreen` |
+| 4822–5759 | **Concerts / shows** | `ConcertsPage`, `AiItinerary`, `ShowDetail` |
+| 5760–7809 | **Photocards — Library/Sets** | `CardDetailSheet`, `PhotocardSetsView`, `PhotocardGrid`, `SavedPostsSection`, `AchievementsModal`, `LibraryTab` |
+| 7810–10406 | **Photocards — Binders + Trade** | `GroupBinderHome`, `BinderCreate`, `CustomBinderForm`, `AddCardForm`, `TradeListingForm`, `BinderDetail`, `TradeListingDetail`, `MakeOfferForm`, `OfferThread`, `TradePassportCard`, `TradeHub` |
+| 10407–10862 | Collect / inventory | `CollectTab`, `InventoryTab` |
+| 10863–12756 | **Fanverse social** | `MemeSystem`, `FanBuddyMatcher`, `BudgetTracker`, `FanverseLeaders`, `FanDiscoverySection`, `FanversePulse`, `CityHubDetail`, `FanverseTab`, `CommunityTab`, `BuildMyDay` |
+| 12757–13558 | **Era Room** | `EraRoom` |
+| 13559–14580 | Explore / Tools tabs | `ExploreTab`, `ToolsTab`, `ComebacksEraWatch` |
+| 14581–15416 | Chants / era board / stories | `ChantVault`, `EraBoard`, `FanStories` |
+| 15417–15498 | **Avatar (shared)** | `Avatar` — used everywhere; prime extraction candidate |
+| 15499–16352 | **Live feed** | `LiveFeedTab` |
+| 16353–16706 | Fanverse map | `FanverseMap` (see also `src/MapboxMap.jsx`) |
+| 16707–17210 | Friends / rooms / QR | `FriendsPage`, `ChatHub`, `ChatRoom`, `QRPage` |
+| 17211–17602 | **Safety / moderation** | `ReportSheet`, `SafetyCenter`, `ModerationReportCard`, `ModerationQueue` |
+| 17603–18145 | **Concert day mode** | `EventDiscovery`, `VenueCrowdTips`, `ConcertDayBanner(Active)`, `ConcertDayMode` |
+| 18146–19353 | Misc fan tools (small) | `ValueTracker`, `FanProjects`, `CreatorMode`, `BackupExport`, `FanIdentity`, `SmartNotifs`, `AIAssistant`, `TicketWallet`, `MiniGames`, `ConcertPrep`, `KWorldHub`, `KDramaTracker`, `AfterglowPage` |
+| 19354–21126 | **Profiles (public) + DMs** | `PublicProfilePreview`, `PublicProfileFull`, `PublicFanPassport`, `ProfilePreview`, `DirectMessages` |
+| 21127–22704 | **Profile tab + settings** | `FanAnniversaryWidget`, `TopBiasesSection`, `MyCircleSection`, `AccountSettings`, `Top5Section`, `ProfileTab` |
+| 22705–23194 | **Music connect** | `NpSourceBadge`, `NowPlayingCard`, `MusicConnect` |
+| 23195–24397 | **Concert Capsule + Passes** | `ConcertCapsule`, `PassPreviewCard`, `PassTextLayer`, `BackstagePasses` |
+| 24398–25477 | **Profile Studio / skins / notifs** | `SkinThemeTab`, `ProfileStudio`, `PrivacySettings`, `StandaloneNotifCenter`, `NotificationCenter` |
+| 25478–26118 | Shows / scrapbook | `MyShowsPage`, `ScrapbookTab`, `ScrapbookDetail` |
+| 26119–26270 | Search / capsule landing | `FandomSearch`, `CapsuleLandingPage` |
+| 26271–26719 | **Legal + public pages** | `LegalNav`, `DeleteAccountPage`, `PrivacyPage`, `TermsPage`, `SupportPage`, `ProfilePublicPage` |
+| 26720–EOF | **App shell (root)** | `ModalWrapper`, `AppInner` — nav, modal stack, `go()` routing, top-level state |
 
-> **Navigation note:** bottom nav is 5 tabs, but internal `tab` ids do **not** match their labels. See CURRENT_STATE.md §0 before reasoning about routing.
+> **Navigation note:** bottom nav is 5 tabs, but internal `tab` ids do **not** match their labels — **"My World" = tab id `collect` = `LibraryTab`** (rows above: Library/Sets, Binders+Trade, Collect/inventory, Era Room); **"My Stage" = tab id `profile` = `ProfileTab`** (Profile tab + settings row); **"Tools" = tab id `fanverse` = `ToolsTab`**. Full tab-id ↔ label table lives in CURRENT_STATE.md §0 — check it before reasoning about routing or searching for a product name that isn't a literal component name above.
 
 ---
 
@@ -100,7 +98,7 @@ One monolith, ~238 top-level components. Grouped by feature area:
 
 ## Backend — `api_server_v16.js` (high level only)
 
-Express 5, single file, **~6,440 lines / 145 routes**. Same rule: **don't read it whole** — jump to a section, read the slice. Route handlers cluster by domain:
+Express 5, single file, a large route surface (see `docs/AGENT_CONTEXT_EFFICIENCY_AUDIT.md` for a dated size snapshot). Same rule: **don't read it whole** — jump to a section, read the slice. Route handlers cluster by domain (ranges below spot-checked 2026-07-31 against `/api/meetups` and `/api/binders` — held within a few lines of listed range, not fully re-verified end to end):
 
 | Lines (approx) | Domain |
 |---|---|
