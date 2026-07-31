@@ -69,6 +69,8 @@ One monolith, many top-level components (exact count drifts — see `docs/AGENT_
 
 > **Extraction log (2026-07-31):** `Avatar` (+ `resolveAvatarUrl`/`avatarInitial`/`feedAvatarColor`) → `src/components/Avatar.jsx`. `GifPreviewBubble`/`GifImg`/`ReactionButton` (+ mood-gradient constants) → `src/components/GifSystem.jsx`; `GifPicker` stayed in App.jsx (needs the still-monolithic `api` client). `VipBadge`/`FounderBadge`/`FounderPrestigeCard`/`VipGate`/`UpgradeModal`/`VipCelebrationScreen`/`VipTutorialModal` → `src/components/VipSystem.jsx` (only needs `C`, `ls`, and a duplicated one-line `API_URL` read — no `api` dependency, so all of it moved cleanly); the adjacent `MOCK_CONCERTS`/`MOCK_ACTIVE_TRADES_DEFAULT`/notif-helpers did not move.
 >
+> **Extraction log (2026-07-31, later same day):** the `api` singleton + `parseApiResponse` → `src/lib/apiClient.js` (configured singleton — `App.jsx` calls `configureApiClient({ apiUrl, getSupabase })` once after `_supabase` inits; see that file's row below). Pure move, same public shape, all 169 existing `api.get/post/patch/del` call sites in `App.jsx` untouched. `API_URL` and `_supabase` themselves stayed in `App.jsx` — both are still read directly by other App.jsx code outside `api`. Full rationale in `docs/API_CLIENT_BOUNDARY_AUDIT.md`. This unblocks a future `GifPicker` extraction (see the `apiClient.js` support-files row) — not done in this pass.
+>
 > Table line numbers were last fully re-verified 2026-07-31, right after these three moves. **They will not be re-verified or reshifted after future extractions** — that's a full-table rebuild every time and isn't the point of this doc. Going forward, treat every row's line number as a stale hint the moment any extraction happens anywhere above it in the file. What stays authoritative: the **file path** (`src/App.jsx` unless the support-files table below says otherwise) and the **component/function name** — find its current line with `grep -n "function ComponentName" src/App.jsx` (or `export function`/`export const` in the relevant `src/components/*.jsx` file) before trusting any number in this doc.
 
 > **Navigation note:** bottom nav is 5 tabs, but internal `tab` ids do **not** match their labels — **"My World" = tab id `collect` = `LibraryTab`** (rows above: Library/Sets, Binders+Trade, Collect/inventory, Era Room); **"My Stage" = tab id `profile` = `ProfileTab`** (Profile tab + settings row); **"Tools" = tab id `fanverse` = `ToolsTab`**. Full tab-id ↔ label table lives in CURRENT_STATE.md §0 — check it before reasoning about routing or searching for a product name that isn't a literal component name above.
@@ -83,8 +85,9 @@ One monolith, many top-level components (exact count drifts — see `docs/AGENT_
 | `src/MapboxMap.jsx` (~48 KB) | Map rendering + `CITY_DENSITY_GEOJSON`; imported by `FanverseMap` |
 | `src/components/primitives.jsx` | Shared UI primitives |
 | `src/components/Avatar.jsx` | `Avatar` component (search anchor: `export function Avatar(`) + its `resolveAvatarUrl`/`avatarInitial`/`feedAvatarColor` helpers — used everywhere (nav, DMs, feed, profiles, friends). Extracted from `App.jsx` 2026-07-31; first module-boundary extraction, template for future ones. |
-| `src/components/GifSystem.jsx` | `GifPreviewBubble`, `GifImg`, `ReactionButton` (search anchor: `export function GifPreviewBubble(` etc.) — pure/presentational GIF-reaction rendering, used in DMs and Notification Center. `GifPicker` (the stateful search/picker) stayed in `App.jsx` — it depends on the still-monolithic `api` client, not yet its own module. Extracted 2026-07-31. |
+| `src/components/GifSystem.jsx` | `GifPreviewBubble`, `GifImg`, `ReactionButton` (search anchor: `export function GifPreviewBubble(` etc.) — pure/presentational GIF-reaction rendering, used in DMs and Notification Center. `GifPicker` (the stateful search/picker) stayed in `App.jsx` — see `src/lib/apiClient.js` row below, it's no longer blocked on this. |
 | `src/components/VipSystem.jsx` | `VipBadge`, `FounderBadge`, `FounderPrestigeCard`, `VipGate`, `UpgradeModal`, `VipCelebrationScreen`, `VipTutorialModal` (search anchor: `export function VipGate(` etc.) — the full VIP/Founder upgrade-and-celebration UI. Extracted 2026-07-31; only needs `C`, `ls`, and its own `API_URL` read, no `api` client dependency. |
+| `src/lib/apiClient.js` | The `api` singleton (`get`/`post`/`patch`/`del`, `_setToken`/`_headers`/`_refreshToken`) + `parseApiResponse` (search anchor: `export const api = {`). Extracted 2026-07-31 — see `docs/API_CLIENT_BOUNDARY_AUDIT.md`. `App.jsx` calls `configureApiClient({ apiUrl, getSupabase })` once, right after `_supabase` is created, since `api._refreshToken()` needs live access to it. **`GifPicker` (still in `App.jsx`) can now import `api` from here directly** — it's no longer blocked on `api` being App.jsx-local, and is dependency-clean enough for its own extraction whenever that's next in scope. |
 | `src/lib/theme.js` | `DARK_THEME`, `LIGHT_THEME`, `C`, `applyThemeMode`, `ThemeContext` |
 | `src/lib/visualSystem.js` | `VS`, tone/pill/badge/glass-card style helpers |
 | `src/lib/storage.js` | `ls` localStorage wrapper |
@@ -98,7 +101,7 @@ One monolith, many top-level components (exact count drifts — see `docs/AGENT_
 | `src/data/mockBadges.js` | `MOCK_BADGES` |
 | `src/data/mockCollections.js` | `MOCK_INVENTORY` |
 
-*App.jsx currently imports from all of the above (16 import lines at the top). New extractions should follow this same pattern.*
+*App.jsx currently imports from all of the above (17 import lines at the top). New extractions should follow this same pattern.*
 
 ---
 
