@@ -51,6 +51,7 @@ if (firebaseConfig.apiKey && firebaseConfig.projectId) {
           targetModal: d.targetModal,
           targetTab:   d.targetTab,
           targetId:    d.targetId,
+          entityType:  d.entityType,
           origin:      self.location.origin,
         },
       });
@@ -71,17 +72,25 @@ self.addEventListener('notificationclick', (event) => {
   const fcm = raw.FCM_MSG?.data || {};
   const targetModal = raw.targetModal || fcm.targetModal || '';
   const targetTab   = raw.targetTab   || fcm.targetTab   || '';
+  // Which exact thread/offer/request/etc within that modal/tab — used to be
+  // dropped here, so every push landed on the generic screen, never the
+  // specific conversation or trade it was actually about.
+  const targetId    = raw.targetId    || fcm.targetId    || '';
+  const entityType  = raw.entityType  || fcm.entityType  || '';
   // Fall back before use: `origin` is absent on SDK-drawn notifications, and
   // startsWith(undefined) below would never match, always opening a new window.
   const origin = raw.origin || self.location.origin;
   const dest   = targetModal || targetTab || '';
-  const url    = `${origin}?notif=${dest}`;
+  const idParams = targetId
+    ? `&nid=${encodeURIComponent(targetId)}${entityType ? `&ntype=${encodeURIComponent(entityType)}` : ''}`
+    : '';
+  const url = `${origin}?notif=${dest}${idParams}`;
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
       for (const client of list) {
         if (client.url.startsWith(origin) && 'focus' in client) {
-          client.postMessage({ type: 'NOTIF_CLICK', targetModal, targetTab });
+          client.postMessage({ type: 'NOTIF_CLICK', targetModal, targetTab, targetId, entityType });
           return client.focus();
         }
       }

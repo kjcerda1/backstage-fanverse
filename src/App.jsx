@@ -648,6 +648,29 @@ const upsertById = (items, item) => {
 // forever. Real backend notifications always have UUID ids, never this shape.
 const isMockNotifId = (id) => typeof id === "string" && /^n\d+$/.test(id);
 
+// ─── CANONICAL NOTIFICATION-TARGET HANDOFF ────────────────────────────────────
+// go(dest) only ever takes a route name (modal/tab), never an entity id — so
+// anything more specific (which DM thread, which trade offer...) rides along in
+// this one-shot localStorage slot instead of widening go()'s signature everywhere
+// it's called. Every entry point that can trigger navigation from a notification
+// (in-app tap, SW notificationclick postMessage, cold-launch ?notif= URL, and the
+// same URL surviving a sign-out→sign-in round trip) writes here via
+// stashNotifTarget before calling go(). The landing screen reads it back via
+// consumeNotifTarget(entityType) once it has the data needed to resolve targetId
+// into the actual thread/offer/request — matching on entityType so a screen that
+// mounts first doesn't eat a target meant for a different one.
+function stashNotifTarget(targetId, entityType) {
+  if (targetId) ls.set('backstage_notif_target', { targetId: String(targetId), entityType: entityType || '' });
+  else ls.del('backstage_notif_target');
+}
+function consumeNotifTarget(entityType) {
+  const t = ls.get('backstage_notif_target', null);
+  if (!t?.targetId) return null;
+  if (entityType && t.entityType && t.entityType !== entityType) return null;
+  ls.del('backstage_notif_target');
+  return t.targetId;
+}
+
 const mergeInboxItems = (localItems = [], remoteItems = []) => {
   const byId = new Map();
   [...remoteItems, ...localItems].forEach(item => {
@@ -1647,7 +1670,7 @@ async function attachForegroundMessageHandler() {
     onMessage(messaging, async (payload) => {
       const title = payload.notification?.title || 'Backstage';
       const body  = payload.notification?.body  || '';
-      const { targetModal, targetTab, targetId } = payload.data || {};
+      const { targetModal, targetTab, targetId, entityType } = payload.data || {};
       const reg = await navigator.serviceWorker.getRegistration('/firebase-messaging-sw.js');
       // Mirrors the SW's showNotification options so foreground and background
       // notifications look identical and share the notificationclick handler
@@ -1656,7 +1679,7 @@ async function attachForegroundMessageHandler() {
         icon:  '/fanverse-logo.png',
         badge: '/fanverse-logo.png',
         tag:   targetModal || targetTab || 'backstage-notif',
-        data:  { targetModal, targetTab, targetId, origin: window.location.origin },
+        data:  { targetModal, targetTab, targetId, entityType, origin: window.location.origin },
       });
     });
   } catch (err) {
@@ -4106,6 +4129,16 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
   };
   const [meetupDetail, setMeetupDetail] = useState(null);
   const [chatRoom, setChatRoom] = useState(null);
+  // A meetup-invite push notification lands on this tab (targetTab:'concerts') —
+  // open the exact meetup's detail sheet once the real/mock list has loaded.
+  // A deleted/inaccessible meetup id just never matches — falls through to the
+  // normal Concerts tab, no crash.
+  const [notifMeetupId] = useState(()=>consumeNotifTarget('meetup'));
+  useEffect(()=>{
+    if (!notifMeetupId || meetupDetail) return;
+    const match = allMeetups.find(m=>m.id===notifMeetupId);
+    if (match) { setView('meetups'); setMeetupDetail(match); }
+  }, [notifMeetupId, allMeetups, meetupDetail]);
 
   // ── Phase 2: host dashboard + host-only attendees + friends-going preview ──
   const [showHostDashboard, setShowHostDashboard] = useState(false);
@@ -5752,6 +5785,11 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
   const [scrapbookSubView, setScrapbookSubView] = useState('books'); // books | memories | capsules
   const [bindersNoticeDismissed, setBindersNoticeDismissed] = useState(()=>ls.get("backstage_my_binders_notice_dismissed", false));
   const [showTradeHub, setShowTradeHub] = useState(false);
+  // A trade-offer push notification lands here (tab:'collect') — jump straight
+  // into Trade Hub with the exact offer selected instead of the generic My World
+  // landing screen.
+  const [notifOfferId] = useState(()=>consumeNotifTarget('listing_offer'));
+  useEffect(()=>{ if (notifOfferId) { setSection('trades'); setShowTradeHub(true); } }, [notifOfferId]);
   const [groupFilter, setGroupFilter] = useState("all");
   const [myWorldTheme, setMyWorldTheme] = useState(()=>ls.get("backstage_my_world_theme","Purple Galaxy"));
   const [featuredShelf, setFeaturedShelf] = useState(()=>ls.get("backstage_featured_shelf",{photocard:null,concert:null,capsule:null,outfit:null,biasMoment:null}));
@@ -5947,7 +5985,7 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
       )}
       {showTradeHub && (
         <div style={{ position:"absolute",inset:0,zIndex:50,background:C.bg,overflowY:"auto" }}>
-          <TradeHub onBack={()=>setShowTradeHub(false)} user={user} />
+          <TradeHub onBack={()=>setShowTradeHub(false)} user={user} initialOfferId={notifOfferId} />
         </div>
       )}
       {pcTradingCard && (
@@ -9243,7 +9281,7 @@ function TradePassportCard({ passport, history, compact }) {
   );
 }
 
-function TradeHub({ onBack, onNotif, user }) {
+function TradeHub({ onBack, onNotif, user, initialOfferId }) {
   const { tokenReady } = useAuth();
   const [hubTab, setHubTab]         = useState("mine");
   const [publicListings, setPublicListings] = useState([]);
@@ -9252,6 +9290,16 @@ function TradeHub({ onBack, onNotif, user }) {
   const [offersLoading, setOffersLoading] = useState(false);
   const [selectedListing, setSelectedListing] = useState(null); // for TradeListingDetail
   const [selectedOffer, setSelectedOffer]     = useState(null); // for OfferThread
+
+  // Notification deep link: /api/listing-offers returns both offers I sent AND
+  // offers received on my listings in one list, so this matches regardless of
+  // which side of the trade the tap came from. A deleted/inaccessible offer id
+  // just never matches — falls through to the normal "mine" list, no crash.
+  useEffect(()=>{
+    if (!initialOfferId || selectedOffer) return;
+    const match = myOffers.find(o=>o.id===initialOfferId);
+    if (match) setSelectedOffer(match);
+  }, [initialOfferId, myOffers, selectedOffer]);
 
   // Keep mock trades as fallback for the old "My Trades" flow (pre-real-data)
   const [trades] = useState(()=>ls.get("backstage_active_trades", MOCK_ACTIVE_TRADES_DEFAULT));
@@ -15796,6 +15844,13 @@ function FriendsPage({ onBack, onNotif, go, onViewProfile }) {
   const [outgoing, setOutgoing] = useState(()=>readFriendRequestStore().outgoing);
   const [reactPromptFor, setReactPromptFor] = useState(null); // {req, member} — optional "send a reaction" sheet after accept
   const [reactGifPickerOpen, setReactGifPickerOpen] = useState(false);
+  // Friend-request push notifications land here (view already defaults to
+  // "requests") — highlight the specific request the tap was about.
+  const [notifRequestId] = useState(()=>consumeNotifTarget('friend_request'));
+  const notifRequestRef = useRef(null);
+  useEffect(()=>{
+    if (notifRequestId && notifRequestRef.current) notifRequestRef.current.scrollIntoView({ behavior:"smooth", block:"center" });
+  }, [notifRequestId, incoming]);
   const TYPE_LABELS = { close_friend:"💜 Close Friend", concert_buddy:"🎤 Concert Buddy", trade_buddy:"🃏 Trade Buddy" };
   const TYPE_COLORS = { close_friend:C.accent, concert_buddy:C.pink, trade_buddy:C.mint };
   useEffect(()=>{ ls.set("backstage_friends", friends); }, [friends]);
@@ -15903,8 +15958,9 @@ function FriendsPage({ onBack, onNotif, go, onViewProfile }) {
               </div>
             ) : incoming.map(req=>{
               const fan = requestUserFromRow(req);
+              const isNotifTarget = notifRequestId && String(req.id) === notifRequestId;
               return (
-                <div key={req.id} style={{ background:C.surface,border:`1.5px solid ${C.borderHi}`,borderRadius:18,padding:14,marginBottom:10,display:"flex",gap:12,alignItems:"center" }}>
+                <div key={req.id} ref={isNotifTarget ? notifRequestRef : null} style={{ background:C.surface,border:isNotifTarget?`2px solid ${C.accent}`:`1.5px solid ${C.borderHi}`,borderRadius:18,padding:14,marginBottom:10,display:"flex",gap:12,alignItems:"center",boxShadow:isNotifTarget?`0 0 0 4px ${C.accent}22`:"none" }}>
                   <div style={{ width:44,height:44,borderRadius:"50%",background:`linear-gradient(135deg,${fan.color},${fan.color}66)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,color:C.bg,flexShrink:0 }}>{fan.avatar}</div>
                   <div style={{ flex:1,minWidth:0 }}>
                     <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13 }}>{fan.name}</p>
@@ -19194,6 +19250,9 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
     ls.del("backstage_dm_target");
     return t;
   });
+  // A DM push notification carries the thread id (entityType 'thread'), not a fan
+  // object — separate from dmTarget above, which is always keyed by fan identity.
+  const [notifThreadId] = useState(()=>consumeNotifTarget('thread'));
   const [convos, setConvos]     = useState(()=>{
     const stored = ls.get(KEY, []);
     // Strip legacy mock entries (id starts with "dm-") that were seeded in early
@@ -19329,6 +19388,17 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
     }).catch(() => {});
     return () => { alive = false; };
   }, [user?.id, tokenReady]);
+
+  // Opens the exact thread a DM push pointed at, once the real thread list has
+  // loaded — the cached KEY snapshot at mount may not yet include a brand-new
+  // thread, so this re-checks whenever convos updates rather than only once.
+  // A deleted/inaccessible thread id simply never matches — falls through to the
+  // normal inbox list, no crash.
+  useEffect(() => {
+    if (!notifThreadId || activeConvo) return;
+    const match = convos.find(c => c.id === notifThreadId);
+    if (match) setActiveConvo(match);
+  }, [notifThreadId, convos, activeConvo]);
 
   useEffect(() => {
     const q = dmSearch.trim().replace(/^@/, "");
@@ -24326,6 +24396,10 @@ function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNot
       : NOTIF_ROUTES[n.type];
     // Graceful no-op if no route mapped
     if (!dest || (!dest.modal && !dest.tab)) return;
+    // Carry the exact thread/offer/request along — same stash the SW/cold-launch
+    // paths use, so DirectMessages/TradeHub/FriendsPage don't care which entry
+    // point sent them here.
+    stashNotifTarget(n.entityId || n.targetId || null, n.entityType || '');
     if (onNavigate) onNavigate(dest);
   };
 
@@ -26320,9 +26394,16 @@ function AppInner() {
       activateVip();
     }
 
+    // ?notif=<dest>&nid=<targetId>&ntype=<entityType> — the SW's openWindow() fallback
+    // and the &nid/&ntype query params survive untouched until appState==='main' (this
+    // effect re-runs on every appState change), so a cold launch onto the sign-in screen
+    // still lands on the exact target once the user signs back in.
     const notifDest = params.get('notif');
     if (notifDest && appState === 'main') {
+      const nid = params.get('nid');
+      const ntype = params.get('ntype');
       window.history.replaceState({}, '', window.location.pathname);
+      stashNotifTarget(nid, ntype);
       go(notifDest);
     }
     // Spotify OAuth return: ?music=spotify_connected
@@ -26341,7 +26422,7 @@ function AppInner() {
     const onSwMessage = (event) => {
       if (event.data?.type === 'NOTIF_CLICK' && appState === 'main') {
         const dest = event.data.targetModal || event.data.targetTab;
-        if (dest) go(dest);
+        if (dest) { stashNotifTarget(event.data.targetId, event.data.entityType); go(dest); }
       }
     };
     navigator.serviceWorker?.addEventListener('message', onSwMessage);
