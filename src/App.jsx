@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, lazy, Suspense, createContext, useContext } from "react";
 import MapboxMap, { CITY_DENSITY_GEOJSON } from "./MapboxMap.jsx";
 import { createClient } from "@supabase/supabase-js";
-import { ls } from "./lib/storage.js";
+import { ls, clearUserScopedStorage } from "./lib/storage.js";
 import { DARK_THEME, LIGHT_THEME, C, applyThemeMode, getCSS, ThemeContext } from "./lib/theme.js";
 import { VS, BS_TONE, bsToneColor, getPillStyle, getBadgeStyle, getGlassCardStyle } from "./lib/visualSystem.js";
 import {
@@ -451,6 +451,20 @@ function AuthProvider({ children }) {
   }, []);
 
   const signOut = async () => {
+    // Capture the outgoing user's identifiers before clearing state. Same
+    // id/email/name-or-username precedence used when these keys are WRITTEN
+    // (pushUserKey = user?.id || user?.email || "anon"; TAG_REQUESTS_KEY = user?.name
+    // || user?.username || "stan") — "anon"/"stan" deliberately omitted here since
+    // those are shared fallback buckets, never this specific account's own key.
+    const outgoing = user;
+    // Local account-scoped app data first — this must complete regardless of
+    // whether the remote Supabase sign-out below succeeds.
+    const skipped = clearUserScopedStorage({
+      userId: outgoing?.id,
+      userKey: outgoing?.id || outgoing?.email,
+      username: outgoing?.name || outgoing?.username,
+    });
+    if (skipped.length) console.warn('[signOut] no identifier available — left unchanged:', skipped);
     setUser(null);
     setSession(null);
     setTokenReady(false);
@@ -578,11 +592,16 @@ function syncNotifSettingsToServer(settings) {
   }, 1200);
 }
 
-// Wipes every auth-related key from localStorage:
+// Wipes every auth-related key from localStorage — credentials/session only, NOT
+// application data (see clearUserScopedStorage in src/lib/storage.js for that,
+// called separately by the explicit sign-out flow below):
 //   - backstage_session, backstage_is_vip, backstage_pending_uid (our keys)
 //   - sb-<project>-auth-token (Supabase v2 key, known project ref)
 //   - any remaining sb-* keys (Supabase internal — scanned so future SDK changes are covered)
 //   - legacy supabase.auth.token (Supabase v1)
+// Deliberately safe to call from TOKEN_REFRESH_FAILED / stale-session recovery —
+// a transient refresh failure must only drop credentials, never wipe collections,
+// friends, DMs, trades, etc.
 function clearAuthStorage() {
   try {
     ['backstage_session','backstage_is_vip','backstage_pending_uid','backstage_supabase_auth','supabase.auth.token'].forEach(k => localStorage.removeItem(k));

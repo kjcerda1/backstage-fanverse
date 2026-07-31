@@ -92,7 +92,7 @@ One monolith, many top-level components (exact count drifts — see `docs/AGENT_
 | `src/lib/apiClient.js` | The `api` singleton (`get`/`post`/`patch`/`del`, `_setToken`/`_headers`/`_refreshToken`) + `parseApiResponse` (search anchor: `export const api = {`). Extracted 2026-07-31 — see `docs/API_CLIENT_BOUNDARY_AUDIT.md`. `App.jsx` calls `configureApiClient({ apiUrl, getSupabase })` once, right after `_supabase` is created, since `api._refreshToken()` needs live access to it. `GifPicker` (see `GifSystem.jsx` row above) now imports `api` from here directly. |
 | `src/lib/theme.js` | `DARK_THEME`, `LIGHT_THEME`, `C`, `applyThemeMode`, `ThemeContext` |
 | `src/lib/visualSystem.js` | `VS`, tone/pill/badge/glass-card style helpers |
-| `src/lib/storage.js` | `ls` localStorage wrapper |
+| `src/lib/storage.js` | `ls` localStorage wrapper. Also owns the account-isolation boundary used on sign-out: `USER_SCOPED_STORAGE_KEYS`/`USER_SCOPED_STORAGE_PREFIXES` (reviewed account-specific keys, cleared unconditionally) and `clearUserScopedStorage({userId, userKey, username})` (also clears that user's id-/key-/username-scoped entries; skips+reports any missing identifier rather than sweeping other accounts). Called only from `App.jsx`'s explicit `signOut()` — see `docs/STORAGE_BOUNDARY_AUDIT.md`. |
 | `src/lib/dateHelpers.js` | `formatRelativeOrDate`, `computeDaysLeft`, `getConcertStatus` |
 | `src/lib/profileHelpers.js` | Profile-shape helpers |
 | `src/lib/telemetry.js` | `track`, `trackScreen`, `identifyUser`, `captureError`, `EV` (PostHog/Sentry) |
