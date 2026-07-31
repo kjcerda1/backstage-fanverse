@@ -50,23 +50,24 @@ One monolith, many top-level components (exact count drifts — see `docs/AGENT_
 | 10863–12756 | **Fanverse social** | `MemeSystem`, `FanBuddyMatcher`, `BudgetTracker`, `FanverseLeaders`, `FanDiscoverySection`, `FanversePulse`, `CityHubDetail`, `FanverseTab`, `CommunityTab`, `BuildMyDay` |
 | 12757–13558 | **Era Room** | `EraRoom` |
 | 13559–14580 | Explore / Tools tabs | `ExploreTab`, `ToolsTab`, `ComebacksEraWatch` |
-| 14581–15416 | Chants / era board / stories | `ChantVault`, `EraBoard`, `FanStories` |
-| 15417–15498 | **Avatar (shared)** | `Avatar` — used everywhere; prime extraction candidate |
-| 15499–16352 | **Live feed** | `LiveFeedTab` |
-| 16353–16706 | Fanverse map | `FanverseMap` (see also `src/MapboxMap.jsx`) |
-| 16707–17210 | Friends / rooms / QR | `FriendsPage`, `ChatHub`, `ChatRoom`, `QRPage` |
-| 17211–17602 | **Safety / moderation** | `ReportSheet`, `SafetyCenter`, `ModerationReportCard`, `ModerationQueue` |
-| 17603–18145 | **Concert day mode** | `EventDiscovery`, `VenueCrowdTips`, `ConcertDayBanner(Active)`, `ConcertDayMode` |
-| 18146–19353 | Misc fan tools (small) | `ValueTracker`, `FanProjects`, `CreatorMode`, `BackupExport`, `FanIdentity`, `SmartNotifs`, `AIAssistant`, `TicketWallet`, `MiniGames`, `ConcertPrep`, `KWorldHub`, `KDramaTracker`, `AfterglowPage` |
-| 19354–21126 | **Profiles (public) + DMs** | `PublicProfilePreview`, `PublicProfileFull`, `PublicFanPassport`, `ProfilePreview`, `DirectMessages` |
-| 21127–22704 | **Profile tab + settings** | `FanAnniversaryWidget`, `TopBiasesSection`, `MyCircleSection`, `AccountSettings`, `Top5Section`, `ProfileTab` |
-| 22705–23194 | **Music connect** | `NpSourceBadge`, `NowPlayingCard`, `MusicConnect` |
-| 23195–24397 | **Concert Capsule + Passes** | `ConcertCapsule`, `PassPreviewCard`, `PassTextLayer`, `BackstagePasses` |
-| 24398–25477 | **Profile Studio / skins / notifs** | `SkinThemeTab`, `ProfileStudio`, `PrivacySettings`, `StandaloneNotifCenter`, `NotificationCenter` |
-| 25478–26118 | Shows / scrapbook | `MyShowsPage`, `ScrapbookTab`, `ScrapbookDetail` |
-| 26119–26270 | Search / capsule landing | `FandomSearch`, `CapsuleLandingPage` |
-| 26271–26719 | **Legal + public pages** | `LegalNav`, `DeleteAccountPage`, `PrivacyPage`, `TermsPage`, `SupportPage`, `ProfilePublicPage` |
-| 26720–EOF | **App shell (root)** | `ModalWrapper`, `AppInner` — nav, modal stack, `go()` routing, top-level state |
+| 14581–15406 | Chants / era board / stories | `ChantVault`, `EraBoard`, `FanStories`, `apiPostToFeed`, `topReactions` (small feed-mapping helpers) |
+| 15407–16260 | **Live feed** | `LiveFeedTab` |
+| 16261–16614 | Fanverse map | `FanverseMap` (see also `src/MapboxMap.jsx`) |
+| 16615–17118 | Friends / rooms / QR | `FriendsPage`, `ChatHub`, `ChatRoom`, `QRPage` |
+| 17119–17510 | **Safety / moderation** | `ReportSheet`, `SafetyCenter`, `ModerationReportCard`, `ModerationQueue` |
+| 17511–18053 | **Concert day mode** | `EventDiscovery`, `VenueCrowdTips`, `ConcertDayBanner(Active)`, `ConcertDayMode` |
+| 18054–19261 | Misc fan tools (small) | `ValueTracker`, `FanProjects`, `CreatorMode`, `BackupExport`, `FanIdentity`, `SmartNotifs`, `AIAssistant`, `TicketWallet`, `MiniGames`, `ConcertPrep`, `KWorldHub`, `KDramaTracker`, `AfterglowPage` |
+| 19262–21034 | **Profiles (public) + DMs** | `PublicProfilePreview`, `PublicProfileFull`, `PublicFanPassport`, `ProfilePreview`, `DirectMessages` |
+| 21035–22612 | **Profile tab + settings** | `FanAnniversaryWidget`, `TopBiasesSection`, `MyCircleSection`, `AccountSettings`, `Top5Section`, `ProfileTab` |
+| 22613–23102 | **Music connect** | `NpSourceBadge`, `NowPlayingCard`, `MusicConnect` |
+| 23103–24305 | **Concert Capsule + Passes** | `ConcertCapsule`, `PassPreviewCard`, `PassTextLayer`, `BackstagePasses` |
+| 24306–25385 | **Profile Studio / skins / notifs** | `SkinThemeTab`, `ProfileStudio`, `PrivacySettings`, `StandaloneNotifCenter`, `NotificationCenter` |
+| 25386–26026 | Shows / scrapbook | `MyShowsPage`, `ScrapbookTab`, `ScrapbookDetail` |
+| 26027–26178 | Search / capsule landing | `FandomSearch`, `CapsuleLandingPage` |
+| 26179–26627 | **Legal + public pages** | `LegalNav`, `DeleteAccountPage`, `PrivacyPage`, `TermsPage`, `SupportPage`, `ProfilePublicPage` |
+| 26628–EOF | **App shell (root)** | `ModalWrapper`, `AppInner` — nav, modal stack, `go()` routing, top-level state |
+
+> **2026-07-31 extraction note:** `Avatar` (+ its `resolveAvatarUrl`/`avatarInitial`/`feedAvatarColor` helpers) moved out of `App.jsx` into `src/components/Avatar.jsx`, removing 92 lines. Every row from **Live feed** onward is shifted by exactly −92 vs. any App.jsx line number you may have seen cited before this date. **Line numbers in this table are snapshot hints, not durable identifiers** — the durable anchor is always the function/component name; `grep -n "^function ComponentName"` before trusting a number, especially after any future extraction.
 
 > **Navigation note:** bottom nav is 5 tabs, but internal `tab` ids do **not** match their labels — **"My World" = tab id `collect` = `LibraryTab`** (rows above: Library/Sets, Binders+Trade, Collect/inventory, Era Room); **"My Stage" = tab id `profile` = `ProfileTab`** (Profile tab + settings row); **"Tools" = tab id `fanverse` = `ToolsTab`**. Full tab-id ↔ label table lives in CURRENT_STATE.md §0 — check it before reasoning about routing or searching for a product name that isn't a literal component name above.
 
@@ -79,6 +80,7 @@ One monolith, many top-level components (exact count drifts — see `docs/AGENT_
 | `src/main.jsx` | Vite entry — mounts `AppInner` |
 | `src/MapboxMap.jsx` (~48 KB) | Map rendering + `CITY_DENSITY_GEOJSON`; imported by `FanverseMap` |
 | `src/components/primitives.jsx` | Shared UI primitives |
+| `src/components/Avatar.jsx` | `Avatar` component (search anchor: `export function Avatar(`) + its `resolveAvatarUrl`/`avatarInitial`/`feedAvatarColor` helpers — used everywhere (nav, DMs, feed, profiles, friends). Extracted from `App.jsx` 2026-07-31; first module-boundary extraction, template for future ones. |
 | `src/lib/theme.js` | `DARK_THEME`, `LIGHT_THEME`, `C`, `applyThemeMode`, `ThemeContext` |
 | `src/lib/visualSystem.js` | `VS`, tone/pill/badge/glass-card style helpers |
 | `src/lib/storage.js` | `ls` localStorage wrapper |
