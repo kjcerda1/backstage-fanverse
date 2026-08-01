@@ -25484,6 +25484,8 @@ function ScrapbookDetail({ book, onBack, isVip, onUpgrade }) {
   const FREE_LIMIT = 5;
   const [uploadLoading, setUploadLoading] = useState(false);
   const [uploadError, setUploadError] = useState(null);
+  const [savingMemory, setSavingMemory] = useState(false);
+  const [saveMemoryError, setSaveMemoryError] = useState(null);
   const { user } = useAuth();
 
   useEffect(()=>{ ls.set(storageKey, memories); }, [memories]);
@@ -25570,30 +25572,64 @@ function ScrapbookDetail({ book, onBack, isVip, onUpgrade }) {
   const TYPES = ["photo","note","photocard","freebie","outfit","friend","ticket","video"];
   const TYPE_EMOJI = { photo:"📸", note:"✍️", photocard:"🃏", freebie:"🎁", outfit:"✨", friend:"🤝", ticket:"🎟️", video:"🎥" };
 
+  const resetMemoryForm = () => setForm({ type:"photo", title:"", text:"", imageData:null, imageStoragePath:null, date:"", event:"", venue:"", city:"", friends:"", tags:[], linkedSong:"", favorite:false });
+
   const saveMemory = async () => {
     if(!isVip && memories.length >= FREE_LIMIT) { onUpgrade(); return; }
-    const mem = { ...form, id:`mem-${Date.now()}`, scrapbookId:book.id };
-    setMemories([mem, ...memories]);
-    setForm({ type:"photo", title:"", text:"", imageData:null, imageStoragePath:null, date:"", event:"", venue:"", city:"", friends:"", tags:[], linkedSong:"", favorite:false });
-    setUploadError(null);
-    setAdding(false);
-    // Persist to Supabase if authenticated
-    if(_supabase) {
+    if(savingMemory) return; // duplicate-submit guard
+    setSaveMemoryError(null);
+
+    // No backend configured — local-only mode (same fallback every other
+    // localStorage-first feature in this app uses). Nothing can fail here
+    // since there's no network call, so an immediate local append is honest.
+    if(!_supabase) {
+      const mem = { ...form, id:`mem-${Date.now()}`, scrapbookId:book.id };
+      setMemories([mem, ...memories]);
+      resetMemoryForm();
+      setAdding(false);
+      return;
+    }
+
+    setSavingMemory(true);
+    try {
       // Use the live Supabase auth user, not React state, to ensure user_id matches RLS
-      _supabase.auth.getUser().then(({ data: { user: authUser } }) => {
-        if(!authUser?.id) {
-          return;
-        }
-        // photos[] stores the raw storage path, NOT a signed URL
-        const notes = JSON.stringify({ title:form.title||'', text:form.text||'', type:form.type||'photo', date:form.date||'', event:form.event||'', venue:form.venue||'', city:form.city||'', tags:form.tags||[], linkedSong:form.linkedSong||'', favorite:!!form.favorite });
-        const row = {
-          user_id: authUser.id, event_id: book.id,
-          photos: form.imageStoragePath ? [form.imageStoragePath] : [],
-          notes, people_met: form.friends ? [form.friends] : [],
-          meetups_attended: [], after_parties: [],
-        };
-        _supabase.from('concert_memories').insert(row);
-      });
+      const { data: { user: authUser }, error: authErr } = await _supabase.auth.getUser();
+      if(authErr || !authUser?.id) throw new Error("You're signed out — sign back in and try again.");
+
+      // photos[] stores the raw storage path, NOT a signed URL.
+      // concert_memories.event_id has a live FK to events(id) — a real
+      // backend scrapbook's uuid is never a real event id, so it must go in
+      // the dedicated scrapbook_id column instead (own FK to scrapbooks(id),
+      // RLS-gated to owner/accepted-collaborator — see the migration).
+      // `book.role` ('owner'|'collaborator') only exists on scrapbooks the
+      // backend actually knows about; legacy local-only books (Concert
+      // Capsule's flow lives in its own separate component, untouched by any
+      // of this) keep using event_id exactly as before.
+      const notes = JSON.stringify({ title:form.title||'', text:form.text||'', type:form.type||'photo', date:form.date||'', event:form.event||'', venue:form.venue||'', city:form.city||'', tags:form.tags||[], linkedSong:form.linkedSong||'', favorite:!!form.favorite });
+      const isRealScrapbook = !!book.role;
+      const row = {
+        user_id: authUser.id,
+        event_id: isRealScrapbook ? null : book.id,
+        scrapbook_id: isRealScrapbook ? book.id : null,
+        photos: form.imageStoragePath ? [form.imageStoragePath] : [],
+        notes, people_met: form.friends ? [form.friends] : [],
+        meetups_attended: [], after_parties: [],
+      };
+      const { data, error } = await _supabase.from('concert_memories').insert(row).select('id').single();
+      if(error) throw error;
+
+      // Only now — insert confirmed — does the memory appear locally and the
+      // form close. A failed insert must never look like a successful save.
+      const mem = { ...form, id:data.id, scrapbookId:book.id, _synced:true };
+      setMemories(prev => [mem, ...prev]);
+      resetMemoryForm();
+      setAdding(false);
+    } catch (err) {
+      // Form and any entered fields stay exactly as they were — the user can
+      // just hit Save again without re-typing anything.
+      setSaveMemoryError(err?.message || "Couldn't save that memory — check your connection and try again.");
+    } finally {
+      setSavingMemory(false);
     }
   };
 
@@ -25759,9 +25795,10 @@ function ScrapbookDetail({ book, onBack, isVip, onUpgrade }) {
               <Toggle on={form.favorite} onChange={v=>setForm({...form,favorite:v})} color={C.gold} />
               <p style={{ fontSize:12.5, color:C.textMid }}>Mark as Favorite ⭐</p>
             </div>
+            {saveMemoryError&&<p style={{ fontSize:10.5,color:C.rose,marginBottom:10,textAlign:"center" }}>{saveMemoryError}</p>}
             <div style={{ display:"flex", gap:10 }}>
-              <Btn onClick={saveMemory} style={{ flex:1,opacity:uploadLoading?0.5:1 }} small disabled={uploadLoading}>{uploadLoading?"Uploading photo…":"Save Memory"}</Btn>
-              <Btn ghost color={C.textMid} onClick={()=>{setAdding(false);setUploadError(null);}} style={{ width:82,flex:"none" }} small>Cancel</Btn>
+              <Btn onClick={saveMemory} style={{ flex:1,opacity:(uploadLoading||savingMemory)?0.5:1 }} small disabled={uploadLoading||savingMemory}>{uploadLoading?"Uploading photo…":savingMemory?"Saving…":"Save Memory"}</Btn>
+              <Btn ghost color={C.textMid} onClick={()=>{setAdding(false);setUploadError(null);setSaveMemoryError(null);}} style={{ width:82,flex:"none" }} small>Cancel</Btn>
             </div>
           </div>
         </div>

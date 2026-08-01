@@ -2197,29 +2197,40 @@ app.get('/api/concerts/memory', requireAuth, async (req, res) => {
 // ═════════════════════════════════════════════════════════════════════════════
 
 // ── Scrapbook collaboration (DM Composer Phase 2) ──────────────────────────
-// The scrapbook "book" itself previously existed only in localStorage
-// (`backstage_scrapbooks`), so real cross-user sharing was impossible — a
-// client-generated id and a fake "collab code" nothing ever validated. These
-// routes give scrapbooks a real row other users can be granted access to.
+// The scrapbook "book" itself previously had no real cross-user identity: the
+// app kept it in localStorage (`backstage_scrapbooks`) with a client-generated
+// id and a fake "collab code" nothing ever validated. A `public.scrapbooks`
+// table DOES already exist in prod (confirmed via live schema read 2026-07-31)
+// but was never wired to any app code — columns are (id, user_id, title,
+// color, emoji, entries jsonb, created_at, updated_at), NOT the (owner_id,
+// name) shape used below at first draft. This backend speaks the REAL column
+// names (user_id/title) and maps to/from the API's `name`/`role` JSON keys at
+// the boundary, so nothing else in this file or the frontend has to know the
+// column was renamed under it.
+//
 // Returns 'owner' | 'collaborator' | null for the given user's relationship to a scrapbook.
 async function getScrapbookAccess(scrapbookId, userId) {
   const { data: book } = await supabase.from('scrapbooks').select('*').eq('id', scrapbookId).single();
   if (!book) return { access: null, book: null };
-  if (book.owner_id === userId) return { access: 'owner', book };
+  if (book.user_id === userId) return { access: 'owner', book };
   const { data: collab } = await supabase.from('scrapbook_collaborators').select('status').eq('scrapbook_id', scrapbookId).eq('user_id', userId).single();
   if (collab?.status === 'accepted') return { access: 'collaborator', book };
   return { access: null, book };
 }
 
+// Maps a raw `scrapbooks` row (title column) to the API shape the frontend
+// already speaks (name key) — see ScrapbookTab/ScrapbookDetail in App.jsx.
+const toScrapbookClient = (row, role) => ({ ...row, name: row.title, role });
+
 app.post('/api/scrapbooks', requireAuth, async (req, res) => {
   const { name, concert, emoji, color, template } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'name required' });
-  if (MOCK_MODE) return res.json({ scrapbook: { id: `mock-sb-${Date.now()}`, owner_id: req.userId, name: name.trim(), concert: concert || null, emoji: emoji || '📸', color: color || null, template: template || null, created_at: new Date().toISOString() }, mock: true });
+  if (MOCK_MODE) return res.json({ scrapbook: { id: `mock-sb-${Date.now()}`, user_id: req.userId, name: name.trim(), concert: concert || null, emoji: emoji || '📸', color: color || null, template: template || null, role: 'owner', created_at: new Date().toISOString() }, mock: true });
   try {
     const { data, error } = await supabase.from('scrapbooks')
       .insert({
-        owner_id: req.userId,
-        name: name.trim().slice(0, 120),
+        user_id: req.userId,
+        title: name.trim().slice(0, 120),
         concert: concert ? String(concert).slice(0, 160) : null,
         emoji: emoji || '📸',
         color: color || null,
@@ -2227,7 +2238,7 @@ app.post('/api/scrapbooks', requireAuth, async (req, res) => {
       })
       .select('*').single();
     if (error) throw error;
-    res.json({ scrapbook: { ...data, role: 'owner' } });
+    res.json({ scrapbook: toScrapbookClient(data, 'owner') });
   } catch (err) {
     console.error('[POST /api/scrapbooks]', err.message);
     res.status(500).json({ error: 'Could not create scrapbook' });
@@ -2238,7 +2249,7 @@ app.post('/api/scrapbooks', requireAuth, async (req, res) => {
 app.get('/api/scrapbooks', requireAuth, async (req, res) => {
   if (MOCK_MODE) return res.json({ scrapbooks: [], mock: true });
   try {
-    const { data: owned, error: ownedErr } = await supabase.from('scrapbooks').select('*').eq('owner_id', req.userId).order('created_at', { ascending: false });
+    const { data: owned, error: ownedErr } = await supabase.from('scrapbooks').select('*').eq('user_id', req.userId).order('created_at', { ascending: false });
     if (ownedErr) throw ownedErr;
     const { data: collabRows, error: collabErr } = await supabase.from('scrapbook_collaborators').select('scrapbook_id').eq('user_id', req.userId).eq('status', 'accepted');
     if (collabErr) throw collabErr;
@@ -2251,8 +2262,8 @@ app.get('/api/scrapbooks', requireAuth, async (req, res) => {
     }
     res.json({
       scrapbooks: [
-        ...(owned || []).map(b => ({ ...b, role: 'owner' })),
-        ...shared.map(b => ({ ...b, role: 'collaborator' })),
+        ...(owned || []).map(b => toScrapbookClient(b, 'owner')),
+        ...shared.map(b => toScrapbookClient(b, 'collaborator')),
       ],
     });
   } catch (err) {
@@ -2267,7 +2278,7 @@ app.get('/api/scrapbooks/:id', requireAuth, async (req, res) => {
     const { access, book } = await getScrapbookAccess(req.params.id, req.userId);
     if (!access) return res.status(403).json({ error: 'Forbidden' });
     const { data: collaborators } = await supabase.from('scrapbook_collaborators').select('user_id, status, created_at, responded_at').eq('scrapbook_id', req.params.id);
-    res.json({ scrapbook: { ...book, role: access }, collaborators: collaborators || [] });
+    res.json({ scrapbook: toScrapbookClient(book, access), collaborators: collaborators || [] });
   } catch (err) {
     console.error('[GET /api/scrapbooks/:id]', err.message);
     res.status(500).json({ error: 'Could not load scrapbook' });
@@ -2279,10 +2290,11 @@ app.get('/api/scrapbooks/:id', requireAuth, async (req, res) => {
 app.post('/api/scrapbooks/:id/invite', requireAuth, async (req, res) => {
   const { targetUserId, threadId } = req.body;
   if (!targetUserId || !threadId) return res.status(400).json({ error: 'targetUserId and threadId required' });
+  if (targetUserId === req.userId) return res.status(400).json({ error: "Can't invite yourself" });
   if (MOCK_MODE) return res.json({ success: true, mock: true });
   try {
-    const { data: book } = await supabase.from('scrapbooks').select('id, owner_id, name, emoji').eq('id', req.params.id).single();
-    if (!book || book.owner_id !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+    const { data: book } = await supabase.from('scrapbooks').select('id, user_id, title, emoji').eq('id', req.params.id).single();
+    if (!book || book.user_id !== req.userId) return res.status(403).json({ error: 'Forbidden' });
     const { data: membership } = await supabase.from('message_thread_members').select('thread_id').eq('thread_id', threadId).eq('user_id', req.userId).single();
     if (!membership) return res.status(403).json({ error: 'Forbidden' });
     const { data: otherMembership } = await supabase.from('message_thread_members').select('user_id').eq('thread_id', threadId).eq('user_id', targetUserId).single();
@@ -2296,7 +2308,7 @@ app.post('/api/scrapbooks/:id/invite', requireAuth, async (req, res) => {
       );
     if (upsertErr) throw upsertErr;
 
-    const media = { kind: 'scrapbook_invite', scrapbookId: book.id, scrapbookName: book.name, scrapbookEmoji: book.emoji || '📸' };
+    const media = { kind: 'scrapbook_invite', scrapbookId: book.id, scrapbookName: book.title, scrapbookEmoji: book.emoji || '📸' };
     const { data: msg, error: msgErr } = await supabase.from('messages')
       .insert({ thread_id: threadId, sender_user_id: req.userId, body: null, media })
       .select('id, thread_id, sender_user_id, body, gif, media, created_at').single();
@@ -2308,7 +2320,7 @@ app.post('/api/scrapbooks/:id/invite', requireAuth, async (req, res) => {
       userId: targetUserId,
       type: 'dm_received',
       title: `${sender?.username || 'A Backstage fan'} shared a scrapbook`,
-      body: `Invited you to collaborate on "${book.name}"`,
+      body: `Invited you to collaborate on "${book.title}"`,
       actorId: req.userId,
       entityId: threadId,
       entityType: 'thread',
@@ -2343,18 +2355,38 @@ app.post('/api/scrapbooks/:id/respond', requireAuth, async (req, res) => {
   }
 });
 
+// Owner revokes a collaborator's access — the row is gone immediately, so the
+// very next getScrapbookAccess() call for that user 403s (nothing cached).
+app.delete('/api/scrapbooks/:id/collaborators/:userId', requireAuth, async (req, res) => {
+  if (MOCK_MODE) return res.json({ success: true, mock: true });
+  try {
+    const { data: book } = await supabase.from('scrapbooks').select('id, user_id').eq('id', req.params.id).single();
+    if (!book || book.user_id !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+    const { error } = await supabase.from('scrapbook_collaborators')
+      .delete()
+      .eq('scrapbook_id', req.params.id)
+      .eq('user_id', req.params.userId);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[DELETE /api/scrapbooks/:id/collaborators/:userId]', err.message);
+    res.status(500).json({ error: 'Could not remove collaborator' });
+  }
+});
+
 // The requester's OWN relationship to a scrapbook — 'owner' | a collaborator
 // status ('invited'/'accepted'/'declined') | 'none'. Deliberately unguarded by
 // getScrapbookAccess (which only grants 'accepted' collaborators) because an
 // invited-but-not-yet-responded recipient must still be able to see their own
 // pending invite to render Accept/Decline — this route only ever reveals the
-// caller's own row, never another user's.
+// caller's own row, never another user's, so it can't be used to probe
+// whether a given scrapbook id exists or who owns it.
 app.get('/api/scrapbooks/:id/my-status', requireAuth, async (req, res) => {
   if (MOCK_MODE) return res.json({ status: 'none', mock: true });
   try {
-    const { data: book } = await supabase.from('scrapbooks').select('id, owner_id').eq('id', req.params.id).single();
+    const { data: book } = await supabase.from('scrapbooks').select('id, user_id').eq('id', req.params.id).single();
     if (!book) return res.json({ status: 'none' });
-    if (book.owner_id === req.userId) return res.json({ status: 'owner' });
+    if (book.user_id === req.userId) return res.json({ status: 'owner' });
     const { data: collab } = await supabase.from('scrapbook_collaborators').select('status').eq('scrapbook_id', req.params.id).eq('user_id', req.userId).single();
     res.json({ status: collab?.status || 'none' });
   } catch (err) {
@@ -2417,13 +2449,20 @@ app.post('/api/scrapbooks/memory', requireAuth, async (req, res) => {
   if (MOCK_MODE) return res.json({ success: true, mock: true, id: `mem_${Date.now()}` });
 
   try {
-    // A scrapbookId that resolves to a real `scrapbooks` row someone else owns,
-    // where this user isn't an accepted collaborator, may not receive memories.
-    // A scrapbookId that doesn't resolve at all (legacy local-only book, or a
-    // Concert Capsule event id reusing this same table) is left unchanged.
+    // concert_memories.event_id has a live, enforced FK to events(id) — a
+    // scrapbook's uuid is never a real event id, so writing it into event_id
+    // would fail that FK for every real scrapbook. Real scrapbooks use the
+    // dedicated concert_memories.scrapbook_id column instead (its own FK to
+    // scrapbooks(id)); event_id/its FK to events is untouched either way, so
+    // Concert Capsule (which always uses real event ids here) is unaffected.
+    // A scrapbookId that doesn't resolve to a real `scrapbooks` row (legacy
+    // local-only book, or a genuine Concert Capsule event id) keeps writing to
+    // event_id exactly as before.
+    let book = null;
     if (scrapbookId) {
-      const { access, book } = await getScrapbookAccess(scrapbookId, req.userId);
-      if (book && !access) return res.status(403).json({ error: 'Forbidden' });
+      const access = await getScrapbookAccess(scrapbookId, req.userId);
+      if (access.book && !access.access) return res.status(403).json({ error: 'Forbidden' });
+      book = access.book;
     }
     const notes = JSON.stringify({
       title: title || '', text: text || '', type: type || 'photo',
@@ -2433,7 +2472,8 @@ app.post('/api/scrapbooks/memory', requireAuth, async (req, res) => {
     });
     const { data, error } = await supabase.from('concert_memories').insert({
       user_id: req.userId,
-      event_id: scrapbookId || null,
+      event_id: book ? null : (scrapbookId || null),
+      scrapbook_id: book ? scrapbookId : null,
       photos: imageUrl ? [imageUrl] : [],
       notes,
       people_met: friends ? [friends] : [],
@@ -2461,11 +2501,15 @@ app.get('/api/scrapbooks/memories', requireAuth, async (req, res) => {
     if (scrapbookId) {
       const { access, book } = await getScrapbookAccess(scrapbookId, req.userId);
       if (book && !access) return res.status(403).json({ error: 'Forbidden' });
-      q = q.eq('event_id', scrapbookId);
-      // Real, shared scrapbook — an accepted collaborator sees everyone's
-      // memories, not just their own. Legacy local-only ids and Concert Capsule
-      // event ids (no matching `scrapbooks` row) keep the original owner-only scope.
-      if (!book) q = q.eq('user_id', req.userId);
+      if (book) {
+        // Real, shared scrapbook — query the dedicated scrapbook_id column so
+        // an accepted collaborator sees everyone's memories, not just their own.
+        q = q.eq('scrapbook_id', scrapbookId);
+      } else {
+        // Legacy local-only id or a genuine Concert Capsule event id — keep the
+        // original owner-only event_id scoping, unchanged.
+        q = q.eq('event_id', scrapbookId).eq('user_id', req.userId);
+      }
     } else {
       q = q.eq('user_id', req.userId);
     }
@@ -2489,7 +2533,7 @@ app.get('/api/scrapbooks/memories', requireAuth, async (req, res) => {
       const photoPath = row.photos?.[0] || null;
       return {
         id: row.id,
-        scrapbookId: row.event_id,
+        scrapbookId: row.scrapbook_id || row.event_id,
         type: meta.type || 'photo',
         title: meta.title || '',
         text: meta.text || '',
@@ -4444,11 +4488,22 @@ async function signDmMedia(messages) {
 }
 
 // Whitelist-only — never persist arbitrary client-supplied media JSON.
-function sanitizeDmMedia(raw) {
+// expectedPathPrefix (`${senderUserId}/${threadId}/`) is REQUIRED for
+// image/video/voice — without it, a client could send an arbitrary storage
+// path string (someone else's uploaded file, a guessed path, a path from an
+// unrelated thread) and this backend would happily mint a signed read URL for
+// it via signDmMedia(), since createSignedUrls() itself has no notion of who
+// "should" be allowed to reference a given path. The signed-upload-url route
+// only ever grants paths under the caller's own id + the thread they're
+// posting to, so requiring every sent path to match that same prefix ties
+// "can send this media" to "this is a file this sender actually uploaded for
+// this conversation" — closing that off.
+function sanitizeDmMedia(raw, expectedPathPrefix) {
   if (!raw || typeof raw !== 'object') return null;
   const kind = raw.kind;
   if (kind === 'image' || kind === 'video') {
     if (typeof raw.path !== 'string' || !raw.path) return null;
+    if (!expectedPathPrefix || !raw.path.startsWith(expectedPathPrefix)) return null;
     return {
       kind,
       path: raw.path,
@@ -4460,6 +4515,7 @@ function sanitizeDmMedia(raw) {
   }
   if (kind === 'voice') {
     if (typeof raw.path !== 'string' || !raw.path) return null;
+    if (!expectedPathPrefix || !raw.path.startsWith(expectedPathPrefix)) return null;
     return {
       kind,
       path: raw.path,
@@ -4606,7 +4662,7 @@ app.get('/api/messages/thread/:id', requireAuth, async (req, res) => {
 app.post('/api/messages/thread/:id/send', requireAuth, async (req, res) => {
   const body  = String(req.body?.body || '').trim() || null;
   const gif   = req.body?.gif && typeof req.body.gif === 'object' ? req.body.gif : null;
-  const media = sanitizeDmMedia(req.body?.media);
+  const media = sanitizeDmMedia(req.body?.media, `${req.userId}/${req.params.id}/`);
   if (!body && !gif && !media) return res.status(400).json({ error: 'body, gif, or media required' });
   if (MOCK_MODE) return res.json({ message: { id: `mock-msg-${Date.now()}`, body, gif, media, sender_user_id: req.userId, created_at: new Date().toISOString() }, mock: true });
   try {
