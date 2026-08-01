@@ -2196,6 +2196,173 @@ app.get('/api/concerts/memory', requireAuth, async (req, res) => {
 // Phase 2A: Supabase Storage for concert memory images
 // ═════════════════════════════════════════════════════════════════════════════
 
+// ── Scrapbook collaboration (DM Composer Phase 2) ──────────────────────────
+// The scrapbook "book" itself previously existed only in localStorage
+// (`backstage_scrapbooks`), so real cross-user sharing was impossible — a
+// client-generated id and a fake "collab code" nothing ever validated. These
+// routes give scrapbooks a real row other users can be granted access to.
+// Returns 'owner' | 'collaborator' | null for the given user's relationship to a scrapbook.
+async function getScrapbookAccess(scrapbookId, userId) {
+  const { data: book } = await supabase.from('scrapbooks').select('*').eq('id', scrapbookId).single();
+  if (!book) return { access: null, book: null };
+  if (book.owner_id === userId) return { access: 'owner', book };
+  const { data: collab } = await supabase.from('scrapbook_collaborators').select('status').eq('scrapbook_id', scrapbookId).eq('user_id', userId).single();
+  if (collab?.status === 'accepted') return { access: 'collaborator', book };
+  return { access: null, book };
+}
+
+app.post('/api/scrapbooks', requireAuth, async (req, res) => {
+  const { name, concert, emoji, color, template } = req.body;
+  if (!name?.trim()) return res.status(400).json({ error: 'name required' });
+  if (MOCK_MODE) return res.json({ scrapbook: { id: `mock-sb-${Date.now()}`, owner_id: req.userId, name: name.trim(), concert: concert || null, emoji: emoji || '📸', color: color || null, template: template || null, created_at: new Date().toISOString() }, mock: true });
+  try {
+    const { data, error } = await supabase.from('scrapbooks')
+      .insert({
+        owner_id: req.userId,
+        name: name.trim().slice(0, 120),
+        concert: concert ? String(concert).slice(0, 160) : null,
+        emoji: emoji || '📸',
+        color: color || null,
+        template: template || null,
+      })
+      .select('*').single();
+    if (error) throw error;
+    res.json({ scrapbook: { ...data, role: 'owner' } });
+  } catch (err) {
+    console.error('[POST /api/scrapbooks]', err.message);
+    res.status(500).json({ error: 'Could not create scrapbook' });
+  }
+});
+
+// Lists scrapbooks the user owns AND ones they're an accepted collaborator on.
+app.get('/api/scrapbooks', requireAuth, async (req, res) => {
+  if (MOCK_MODE) return res.json({ scrapbooks: [], mock: true });
+  try {
+    const { data: owned, error: ownedErr } = await supabase.from('scrapbooks').select('*').eq('owner_id', req.userId).order('created_at', { ascending: false });
+    if (ownedErr) throw ownedErr;
+    const { data: collabRows, error: collabErr } = await supabase.from('scrapbook_collaborators').select('scrapbook_id').eq('user_id', req.userId).eq('status', 'accepted');
+    if (collabErr) throw collabErr;
+    const sharedIds = (collabRows || []).map(r => r.scrapbook_id);
+    let shared = [];
+    if (sharedIds.length) {
+      const { data: sharedRows, error: sharedErr } = await supabase.from('scrapbooks').select('*').in('id', sharedIds);
+      if (sharedErr) throw sharedErr;
+      shared = sharedRows || [];
+    }
+    res.json({
+      scrapbooks: [
+        ...(owned || []).map(b => ({ ...b, role: 'owner' })),
+        ...shared.map(b => ({ ...b, role: 'collaborator' })),
+      ],
+    });
+  } catch (err) {
+    console.error('[GET /api/scrapbooks]', err.message);
+    res.status(500).json({ error: 'Could not load scrapbooks' });
+  }
+});
+
+app.get('/api/scrapbooks/:id', requireAuth, async (req, res) => {
+  if (MOCK_MODE) return res.json({ scrapbook: null, collaborators: [], mock: true });
+  try {
+    const { access, book } = await getScrapbookAccess(req.params.id, req.userId);
+    if (!access) return res.status(403).json({ error: 'Forbidden' });
+    const { data: collaborators } = await supabase.from('scrapbook_collaborators').select('user_id, status, created_at, responded_at').eq('scrapbook_id', req.params.id);
+    res.json({ scrapbook: { ...book, role: access }, collaborators: collaborators || [] });
+  } catch (err) {
+    console.error('[GET /api/scrapbooks/:id]', err.message);
+    res.status(500).json({ error: 'Could not load scrapbook' });
+  }
+});
+
+// Invite a fan already in this DM thread to collaborate — creates/updates the
+// collaborator row AND sends a real invite card into the thread in one call.
+app.post('/api/scrapbooks/:id/invite', requireAuth, async (req, res) => {
+  const { targetUserId, threadId } = req.body;
+  if (!targetUserId || !threadId) return res.status(400).json({ error: 'targetUserId and threadId required' });
+  if (MOCK_MODE) return res.json({ success: true, mock: true });
+  try {
+    const { data: book } = await supabase.from('scrapbooks').select('id, owner_id, name, emoji').eq('id', req.params.id).single();
+    if (!book || book.owner_id !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+    const { data: membership } = await supabase.from('message_thread_members').select('thread_id').eq('thread_id', threadId).eq('user_id', req.userId).single();
+    if (!membership) return res.status(403).json({ error: 'Forbidden' });
+    const { data: otherMembership } = await supabase.from('message_thread_members').select('user_id').eq('thread_id', threadId).eq('user_id', targetUserId).single();
+    if (!otherMembership) return res.status(400).json({ error: 'That fan is not in this conversation' });
+    if (await isBlockedEitherWay(req.userId, targetUserId)) return res.status(403).json({ error: 'blocked' });
+
+    const { error: upsertErr } = await supabase.from('scrapbook_collaborators')
+      .upsert(
+        { scrapbook_id: book.id, user_id: targetUserId, status: 'invited', invited_by: req.userId, thread_id: threadId, responded_at: null },
+        { onConflict: 'scrapbook_id,user_id' }
+      );
+    if (upsertErr) throw upsertErr;
+
+    const media = { kind: 'scrapbook_invite', scrapbookId: book.id, scrapbookName: book.name, scrapbookEmoji: book.emoji || '📸' };
+    const { data: msg, error: msgErr } = await supabase.from('messages')
+      .insert({ thread_id: threadId, sender_user_id: req.userId, body: null, media })
+      .select('id, thread_id, sender_user_id, body, gif, media, created_at').single();
+    if (msgErr) throw msgErr;
+    await supabase.from('message_threads').update({ updated_at: new Date().toISOString() }).eq('id', threadId);
+
+    const sender = await getPublicUser(req.userId);
+    await deliverNotification({
+      userId: targetUserId,
+      type: 'dm_received',
+      title: `${sender?.username || 'A Backstage fan'} shared a scrapbook`,
+      body: `Invited you to collaborate on "${book.name}"`,
+      actorId: req.userId,
+      entityId: threadId,
+      entityType: 'thread',
+      targetModal: 'chats',
+      channels: ['in_app', 'push'],
+    });
+
+    res.json({ success: true, message: msg });
+  } catch (err) {
+    console.error('[POST /api/scrapbooks/:id/invite]', err.message);
+    res.status(500).json({ error: 'Could not send invite' });
+  }
+});
+
+// Recipient accepts/declines an invite — only their own row.
+app.post('/api/scrapbooks/:id/respond', requireAuth, async (req, res) => {
+  const status = req.body?.status;
+  if (!['accepted', 'declined'].includes(status)) return res.status(400).json({ error: "status must be 'accepted' or 'declined'" });
+  if (MOCK_MODE) return res.json({ success: true, mock: true });
+  try {
+    const { data, error } = await supabase.from('scrapbook_collaborators')
+      .update({ status, responded_at: new Date().toISOString() })
+      .eq('scrapbook_id', req.params.id)
+      .eq('user_id', req.userId)
+      .select('id')
+      .single();
+    if (error || !data) return res.status(404).json({ error: 'No invite found' });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[POST /api/scrapbooks/:id/respond]', err.message);
+    res.status(500).json({ error: 'Could not update invite' });
+  }
+});
+
+// The requester's OWN relationship to a scrapbook — 'owner' | a collaborator
+// status ('invited'/'accepted'/'declined') | 'none'. Deliberately unguarded by
+// getScrapbookAccess (which only grants 'accepted' collaborators) because an
+// invited-but-not-yet-responded recipient must still be able to see their own
+// pending invite to render Accept/Decline — this route only ever reveals the
+// caller's own row, never another user's.
+app.get('/api/scrapbooks/:id/my-status', requireAuth, async (req, res) => {
+  if (MOCK_MODE) return res.json({ status: 'none', mock: true });
+  try {
+    const { data: book } = await supabase.from('scrapbooks').select('id, owner_id').eq('id', req.params.id).single();
+    if (!book) return res.json({ status: 'none' });
+    if (book.owner_id === req.userId) return res.json({ status: 'owner' });
+    const { data: collab } = await supabase.from('scrapbook_collaborators').select('status').eq('scrapbook_id', req.params.id).eq('user_id', req.userId).single();
+    res.json({ status: collab?.status || 'none' });
+  } catch (err) {
+    console.error('[GET /api/scrapbooks/:id/my-status]', err.message);
+    res.status(500).json({ error: 'Could not load status' });
+  }
+});
+
 // POST /api/memories/upload-image
 // Accepts base64-encoded image, uploads to Supabase Storage memories bucket.
 // Returns { url, path } — public URL (prototype); switch to signed URLs for production.
@@ -2250,6 +2417,14 @@ app.post('/api/scrapbooks/memory', requireAuth, async (req, res) => {
   if (MOCK_MODE) return res.json({ success: true, mock: true, id: `mem_${Date.now()}` });
 
   try {
+    // A scrapbookId that resolves to a real `scrapbooks` row someone else owns,
+    // where this user isn't an accepted collaborator, may not receive memories.
+    // A scrapbookId that doesn't resolve at all (legacy local-only book, or a
+    // Concert Capsule event id reusing this same table) is left unchanged.
+    if (scrapbookId) {
+      const { access, book } = await getScrapbookAccess(scrapbookId, req.userId);
+      if (book && !access) return res.status(403).json({ error: 'Forbidden' });
+    }
     const notes = JSON.stringify({
       title: title || '', text: text || '', type: type || 'photo',
       date: date || '', event: event || '', venue: venue || '',
@@ -2282,24 +2457,43 @@ app.get('/api/scrapbooks/memories', requireAuth, async (req, res) => {
   if (MOCK_MODE) return res.json({ memories: [], mock: true });
 
   try {
-    let q = supabase.from('concert_memories')
-      .select('*')
-      .eq('user_id', req.userId)
-      .order('created_at', { ascending: false });
-    if (scrapbookId) q = q.eq('event_id', scrapbookId);
+    let q = supabase.from('concert_memories').select('*').order('created_at', { ascending: false });
+    if (scrapbookId) {
+      const { access, book } = await getScrapbookAccess(scrapbookId, req.userId);
+      if (book && !access) return res.status(403).json({ error: 'Forbidden' });
+      q = q.eq('event_id', scrapbookId);
+      // Real, shared scrapbook — an accepted collaborator sees everyone's
+      // memories, not just their own. Legacy local-only ids and Concert Capsule
+      // event ids (no matching `scrapbooks` row) keep the original owner-only scope.
+      if (!book) q = q.eq('user_id', req.userId);
+    } else {
+      q = q.eq('user_id', req.userId);
+    }
     const { data, error } = await q;
     if (error) throw error;
+
+    // photos[0] is a private `memories` bucket storage path, not a URL — sign
+    // it here so a collaborator (who didn't upload the photo themselves, so
+    // can't rely on the client-side owner-scoped signed-URL pattern) can still
+    // see it, exactly the DM media signing pattern used for messages.media.
+    const photoPaths = [...new Set((data || []).map(r => r.photos?.[0]).filter(Boolean))];
+    let signedByPath = {};
+    if (photoPaths.length) {
+      const { data: signed } = await supabase.storage.from('memories').createSignedUrls(photoPaths, 3600);
+      signedByPath = Object.fromEntries((signed || []).map(s => [s.path, s.signedUrl]));
+    }
 
     const memories = (data || []).map(row => {
       let meta = {};
       try { meta = JSON.parse(row.notes || '{}'); } catch {}
+      const photoPath = row.photos?.[0] || null;
       return {
         id: row.id,
         scrapbookId: row.event_id,
         type: meta.type || 'photo',
         title: meta.title || '',
         text: meta.text || '',
-        imageData: row.photos?.[0] || null,
+        imageData: photoPath ? (signedByPath[photoPath] || null) : null,
         date: meta.date || '',
         event: meta.event || '',
         venue: meta.venue || '',
@@ -4235,6 +4429,56 @@ async function getThreadForUsers(userId, targetUserId) {
   return theirs?.[0]?.thread_id || null;
 }
 
+// ── DM media (photo/video/voice-note/scrapbook-invite) ────────────────────
+// messages.media.path is a private `dm-media` storage path, never a URL — a
+// short-lived signed URL is minted right before a message reaches the client,
+// the same pattern the `memories` bucket already uses for scrapbook photos.
+async function signDmMedia(messages) {
+  const list = messages || [];
+  const paths = [...new Set(list.filter(m => m?.media?.path).map(m => m.media.path))];
+  if (!paths.length) return list;
+  const { data, error } = await supabase.storage.from('dm-media').createSignedUrls(paths, 3600);
+  if (error || !data) return list;
+  const urlByPath = Object.fromEntries(data.map(d => [d.path, d.signedUrl]));
+  return list.map(m => m?.media?.path ? { ...m, media: { ...m.media, url: urlByPath[m.media.path] || null } } : m);
+}
+
+// Whitelist-only — never persist arbitrary client-supplied media JSON.
+function sanitizeDmMedia(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const kind = raw.kind;
+  if (kind === 'image' || kind === 'video') {
+    if (typeof raw.path !== 'string' || !raw.path) return null;
+    return {
+      kind,
+      path: raw.path,
+      mimeType: typeof raw.mimeType === 'string' ? raw.mimeType.slice(0, 60) : null,
+      width: Number.isFinite(raw.width) ? raw.width : null,
+      height: Number.isFinite(raw.height) ? raw.height : null,
+      durationSec: kind === 'video' && Number.isFinite(raw.durationSec) ? raw.durationSec : null,
+    };
+  }
+  if (kind === 'voice') {
+    if (typeof raw.path !== 'string' || !raw.path) return null;
+    return {
+      kind,
+      path: raw.path,
+      mimeType: typeof raw.mimeType === 'string' ? raw.mimeType.slice(0, 60) : null,
+      durationSec: Number.isFinite(raw.durationSec) ? raw.durationSec : 0,
+    };
+  }
+  if (kind === 'scrapbook_invite') {
+    if (typeof raw.scrapbookId !== 'string' || !raw.scrapbookId) return null;
+    return {
+      kind,
+      scrapbookId: raw.scrapbookId,
+      scrapbookName: typeof raw.scrapbookName === 'string' ? raw.scrapbookName.slice(0, 120) : 'Scrapbook',
+      scrapbookEmoji: typeof raw.scrapbookEmoji === 'string' ? raw.scrapbookEmoji.slice(0, 8) : '📸',
+    };
+  }
+  return null;
+}
+
 app.get('/api/messages/threads', requireAuth, async (req, res) => {
   if (MOCK_MODE) return res.json({ threads: [], mock: true });
   try {
@@ -4250,7 +4494,7 @@ app.get('/api/messages/threads', requireAuth, async (req, res) => {
 
     const [{ data: allMembers }, { data: messages }, { data: threadRows }] = await Promise.all([
       supabase.from('message_thread_members').select('thread_id, user_id').in('thread_id', threadIds),
-      supabase.from('messages').select('id, thread_id, sender_user_id, body, gif, created_at').in('thread_id', threadIds).order('created_at', { ascending: true }),
+      supabase.from('messages').select('id, thread_id, sender_user_id, body, gif, media, created_at').in('thread_id', threadIds).order('created_at', { ascending: true }),
       supabase.from('message_threads').select('id, created_by').in('id', threadIds),
     ]);
     const otherIds = [...new Set((allMembers || []).map(m => m.user_id).filter(id => id !== req.userId))];
@@ -4265,8 +4509,9 @@ app.get('/api/messages/threads', requireAuth, async (req, res) => {
     const profileById = Object.fromEntries((profiles || []).map(p => [p.id, toPublicCard(p)]));
     const circleIdSet = new Set((circleRows || []).map(r => r.friend_id));
     const createdByThread = Object.fromEntries((threadRows || []).map(t => [t.id, t.created_by]));
+    const signedMessages = await signDmMedia(messages || []);
     const messagesByThread = {};
-    (messages || []).forEach(m => {
+    signedMessages.forEach(m => {
       if (!messagesByThread[m.thread_id]) messagesByThread[m.thread_id] = [];
       messagesByThread[m.thread_id].push(m);
     });
@@ -4347,11 +4592,11 @@ app.get('/api/messages/thread/:id', requireAuth, async (req, res) => {
     if (!membership) return res.status(403).json({ error: 'Forbidden' });
     const { data: messages, error } = await supabase
       .from('messages')
-      .select('id, thread_id, sender_user_id, body, gif, created_at')
+      .select('id, thread_id, sender_user_id, body, gif, media, created_at')
       .eq('thread_id', req.params.id)
       .order('created_at', { ascending: true });
     if (error) throw error;
-    res.json({ thread: { id: req.params.id, messages: messages || [] } });
+    res.json({ thread: { id: req.params.id, messages: await signDmMedia(messages || []) } });
   } catch (err) {
     console.error('[GET /api/messages/thread] Error:', err.message);
     res.status(503).json({ error: 'Could not load message thread' });
@@ -4359,10 +4604,11 @@ app.get('/api/messages/thread/:id', requireAuth, async (req, res) => {
 });
 
 app.post('/api/messages/thread/:id/send', requireAuth, async (req, res) => {
-  const body = String(req.body?.body || '').trim() || null;
-  const gif  = req.body?.gif && typeof req.body.gif === 'object' ? req.body.gif : null;
-  if (!body && !gif) return res.status(400).json({ error: 'body or gif required' });
-  if (MOCK_MODE) return res.json({ message: { id: `mock-msg-${Date.now()}`, body, gif, sender_user_id: req.userId, created_at: new Date().toISOString() }, mock: true });
+  const body  = String(req.body?.body || '').trim() || null;
+  const gif   = req.body?.gif && typeof req.body.gif === 'object' ? req.body.gif : null;
+  const media = sanitizeDmMedia(req.body?.media);
+  if (!body && !gif && !media) return res.status(400).json({ error: 'body, gif, or media required' });
+  if (MOCK_MODE) return res.json({ message: { id: `mock-msg-${Date.now()}`, body, gif, media, sender_user_id: req.userId, created_at: new Date().toISOString() }, mock: true });
   try {
     const { data: membership } = await supabase
       .from('message_thread_members')
@@ -4387,10 +4633,11 @@ app.post('/api/messages/thread/:id/send', requireAuth, async (req, res) => {
     }
     const insert = { thread_id: req.params.id, sender_user_id: req.userId, body };
     if (gif) insert.gif = gif;
+    if (media) insert.media = media;
     const { data, error } = await supabase
       .from('messages')
       .insert(insert)
-      .select('id, thread_id, sender_user_id, body, gif, created_at')
+      .select('id, thread_id, sender_user_id, body, gif, media, created_at')
       .single();
     if (error) throw error;
     await supabase.from('message_threads').update({ updated_at: new Date().toISOString() }).eq('id', req.params.id);
@@ -4399,11 +4646,17 @@ app.post('/api/messages/thread/:id/send', requireAuth, async (req, res) => {
     if (otherId) {
       const sender = await getPublicUser(req.userId);
       const senderName = sender?.username || 'A Backstage fan';
+      const notifBody = gif ? 'Sent you a GIF'
+        : media?.kind === 'image' ? 'Sent a photo'
+        : media?.kind === 'video' ? 'Sent a video'
+        : media?.kind === 'voice' ? 'Sent a voice note'
+        : media?.kind === 'scrapbook_invite' ? `Invited you to a scrapbook`
+        : (body || '').slice(0, 120);
       await deliverNotification({
         userId: otherId,
         type: 'dm_received',
         title: `New message from ${senderName}`,
-        body: gif ? 'Sent you a GIF' : (body || '').slice(0, 120),
+        body: notifBody,
         actorId: req.userId,
         entityId: req.params.id,
         entityType: 'thread',
@@ -4412,10 +4665,35 @@ app.post('/api/messages/thread/:id/send', requireAuth, async (req, res) => {
       });
     }
 
-    res.json({ message: data });
+    const [signedMessage] = await signDmMedia([data]);
+    res.json({ message: signedMessage || data });
   } catch (err) {
     console.error('[POST /api/messages/thread/send] Error:', err.message);
     res.status(503).json({ error: 'Could not send message' });
+  }
+});
+
+// ── DM media upload (presigned URL via Supabase Storage, private bucket) ──
+app.post('/api/messages/upload-url', requireAuth, async (req, res) => {
+  if (MOCK_MODE) return res.json({ signed_url: null, path: null, mock: true });
+  const { filename, threadId } = req.body;
+  if (!filename || !threadId) return res.status(400).json({ error: 'filename and threadId required' });
+  try {
+    const { data: membership } = await supabase
+      .from('message_thread_members')
+      .select('thread_id')
+      .eq('thread_id', threadId)
+      .eq('user_id', req.userId)
+      .single();
+    if (!membership) return res.status(403).json({ error: 'Forbidden' });
+    const ext = (filename.split('.').pop() || 'bin').toLowerCase().replace(/[^a-z0-9]/g, '') || 'bin';
+    const path = `${req.userId}/${threadId}/${Date.now()}.${ext}`;
+    const { data, error } = await supabase.storage.from('dm-media').createSignedUploadUrl(path);
+    if (error) throw error;
+    res.json({ signed_url: data.signedUrl, path });
+  } catch (err) {
+    console.error('[Messages Upload URL]', err.message);
+    res.status(500).json({ error: 'Failed to generate upload URL' });
   }
 });
 
