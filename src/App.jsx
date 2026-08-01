@@ -19240,6 +19240,15 @@ const BACKSTAGE_CHARMS = [
   { id:"crown",      emoji:"👑", label:"Bias Wrecker"  },
 ];
 
+// Transient double-tap ❤️ pop, centered over whichever bubble triggered it.
+function HeartBurst() {
+  return (
+    <div style={{ position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none" }}>
+      <span style={{ fontSize:38,animation:"pop .4s ease both",filter:"drop-shadow(0 2px 10px rgba(0,0,0,0.45))" }}>❤️</span>
+    </div>
+  );
+}
+
 function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
   const { tokenReady } = useAuth();
   const KEY = "backstage_dms";
@@ -19278,6 +19287,7 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
   const [viewSharedSpace, setViewSharedSpace]   = useState(false); // shared space quick sheet (ⓘ button)
   // Message reactions — which message row has the picker open (convoId + msgIdx)
   const [reactionPicker, setReactionPicker] = useState(null); // {convoId, msgIdx}
+  const [heartBurst, setHeartBurst] = useState(null); // msgIdx showing a transient double-tap ❤️ pop
   const [msgDraft, setMsgDraft]       = useState("");
   const [attachPreview, setAttachPreview] = useState(null); // base64 image for attachment
   const [gifPickerOpen, setGifPickerOpen] = useState(false);
@@ -19573,6 +19583,71 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
     return Object.values(map);
   };
 
+  // ── Message bubble gestures — long-press opens the full picker, double-tap
+  // toggles a default ❤️, a plain tap does nothing (so it never fights with
+  // image preview, GIF taps, links, or scrolling). Pointer Events unify mouse
+  // + touch; desktop instead gets the picker via right-click (onContextMenu).
+  const LONG_PRESS_MS = 500;
+  const DOUBLE_TAP_MS = 300;
+  const MOVE_CANCEL_PX = 10;
+  const pressTimerRef = useRef(null);
+  const pressStateRef = useRef({});
+  const lastTapRef = useRef({ idx:null, time:0 });
+
+  const clearPressTimer = () => {
+    if (pressTimerRef.current) { clearTimeout(pressTimerRef.current); pressTimerRef.current = null; }
+  };
+
+  const openReactionPicker = (i, closeOthers) => {
+    setReactionPicker({ convoId:activeConvo.id, msgIdx:i });
+    if (closeOthers) { setKitOpen(false); setCharmPickerOpen(false); }
+  };
+
+  const triggerHeartReaction = (i) => {
+    toggleReaction(activeConvo.id, i, "❤️");
+    setHeartBurst(i);
+    navigator.vibrate?.(15);
+    setTimeout(() => setHeartBurst(prev => prev===i ? null : prev), 650);
+  };
+
+  // closeOthers mirrors the Kit/Charm-picker-dismissal behavior the text/GIF
+  // bubbles already had on tap — the charm bubble never had it, preserved as-is.
+  const bubblePressHandlers = (i, closeOthers=false) => ({
+    onPointerDown: (e) => {
+      if (e.pointerType==="mouse" && e.button!==0) return; // right-click handled separately
+      pressStateRef.current = { idx:i, startX:e.clientX, startY:e.clientY, longPressFired:false };
+      clearPressTimer();
+      pressTimerRef.current = setTimeout(() => {
+        pressStateRef.current.longPressFired = true;
+        openReactionPicker(i, closeOthers);
+        pressTimerRef.current = null;
+      }, LONG_PRESS_MS);
+    },
+    onPointerMove: (e) => {
+      const st = pressStateRef.current;
+      if (!st || st.idx!==i || st.longPressFired) return;
+      if (Math.abs(e.clientX-st.startX) > MOVE_CANCEL_PX || Math.abs(e.clientY-st.startY) > MOVE_CANCEL_PX) clearPressTimer();
+    },
+    onPointerUp: () => {
+      const st = pressStateRef.current;
+      const wasLongPress = st?.idx===i && st?.longPressFired;
+      clearPressTimer();
+      pressStateRef.current = {};
+      if (wasLongPress) return; // picker already opened by the timer
+      const now = Date.now();
+      const last = lastTapRef.current;
+      if (last.idx===i && (now-last.time) < DOUBLE_TAP_MS) {
+        lastTapRef.current = { idx:null, time:0 };
+        triggerHeartReaction(i);
+      } else {
+        lastTapRef.current = { idx:i, time:now };
+      }
+    },
+    onPointerCancel: () => { clearPressTimer(); pressStateRef.current = {}; },
+    onPointerLeave: () => { clearPressTimer(); pressStateRef.current = {}; },
+    onContextMenu: (e) => { e.preventDefault(); clearPressTimer(); openReactionPicker(i, closeOthers); },
+  });
+
   // Show a short placeholder toast for unbuilt Kit features
   const showKitPlaceholder = (msg) => {
     setKitPlaceholder(msg); setKitOpen(false);
@@ -19661,16 +19736,10 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
           <Avatar user={activeConvo.fan} size={38} />
           <div style={{ flex:1,minWidth:0 }}>
             <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:15,color:C.text }}>{activeConvo.fan.name}</p>
-            <div style={{ display:"flex",alignItems:"center",gap:5 }}>
-              <div style={{ width:6,height:6,borderRadius:"50%",background:C.mint }} />
-              <p style={{ fontSize:10,color:C.textMid }}>Fan · End-to-end encrypted</p>
-            </div>
           </div>
         </button>
-        {/* 🚩 report/block this conversation's fan */}
-        <button onClick={()=>setShowDmReportSheet(true)} title="Report or block" style={{ width:32,height:32,borderRadius:"50%",background:C.surfaceHi,border:`1.5px solid ${C.borderHi}`,color:C.textMid,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>🚩</button>
-        {/* ⓘ opens Shared Space quick sheet */}
-        <button onClick={()=>{ setViewProfileFan(activeConvo.fan); setViewSharedSpace(true); }} style={{ width:32,height:32,borderRadius:"50%",background:C.surfaceHi,border:`1.5px solid ${C.borderHi}`,color:C.textMid,fontSize:13,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>ⓘ</button>
+        {/* ⓘ opens the profile / Shared Space sheet — report action now lives inside it */}
+        <button onClick={()=>{ setViewProfileFan(activeConvo.fan); setViewSharedSpace(true); }} title="Profile & shared space" style={{ width:32,height:32,borderRadius:"50%",background:C.surfaceHi,border:`1.5px solid ${C.borderHi}`,color:C.textMid,fontSize:13,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>ⓘ</button>
       </div>
       {dmNotif && <NotifBanner notif={dmNotif} onDismiss={()=>setDmNotif(null)} />}
       {showDmReportSheet && (
@@ -19684,7 +19753,7 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
       )}
 
       {/* Messages scroll area */}
-      <div ref={threadListRef} style={{ flex:1,overflowY:"auto",padding:"14px 16px",display:"flex",flexDirection:"column",gap:10,position:"relative" }}>
+      <div ref={threadListRef} onScroll={clearPressTimer} style={{ flex:1,overflowY:"auto",padding:"14px 16px",display:"flex",flexDirection:"column",gap:10,position:"relative" }}>
         {activeConvo.messages.length===0&&(
           <div style={{ textAlign:"center",padding:"40px 20px" }}>
             {/* Avatar — tappable profile link */}
@@ -19726,8 +19795,8 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
                 {!isMe&&<Avatar user={activeConvo.fan} size={28} />}
                 {isCharm ? (
                   <div
-                    onClick={()=>setReactionPicker(isPickerOpen?null:{convoId:activeConvo.id,msgIdx:i})}
-                    style={{ display:"flex",flexDirection:"column",alignItems:isMe?"flex-end":"flex-start",gap:3,animation:"pop .22s ease both",cursor:"pointer" }}>
+                    {...bubblePressHandlers(i)}
+                    style={{ position:"relative",display:"flex",flexDirection:"column",alignItems:isMe?"flex-end":"flex-start",gap:3,animation:"pop .22s ease both",cursor:"pointer",userSelect:"none",WebkitUserSelect:"none",WebkitTouchCallout:"none",touchAction:"manipulation" }}>
                     <div style={{ background:isMe?`linear-gradient(135deg,${C.accent}28,${C.berry}18)`:`linear-gradient(135deg,${C.lavender}14,${C.accent}0a)`,borderRadius:16,padding:"8px 13px",border:`1.5px solid ${isMe?C.accent:C.lavender}30`,display:"flex",alignItems:"center",gap:8,backdropFilter:"blur(8px)",boxShadow:isMe?`0 0 12px ${C.accent}20, 0 2px 8px rgba(0,0,0,0.3)`:`0 0 12px ${C.lavender}14, 0 2px 8px rgba(0,0,0,0.2)` }}>
                       <span style={{ fontSize:22,lineHeight:1,filter:`drop-shadow(0 0 6px ${isMe?C.accent:C.lavender}80)` }}>{charmEmoji}</span>
                       <div>
@@ -19736,28 +19805,31 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
                       </div>
                     </div>
                     <p style={{ fontSize:8,color:C.textDim,paddingRight:isMe?4:0,paddingLeft:isMe?0:4 }}>{msg.time}</p>
+                    {heartBurst===i&&<HeartBurst/>}
                   </div>
                 ) : msg.gif && !msg.text && !msg.image ? (
                   /* GIF-only — sticker style: no bubble background, compact, rounded */
                   <div
-                    onClick={()=>{ setReactionPicker(isPickerOpen?null:{convoId:activeConvo.id,msgIdx:i}); setKitOpen(false); setCharmPickerOpen(false); }}
-                    style={{ maxWidth:msg.gif?.mediaType==="sticker"?160:180,cursor:"pointer" }}>
+                    {...bubblePressHandlers(i, true)}
+                    style={{ position:"relative",maxWidth:msg.gif?.mediaType==="sticker"?160:180,cursor:"pointer",userSelect:"none",WebkitUserSelect:"none",WebkitTouchCallout:"none",touchAction:"manipulation" }}>
                     <div style={{ borderRadius:16,overflow:"hidden",border:`1.5px solid ${C.borderHi}`,boxShadow:`0 2px 12px rgba(0,0,0,0.35)`,background:msg.gif?.mediaType==="sticker"?"rgba(30,18,60,0.7)":"transparent" }}>
                       <GifImg gif={msg.gif} gifOnly hasText={false} />
                     </div>
                     <p style={{ fontSize:8,color:C.textDim,marginTop:3,textAlign:isMe?"right":"left",paddingRight:isMe?2:0,paddingLeft:isMe?0:2 }}>{msg.time}</p>
+                    {heartBurst===i&&<HeartBurst/>}
                   </div>
                 ) : (
                   /* Text / image / text+GIF bubble */
                   <div
-                    onClick={()=>{ setReactionPicker(isPickerOpen?null:{convoId:activeConvo.id,msgIdx:i}); setKitOpen(false); setCharmPickerOpen(false); }}
-                    style={{ maxWidth:"78%",cursor:"pointer" }}>
+                    {...bubblePressHandlers(i, true)}
+                    style={{ position:"relative",maxWidth:"78%",cursor:"pointer",userSelect:"none",WebkitUserSelect:"none",WebkitTouchCallout:"none",touchAction:"manipulation" }}>
                     <div style={{ background:isMe?`linear-gradient(140deg,${C.accent},${C.accentDim})`:C.surfaceHi,borderRadius:isMe?"18px 18px 4px 18px":"18px 18px 18px 4px",padding:(msg.image||msg.gif)?"4px":"10px 14px",border:isMe?"none":`1px solid ${C.border}`,overflow:"hidden" }}>
-                      {msg.image&&<img src={msg.image} alt="attachment" style={{ width:"100%",maxHeight:200,objectFit:"cover",borderRadius:msg.text?"8px 8px 0 0":"10px",display:"block" }} />}
+                      {msg.image&&<img src={msg.image} alt="attachment" draggable={false} style={{ width:"100%",maxHeight:200,objectFit:"cover",borderRadius:msg.text?"8px 8px 0 0":"10px",display:"block" }} />}
                       {msg.gif&&<GifImg gif={msg.gif} gifOnly={false} hasText={!!msg.text} />}
                       {msg.text&&<p style={{ fontSize:13,lineHeight:1.6,color:isMe?C.white:C.text,padding:(msg.image||msg.gif)?"6px 10px 2px":"0" }}>{msg.text}</p>}
                       <p style={{ fontSize:8.5,color:isMe?"rgba(255,255,255,0.5)":C.textDim,padding:(msg.image||msg.gif)?"0 10px 6px":"3px 0 0" }}>{msg.time}</p>
                     </div>
+                    {heartBurst===i&&<HeartBurst/>}
                   </div>
                 )}
               </div>
@@ -19933,28 +20005,41 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
                 <p style={{ fontSize:11,color:C.textMid }}>Backstage fan</p>
               </div>
             </div>
-            {/* Shared Space */}
-            <div style={{ background:C.surface,borderRadius:14,padding:"14px 16px",marginBottom:18,border:`1px solid ${C.border}` }}>
-              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,marginBottom:3 }}>Shared Space</p>
-              <p style={{ fontSize:11,color:C.textMid,lineHeight:1.6 }}>Photos, charms, links, and memories you share will appear here.</p>
-              {(()=>{
-                const sharedCharms = activeConvo.messages.filter(m=>m.type==="charm"||m.type==="sticker");
-                if(!sharedCharms.length) return <p style={{ fontSize:10.5,color:C.textDim,marginTop:6,fontStyle:"italic" }}>No shared moments yet.</p>;
-                return (
-                  <div style={{ display:"flex",gap:6,flexWrap:"wrap",marginTop:8 }}>
-                    {sharedCharms.slice(-6).map((m,i)=>(
-                      <span key={i} style={{ fontSize:20 }}>{m.charmEmoji||m.stickerEmoji}</span>
-                    ))}
-                  </div>
-                );
-              })()}
-            </div>
-            {/* View passport CTA */}
-            <button onClick={()=>{ setViewSharedSpace(false); onViewProfile?.(viewProfileFan); }} style={{ width:"100%",padding:"13px",borderRadius:14,background:`linear-gradient(140deg,${viewProfileFan.color||C.accent}cc,${viewProfileFan.color||C.accent}88)`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer",marginBottom:10 }}>
+            {/* View Fan Passport — primary action */}
+            <button onClick={()=>{ setViewSharedSpace(false); onViewProfile?.(viewProfileFan); }} className="tap" style={{ width:"100%",padding:"14px",borderRadius:14,background:`linear-gradient(140deg,${C.lavender},${C.accent})`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13.5,cursor:"pointer",marginBottom:18 }}>
               View Fan Passport →
             </button>
-            <button onClick={()=>setViewSharedSpace(false)} style={{ width:"100%",padding:"11px",borderRadius:14,background:"transparent",border:`1px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}>
-              Back to Message
+            {/* Shared Space — honest non-interactive empty-state card, not wired to a destination */}
+            <div style={{ display:"flex",gap:12,alignItems:"flex-start",background:`${C.lavender}14`,borderRadius:16,padding:"14px 14px",marginBottom:18,border:`1px solid ${C.lavender}33` }}>
+              <div style={{ width:34,height:34,borderRadius:10,background:`${C.lavender}22`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                  <rect x="3" y="3" width="13" height="13" rx="3" stroke={C.lavender} strokeWidth="1.8"/>
+                  <path d="M8 17h9a3 3 0 0 0 3-3V8" stroke={C.lavender} strokeWidth="1.8" strokeLinecap="round"/>
+                  <circle cx="7" cy="7.5" r="1.4" fill={C.lavender}/>
+                  <path d="M4.5 13.5 8 10l4 3.5" stroke={C.lavender} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </div>
+              <div style={{ flex:1,minWidth:0 }}>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12.5,marginBottom:3 }}>Shared Space</p>
+                <p style={{ fontSize:10.5,color:C.textMid,lineHeight:1.55 }}>Photos, charms, links, and memories you share appear here.</p>
+                {(()=>{
+                  const sharedCharms = activeConvo.messages.filter(m=>m.type==="charm"||m.type==="sticker");
+                  if(!sharedCharms.length) return <p style={{ fontSize:10.5,color:C.textDim,marginTop:6,fontStyle:"italic" }}>No shared moments yet.</p>;
+                  return (
+                    <div style={{ display:"flex",gap:6,flexWrap:"wrap",marginTop:8 }}>
+                      {sharedCharms.slice(-6).map((m,i)=>(
+                        <span key={i} style={{ fontSize:20 }}>{m.charmEmoji||m.stickerEmoji}</span>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+            {/* Safety */}
+            <div style={{ height:1,background:C.border,marginBottom:14 }} />
+            <button onClick={()=>{ setViewSharedSpace(false); setShowDmReportSheet(true); }} className="tap" style={{ display:"flex",alignItems:"center",gap:8,width:"100%",background:"none",border:"none",padding:"4px 2px",cursor:"pointer" }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M5 21V4a1 1 0 0 1 1-1h11.2a1 1 0 0 1 .8 1.6l-2.9 3.9 2.9 3.9a1 1 0 0 1-.8 1.6H6" stroke={C.rose} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              <span style={{ fontSize:12,color:C.rose,fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>Report account</span>
             </button>
           </div>
         </div>
