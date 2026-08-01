@@ -2272,6 +2272,75 @@ app.get('/api/scrapbooks', requireAuth, async (req, res) => {
   }
 });
 
+// GET /api/scrapbooks/memories?scrapbookId=
+// Loads memories for a scrapbook from concert_memories.
+// Returns memories in the same shape the frontend expects.
+app.get('/api/scrapbooks/memories', requireAuth, async (req, res) => {
+  const { scrapbookId } = req.query;
+
+  if (MOCK_MODE) return res.json({ memories: [], mock: true });
+
+  try {
+    let q = supabase.from('concert_memories').select('*').order('created_at', { ascending: false });
+    if (scrapbookId) {
+      const { access, book } = await getScrapbookAccess(scrapbookId, req.userId);
+      if (book && !access) return res.status(403).json({ error: 'Forbidden' });
+      if (book) {
+        // Real, shared scrapbook — query the dedicated scrapbook_id column so
+        // an accepted collaborator sees everyone's memories, not just their own.
+        q = q.eq('scrapbook_id', scrapbookId);
+      } else {
+        // Legacy local-only id or a genuine Concert Capsule event id — keep the
+        // original owner-only event_id scoping, unchanged.
+        q = q.eq('event_id', scrapbookId).eq('user_id', req.userId);
+      }
+    } else {
+      q = q.eq('user_id', req.userId);
+    }
+    const { data, error } = await q;
+    if (error) throw error;
+
+    // photos[0] is a private `memories` bucket storage path, not a URL — sign
+    // it here so a collaborator (who didn't upload the photo themselves, so
+    // can't rely on the client-side owner-scoped signed-URL pattern) can still
+    // see it, exactly the DM media signing pattern used for messages.media.
+    const photoPaths = [...new Set((data || []).map(r => r.photos?.[0]).filter(Boolean))];
+    let signedByPath = {};
+    if (photoPaths.length) {
+      const { data: signed } = await supabase.storage.from('memories').createSignedUrls(photoPaths, 3600);
+      signedByPath = Object.fromEntries((signed || []).map(s => [s.path, s.signedUrl]));
+    }
+
+    const memories = (data || []).map(row => {
+      let meta = {};
+      try { meta = JSON.parse(row.notes || '{}'); } catch {}
+      const photoPath = row.photos?.[0] || null;
+      return {
+        id: row.id,
+        scrapbookId: row.scrapbook_id || row.event_id,
+        type: meta.type || 'photo',
+        title: meta.title || '',
+        text: meta.text || '',
+        imageData: photoPath ? (signedByPath[photoPath] || null) : null,
+        date: meta.date || '',
+        event: meta.event || '',
+        venue: meta.venue || '',
+        city: meta.city || '',
+        friends: row.people_met?.[0] || '',
+        tags: meta.tags || [],
+        linkedSong: meta.linkedSong || '',
+        favorite: meta.favorite || false,
+        created_at: row.created_at,
+        _synced: true,
+      };
+    });
+    res.json({ memories });
+  } catch (err) {
+    console.error('[scrapbooks/memories]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/scrapbooks/:id', requireAuth, async (req, res) => {
   if (MOCK_MODE) return res.json({ scrapbook: null, collaborators: [], mock: true });
   try {
@@ -2485,75 +2554,6 @@ app.post('/api/scrapbooks/memory', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('[scrapbooks/memory]', err.message);
     res.status(500).json({ error: err.message || 'Could not save memory' });
-  }
-});
-
-// GET /api/scrapbooks/memories?scrapbookId=
-// Loads memories for a scrapbook from concert_memories.
-// Returns memories in the same shape the frontend expects.
-app.get('/api/scrapbooks/memories', requireAuth, async (req, res) => {
-  const { scrapbookId } = req.query;
-
-  if (MOCK_MODE) return res.json({ memories: [], mock: true });
-
-  try {
-    let q = supabase.from('concert_memories').select('*').order('created_at', { ascending: false });
-    if (scrapbookId) {
-      const { access, book } = await getScrapbookAccess(scrapbookId, req.userId);
-      if (book && !access) return res.status(403).json({ error: 'Forbidden' });
-      if (book) {
-        // Real, shared scrapbook — query the dedicated scrapbook_id column so
-        // an accepted collaborator sees everyone's memories, not just their own.
-        q = q.eq('scrapbook_id', scrapbookId);
-      } else {
-        // Legacy local-only id or a genuine Concert Capsule event id — keep the
-        // original owner-only event_id scoping, unchanged.
-        q = q.eq('event_id', scrapbookId).eq('user_id', req.userId);
-      }
-    } else {
-      q = q.eq('user_id', req.userId);
-    }
-    const { data, error } = await q;
-    if (error) throw error;
-
-    // photos[0] is a private `memories` bucket storage path, not a URL — sign
-    // it here so a collaborator (who didn't upload the photo themselves, so
-    // can't rely on the client-side owner-scoped signed-URL pattern) can still
-    // see it, exactly the DM media signing pattern used for messages.media.
-    const photoPaths = [...new Set((data || []).map(r => r.photos?.[0]).filter(Boolean))];
-    let signedByPath = {};
-    if (photoPaths.length) {
-      const { data: signed } = await supabase.storage.from('memories').createSignedUrls(photoPaths, 3600);
-      signedByPath = Object.fromEntries((signed || []).map(s => [s.path, s.signedUrl]));
-    }
-
-    const memories = (data || []).map(row => {
-      let meta = {};
-      try { meta = JSON.parse(row.notes || '{}'); } catch {}
-      const photoPath = row.photos?.[0] || null;
-      return {
-        id: row.id,
-        scrapbookId: row.scrapbook_id || row.event_id,
-        type: meta.type || 'photo',
-        title: meta.title || '',
-        text: meta.text || '',
-        imageData: photoPath ? (signedByPath[photoPath] || null) : null,
-        date: meta.date || '',
-        event: meta.event || '',
-        venue: meta.venue || '',
-        city: meta.city || '',
-        friends: row.people_met?.[0] || '',
-        tags: meta.tags || [],
-        linkedSong: meta.linkedSong || '',
-        favorite: meta.favorite || false,
-        created_at: row.created_at,
-        _synced: true,
-      };
-    });
-    res.json({ memories });
-  } catch (err) {
-    console.error('[scrapbooks/memories]', err.message);
-    res.status(500).json({ error: err.message });
   }
 });
 
