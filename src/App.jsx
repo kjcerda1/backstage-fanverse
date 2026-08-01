@@ -19228,18 +19228,6 @@ function ProfilePreview({ user, profileStyle, cards, top5, biases, go, onBack, o
 //   2. My Circle member → ls.set("backstage_dm_target", fan) + go("chats")
 //   3. go("chats") from InvitePage My Circle
 
-// ── Backstage Kit charm catalog (formerly stickers — more premium, less cheesy) ──
-const BACKSTAGE_CHARMS = [
-  { id:"borahae",    emoji:"💜", label:"Purple Heart"  },
-  { id:"sparkle",    emoji:"✨", label:"Bias Spark"    },
-  { id:"fanchant",   emoji:"🎤", label:"Fan Chant"     },
-  { id:"freebie",    emoji:"🎁", label:"Freebie Drop"  },
-  { id:"lightstick", emoji:"🔦", label:"Lightstick Glow" },
-  { id:"afterglow",  emoji:"🌙", label:"Afterglow"     },
-  { id:"heart",      emoji:"🫰", label:"Finger Heart"  },
-  { id:"crown",      emoji:"👑", label:"Bias Wrecker"  },
-];
-
 // Transient double-tap ❤️ pop, centered over whichever bubble triggered it.
 function HeartBurst() {
   return (
@@ -19249,7 +19237,55 @@ function HeartBurst() {
   );
 }
 
-function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
+// Voice-note playback — play/pause + progress bar + elapsed/total duration.
+// Sender and recipient both get this same bubble; sender/recipient tinting is
+// passed in via isMe.
+function VoiceMessageBubble({ media, isMe }) {
+  const audioRef = useRef(null);
+  const [playing, setPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [curSec, setCurSec] = useState(0);
+  const duration = media.durationSec || 0;
+
+  useEffect(() => {
+    const a = audioRef.current;
+    if (!a) return;
+    const onTime = () => { setCurSec(a.currentTime); setProgress(a.duration ? a.currentTime / a.duration : 0); };
+    const onEnd = () => { setPlaying(false); setProgress(0); setCurSec(0); };
+    a.addEventListener('timeupdate', onTime);
+    a.addEventListener('ended', onEnd);
+    return () => { a.removeEventListener('timeupdate', onTime); a.removeEventListener('ended', onEnd); };
+  }, []);
+
+  const toggle = (e) => {
+    e.stopPropagation();
+    const a = audioRef.current;
+    if (!a) return;
+    if (playing) { a.pause(); setPlaying(false); }
+    else { a.play().catch(()=>{}); setPlaying(true); }
+  };
+
+  const fmt = (s) => { const total = Math.max(0, Math.round(s||0)); const m = Math.floor(total/60), r = total%60; return `${m}:${String(r).padStart(2,'0')}`; };
+
+  return (
+    <div style={{ display:"flex",alignItems:"center",gap:9,minWidth:158 }}>
+      <audio ref={audioRef} src={media.url} preload="metadata" style={{ display:"none" }} />
+      <button onClick={toggle} style={{ width:28,height:28,borderRadius:"50%",background:isMe?"rgba(255,255,255,0.22)":`${C.accent}22`,border:"none",color:isMe?C.white:C.accent,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0 }}>
+        {playing
+          ? <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="4" width="5" height="16" rx="1"/><rect x="14" y="4" width="5" height="16" rx="1"/></svg>
+          : <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" style={{ marginLeft:1 }}><path d="M6 4l14 8-14 8V4z"/></svg>}
+      </button>
+      <div style={{ flex:1,minWidth:0 }}>
+        <div style={{ height:3,borderRadius:99,background:isMe?"rgba(255,255,255,0.28)":C.border,overflow:"hidden" }}>
+          <div style={{ height:"100%",width:`${Math.round(progress*100)}%`,background:isMe?C.white:C.accent,transition:"width .1s linear" }} />
+        </div>
+      </div>
+      <span style={{ fontSize:9.5,color:isMe?"rgba(255,255,255,0.75)":C.textMid,flexShrink:0,fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>{fmt(playing||curSec>0?curSec:duration)}</span>
+    </div>
+  );
+}
+
+function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbook }) {
   const { tokenReady } = useAuth();
   const KEY = "backstage_dms";
   // Read dm-target from localStorage if not explicitly passed (set by Message buttons)
@@ -19278,10 +19314,14 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
   const [dmSearching, setDmSearching] = useState(false);
   const [dmSearchError, setDmSearchError] = useState(false);
   const [dmSearchRetry, setDmSearchRetry] = useState(0);
-  // Backstage Kit tray state
-  const [kitOpen, setKitOpen]           = useState(false);
-  const [charmPickerOpen, setCharmPickerOpen] = useState(false);
-  const [kitPlaceholder, setKitPlaceholder]   = useState(null); // temp toast msg
+  // Compact attachment sheet ( + button) — Photo & Video, Shared Scrapbook only
+  const [attachSheetOpen, setAttachSheetOpen] = useState(false);
+  const [scrapbookSheetOpen, setScrapbookSheetOpen] = useState(false);
+  const [myScrapbooks, setMyScrapbooks] = useState(null); // null = not fetched yet
+  const [scrapbooksLoading, setScrapbooksLoading] = useState(false);
+  const [sendingInviteId, setSendingInviteId] = useState(null); // scrapbook id currently being invited-with
+  const [inviteStatus, setInviteStatus] = useState({}); // { [scrapbookId]: 'owner'|'invited'|'accepted'|'declined'|'none' }
+  const [respondingScrapbookId, setRespondingScrapbookId] = useState(null);
   // viewProfileFan — holds the fan object for the Shared Space sheet (ⓘ button)
   const [viewProfileFan, setViewProfileFan] = useState(null);
   const [viewSharedSpace, setViewSharedSpace]   = useState(false); // shared space quick sheet (ⓘ button)
@@ -19289,9 +19329,21 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
   const [reactionPicker, setReactionPicker] = useState(null); // {convoId, msgIdx}
   const [heartBurst, setHeartBurst] = useState(null); // msgIdx showing a transient double-tap ❤️ pop
   const [msgDraft, setMsgDraft]       = useState("");
-  const [attachPreview, setAttachPreview] = useState(null); // base64 image for attachment
+  const [pendingAttachment, setPendingAttachment] = useState(null); // { file, previewUrl, kind:'image'|'video', mimeType, width?, height?, durationSec?, uploading, error }
   const [gifPickerOpen, setGifPickerOpen] = useState(false);
   const [selectedGif, setSelectedGif] = useState(null); // chosen GIF reaction, queued above send button
+  const [sending, setSending] = useState(false); // duplicate-send guard for text/media/voice
+  // Voice notes — 'idle' | 'recording' | 'preview' | 'uploading'
+  const [voiceMode, setVoiceMode] = useState('idle');
+  const [voiceElapsed, setVoiceElapsed] = useState(0);
+  const [voiceError, setVoiceError] = useState(null);
+  const [voicePreview, setVoicePreview] = useState(null); // { blob, url, durationSec, mimeType }
+  const [voicePlaying, setVoicePlaying] = useState(false);
+  const voiceRecorderRef = useRef(null);
+  const voiceChunksRef = useRef([]);
+  const voiceStreamRef = useRef(null);
+  const voiceTimerRef = useRef(null);
+  const voicePreviewAudioRef = useRef(null);
   const msgEndRef  = useRef(null);
   // Scroll container for the DM thread. msgEndRef is attached to TWO sentinels (the
   // DM list and the group list), so whichever branch unmounts last writes null into
@@ -19336,7 +19388,8 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
         text:m.body || m.text || "",
         time:m.created_at ? new Date(m.created_at).toLocaleTimeString([], { hour:"numeric", minute:"2-digit" }) : "now",
         gif:m.gif || null,
-        type:m.gif ? "gif" : "text",
+        media:m.media || null,
+        type:m.gif ? "gif" : (m.media ? "media" : "text"),
       })),
       unread:0,
       lastTime:thread.last_message?.created_at ? new Date(thread.last_message.created_at).toLocaleTimeString([], { hour:"numeric", minute:"2-digit" }) : "now",
@@ -19457,60 +19510,352 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
     })();
   },[]);
 
-  const handleAttach = (e) => {
-    const f = e.target.files[0]; if(!f) return;
-    if(f.size > 2000000) { alert("File too large — max 2MB for local storage"); return; }
-    const r = new FileReader();
-    r.onload = ev => setAttachPreview(ev.target.result);
-    r.readAsDataURL(f);
+  // Photo & Video — native picker validation + local preview only. Upload
+  // happens on Send (handled by sendPendingAttachment below) so nothing shows
+  // as sent until the server confirms it.
+  const ALLOWED_IMAGE_TYPES = ['image/jpeg','image/jpg','image/png','image/webp','image/heic'];
+  const ALLOWED_VIDEO_TYPES = ['video/mp4','video/quicktime','video/webm'];
+  const MAX_ATTACH_BYTES = 24 * 1024 * 1024; // matches the dm-media bucket's file_size_limit
+
+  const handleAttach = async (e) => {
+    const raw = e.target.files[0];
+    e.target.value = ""; // allow re-selecting the same file later
+    if (!raw || !activeConvo) return;
+    const isImage = ALLOWED_IMAGE_TYPES.includes(raw.type);
+    const isVideo = ALLOWED_VIDEO_TYPES.includes(raw.type);
+    if (!isImage && !isVideo) {
+      setDmNotif({ title:"Can't send that file", body:"Only JPG, PNG, WebP, HEIC photos or MP4/MOV/WebM videos are supported.", icon:"⚠️", color:C.rose });
+      return;
+    }
+    if (raw.size > MAX_ATTACH_BYTES) {
+      setDmNotif({ title:"File too large", body:"Max size is 24MB per photo or video.", icon:"⚠️", color:C.rose });
+      return;
+    }
+    const file = isImage ? await resizeImageForUpload(raw) : raw;
+    const previewUrl = URL.createObjectURL(file);
+    let width, height, durationSec;
+    if (isImage) {
+      const dims = await new Promise(resolve => {
+        const img = new Image();
+        img.onload = () => resolve({ w:img.naturalWidth, h:img.naturalHeight });
+        img.onerror = () => resolve({});
+        img.src = previewUrl;
+      });
+      width = dims.w; height = dims.h;
+    } else {
+      const dims = await new Promise(resolve => {
+        const v = document.createElement('video');
+        v.preload = 'metadata';
+        v.onloadedmetadata = () => resolve({ w:v.videoWidth, h:v.videoHeight, d:v.duration });
+        v.onerror = () => resolve({});
+        v.src = previewUrl;
+      });
+      width = dims.w; height = dims.h;
+      durationSec = dims.d && isFinite(dims.d) ? Math.round(dims.d) : undefined;
+    }
+    setPendingAttachment({ file, previewUrl, kind:isImage?'image':'video', mimeType:file.type, width, height, durationSec, uploading:false, error:null });
+  };
+
+  const cancelPendingAttachment = () => {
+    if (pendingAttachment?.previewUrl) URL.revokeObjectURL(pendingAttachment.previewUrl);
+    setPendingAttachment(null);
+  };
+
+  // Shared upload path for Photo/Video AND Voice Notes — signed URL into the
+  // private dm-media bucket (same pattern as the existing card-images signed
+  // upload flow), then the real DM send endpoint with the resulting path.
+  const uploadAndSendMedia = async (file, media, caption) => {
+    const urlRes = await api.post('/api/messages/upload-url', { filename: file.name || `upload.${(file.type.split('/')[1]||'bin')}`, threadId: activeConvo.id });
+    if (!urlRes?.signed_url || !urlRes?.path) throw new Error('upload-url-failed');
+    const put = await fetch(urlRes.signed_url, { method:'PUT', body:file, headers:{ 'Content-Type': file.type } });
+    if (!put.ok) throw new Error('upload-failed');
+    const payload = { media: { ...media, path: urlRes.path } };
+    if (caption && caption.trim()) payload.body = caption.trim();
+    const saved = await api.post(`/api/messages/thread/${encodeURIComponent(activeConvo.id)}/send`, payload);
+    if (!saved?.message?.id) throw new Error(saved?.error === '403' ? 'blocked' : 'send-failed');
+    return saved.message;
   };
 
   const sendMessage = async () => {
-    if((!msgDraft.trim() && !attachPreview && !selectedGif)||!activeConvo) return;
-    const msg = { from:"me", type:selectedGif?"gif":"text", text:msgDraft, time:"now", image:attachPreview||null, gif:selectedGif||null };
-    if (activeConvo.backend && (msgDraft.trim() || selectedGif)) {
-      const payload = { body: msgDraft.trim() || undefined };
-      if (selectedGif) payload.gif = selectedGif;
-      const saved = await api.post(`/api/messages/thread/${encodeURIComponent(activeConvo.id)}/send`, payload);
-      // api.post RESOLVES with {error:"<status>"} on a non-2xx — it never throws —
-      // so the old try/catch never fired: a rejected send still rendered in the
-      // thread as if it had gone through while nothing reached the server and the
-      // recipient got no message and no push. Fail loudly instead.
-      if (!saved?.message?.id) {
-        setDmNotif({
-          title: "Message didn't send",
-          body: saved?.error === '403' ? "You can't message this fan right now." : "Couldn't reach Backstage — check your connection and try again.",
-          icon: "⚠️", color: C.rose,
-        });
-        return;
+    if (sending || (!msgDraft.trim() && !selectedGif) || !activeConvo) return;
+    setSending(true);
+    const draftText = msgDraft;
+    const draftGif = selectedGif;
+    const msg = { from:"me", type:draftGif?"gif":"text", text:draftText, time:"now", gif:draftGif||null };
+    try {
+      if (activeConvo.backend) {
+        const payload = { body: draftText.trim() || undefined };
+        if (draftGif) payload.gif = draftGif;
+        const saved = await api.post(`/api/messages/thread/${encodeURIComponent(activeConvo.id)}/send`, payload);
+        // api.post RESOLVES with {error:"<status>"} on a non-2xx — it never throws —
+        // so the old try/catch never fired: a rejected send still rendered in the
+        // thread as if it had gone through while nothing reached the server and the
+        // recipient got no message and no push. Fail loudly instead.
+        if (!saved?.message?.id) {
+          setDmNotif({
+            title: "Message didn't send",
+            body: saved?.error === '403' ? "You can't message this fan right now." : "Couldn't reach Backstage — check your connection and try again.",
+            icon: "⚠️", color: C.rose,
+          });
+          return;
+        }
+        msg.id = saved.message.id;
+        msg.time = saved.message.created_at ? new Date(saved.message.created_at).toLocaleTimeString([], { hour:"numeric", minute:"2-digit" }) : "now";
       }
-      msg.id = saved.message.id;
-      msg.time = saved.message.created_at ? new Date(saved.message.created_at).toLocaleTimeString([], { hour:"numeric", minute:"2-digit" }) : "now";
+      if (draftGif) {
+        const sentGifs = ls.get(GIF_LS_MESSAGE_GIFS, []);
+        ls.set(GIF_LS_MESSAGE_GIFS, [{ ...draftGif, sentAt:Date.now(), threadId:activeConvo.id }, ...sentGifs].slice(0,40));
+      }
+      // Replying always accepts a pending Message Request (mirrors the backend's
+      // implicit-accept-on-reply in POST /api/messages/thread/:id/send).
+      const updated = convos.map(c=>c.id===activeConvo.id ? {...c, messages:[...c.messages,msg], lastTime:"now", accepted:true} : c);
+      setConvos(updated);
+      setActiveConvo(prev=>({...prev, messages:[...prev.messages,msg], accepted:true}));
+      setMsgDraft(""); setSelectedGif(null);
+    } finally {
+      setSending(false);
     }
-    if (selectedGif) {
-      const sentGifs = ls.get(GIF_LS_MESSAGE_GIFS, []);
-      ls.set(GIF_LS_MESSAGE_GIFS, [{ ...selectedGif, sentAt:Date.now(), threadId:activeConvo.id }, ...sentGifs].slice(0,40));
-    }
-    // Replying always accepts a pending Message Request (mirrors the backend's
-    // implicit-accept-on-reply in POST /api/messages/thread/:id/send).
-    const updated = convos.map(c=>c.id===activeConvo.id ? {...c, messages:[...c.messages,msg], lastTime:"now", accepted:true} : c);
-    setConvos(updated);
-    setActiveConvo(prev=>({...prev, messages:[...prev.messages,msg], accepted:true}));
-    setMsgDraft(""); setAttachPreview(null); setSelectedGif(null);
   };
 
-  // Send a charm into the active conversation
-  // type:"charm" for new sends; old "sticker" messages render identically (backward compat)
-  const sendCharm = (charmId, emoji, label) => {
-    if(!activeConvo) return;
-    const msg = { from:"me", type:"charm", charmId, charmEmoji:emoji, charmLabel:label, time:"now" };
-    const updated = convos.map(c=>c.id===activeConvo.id ? {...c, messages:[...c.messages,msg], lastTime:"now"} : c);
-    setConvos(updated);
-    setActiveConvo(prev=>({...prev, messages:[...prev.messages,msg]}));
-    setCharmPickerOpen(false); setKitOpen(false);
+  const sendPendingAttachment = async () => {
+    if (sending || !pendingAttachment || !activeConvo) return;
+    if (!activeConvo.backend) {
+      setDmNotif({ title:"Can't send yet", body:"This conversation needs a live connection to send photos and videos.", icon:"⚠️", color:C.rose });
+      return;
+    }
+    setSending(true);
+    const att = pendingAttachment;
+    const draftText = msgDraft;
+    setPendingAttachment(p => p ? { ...p, uploading:true, error:null } : p);
+    try {
+      const media = { kind:att.kind, mimeType:att.mimeType, width:att.width, height:att.height, durationSec:att.durationSec };
+      const saved = await uploadAndSendMedia(att.file, media, draftText);
+      const msg = {
+        id: saved.id, from:"me", type:"media", text: draftText.trim(),
+        time: saved.created_at ? new Date(saved.created_at).toLocaleTimeString([], { hour:"numeric", minute:"2-digit" }) : "now",
+        media: saved.media || { ...media, url: att.previewUrl },
+      };
+      const updated = convos.map(c=>c.id===activeConvo.id ? {...c, messages:[...c.messages,msg], lastTime:"now", accepted:true} : c);
+      setConvos(updated);
+      setActiveConvo(prev=>({...prev, messages:[...prev.messages,msg], accepted:true}));
+      URL.revokeObjectURL(att.previewUrl);
+      setPendingAttachment(null);
+      setMsgDraft("");
+    } catch (err) {
+      setPendingAttachment(p => p ? { ...p, uploading:false, error: err?.message==='blocked' ? "You can't message this fan right now." : "Upload failed — check your connection and try again." } : p);
+    } finally {
+      setSending(false);
+    }
   };
-  // Legacy alias — keeps old inline Freebie/Lightstick calls working
-  const sendSticker = sendCharm;
+
+  // ── Voice notes ────────────────────────────────────────────────────────────
+  const VOICE_MIME_CANDIDATES = ['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/ogg'];
+  const pickVoiceMimeType = () => {
+    if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) return '';
+    return VOICE_MIME_CANDIDATES.find(t => MediaRecorder.isTypeSupported(t)) || '';
+  };
+  const stopVoiceTimer = () => { if (voiceTimerRef.current) { clearInterval(voiceTimerRef.current); voiceTimerRef.current = null; } };
+
+  const startVoiceRecording = async () => {
+    setVoiceError(null);
+    if (typeof MediaRecorder === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      setVoiceError("Voice recording isn't supported in this browser.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio:true });
+      voiceStreamRef.current = stream;
+      const mimeType = pickVoiceMimeType();
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      voiceChunksRef.current = [];
+      recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) voiceChunksRef.current.push(e.data); };
+      recorder.onerror = () => {
+        setVoiceError("Recording was interrupted. Try again.");
+        setVoiceMode('idle');
+        stream.getTracks().forEach(t => t.stop());
+      };
+      voiceRecorderRef.current = recorder;
+      recorder.start();
+      setVoiceElapsed(0);
+      setVoiceMode('recording');
+      stopVoiceTimer();
+      voiceTimerRef.current = setInterval(() => setVoiceElapsed(s => s + 1), 1000);
+    } catch (err) {
+      setVoiceError(err?.name === 'NotAllowedError' ? "Microphone access was denied — allow it in your browser settings to send voice notes." : "Couldn't access the microphone.");
+    }
+  };
+
+  const cancelVoiceRecording = () => {
+    stopVoiceTimer();
+    const recorder = voiceRecorderRef.current;
+    if (recorder && recorder.state !== 'inactive') {
+      recorder.onstop = () => { voiceStreamRef.current?.getTracks().forEach(t=>t.stop()); voiceStreamRef.current = null; };
+      recorder.stop();
+    }
+    voiceRecorderRef.current = null;
+    voiceChunksRef.current = [];
+    setVoiceMode('idle');
+    setVoiceElapsed(0);
+  };
+
+  const finishVoiceRecording = () => {
+    stopVoiceTimer();
+    const recorder = voiceRecorderRef.current;
+    if (!recorder || recorder.state === 'inactive') return;
+    const mimeType = recorder.mimeType || 'audio/webm';
+    const durationSec = voiceElapsed;
+    recorder.onstop = () => {
+      voiceStreamRef.current?.getTracks().forEach(t => t.stop());
+      voiceStreamRef.current = null;
+      const blob = new Blob(voiceChunksRef.current, { type:mimeType });
+      voiceChunksRef.current = [];
+      if (!blob.size) {
+        setVoiceError("That recording was empty — try again.");
+        setVoiceMode('idle');
+        return;
+      }
+      const url = URL.createObjectURL(blob);
+      setVoicePreview({ blob, url, durationSec, mimeType });
+      setVoiceMode('preview');
+    };
+    recorder.stop();
+    voiceRecorderRef.current = null;
+  };
+
+  const discardVoicePreview = () => {
+    if (voicePreview?.url) URL.revokeObjectURL(voicePreview.url);
+    setVoicePreview(null);
+    setVoicePlaying(false);
+    setVoiceMode('idle');
+    setVoiceElapsed(0);
+  };
+
+  const toggleVoicePreviewPlayback = () => {
+    const a = voicePreviewAudioRef.current;
+    if (!a) return;
+    if (voicePlaying) { a.pause(); setVoicePlaying(false); }
+    else { a.play().catch(()=>{}); setVoicePlaying(true); }
+  };
+
+  const sendVoiceNote = async () => {
+    if (sending || !voicePreview || !activeConvo) return;
+    if (!activeConvo.backend) {
+      setDmNotif({ title:"Can't send yet", body:"This conversation needs a live connection to send voice notes.", icon:"⚠️", color:C.rose });
+      return;
+    }
+    setSending(true);
+    setVoiceMode('uploading');
+    try {
+      const ext = voicePreview.mimeType.includes('mp4') ? 'm4a' : voicePreview.mimeType.includes('ogg') ? 'ogg' : 'webm';
+      const file = new File([voicePreview.blob], `voice-note.${ext}`, { type: voicePreview.mimeType });
+      const media = { kind:'voice', mimeType:voicePreview.mimeType, durationSec:voicePreview.durationSec };
+      const saved = await uploadAndSendMedia(file, media, "");
+      const msg = { id:saved.id, from:"me", type:"media", text:"", time: saved.created_at ? new Date(saved.created_at).toLocaleTimeString([], { hour:"numeric", minute:"2-digit" }) : "now", media: saved.media || { ...media, url:voicePreview.url } };
+      const updated = convos.map(c=>c.id===activeConvo.id ? {...c, messages:[...c.messages,msg], lastTime:"now", accepted:true} : c);
+      setConvos(updated);
+      setActiveConvo(prev=>({...prev, messages:[...prev.messages,msg], accepted:true}));
+      URL.revokeObjectURL(voicePreview.url);
+      setVoicePreview(null);
+      setVoiceMode('idle');
+      setVoiceElapsed(0);
+    } catch (err) {
+      setVoiceError(err?.message==='blocked' ? "You can't message this fan right now." : "Upload failed — check your connection and try again.");
+      setVoiceMode('preview');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  // Stop any in-flight recording/stream if the thread unmounts mid-record.
+  useEffect(() => () => {
+    stopVoiceTimer();
+    voiceStreamRef.current?.getTracks().forEach(t => t.stop());
+    if (voiceRecorderRef.current && voiceRecorderRef.current.state !== 'inactive') voiceRecorderRef.current.stop();
+  }, []);
+
+  const handlePrimaryComposerAction = () => {
+    if (voiceMode === 'preview') { sendVoiceNote(); return; }
+    if (pendingAttachment) { sendPendingAttachment(); return; }
+    if (msgDraft.trim() || selectedGif) { sendMessage(); return; }
+  };
+
+  const fmtElapsed = (s) => { const t = Math.max(0, Math.round(s||0)); return `${Math.floor(t/60)}:${String(t%60).padStart(2,'0')}`; };
+
+  // ── Shared Scrapbook collaboration ─────────────────────────────────────────
+  const fetchMyScrapbooks = async () => {
+    setScrapbooksLoading(true);
+    try {
+      const d = await api.get('/api/scrapbooks');
+      setMyScrapbooks(Array.isArray(d?.scrapbooks) ? d.scrapbooks.filter(b => b.role === 'owner') : []);
+    } catch {
+      setMyScrapbooks([]);
+    } finally {
+      setScrapbooksLoading(false);
+    }
+  };
+
+  const openScrapbookSheet = () => {
+    setAttachSheetOpen(false);
+    setScrapbookSheetOpen(true);
+    if (myScrapbooks === null) fetchMyScrapbooks();
+  };
+
+  const sendScrapbookInvite = async (scrapbookId) => {
+    if (!activeConvo?.backend || !activeConvo.fan?.id) {
+      setDmNotif({ title:"Can't share yet", body:"This conversation needs a live connection to share a scrapbook.", icon:"⚠️", color:C.rose });
+      return;
+    }
+    setSendingInviteId(scrapbookId);
+    try {
+      const d = await api.post(`/api/scrapbooks/${encodeURIComponent(scrapbookId)}/invite`, { targetUserId: activeConvo.fan.id, threadId: activeConvo.id });
+      if (!d?.success || !d?.message) throw new Error(d?.error || 'invite-failed');
+      const m = d.message;
+      const msg = { id:m.id, from:"me", type:"media", text:"", time: m.created_at ? new Date(m.created_at).toLocaleTimeString([], { hour:"numeric", minute:"2-digit" }) : "now", media:m.media };
+      const updated = convos.map(c=>c.id===activeConvo.id ? {...c, messages:[...c.messages,msg], lastTime:"now", accepted:true} : c);
+      setConvos(updated);
+      setActiveConvo(prev=>({...prev, messages:[...prev.messages,msg], accepted:true}));
+      setInviteStatus(s => ({ ...s, [scrapbookId]: 'owner' }));
+      setScrapbookSheetOpen(false);
+    } catch {
+      setDmNotif({ title:"Couldn't send invite", body:"Check your connection and try again.", icon:"⚠️", color:C.rose });
+    } finally {
+      setSendingInviteId(null);
+    }
+  };
+
+  const respondScrapbookInvite = async (scrapbookId, status) => {
+    setRespondingScrapbookId(scrapbookId);
+    setInviteStatus(s => ({ ...s, [scrapbookId]: status })); // optimistic
+    try {
+      const d = await api.post(`/api/scrapbooks/${encodeURIComponent(scrapbookId)}/respond`, { status });
+      if (d?.error) throw new Error(d.error);
+    } catch {
+      setInviteStatus(s => ({ ...s, [scrapbookId]: 'invited' })); // revert
+      setDmNotif({ title:"Couldn't update invite", body:"Check your connection and try again.", icon:"⚠️", color:C.rose });
+    } finally {
+      setRespondingScrapbookId(null);
+    }
+  };
+
+  // Resolve each scrapbook-invite card's live status (owner/invited/accepted/
+  // declined) for the CURRENT viewer — never trusted from the message payload
+  // itself, so accept/decline can never go stale relative to what's rendered.
+  useEffect(() => {
+    if (!activeConvo) return;
+    const ids = [...new Set(activeConvo.messages.filter(m => m.media?.kind === 'scrapbook_invite').map(m => m.media.scrapbookId))];
+    const unresolved = ids.filter(id => inviteStatus[id] === undefined);
+    if (!unresolved.length) return;
+    let alive = true;
+    (async () => {
+      const entries = await Promise.all(unresolved.map(async id => {
+        const d = await api.get(`/api/scrapbooks/${encodeURIComponent(id)}/my-status`).catch(() => null);
+        return [id, d?.status || 'none'];
+      }));
+      if (!alive) return;
+      setInviteStatus(s => ({ ...s, ...Object.fromEntries(entries) }));
+    })();
+    return () => { alive = false; };
+  }, [activeConvo?.id, activeConvo?.messages?.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Group chat helpers ────────────────────────────────────────────────────
   const createGroup = () => {
@@ -19548,7 +19893,7 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
 
   // ── Message reactions ──────────────────────────────────────────────────────
   // Reaction emojis available for direct message reactions
-  const REACTION_EMOJIS = ["💜","😂","😭","✨","👀","🔥","🫶","👑"];
+  const REACTION_EMOJIS = ["❤️","😂","😮","😢","🔥","👍"];
 
   // Toggle a reaction on a specific message — add or remove current user's reaction
   const toggleReaction = (convoId, msgIdx, emoji) => {
@@ -19647,24 +19992,6 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
     onPointerLeave: () => { clearPressTimer(); pressStateRef.current = {}; },
     onContextMenu: (e) => { e.preventDefault(); clearPressTimer(); openReactionPicker(i, closeOthers); },
   });
-
-  // Show a short placeholder toast for unbuilt Kit features
-  const showKitPlaceholder = (msg) => {
-    setKitPlaceholder(msg); setKitOpen(false);
-    setTimeout(()=>setKitPlaceholder(null), 3000);
-  };
-
-  // Backstage Kit option definitions
-  // Each tile must either do something real OR honestly say "coming soon."
-  // No dead taps. No fake sends disguised as real.
-  const KIT_OPTIONS = [
-    { id:"photo",      emoji:"📸", label:"Photo / Video",      action:()=>{ setKitOpen(false); attachRef.current?.click(); } },
-    { id:"voice",      emoji:"🎤", label:"Voice Note",         action:()=>showKitPlaceholder("Voice notes coming soon — you'll be able to record and send audio to this fan.") },
-    { id:"freebie",    emoji:"🎁", label:"Freebie Drop",       action:()=>{ setMsgDraft("🎁 Freebie Drop — I'm giving out fan-made freebies at the show! Reply if you want one."); setKitOpen(false); } },
-    { id:"lightstick", emoji:"🔦", label:"Lightstick Reaction",action:()=>sendCharm("lightstick","🔦","🔦 Lightstick Reaction") },
-    { id:"sharecard",  emoji:"🎫", label:"Share Card",         action:()=>showKitPlaceholder("Share Card coming soon — share concerts, profiles, and events.") },
-    { id:"scrapbook",  emoji:"📖", label:"Shared Scrapbook",   action:()=>showKitPlaceholder("Shared Scrapbook coming soon — build concert memories together.") },
-  ];
 
   const openConvo = async (convo) => {
     // Mark as read
@@ -19776,16 +20103,16 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
               {/* ── REACTION PICKER — inline, appears above/near the tapped message ── */}
               {isPickerOpen&&(
                 <div style={{ alignSelf:isMe?"flex-end":"flex-start",marginBottom:6,animation:"up .15s ease" }}>
-                  <div style={{ display:"flex",gap:5,background:`${C.surfaceMid}ee`,backdropFilter:"blur(16px)",borderRadius:99,padding:"7px 11px",border:`1.5px solid ${C.borderHi}`,boxShadow:`0 4px 20px rgba(0,0,0,0.5), 0 0 0 1px ${C.lavender}18` }}>
+                  <div style={{ display:"flex",gap:3,background:`${C.surfaceMid}f2`,backdropFilter:"blur(14px)",borderRadius:99,padding:"5px 8px",border:`1px solid ${C.border}`,boxShadow:"0 3px 14px rgba(0,0,0,0.28)" }}>
                     {REACTION_EMOJIS.map(em=>{
                       const alreadyReacted = (msg.reactions||[]).some(r=>r.emoji===em&&r.userId===myId);
                       return (
-                        <button key={em} onClick={()=>toggleReaction(activeConvo.id,i,em)} className="tap" style={{ fontSize:20,background:alreadyReacted?`${C.lavender}22`:"transparent",border:alreadyReacted?`1.5px solid ${C.lavender}44`:"1.5px solid transparent",borderRadius:99,width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",transition:"all .15s",transform:alreadyReacted?"scale(1.15)":"scale(1)" }}>
+                        <button key={em} onClick={()=>toggleReaction(activeConvo.id,i,em)} className="tap" style={{ fontSize:16,background:alreadyReacted?`${C.lavender}20`:"transparent",border:"none",borderRadius:99,width:29,height:29,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",transition:"transform .15s",transform:alreadyReacted?"scale(1.1)":"scale(1)" }}>
                           {em}
                         </button>
                       );
                     })}
-                    <button onClick={()=>setReactionPicker(null)} style={{ fontSize:10,color:C.textDim,background:"transparent",border:"none",cursor:"pointer",paddingLeft:2,fontFamily:"'Epilogue',sans-serif" }}>✕</button>
+                    <button onClick={()=>setReactionPicker(null)} style={{ fontSize:9,color:C.textDim,background:"transparent",border:"none",cursor:"pointer",paddingLeft:2,fontFamily:"'Epilogue',sans-serif" }}>✕</button>
                   </div>
                 </div>
               )}
@@ -19806,6 +20133,88 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
                     </div>
                     <p style={{ fontSize:8,color:C.textDim,paddingRight:isMe?4:0,paddingLeft:isMe?0:4 }}>{msg.time}</p>
                     {heartBurst===i&&<HeartBurst/>}
+                  </div>
+                ) : msg.media?.kind==="image" ? (
+                  /* Photo bubble — aspect-ratio box so cover never crops the source image */
+                  <div
+                    {...bubblePressHandlers(i, true)}
+                    style={{ position:"relative",maxWidth:240,cursor:"pointer",userSelect:"none",WebkitUserSelect:"none",WebkitTouchCallout:"none",touchAction:"manipulation" }}>
+                    <div style={{ borderRadius:16,overflow:"hidden",border:`1.5px solid ${C.borderHi}`,background:C.surfaceHi,boxShadow:"0 2px 12px rgba(0,0,0,0.3)" }}>
+                      {msg.media.url
+                        ? <img src={msg.media.url} alt="photo" draggable={false} style={{ width:"100%",display:"block",aspectRatio:msg.media.width&&msg.media.height?`${msg.media.width}/${msg.media.height}`:"4/3",objectFit:"cover",maxHeight:320 }} />
+                        : <div style={{ width:"100%",aspectRatio:"4/3",display:"flex",alignItems:"center",justifyContent:"center",color:C.textDim,fontSize:10 }}>Photo unavailable</div>}
+                      {msg.text&&<p style={{ fontSize:13,lineHeight:1.6,color:isMe?C.white:C.text,padding:"8px 12px 2px",background:isMe?`linear-gradient(140deg,${C.accent},${C.accentDim})`:C.surfaceHi }}>{msg.text}</p>}
+                    </div>
+                    <p style={{ fontSize:8,color:C.textDim,marginTop:3,textAlign:isMe?"right":"left" }}>{msg.time}</p>
+                    {heartBurst===i&&<HeartBurst/>}
+                  </div>
+                ) : msg.media?.kind==="video" ? (
+                  /* Video bubble — native controls double as the play treatment */
+                  <div
+                    {...bubblePressHandlers(i, true)}
+                    style={{ position:"relative",maxWidth:240,cursor:"pointer" }}>
+                    <div style={{ borderRadius:16,overflow:"hidden",border:`1.5px solid ${C.borderHi}`,background:"#000",boxShadow:"0 2px 12px rgba(0,0,0,0.3)" }}>
+                      {msg.media.url
+                        ? <video src={msg.media.url} controls playsInline preload="metadata" style={{ width:"100%",display:"block",aspectRatio:msg.media.width&&msg.media.height?`${msg.media.width}/${msg.media.height}`:"16/9",background:"#000" }} />
+                        : <div style={{ width:"100%",aspectRatio:"16/9",display:"flex",alignItems:"center",justifyContent:"center",color:C.textDim,fontSize:10 }}>Video unavailable</div>}
+                      {msg.text&&<p style={{ fontSize:13,lineHeight:1.6,color:isMe?C.white:C.text,padding:"8px 12px 2px",background:isMe?`linear-gradient(140deg,${C.accent},${C.accentDim})`:C.surfaceHi }}>{msg.text}</p>}
+                    </div>
+                    <p style={{ fontSize:8,color:C.textDim,marginTop:3,textAlign:isMe?"right":"left" }}>{msg.time}</p>
+                    {heartBurst===i&&<HeartBurst/>}
+                  </div>
+                ) : msg.media?.kind==="voice" ? (
+                  /* Voice note bubble — play/pause + progress bar + duration */
+                  <div
+                    {...bubblePressHandlers(i, true)}
+                    style={{ position:"relative",cursor:"pointer",userSelect:"none",WebkitUserSelect:"none",WebkitTouchCallout:"none",touchAction:"manipulation" }}>
+                    <div style={{ background:isMe?`linear-gradient(140deg,${C.accent},${C.accentDim})`:C.surfaceHi,borderRadius:isMe?"18px 18px 4px 18px":"18px 18px 18px 4px",padding:"11px 14px",border:isMe?"none":`1px solid ${C.border}` }}>
+                      {msg.media.url
+                        ? <VoiceMessageBubble media={msg.media} isMe={isMe} />
+                        : <p style={{ fontSize:11,color:isMe?C.white:C.textMid }}>Voice note unavailable</p>}
+                      <p style={{ fontSize:8.5,color:isMe?"rgba(255,255,255,0.5)":C.textDim,marginTop:5 }}>{msg.time}</p>
+                    </div>
+                    {heartBurst===i&&<HeartBurst/>}
+                  </div>
+                ) : msg.media?.kind==="scrapbook_invite" ? (
+                  /* Shared Scrapbook invite card — status resolved live via inviteStatus */
+                  <div style={{ maxWidth:240 }}>
+                    <div style={{ background:`linear-gradient(140deg,${C.lavender}16,${C.accent}0a)`,borderRadius:16,padding:"13px 14px",border:`1.5px solid ${C.lavender}38` }}>
+                      <div style={{ display:"flex",gap:10,alignItems:"center",marginBottom:10 }}>
+                        <div style={{ width:36,height:36,borderRadius:11,background:`${C.lavender}22`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0 }}>{msg.media.scrapbookEmoji||"📸"}</div>
+                        <div style={{ flex:1,minWidth:0 }}>
+                          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:12.5,color:C.text }}>{msg.media.scrapbookName||"Scrapbook"}</p>
+                          <p style={{ fontSize:9.5,color:C.textMid }}>Shared Scrapbook · {isMe?"you invited":`${activeConvo.fan.name} invited`}</p>
+                        </div>
+                      </div>
+                      {(() => {
+                        const status = inviteStatus[msg.media.scrapbookId];
+                        const responding = respondingScrapbookId === msg.media.scrapbookId;
+                        // Recipient view — pending invite needs a real decision.
+                        if (!isMe && (status === "invited" || status === undefined)) {
+                          return (
+                            <div style={{ display:"flex",gap:7 }}>
+                              <button onClick={()=>respondScrapbookInvite(msg.media.scrapbookId,"accepted")} disabled={responding} className="tap" style={{ flex:1,padding:"8px",borderRadius:11,background:C.lavender,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:responding?"default":"pointer",opacity:responding?0.6:1 }}>Accept</button>
+                              <button onClick={()=>respondScrapbookInvite(msg.media.scrapbookId,"declined")} disabled={responding} className="tap" style={{ padding:"8px 12px",borderRadius:11,background:"transparent",border:`1px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:responding?"default":"pointer" }}>Decline</button>
+                            </div>
+                          );
+                        }
+                        if (!isMe && status === "declined") {
+                          return <p style={{ fontSize:10.5,color:C.textDim }}>You declined this invite.</p>;
+                        }
+                        // Owner (sender) or an accepted collaborator can open it.
+                        const canOpen = isMe || status === "accepted";
+                        return (
+                          <button
+                            onClick={()=>canOpen && onOpenScrapbook?.(msg.media.scrapbookId)}
+                            disabled={!canOpen}
+                            className="tap"
+                            style={{ width:"100%",padding:"8px",borderRadius:11,background:canOpen?`${C.lavender}22`:"transparent",border:`1px solid ${canOpen?C.lavender+"55":C.border}`,color:canOpen?C.lavender:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:canOpen?"pointer":"default" }}>
+                            {canOpen ? "Open Scrapbook →" : "Waiting for them to accept…"}
+                          </button>
+                        );
+                      })()}
+                    </div>
+                    <p style={{ fontSize:8,color:C.textDim,marginTop:3,textAlign:isMe?"right":"left" }}>{msg.time}</p>
                   </div>
                 ) : msg.gif && !msg.text && !msg.image ? (
                   /* GIF-only — sticker style: no bubble background, compact, rounded */
@@ -19851,22 +20260,23 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
         <div ref={msgEndRef} />
       </div>
 
-      {/* Kit placeholder toast */}
-      {kitPlaceholder&&(
-        <div style={{ position:"absolute",bottom:72,left:16,right:16,zIndex:50,animation:"up .2s ease",pointerEvents:"none" }}>
-          <div style={{ background:`${C.surfaceMid}f0`,backdropFilter:"blur(16px)",borderRadius:14,padding:"11px 16px",border:`1px solid ${C.borderHi}`,textAlign:"center" }}>
-            <p style={{ fontSize:12,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:600 }}>{kitPlaceholder}</p>
-          </div>
-        </div>
-      )}
-
-      {/* Attachment preview */}
-      {attachPreview&&(
+      {/* Pending photo/video attachment — local preview, upload state, cancel */}
+      {pendingAttachment&&(
         <div style={{ padding:"8px 16px 0",flexShrink:0,background:C.bg }}>
           <div style={{ position:"relative",display:"inline-block" }}>
-            <img src={attachPreview} alt="preview" style={{ height:64,borderRadius:10,objectFit:"cover",border:`1.5px solid ${C.accent}44` }} />
-            <button onClick={()=>setAttachPreview(null)} style={{ position:"absolute",top:-6,right:-6,width:20,height:20,borderRadius:"50%",background:C.rose,border:"none",color:C.white,fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center" }}>✕</button>
+            {pendingAttachment.kind==="image"
+              ? <img src={pendingAttachment.previewUrl} alt="preview" style={{ height:64,borderRadius:10,objectFit:"cover",border:`1.5px solid ${C.accent}44`,opacity:pendingAttachment.uploading?0.55:1 }} />
+              : <video src={pendingAttachment.previewUrl} muted style={{ height:64,borderRadius:10,objectFit:"cover",border:`1.5px solid ${C.accent}44`,opacity:pendingAttachment.uploading?0.55:1 }} />}
+            {pendingAttachment.uploading&&(
+              <div style={{ position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center" }}>
+                <div style={{ width:18,height:18,borderRadius:"50%",border:`2px solid ${C.accent}44`,borderTopColor:C.accent,animation:"rotate .7s linear infinite" }} />
+              </div>
+            )}
+            {!pendingAttachment.uploading&&(
+              <button onClick={cancelPendingAttachment} style={{ position:"absolute",top:-6,right:-6,width:20,height:20,borderRadius:"50%",background:C.rose,border:"none",color:C.white,fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center" }}>✕</button>
+            )}
           </div>
+          {pendingAttachment.error&&<p style={{ fontSize:10.5,color:C.rose,marginTop:5 }}>{pendingAttachment.error}</p>}
         </div>
       )}
 
@@ -19880,39 +20290,93 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
         </div>
       )}
 
-      {/* ── INPUT BAR ── */}
-      <div style={{ padding:"10px 14px 14px",display:"flex",gap:8,alignItems:"center",borderTop:`1px solid ${C.border}`,flexShrink:0,background:C.bg }}>
-        {/* Backstage Kit button */}
-        <button
-          onClick={()=>{ setKitOpen(v=>!v); setCharmPickerOpen(false); }}
-          title="Open Backstage Kit"
-          style={{ width:40,height:40,borderRadius:12,background:kitOpen?`linear-gradient(135deg,${C.accent}33,${C.berry}22)`:`${C.surfaceHi}`,border:`1.5px solid ${kitOpen?C.accent:C.borderHi}`,color:kitOpen?C.accent:C.silver,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,transition:"all .2s",boxShadow:kitOpen?`0 0 14px ${C.accent}28`:"none",fontSize:16,fontFamily:"'Epilogue',sans-serif",fontWeight:800 }}>
-          {kitOpen?"✕":"✦"}
-        </button>
-        {/* GIF / reaction button */}
-        <button
-          onClick={()=>{ setGifPickerOpen(true); setKitOpen(false); setCharmPickerOpen(false); }}
-          title="Send a reaction"
-          style={{ width:40,height:40,borderRadius:12,background:selectedGif?`linear-gradient(135deg,${C.accent}33,${C.berry}22)`:`${C.surfaceHi}`,border:`1.5px solid ${selectedGif?C.accent:C.borderHi}`,color:selectedGif?C.accent:C.silver,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,transition:"all .2s",fontSize:13,fontFamily:"'Epilogue',sans-serif",fontWeight:800 }}>
-          GIF
-        </button>
-        <input ref={attachRef} type="file" accept="image/*,video/*" onChange={handleAttach} style={{ display:"none" }} />
-        {/* Input — improved contrast: brighter border + placeholder, strong text */}
-        <input
-          value={msgDraft}
-          onChange={e=>setMsgDraft(e.target.value)}
-          onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); sendMessage(); }}}
-          placeholder={selectedGif?"Add a caption...":(attachPreview?"Add a caption...":"Send a message...")}
-          style={{ flex:1,padding:"11px 14px",borderRadius:13,background:C.surfaceMid,border:`1.5px solid ${C.borderHi}`,color:C.text,fontSize:13,outline:"none",fontFamily:"'Instrument Sans',sans-serif","::placeholder":{color:C.textMid} }}
-        />
-        {/* Send button — glow when active, legible when muted */}
-        <button
-          onClick={sendMessage}
-          disabled={!msgDraft.trim()&&!attachPreview&&!selectedGif}
-          style={{ width:40,height:40,borderRadius:12,background:(msgDraft.trim()||attachPreview||selectedGif)?`linear-gradient(140deg,${C.accent},${C.pink})`:`${C.surfaceHi}`,border:(msgDraft.trim()||attachPreview||selectedGif)?"none":`1.5px solid ${C.border}`,color:(msgDraft.trim()||attachPreview||selectedGif)?C.bg:C.textMid,fontSize:15,fontWeight:700,cursor:(msgDraft.trim()||attachPreview||selectedGif)?"pointer":"default",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all .2s",boxShadow:(msgDraft.trim()||attachPreview||selectedGif)?`0 0 14px ${C.accent}40`:"none" }}>
-          →
-        </button>
-      </div>
+      {voiceError&&(
+        <div style={{ padding:"6px 16px 0",flexShrink:0 }}>
+          <p style={{ fontSize:10.5,color:C.rose }}>{voiceError}</p>
+        </div>
+      )}
+
+      <input ref={attachRef} type="file" accept="image/jpeg,image/jpg,image/png,image/webp,image/heic,video/mp4,video/quicktime,video/webm" onChange={handleAttach} style={{ display:"none" }} />
+
+      {voiceMode==="recording" ? (
+        /* ── VOICE RECORDING BAR ── replaces the composer row while recording */
+        <div style={{ padding:"10px 14px 14px",display:"flex",gap:10,alignItems:"center",borderTop:`1px solid ${C.border}`,flexShrink:0,background:C.bg }}>
+          <button onClick={cancelVoiceRecording} title="Cancel recording" style={{ width:40,height:40,borderRadius:12,background:C.surfaceHi,border:`1.5px solid ${C.border}`,color:C.textMid,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0 }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+          </button>
+          <div style={{ flex:1,display:"flex",alignItems:"center",gap:9,padding:"11px 14px",borderRadius:13,background:C.surfaceMid,border:`1.5px solid ${C.rose}44` }}>
+            <span style={{ width:8,height:8,borderRadius:"50%",background:C.rose,animation:"pulse 1.1s ease-in-out infinite",flexShrink:0 }} />
+            <span style={{ fontSize:12.5,color:C.text,fontFamily:"'Epilogue',sans-serif",fontWeight:700,flex:1 }}>Recording…</span>
+            <span style={{ fontSize:12,color:C.textMid,fontVariantNumeric:"tabular-nums" }}>{fmtElapsed(voiceElapsed)}</span>
+          </div>
+          <button onClick={finishVoiceRecording} title="Stop and preview" style={{ width:40,height:40,borderRadius:12,background:`linear-gradient(140deg,${C.accent},${C.pink})`,border:"none",color:C.bg,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,boxShadow:`0 0 14px ${C.accent}40` }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="3"/></svg>
+          </button>
+        </div>
+      ) : (voiceMode==="preview"||voiceMode==="uploading") ? (
+        /* ── VOICE PREVIEW BAR ── play/pause, delete/re-record, send */
+        <div style={{ padding:"10px 14px 14px",display:"flex",gap:10,alignItems:"center",borderTop:`1px solid ${C.border}`,flexShrink:0,background:C.bg }}>
+          <button onClick={discardVoicePreview} disabled={voiceMode==="uploading"} title="Delete recording" style={{ width:40,height:40,borderRadius:12,background:C.surfaceHi,border:`1.5px solid ${C.border}`,color:C.textMid,display:"flex",alignItems:"center",justifyContent:"center",cursor:voiceMode==="uploading"?"default":"pointer",flexShrink:0,opacity:voiceMode==="uploading"?0.5:1 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m-8 0 1 12a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1l1-12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          </button>
+          <div style={{ flex:1,display:"flex",alignItems:"center",padding:"7px 12px",borderRadius:13,background:C.surfaceMid,border:`1.5px solid ${C.borderHi}` }}>
+            <audio ref={voicePreviewAudioRef} src={voicePreview?.url} preload="metadata" onEnded={()=>setVoicePlaying(false)} style={{ display:"none" }} />
+            <button onClick={toggleVoicePreviewPlayback} disabled={voiceMode==="uploading"} style={{ width:26,height:26,borderRadius:"50%",background:`${C.accent}22`,border:"none",color:C.accent,display:"flex",alignItems:"center",justifyContent:"center",cursor:voiceMode==="uploading"?"default":"pointer",flexShrink:0,marginRight:9 }}>
+              {voicePlaying
+                ? <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="4" width="5" height="16" rx="1"/><rect x="14" y="4" width="5" height="16" rx="1"/></svg>
+                : <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" style={{ marginLeft:1 }}><path d="M6 4l14 8-14 8V4z"/></svg>}
+            </button>
+            <span style={{ fontSize:12,color:C.text,fontFamily:"'Epilogue',sans-serif",fontWeight:600,flex:1 }}>{voiceMode==="uploading" ? "Sending…" : "Voice note"}</span>
+            <span style={{ fontSize:11,color:C.textMid,fontVariantNumeric:"tabular-nums" }}>{fmtElapsed(voicePreview?.durationSec||0)}</span>
+          </div>
+          <button onClick={sendVoiceNote} disabled={voiceMode==="uploading"} title="Send voice note" style={{ width:40,height:40,borderRadius:12,background:`linear-gradient(140deg,${C.accent},${C.pink})`,border:"none",color:C.bg,fontSize:15,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",cursor:voiceMode==="uploading"?"default":"pointer",flexShrink:0,boxShadow:`0 0 14px ${C.accent}40`,opacity:voiceMode==="uploading"?0.6:1 }}>
+            →
+          </button>
+        </div>
+      ) : (
+        /* ── COMPOSER ── [+] [GIF] [Send a message…] [mic ⇄ send] */
+        <div style={{ padding:"10px 14px 14px",display:"flex",gap:8,alignItems:"center",borderTop:`1px solid ${C.border}`,flexShrink:0,background:C.bg }}>
+          {/* + compact attachment sheet */}
+          <button
+            onClick={()=>setAttachSheetOpen(v=>!v)}
+            title="Add to conversation"
+            style={{ width:40,height:40,borderRadius:12,background:attachSheetOpen?`linear-gradient(135deg,${C.accent}33,${C.berry}22)`:C.surfaceHi,border:`1.5px solid ${attachSheetOpen?C.accent:C.borderHi}`,color:attachSheetOpen?C.accent:C.silver,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,transition:"all .2s" }}>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" style={{ transform:attachSheetOpen?"rotate(45deg)":"none",transition:"transform .2s" }}><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"/></svg>
+          </button>
+          {/* GIF / sticker picker */}
+          <button
+            onClick={()=>{ setGifPickerOpen(true); setAttachSheetOpen(false); }}
+            title="Send a GIF or sticker"
+            style={{ width:40,height:40,borderRadius:12,background:selectedGif?`linear-gradient(135deg,${C.accent}33,${C.berry}22)`:C.surfaceHi,border:`1.5px solid ${selectedGif?C.accent:C.borderHi}`,color:selectedGif?C.accent:C.silver,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,transition:"all .2s",fontSize:12.5,fontFamily:"'Epilogue',sans-serif",fontWeight:800 }}>
+            GIF
+          </button>
+          {/* Input — improved contrast: brighter border + placeholder, strong text */}
+          <input
+            value={msgDraft}
+            onChange={e=>setMsgDraft(e.target.value)}
+            onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); handlePrimaryComposerAction(); }}}
+            placeholder={(pendingAttachment||selectedGif)?"Add a caption...":"Send a message..."}
+            style={{ flex:1,padding:"11px 14px",borderRadius:13,background:C.surfaceMid,border:`1.5px solid ${C.borderHi}`,color:C.text,fontSize:13,outline:"none",fontFamily:"'Instrument Sans',sans-serif" }}
+          />
+          {/* Send replaces the mic once there's text, media, or a GIF queued */}
+          {(msgDraft.trim()||pendingAttachment||selectedGif) ? (
+            <button
+              onClick={handlePrimaryComposerAction}
+              disabled={sending||pendingAttachment?.uploading}
+              title="Send"
+              style={{ width:40,height:40,borderRadius:12,background:`linear-gradient(140deg,${C.accent},${C.pink})`,border:"none",color:C.bg,fontSize:15,fontWeight:700,cursor:(sending||pendingAttachment?.uploading)?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all .2s",boxShadow:`0 0 14px ${C.accent}40`,opacity:(sending||pendingAttachment?.uploading)?0.6:1 }}>
+              →
+            </button>
+          ) : (
+            <button
+              onClick={startVoiceRecording}
+              title="Record a voice note"
+              style={{ width:40,height:40,borderRadius:12,background:C.surfaceHi,border:`1.5px solid ${C.borderHi}`,color:C.silver,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0 }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="9" y="3" width="6" height="11" rx="3" stroke="currentColor" strokeWidth="1.8"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>
+            </button>
+          )}
+        </div>
+      )}
 
       {/* GIF picker bottom sheet */}
       {gifPickerOpen&&(
@@ -19922,64 +20386,62 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
         />
       )}
 
-      {/* ── BACKSTAGE KIT TRAY ── */}
-      {kitOpen&&(
+      {/* ── COMPACT ATTACHMENT SHEET — Photo & Video, Shared Scrapbook only ── */}
+      {attachSheetOpen&&(
         <>
-          {/* Backdrop — tap outside to dismiss */}
-          <div onClick={()=>setKitOpen(false)} style={{ position:"absolute",inset:0,zIndex:199 }} />
-          <div style={{ position:"absolute",bottom:0,left:0,right:0,zIndex:200,animation:"slideUp .24s ease" }}>
-            <div style={{ background:`linear-gradient(160deg,${C.surfaceMid},${C.cosmic})`,borderRadius:"22px 22px 0 0",border:`1.5px solid ${C.borderHi}`,borderBottom:"none",padding:"16px 18px 28px",position:"relative",overflow:"hidden" }}>
-              <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.lavender}44,transparent)` }} />
-              {/* Drag handle row with close button */}
-              <div style={{ display:"flex",alignItems:"center",marginBottom:14 }}>
-                <div style={{ flex:1 }} />
-                <div style={{ width:34,height:4,borderRadius:99,background:C.border }} />
-                <div style={{ flex:1,display:"flex",justifyContent:"flex-end" }}>
-                  <button onClick={()=>setKitOpen(false)} style={{ background:"none",border:"none",color:C.textMid,fontSize:18,cursor:"pointer",padding:"2px 0",lineHeight:1 }}>✕</button>
+          <div onClick={()=>setAttachSheetOpen(false)} style={{ position:"absolute",inset:0,zIndex:199 }} />
+          <div style={{ position:"absolute",bottom:0,left:0,right:0,zIndex:200,animation:"slideUp .2s ease" }}>
+            <div style={{ background:C.surfaceHi,borderRadius:"20px 20px 0 0",border:`1px solid ${C.borderHi}`,borderBottom:"none",padding:"10px 10px calc(14px + env(safe-area-inset-bottom))",boxShadow:"0 -8px 30px rgba(0,0,0,0.35)" }}>
+              <div style={{ width:32,height:4,borderRadius:99,background:C.border,margin:"4px auto 10px" }} />
+              <button onClick={()=>{ setAttachSheetOpen(false); attachRef.current?.click(); }} className="tap" style={{ width:"100%",display:"flex",alignItems:"center",gap:12,padding:"12px 10px",borderRadius:13,background:"none",border:"none",cursor:"pointer",textAlign:"left" }}>
+                <div style={{ width:36,height:36,borderRadius:11,background:`${C.accent}18`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="18" height="14" rx="3" stroke={C.accent} strokeWidth="1.8"/><circle cx="8.5" cy="10" r="1.6" fill={C.accent}/><path d="M3 16l5-4 4 3 3-2.5L21 16" stroke={C.accent} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
                 </div>
-              </div>
-              {/* Header */}
-              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,marginBottom:2 }}>Backstage Kit</p>
-              <p style={{ fontSize:11,color:C.textMid,marginBottom:16 }}>Fan-native actions for this conversation.</p>
-              {/* Options grid */}
-              <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10 }}>
-                {KIT_OPTIONS.map(opt=>(
-                  <button key={opt.id} onClick={opt.action} className="tap" style={{ padding:"14px 10px",borderRadius:14,background:C.surfaceHi,border:`1px solid ${C.border}`,display:"flex",flexDirection:"column",alignItems:"center",gap:7,cursor:"pointer",transition:"all .18s" }}>
-                    <span style={{ fontSize:24 }}>{opt.emoji}</span>
-                    <span style={{ fontSize:10,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textAlign:"center",lineHeight:1.3 }}>{opt.label}</span>
-                  </button>
-                ))}
-              </div>
+                <span style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5,color:C.text }}>Photo &amp; Video</span>
+              </button>
+              <button onClick={openScrapbookSheet} className="tap" style={{ width:"100%",display:"flex",alignItems:"center",gap:12,padding:"12px 10px",borderRadius:13,background:"none",border:"none",cursor:"pointer",textAlign:"left" }}>
+                <div style={{ width:36,height:36,borderRadius:11,background:`${C.lavender}18`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="13" height="13" rx="3" stroke={C.lavender} strokeWidth="1.8"/><path d="M8 17h9a3 3 0 0 0 3-3V8" stroke={C.lavender} strokeWidth="1.8" strokeLinecap="round"/><circle cx="7" cy="7.5" r="1.4" fill={C.lavender}/><path d="M4.5 13.5 8 10l4 3.5" stroke={C.lavender} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                </div>
+                <span style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13.5,color:C.text }}>Shared Scrapbook</span>
+              </button>
             </div>
           </div>
         </>
       )}
 
-      {/* ── CHARM PICKER ── */}
-      {charmPickerOpen&&(
+      {/* ── SHARED SCRAPBOOK PICKER — pick one of your own scrapbooks to invite into this DM ── */}
+      {scrapbookSheetOpen&&(
         <>
-          {/* Backdrop — tap outside to dismiss */}
-          <div onClick={()=>setCharmPickerOpen(false)} style={{ position:"absolute",inset:0,zIndex:199 }} />
+          <div onClick={()=>setScrapbookSheetOpen(false)} style={{ position:"absolute",inset:0,zIndex:199 }} />
           <div style={{ position:"absolute",bottom:0,left:0,right:0,zIndex:200,animation:"slideUp .24s ease" }}>
-            <div style={{ background:`linear-gradient(160deg,${C.surfaceMid},${C.cosmic})`,borderRadius:"22px 22px 0 0",border:`1.5px solid ${C.borderHi}`,borderBottom:"none",padding:"16px 18px 28px",position:"relative",overflow:"hidden" }}>
-              <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.lavender}44,transparent)` }} />
-              <div style={{ display:"flex",alignItems:"center",marginBottom:12 }}>
+            <div style={{ background:C.surfaceHi,borderRadius:"20px 20px 0 0",border:`1px solid ${C.borderHi}`,borderBottom:"none",padding:"16px 18px calc(20px + env(safe-area-inset-bottom))",maxHeight:"62vh",overflowY:"auto" }}>
+              <div style={{ display:"flex",alignItems:"center",marginBottom:14 }}>
                 <div style={{ flex:1 }} />
-                <div style={{ width:34,height:4,borderRadius:99,background:C.border }} />
+                <div style={{ width:32,height:4,borderRadius:99,background:C.border }} />
                 <div style={{ flex:1,display:"flex",justifyContent:"flex-end" }}>
-                  <button onClick={()=>setCharmPickerOpen(false)} style={{ background:"none",border:"none",color:C.textMid,fontSize:18,cursor:"pointer",padding:"2px 0",lineHeight:1 }}>✕</button>
+                  <button onClick={()=>setScrapbookSheetOpen(false)} style={{ background:"none",border:"none",color:C.textMid,fontSize:17,cursor:"pointer",lineHeight:1 }}>✕</button>
                 </div>
               </div>
-              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:14,marginBottom:3 }}>✦ Message Charms</p>
-              <p style={{ fontSize:10.5,color:C.textMid,marginBottom:14 }}>Send a little fan magic.</p>
-              <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8 }}>
-                {BACKSTAGE_CHARMS.map(s=>(
-                  <button key={s.id} onClick={()=>sendCharm(s.id,s.emoji,s.label)} className="tap" style={{ padding:"12px 6px",borderRadius:12,background:C.surfaceHi,border:`1px solid ${C.border}`,display:"flex",flexDirection:"column",alignItems:"center",gap:5,cursor:"pointer" }}>
-                    <span style={{ fontSize:22,lineHeight:1 }}>{s.emoji}</span>
-                    <span style={{ fontSize:8,color:C.silver,fontFamily:"'Epilogue',sans-serif",fontWeight:600,textAlign:"center",lineHeight:1.3 }}>{s.label}</span>
-                  </button>
-                ))}
-              </div>
+              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,marginBottom:3 }}>Share a Scrapbook</p>
+              <p style={{ fontSize:11,color:C.textMid,marginBottom:16 }}>Invite {activeConvo?.fan?.name} to collaborate on one of your scrapbooks.</p>
+              {scrapbooksLoading&&<p style={{ fontSize:11.5,color:C.textMid,padding:"10px 0" }}>Loading your scrapbooks…</p>}
+              {!scrapbooksLoading&&myScrapbooks?.length===0&&(
+                <div style={{ textAlign:"center",padding:"18px 10px" }}>
+                  <p style={{ fontSize:12,color:C.textMid,marginBottom:12,lineHeight:1.6 }}>You don't have a scrapbook yet — create one first, then come back here to share it.</p>
+                  <button onClick={()=>{ setScrapbookSheetOpen(false); onOpenScrapbook?.(null); }} className="tap" style={{ padding:"10px 18px",borderRadius:13,background:`linear-gradient(140deg,${C.lavender},${C.accent})`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}>Create a Scrapbook →</button>
+                </div>
+              )}
+              {!scrapbooksLoading&&myScrapbooks?.map(book=>(
+                <button key={book.id} onClick={()=>sendScrapbookInvite(book.id)} disabled={sendingInviteId===book.id} className="tap" style={{ width:"100%",display:"flex",alignItems:"center",gap:12,padding:"11px 8px",borderRadius:13,background:"none",border:"none",borderBottom:`1px solid ${C.border}`,cursor:sendingInviteId?"default":"pointer",textAlign:"left",opacity:sendingInviteId&&sendingInviteId!==book.id?0.5:1 }}>
+                  <div style={{ width:38,height:38,borderRadius:11,background:`${C.lavender}18`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0 }}>{book.emoji||"📸"}</div>
+                  <div style={{ flex:1,minWidth:0 }}>
+                    <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,color:C.text }}>{book.name}</p>
+                    {book.concert&&<p style={{ fontSize:10.5,color:C.textMid }}>{book.concert}</p>}
+                  </div>
+                  <span style={{ fontSize:11,color:C.lavender,fontFamily:"'Epilogue',sans-serif",fontWeight:700,flexShrink:0 }}>{sendingInviteId===book.id?"Sending…":"Share"}</span>
+                </button>
+              ))}
             </div>
           </div>
         </>
@@ -20209,10 +20671,14 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile }) {
                     const isLastCharm = last?.type==="charm"||last?.type==="sticker";
                     // Instagram-style: when the latest message is media, show a small
                     // rounded thumbnail + a labelled preview instead of blank text.
-                    const thumb = last?.image || last?.gif?.previewUrl || last?.gif?.fullUrl || null;
+                    const thumb = last?.image || last?.gif?.previewUrl || last?.gif?.fullUrl || (last?.media?.kind==="image"?last.media.url:null) || null;
                     const preview = isLastCharm ? `${last?.charmEmoji||"✦"} ${last?.charmLabel||"charm"}`
                       : last?.image ? "📷 Photo"
                       : last?.gif ? (last?.gif?.mediaType==="sticker" ? "✨ Sticker" : "🎬 GIF")
+                      : last?.media?.kind==="image" ? (last.text || "📷 Photo")
+                      : last?.media?.kind==="video" ? (last.text || "🎥 Video")
+                      : last?.media?.kind==="voice" ? "🎤 Voice message"
+                      : last?.media?.kind==="scrapbook_invite" ? `📸 Shared "${last.media.scrapbookName||"a scrapbook"}"`
                       : last?.text || "Start a conversation 💜";
                     return (
                       <div style={{ display:"flex",alignItems:"center",gap:6,minWidth:0 }}>
@@ -24847,50 +25313,69 @@ const MOCK_SCRAPBOOKS = [
   { id:"sb2", name:"SKZ MANIAC 2022", concert:"Stray Kids MANIAC", color:C.accent, emoji:"🖤", coverPhoto:null, memoriesCount:2, collabCode:"SKZ2022" },
 ];
 
-function ScrapbookTab({ isVip, onUpgrade, onBack }) {
-  const [books, setBooks] = useState(ls.get("backstage_scrapbooks", MOCK_SCRAPBOOKS));
+function ScrapbookTab({ isVip, onUpgrade, onBack, deepLinkId }) {
+  const { tokenReady } = useAuth();
+  const [localBooks, setLocalBooks] = useState(ls.get("backstage_scrapbooks", MOCK_SCRAPBOOKS));
+  const [remoteBooks, setRemoteBooks] = useState(null); // null = not fetched yet
   const [selected, setSelected] = useState(null);
+  const [deepLinkBook, setDeepLinkBook] = useState(null); // fetched individually if not in the merged list
   const [adding, setAdding] = useState(false);
   const [chooseTemplate, setChooseTemplate] = useState(false);
-  const [collab, setCollab]       = useState(null); // scrapbook ID for collab modal
-  const [collabCode, setCollabCode] = useState("");
-  const [showJoin, setShowJoin]   = useState(false);
-  const [joinDraft, setJoinDraft] = useState("");
-  const [form, setForm] = useState({ name:"", concert:"", emoji:"📸", color:C.accent, template:null, collaborators:[] });
-  const [codeCopied, setCodeCopied] = useState(false);
-  useEffect(()=>{ ls.set("backstage_scrapbooks", books); }, [books]);
+  const [form, setForm] = useState({ name:"", concert:"", emoji:"📸", color:C.accent, template:null });
+  const [saving, setSaving] = useState(false);
+  useEffect(()=>{ ls.set("backstage_scrapbooks", localBooks); }, [localBooks]);
 
-  const saveBook = () => {
+  // The scrapbook "book" now exists server-side (see supabase-dm-media-scrapbook-
+  // collab-migration.sql) so a collaborator invited from a DM can see it too —
+  // real ownership/collaboration can't live in localStorage alone. Backend rows
+  // win on id collision; anything only local (offline/legacy) still shows.
+  const refreshRemoteBooks = useCallback(async () => {
+    const d = await api.get('/api/scrapbooks').catch(() => null);
+    setRemoteBooks(Array.isArray(d?.scrapbooks) ? d.scrapbooks : []);
+  }, []);
+  useEffect(() => { if (tokenReady) refreshRemoteBooks(); }, [tokenReady, refreshRemoteBooks]);
+
+  const remoteIds = new Set((remoteBooks||[]).map(b=>b.id));
+  const books = [...(remoteBooks||[]), ...localBooks.filter(b=>!remoteIds.has(b.id))];
+
+  // A DM invite's "Open Scrapbook" can point at a shared scrapbook this device
+  // has never listed locally and that hasn't loaded into remoteBooks yet. Only
+  // auto-select once per deepLinkId — otherwise tapping "back" from the detail
+  // view would immediately re-select it since the prop itself doesn't change.
+  const deepLinkHandledRef = useRef(null);
+  useEffect(() => {
+    if (!deepLinkId || deepLinkHandledRef.current === deepLinkId) return;
+    const known = books.find(b=>b.id===deepLinkId);
+    if (known) { deepLinkHandledRef.current = deepLinkId; setSelected(deepLinkId); return; }
+    if (remoteBooks === null) return; // wait for the first list fetch
+    (async () => {
+      const d = await api.get(`/api/scrapbooks/${encodeURIComponent(deepLinkId)}`).catch(() => null);
+      if (d?.scrapbook) { deepLinkHandledRef.current = deepLinkId; setDeepLinkBook(d.scrapbook); setSelected(deepLinkId); }
+    })();
+  }, [deepLinkId, remoteBooks]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const saveBook = async () => {
     if(!form.name.trim())return;
+    setSaving(true);
     const tpl = SCRAPBOOK_TEMPLATES.find(t=>t.id===form.template);
-    const stableCode = Math.random().toString(36).substring(2,8).toUpperCase();
-    setBooks([...books, { ...form, id:`sb-${Date.now()}`, coverPhoto:null, memoriesCount:0, templateBg:tpl?.bg||null, templateColor:tpl?.color||form.color, collabCode:stableCode }]);
-    setForm({ name:"", concert:"", emoji:"📸", color:C.accent, template:null, collaborators:[] });
+    const payload = { ...form, templateBg:tpl?.bg||null, templateColor:tpl?.color||form.color };
+    const created = await api.post('/api/scrapbooks', { name:form.name, concert:form.concert, emoji:form.emoji, color:form.color, template:form.template }).catch(() => null);
+    if (created?.scrapbook?.id) {
+      setRemoteBooks(prev => [{ ...created.scrapbook, ...payload }, ...(prev||[])]);
+    } else {
+      // Offline/no-backend fallback — still creates a usable local scrapbook,
+      // it just can't be shared into a DM until it syncs.
+      setLocalBooks(prev => [...prev, { ...payload, id:`sb-${Date.now()}`, coverPhoto:null, memoriesCount:0 }]);
+    }
+    setForm({ name:"", concert:"", emoji:"📸", color:C.accent, template:null });
+    setSaving(false);
     setAdding(false); setChooseTemplate(false);
   };
 
-  const generateCollabCode = (bookId) => {
-    let book = books.find(b=>b.id===bookId);
-    if(!book) return;
-    if(!book.collabCode) {
-      const code = Math.random().toString(36).substring(2,8).toUpperCase();
-      const updated = books.map(b=>b.id===bookId?{...b,collabCode:code}:b);
-      setBooks(updated);
-      book = updated.find(b=>b.id===bookId);
-    }
-    setCollabCode(book.collabCode);
-    setCollab(bookId);
-  };
-
-  const joinCollab = (code) => {
-    // TODO: POST /api/scrapbooks/join?code=XXXX — validate token, add collaborator
-    setCollab(null);
-    setCollabCode("");
-  };
-
   if(selected) {
-    const book = books.find(b=>b.id===selected);
-    return <ScrapbookDetail book={book} onBack={()=>setSelected(null)} isVip={isVip} onUpgrade={onUpgrade} />;
+    const book = books.find(b=>b.id===selected) || (deepLinkBook?.id===selected ? deepLinkBook : null);
+    if (!book) return <div style={{ padding:40,textAlign:"center" }}><p style={{ fontSize:12,color:C.textMid }}>Loading scrapbook…</p></div>;
+    return <ScrapbookDetail book={book} onBack={()=>{ setSelected(null); setDeepLinkBook(null); }} isVip={isVip} onUpgrade={onUpgrade} />;
   }
 
   return (
@@ -24906,78 +25391,33 @@ function ScrapbookTab({ isVip, onUpgrade, onBack }) {
         </div>
       </div>
       <Screen style={{ padding:"0 20px calc(120px + env(safe-area-inset-bottom))" }}>
-        {/* Collab join banner */}
-        <div style={{ background:`${C.mint}08`,border:`1px solid ${C.mint}22`,borderRadius:14,padding:"9px 13px",marginBottom:13 }}>
-          <div style={{ display:"flex",gap:10,alignItems:"center" }}>
-            <span style={{ fontSize:15 }}>🤝</span>
-            <p style={{ flex:1,fontSize:11,color:C.textMid }}>Got a collab code from a concert buddy?</p>
-            <button onClick={()=>setShowJoin(j=>!j)} style={{ background:`${C.mint}18`,border:`1px solid ${C.mint}33`,borderRadius:9,padding:"5px 10px",color:C.mint,fontSize:10,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>{showJoin?"Cancel":"Join →"}</button>
-          </div>
-          {showJoin&&(
-            <div style={{ display:"flex",gap:7,alignItems:"center",marginTop:9 }}>
-              <input
-                value={joinDraft}
-                onChange={e=>setJoinDraft(e.target.value.toUpperCase())}
-                placeholder="Enter code e.g. A3KF92"
-                maxLength={8}
-                style={{ flex:1,padding:"7px 10px",borderRadius:9,background:"rgba(6,6,15,0.6)",border:`1.5px solid ${C.mint}44`,color:C.text,fontSize:12,fontFamily:"'Epilogue',sans-serif",outline:"none",letterSpacing:"0.1em" }}
-                autoFocus
-              />
-              <button
-                onClick={()=>{ if(joinDraft.trim()){ joinCollab(joinDraft.trim()); setJoinDraft(""); setShowJoin(false); }}}
-                disabled={!joinDraft.trim()}
-                style={{ padding:"7px 13px",borderRadius:9,background:joinDraft.trim()?C.mint:`${C.mint}33`,border:"none",color:joinDraft.trim()?C.bg:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:joinDraft.trim()?"pointer":"default" }}
-              >Join</button>
-            </div>
-          )}
-        </div>
-
+        {/* Real collaboration now happens by inviting from inside a DM (+ →
+            Shared Scrapbook), which sends a real invite card the recipient can
+            accept — no separate join-code flow to keep in sync with it. */}
         {books.map(book=>{
           const col = book.templateColor||book.color||C.accent;
           return (
-            <div key={book.id} style={{ background:book.templateBg||`linear-gradient(140deg,${col}18,${col}06)`,border:`1.5px solid ${col}44`,borderRadius:20,padding:18,marginBottom:14,position:"relative",overflow:"hidden" }}>
+            <div key={book.id} onClick={()=>setSelected(book.id)} className="tap" style={{ background:book.templateBg||`linear-gradient(140deg,${col}18,${col}06)`,border:`1.5px solid ${col}44`,borderRadius:20,padding:18,marginBottom:14,position:"relative",overflow:"hidden",cursor:"pointer" }}>
               <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${col}55,transparent)` }} />
               <div style={{ display:"flex",gap:14,alignItems:"center",position:"relative" }}>
-                <div onClick={()=>setSelected(book.id)} className="tap" style={{ width:60,height:60,borderRadius:15,background:`${col}22`,border:`1.5px solid ${col}55`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,flexShrink:0,cursor:"pointer" }}>{book.emoji}</div>
+                <div style={{ width:60,height:60,borderRadius:15,background:`${col}22`,border:`1.5px solid ${col}55`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,flexShrink:0 }}>{book.emoji}</div>
                 <div style={{ flex:1 }}>
-                  <p onClick={()=>setSelected(book.id)} className="tap" style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,marginBottom:3,cursor:"pointer" }}>{book.name}</p>
-                  <p style={{ fontSize:11,color:C.textMid }}>{book.memoriesCount} memories {book.template&&`· ${SCRAPBOOK_TEMPLATES.find(t=>t.id===book.template)?.label||""}`}</p>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:16,marginBottom:3 }}>{book.name}</p>
+                  <p style={{ fontSize:11,color:C.textMid }}>{book.memoriesCount||0} memories {book.template&&`· ${SCRAPBOOK_TEMPLATES.find(t=>t.id===book.template)?.label||""}`}</p>
                   {book.concert&&<p style={{ fontSize:10.5,color:col,marginTop:3 }}>📍 {book.concert}</p>}
-                  {book.collaborators?.length>0&&<p style={{ fontSize:9.5,color:C.mint,marginTop:3 }}>🤝 Shared with {book.collaborators.length} buddy</p>}
+                  {book.role==="collaborator"&&<p style={{ fontSize:9.5,color:C.mint,marginTop:3 }}>🤝 Shared with you</p>}
                 </div>
-                <div style={{ display:"flex",flexDirection:"column",gap:5,alignItems:"flex-end" }}>
-                  <span onClick={()=>setSelected(book.id)} style={{ color:C.textDim,fontSize:18,cursor:"pointer" }}>›</span>
-                  <button onClick={()=>generateCollabCode(book.id)} style={{ background:`${C.mint}12`,border:`1px solid ${C.mint}28`,borderRadius:8,padding:"3px 7px",color:C.mint,fontSize:9,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer" }}>🤝 Share</button>
-                </div>
+                <span style={{ color:C.textDim,fontSize:18 }}>›</span>
               </div>
             </div>
           );
         })}
 
-        {/* Collab share code modal */}
-        {collab&&(
-          <div onClick={()=>{ setCollab(null); setCodeCopied(false); }} style={{ position:"fixed",inset:0,zIndex:400,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
-            <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:24,width:"100%",animation:"slideUp .25s ease" }}>
-              <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18,marginBottom:4 }}>🤝 Share Scrapbook</p>
-              <p style={{ fontSize:11.5,color:C.textMid,marginBottom:16,lineHeight:1.6 }}>Share this code with your concert buddy — they enter it to join and add memories.</p>
-              <div style={{ background:C.surface,border:`2px solid ${C.mint}44`,borderRadius:16,padding:"18px",textAlign:"center",marginBottom:12 }}>
-                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:32,color:C.mint,letterSpacing:"0.15em" }}>{collabCode}</p>
-                <p style={{ fontSize:10,color:C.textDim,marginTop:6 }}>Permanent code · one per scrapbook · share anytime</p>
-              </div>
-              <button
-                onClick={()=>{ navigator.clipboard.writeText(collabCode).catch(()=>{}); setCodeCopied(true); setTimeout(()=>setCodeCopied(false),2000); }}
-                style={{ width:"100%",padding:"11px",borderRadius:14,background:codeCopied?`${C.mint}28`:C.mint,border:`1px solid ${codeCopied?C.mint:"transparent"}`,color:codeCopied?C.mint:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",marginBottom:8,transition:"all .2s" }}
-              >{codeCopied?"✓ Copied!":"📋 Copy Code"}</button>
-              <button onClick={()=>{ setCollab(null); setCodeCopied(false); }} style={{ width:"100%",padding:"11px",borderRadius:14,background:C.surfaceMid,border:`1px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer" }}>Done</button>
-            </div>
-          </div>
-        )}
-
         {books.length===0&&<Empty emoji="📸" title="No scrapbooks yet" sub="Create your first concert memory book." action="+ Create Scrapbook" onAction={()=>setAdding(true)} />}
       </Screen>
 
       {adding&&(
-        <div onClick={()=>{ setAdding(false); setChooseTemplate(false); setForm({ name:"", concert:"", emoji:"📸", color:C.accent, template:null, collaborators:[] }); }} style={{ position:"fixed",inset:0,zIndex:400,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
+        <div onClick={()=>{ setAdding(false); setChooseTemplate(false); setForm({ name:"", concert:"", emoji:"📸", color:C.accent, template:null }); }} style={{ position:"fixed",inset:0,zIndex:400,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
           <div onClick={e=>e.stopPropagation()} style={{ background:C.modalBg,backdropFilter:"blur(24px) saturate(1.4)",borderRadius:"26px 26px 0 0",border:`1px solid ${C.modalBorder}`,boxShadow:`${C.modalShadow}, inset 0 1px 0 rgba(255,255,255,0.42)`,color:C.modalText,padding:22,width:"100%",animation:"slideUp .25s ease",maxHeight:"88vh",overflowY:"auto" }}>
             <div style={{ width:34,height:4,borderRadius:99,background:C.modalBorderHi,margin:"0 auto 18px" }} />
             <p style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:17, marginBottom:chooseTemplate?12:16, color:C.modalText }}>
@@ -25022,8 +25462,8 @@ function ScrapbookTab({ isVip, onUpgrade, onBack }) {
             )}
 
             <div style={{ display:"flex", gap:10, marginTop:chooseTemplate&&!form.template?4:0 }}>
-              <Btn onClick={saveBook} disabled={!form.name.trim()||(chooseTemplate&&!form.template)} style={{ flex:1 }} small>Create</Btn>
-              <Btn ghost color={C.modalTextMid} onClick={()=>{ setAdding(false); setChooseTemplate(false); setForm({ name:"", concert:"", emoji:"📸", color:C.accent, template:null, collaborators:[] }); }} style={{ width:82,flex:"none" }} small>Cancel</Btn>
+              <Btn onClick={saveBook} disabled={saving||!form.name.trim()||(chooseTemplate&&!form.template)} style={{ flex:1 }} small>{saving?"Creating…":"Create"}</Btn>
+              <Btn ghost color={C.modalTextMid} onClick={()=>{ setAdding(false); setChooseTemplate(false); setForm({ name:"", concert:"", emoji:"📸", color:C.accent, template:null }); }} style={{ width:82,flex:"none" }} small>Cancel</Btn>
             </div>
           </div>
         </div>
@@ -25048,46 +25488,19 @@ function ScrapbookDetail({ book, onBack, isVip, onUpgrade }) {
 
   useEffect(()=>{ ls.set(storageKey, memories); }, [memories]);
 
-  // Load from Supabase on mount when authenticated.
-  // photos[] stores storage paths; convert to signed URLs for display.
+  // Load via the backend (not a direct Supabase client read) so an accepted
+  // collaborator sees everyone's memories in a shared scrapbook, not just their
+  // own — GET /api/scrapbooks/memories authorizes owner-or-accepted-collaborator
+  // and signs photos[0] server-side (see api_server_v16.js). A plain per-user
+  // client-side query here would silently hide every collaborator's contribution.
   useEffect(()=>{
-    if(!_supabase || !user?.id) return;
+    if(!user?.id) return;
     (async () => {
-      const { data, error } = await _supabase.from('concert_memories')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('event_id', book.id)
-        .order('created_at', { ascending: false });
-      if(error || !data?.length) return;
-
-      const supaMems = await Promise.all(data.map(async row => {
-        let meta = {};
-        try { meta = JSON.parse(row.notes || '{}'); } catch {}
-        const storagePath = row.photos?.[0] || null;
-        let displayUrl = null;
-        if(storagePath) {
-          // storagePath is a raw storage key (not a URL); generate a 1-hour signed URL
-          const { data: sd } = await _supabase.storage
-            .from('memories')
-            .createSignedUrl(storagePath, 3600);
-          displayUrl = sd?.signedUrl || null;
-        }
-        return {
-          id: row.id, scrapbookId: row.event_id,
-          type: meta.type || 'photo', title: meta.title || '',
-          text: meta.text || '', imageData: displayUrl,
-          imageStoragePath: storagePath,
-          date: meta.date || '', event: meta.event || '',
-          venue: meta.venue || '', city: meta.city || '',
-          friends: row.people_met?.[0] || '', tags: meta.tags || [],
-          linkedSong: meta.linkedSong || '', favorite: meta.favorite || false,
-          created_at: row.created_at, _synced: true,
-        };
-      }));
-
+      const d = await api.get(`/api/scrapbooks/memories?scrapbookId=${encodeURIComponent(book.id)}`).catch(() => null);
+      if(!Array.isArray(d?.memories)) return;
       setMemories(prev => {
         const unsynced = prev.filter(m => !m._synced && typeof m.id === 'string' && m.id.startsWith('mem-'));
-        return [...supaMems, ...unsynced];
+        return [...d.memories, ...unsynced];
       });
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -26003,6 +26416,9 @@ function AppInner() {
   const [tab, setTab] = useState("community");
   // Auto-open capsule modal if signed-in user lands on /capsule
   const [modal, setModal] = useState(()=>_IS_CAPSULE_PATH&&canEnterApp(normalizeProfile(ls.get("backstage_session")?.user))?"capsule":null);
+  // Deep-link a specific scrapbook open from a DM invite card's "Open" button —
+  // null means "just open the Scrapbook list" (e.g. the DM composer's Create CTA).
+  const [scrapbookDeepLinkId, setScrapbookDeepLinkId] = useState(null);
   const [fromCapsule, setFromCapsule] = useState(_IS_CAPSULE_PATH);
   const [showCapsuleLanding, setShowCapsuleLanding] = useState(()=>_IS_CAPSULE_PATH&&!ls.get("backstage_session")?.user);
   // Capsule preview: signed-out fan sees the capsule before being asked to sign up
@@ -26712,12 +27128,12 @@ function AppInner() {
         {/* ── ALL MODALS ── */}
         {modal==="concertprep"&&<ToolModalWrapper title="Concert Prep Guide 📋"><ConcertPrep /></ToolModalWrapper>}
         {modal==="myshows"&&<ModalWrapper><MyShowsPage onBack={()=>setModal(null)} isVip={isVip} onUpgrade={openUpgrade} go={go} /></ModalWrapper>}
-        {modal==="scrapbook"&&<ModalWrapper><ScrapbookTab isVip={isVip} onUpgrade={openUpgrade} onBack={()=>setModal(null)} /></ModalWrapper>}
+        {modal==="scrapbook"&&<ModalWrapper><ScrapbookTab isVip={isVip} onUpgrade={openUpgrade} onBack={()=>{ setModal(null); setScrapbookDeepLinkId(null); }} deepLinkId={scrapbookDeepLinkId} /></ModalWrapper>}
         {modal==="reposts"&&<ModalWrapper><SavedPostsSection go={go} onBack={()=>setModal(null)} mode="reposts" /></ModalWrapper>}
         {modal==="achievements"&&<ModalWrapper><AchievementsModal onBack={()=>setModal(null)} isVip={isVip} /></ModalWrapper>}
         {modal==="friends"&&<ModalWrapper><FriendsPage onBack={()=>setModal(null)} onNotif={showNotif} go={go} onViewProfile={(fan)=>setPublicProfileFan({...fan,fromDM:false})} /></ModalWrapper>}
         {modal==="fanmap"&&<ModalWrapper><FanverseMap onBack={()=>setModal(null)} /></ModalWrapper>}
-        {modal==="chats"&&<ModalWrapper><DirectMessages onBack={()=>setModal(null)} user={user} onViewProfile={(fan)=>setPublicProfileFan({...fan,fromDM:true})} /></ModalWrapper>}
+        {modal==="chats"&&<ModalWrapper><DirectMessages onBack={()=>setModal(null)} user={user} onViewProfile={(fan)=>setPublicProfileFan({...fan,fromDM:true})} onOpenScrapbook={(id)=>{ setScrapbookDeepLinkId(id||null); setModal("scrapbook"); }} /></ModalWrapper>}
         {modal==="qr"&&<ModalWrapper><QRPage onBack={()=>setModal(null)} user={user} onNotif={showNotif} /></ModalWrapper>}
         {modal==="safety"&&<ModalWrapper><SafetyCenter onBack={()=>setModal(null)} /></ModalWrapper>}
         {modal==="events"&&<ModalWrapper><EventDiscovery onBack={()=>setModal(null)} go={go} /></ModalWrapper>}
