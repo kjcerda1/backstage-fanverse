@@ -173,7 +173,6 @@ const _dot1 = C.mode==="light" ? "rgba(110,70,190,0.34)" : "rgba(255,255,255,0.5
 const _dot2 = C.mode==="light" ? "rgba(150,80,200,0.3)"  : "rgba(196,181,253,0.4)";
 const _dot3 = C.mode==="light" ? "rgba(200,80,150,0.28)" : "rgba(240,168,204,0.35)";
 return `
-@import url('https://fonts.googleapis.com/css2?family=Epilogue:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,300;1,400;1,700;1,800&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap');
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html,body{width:100%;height:100%;overflow:hidden;background:${C.bg}}
 body{color:${C.text};font-family:'Instrument Sans',sans-serif;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;overscroll-behavior:none}
