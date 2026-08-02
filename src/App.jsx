@@ -19325,9 +19325,9 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
   // viewProfileFan — holds the fan object for the Shared Space sheet (ⓘ button)
   const [viewProfileFan, setViewProfileFan] = useState(null);
   const [viewSharedSpace, setViewSharedSpace]   = useState(false); // shared space quick sheet (ⓘ button)
-  // Message reactions — which message row has the picker open (convoId + msgIdx)
-  const [reactionPicker, setReactionPicker] = useState(null); // {convoId, msgIdx}
-  const [heartBurst, setHeartBurst] = useState(null); // msgIdx showing a transient double-tap ❤️ pop
+  // Message reactions — which message has the picker open (convoId + stable message id, never array index)
+  const [reactionPicker, setReactionPicker] = useState(null); // {convoId, msgId}
+  const [heartBurst, setHeartBurst] = useState(null); // message id showing a transient double-tap ❤️ pop
   const [msgDraft, setMsgDraft]       = useState("");
   const [pendingAttachment, setPendingAttachment] = useState(null); // { file, previewUrl, kind:'image'|'video', mimeType, width?, height?, durationSec?, uploading, error }
   const [gifPickerOpen, setGifPickerOpen] = useState(false);
@@ -19390,6 +19390,7 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
         gif:m.gif || null,
         media:m.media || null,
         type:m.gif ? "gif" : (m.media ? "media" : "text"),
+        reactions:m.reactions || [],
       })),
       unread:0,
       lastTime:thread.last_message?.created_at ? new Date(thread.last_message.created_at).toLocaleTimeString([], { hour:"numeric", minute:"2-digit" }) : "now",
@@ -19447,7 +19448,14 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
     let alive = true;
     api.get('/api/messages/threads').then(d => {
       if (!alive || !Array.isArray(d?.threads)) return;
-      setConvos(d.threads.map(t => normalizeDmThread(t)));
+      // t.messages is the thread's full message history (see GET /api/messages/threads) —
+      // omitting it here made normalizeDmThread fall back to just [t.last_message], so
+      // convos only ever held the SINGLE most recent message per thread while activeConvo
+      // (hydrated separately in openConvo, below) had the real full list. Every send/react
+      // then updated the two independently and out of sync, and toggleReaction — the one
+      // place that reads convos and writes the result back into activeConvo — would
+      // collapse the visibly-correct activeConvo list down to convos' 1-message copy.
+      setConvos(d.threads.map(t => normalizeDmThread(t, Array.isArray(t.messages) ? t.messages : null)));
     }).catch(() => {});
     return () => { alive = false; };
   }, [user?.id, tokenReady]);
@@ -19895,26 +19903,62 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
   // Reaction emojis available for direct message reactions
   const REACTION_EMOJIS = ["❤️","😂","😮","😢","🔥","👍"];
 
-  // Toggle a reaction on a specific message — add or remove current user's reaction
-  const toggleReaction = (convoId, msgIdx, emoji) => {
-    const myId = user?.username || user?.name || "me";
-    const myName = user?.username || user?.name || "me";
-    const next = convos.map(c => {
-      if(c.id !== convoId) return c;
-      const msgs = c.messages.map((m, i) => {
-        if(i !== msgIdx) return m;
-        const reactions = m.reactions || [];
-        const existingIdx = reactions.findIndex(r => r.emoji===emoji && r.userId===myId);
-        const updated = existingIdx >= 0
-          ? reactions.filter((_,ri) => ri !== existingIdx) // toggle off
-          : [...reactions, { emoji, userId:myId, username:myName, createdAt:new Date().toISOString() }];
-        return { ...m, reactions: updated };
-      });
-      return { ...c, messages: msgs };
-    });
-    setConvos(next);
-    if(activeConvo?.id === convoId) setActiveConvo(next.find(c=>c.id===convoId)||activeConvo);
+  // Applies a reaction change to ONE message (matched by its stable backend id,
+  // never array index) within a messages array, leaving every other message
+  // completely untouched. Shared by the optimistic-apply and rollback paths
+  // below so both use the exact same, single source of truth for "what does
+  // this array look like." Re-selecting your own current emoji clears it
+  // (toggle off); picking a different emoji replaces it — one reaction per
+  // user per message, matching the backend's UNIQUE(message_id, user_id).
+  const applyReactionToMessages = (messages, msgId, myId, myName, emoji) => messages.map(m => {
+    if (m.id !== msgId) return m;
+    const reactions = m.reactions || [];
+    const existingIdx = reactions.findIndex(r => r.userId === myId);
+    let updated;
+    if (existingIdx >= 0 && reactions[existingIdx].emoji === emoji) {
+      updated = reactions.filter((_, ri) => ri !== existingIdx);
+    } else if (existingIdx >= 0) {
+      updated = reactions.map((r, ri) => ri === existingIdx ? { ...r, emoji, createdAt: new Date().toISOString() } : r);
+    } else {
+      updated = [...reactions, { emoji, userId: myId, username: myName, createdAt: new Date().toISOString() }];
+    }
+    return { ...m, reactions: updated };
+  });
+
+  // Replaces one message's reactions with the authoritative array the backend
+  // returned — used both to reconcile after a successful call and (with the
+  // pre-call snapshot) to roll back after a failed one.
+  const setMessageReactions = (messages, msgId, reactions) =>
+    messages.map(m => m.id === msgId ? { ...m, reactions } : m);
+
+  // Toggle a reaction on a specific message. Optimistic: applies locally to
+  // BOTH activeConvo and its convos entry immediately (never just one, which
+  // is what let them drift apart before), calls the real backend, then
+  // reconciles with the server's authoritative reaction list — or rolls back
+  // to the exact pre-toggle snapshot on failure. Never touches any other
+  // message in the array.
+  const toggleReaction = async (convoId, msgId, emoji) => {
+    const myId = user?.id;
+    const myName = user?.username || user?.display_name || "me";
+    if (!myId || !activeConvo || activeConvo.id !== convoId) return;
+    const prevMessages = activeConvo.messages;
+    const optimistic = applyReactionToMessages(prevMessages, msgId, myId, myName, emoji);
+    setActiveConvo(prev => (prev && prev.id === convoId) ? { ...prev, messages: optimistic } : prev);
+    setConvos(prev => prev.map(c => c.id === convoId ? { ...c, messages: applyReactionToMessages(c.messages, msgId, myId, myName, emoji) } : c));
     setReactionPicker(null);
+
+    if (!activeConvo.backend) return; // local-only convo — nothing to persist server-side
+
+    try {
+      const res = await api.post(`/api/messages/${encodeURIComponent(msgId)}/reactions`, { emoji });
+      if (!Array.isArray(res?.reactions)) throw new Error(res?.error || 'reaction-failed');
+      setActiveConvo(prev => (prev && prev.id === convoId) ? { ...prev, messages: setMessageReactions(prev.messages, msgId, res.reactions) } : prev);
+      setConvos(prev => prev.map(c => c.id === convoId ? { ...c, messages: setMessageReactions(c.messages, msgId, res.reactions) } : c));
+    } catch {
+      setActiveConvo(prev => (prev && prev.id === convoId) ? { ...prev, messages: prevMessages } : prev);
+      setConvos(prev => prev.map(c => c.id === convoId ? { ...c, messages: prevMessages } : c));
+      setDmNotif({ title: "Reaction didn't send", body: "Check your connection and try again.", icon: "⚠️", color: C.rose });
+    }
   };
 
   // Group reactions by emoji for display: [{emoji, count, myReacted}]
@@ -19943,28 +19987,36 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
     if (pressTimerRef.current) { clearTimeout(pressTimerRef.current); pressTimerRef.current = null; }
   };
 
-  const openReactionPicker = (i, closeOthers) => {
-    setReactionPicker({ convoId:activeConvo.id, msgIdx:i });
-    if (closeOthers) { setKitOpen(false); setCharmPickerOpen(false); }
+  // msgId (the message's stable backend id) is what gets stored/compared —
+  // never the array index, which can't be trusted as identity. `i` is kept
+  // only for the press-gesture bookkeeping below (same-position double-tap
+  // timing), never for anything that touches reaction data.
+  const openReactionPicker = (msgId, closeOthers) => {
+    setReactionPicker({ convoId:activeConvo.id, msgId });
+    // closeOthers mirrors the attach/scrapbook-sheet-dismissal behavior the
+    // text/GIF bubbles already had on tap — the charm bubble never had it,
+    // preserved as-is. (Previously called setKitOpen/setCharmPickerOpen,
+    // state that no longer exists after the Backstage Kit → compact composer
+    // rewrite — a dead reference that threw on every long-press/right-click
+    // of a photo/video/voice/GIF bubble.)
+    if (closeOthers) { setAttachSheetOpen(false); setScrapbookSheetOpen(false); }
   };
 
-  const triggerHeartReaction = (i) => {
-    toggleReaction(activeConvo.id, i, "❤️");
-    setHeartBurst(i);
+  const triggerHeartReaction = (msgId) => {
+    toggleReaction(activeConvo.id, msgId, "❤️");
+    setHeartBurst(msgId);
     navigator.vibrate?.(15);
-    setTimeout(() => setHeartBurst(prev => prev===i ? null : prev), 650);
+    setTimeout(() => setHeartBurst(prev => prev===msgId ? null : prev), 650);
   };
 
-  // closeOthers mirrors the Kit/Charm-picker-dismissal behavior the text/GIF
-  // bubbles already had on tap — the charm bubble never had it, preserved as-is.
-  const bubblePressHandlers = (i, closeOthers=false) => ({
+  const bubblePressHandlers = (i, msgId, closeOthers=false) => ({
     onPointerDown: (e) => {
       if (e.pointerType==="mouse" && e.button!==0) return; // right-click handled separately
       pressStateRef.current = { idx:i, startX:e.clientX, startY:e.clientY, longPressFired:false };
       clearPressTimer();
       pressTimerRef.current = setTimeout(() => {
         pressStateRef.current.longPressFired = true;
-        openReactionPicker(i, closeOthers);
+        openReactionPicker(msgId, closeOthers);
         pressTimerRef.current = null;
       }, LONG_PRESS_MS);
     },
@@ -19983,14 +20035,14 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
       const last = lastTapRef.current;
       if (last.idx===i && (now-last.time) < DOUBLE_TAP_MS) {
         lastTapRef.current = { idx:null, time:0 };
-        triggerHeartReaction(i);
+        triggerHeartReaction(msgId);
       } else {
         lastTapRef.current = { idx:i, time:now };
       }
     },
     onPointerCancel: () => { clearPressTimer(); pressStateRef.current = {}; },
     onPointerLeave: () => { clearPressTimer(); pressStateRef.current = {}; },
-    onContextMenu: (e) => { e.preventDefault(); clearPressTimer(); openReactionPicker(i, closeOthers); },
+    onContextMenu: (e) => { e.preventDefault(); clearPressTimer(); openReactionPicker(msgId, closeOthers); },
   });
 
   const openConvo = async (convo) => {
@@ -20095,9 +20147,9 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
           const isCharm = msg.type==="charm" || msg.type==="sticker";
           const charmEmoji = msg.charmEmoji || msg.stickerEmoji;
           const charmLabel = msg.charmLabel || msg.stickerLabel;
-          const myId = user?.username || user?.name || "me";
+          const myId = user?.id;
           const grouped = groupReactions(msg.reactions, myId);
-          const isPickerOpen = reactionPicker?.convoId===activeConvo.id && reactionPicker?.msgIdx===i;
+          const isPickerOpen = reactionPicker?.convoId===activeConvo.id && reactionPicker?.msgId===msg.id;
           return (
             <div key={i} style={{ display:"flex",flexDirection:"column",alignItems:isMe?"flex-end":"flex-start",gap:0 }}>
               {/* ── REACTION PICKER — inline, appears above/near the tapped message ── */}
@@ -20107,7 +20159,7 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
                     {REACTION_EMOJIS.map(em=>{
                       const alreadyReacted = (msg.reactions||[]).some(r=>r.emoji===em&&r.userId===myId);
                       return (
-                        <button key={em} onClick={()=>toggleReaction(activeConvo.id,i,em)} className="tap" style={{ fontSize:16,background:alreadyReacted?`${C.lavender}20`:"transparent",border:"none",borderRadius:99,width:29,height:29,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",transition:"transform .15s",transform:alreadyReacted?"scale(1.1)":"scale(1)" }}>
+                        <button key={em} onClick={()=>toggleReaction(activeConvo.id,msg.id,em)} className="tap" style={{ fontSize:16,background:alreadyReacted?`${C.lavender}20`:"transparent",border:"none",borderRadius:99,width:29,height:29,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",transition:"transform .15s",transform:alreadyReacted?"scale(1.1)":"scale(1)" }}>
                           {em}
                         </button>
                       );
@@ -20122,7 +20174,7 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
                 {!isMe&&<Avatar user={activeConvo.fan} size={28} />}
                 {isCharm ? (
                   <div
-                    {...bubblePressHandlers(i)}
+                    {...bubblePressHandlers(i, msg.id)}
                     style={{ position:"relative",display:"flex",flexDirection:"column",alignItems:isMe?"flex-end":"flex-start",gap:3,animation:"pop .22s ease both",cursor:"pointer",userSelect:"none",WebkitUserSelect:"none",WebkitTouchCallout:"none",touchAction:"manipulation" }}>
                     <div style={{ background:isMe?`linear-gradient(135deg,${C.accent}28,${C.berry}18)`:`linear-gradient(135deg,${C.lavender}14,${C.accent}0a)`,borderRadius:16,padding:"8px 13px",border:`1.5px solid ${isMe?C.accent:C.lavender}30`,display:"flex",alignItems:"center",gap:8,backdropFilter:"blur(8px)",boxShadow:isMe?`0 0 12px ${C.accent}20, 0 2px 8px rgba(0,0,0,0.3)`:`0 0 12px ${C.lavender}14, 0 2px 8px rgba(0,0,0,0.2)` }}>
                       <span style={{ fontSize:22,lineHeight:1,filter:`drop-shadow(0 0 6px ${isMe?C.accent:C.lavender}80)` }}>{charmEmoji}</span>
@@ -20132,12 +20184,12 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
                       </div>
                     </div>
                     <p style={{ fontSize:8,color:C.textDim,paddingRight:isMe?4:0,paddingLeft:isMe?0:4 }}>{msg.time}</p>
-                    {heartBurst===i&&<HeartBurst/>}
+                    {heartBurst===msg.id&&<HeartBurst/>}
                   </div>
                 ) : msg.media?.kind==="image" ? (
                   /* Photo bubble — aspect-ratio box so cover never crops the source image */
                   <div
-                    {...bubblePressHandlers(i, true)}
+                    {...bubblePressHandlers(i, msg.id, true)}
                     style={{ position:"relative",maxWidth:240,cursor:"pointer",userSelect:"none",WebkitUserSelect:"none",WebkitTouchCallout:"none",touchAction:"manipulation" }}>
                     <div style={{ borderRadius:16,overflow:"hidden",border:`1.5px solid ${C.borderHi}`,background:C.surfaceHi,boxShadow:"0 2px 12px rgba(0,0,0,0.3)" }}>
                       {msg.media.url
@@ -20146,12 +20198,12 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
                       {msg.text&&<p style={{ fontSize:13,lineHeight:1.6,color:isMe?C.white:C.text,padding:"8px 12px 2px",background:isMe?`linear-gradient(140deg,${C.accent},${C.accentDim})`:C.surfaceHi }}>{msg.text}</p>}
                     </div>
                     <p style={{ fontSize:8,color:C.textDim,marginTop:3,textAlign:isMe?"right":"left" }}>{msg.time}</p>
-                    {heartBurst===i&&<HeartBurst/>}
+                    {heartBurst===msg.id&&<HeartBurst/>}
                   </div>
                 ) : msg.media?.kind==="video" ? (
                   /* Video bubble — native controls double as the play treatment */
                   <div
-                    {...bubblePressHandlers(i, true)}
+                    {...bubblePressHandlers(i, msg.id, true)}
                     style={{ position:"relative",maxWidth:240,cursor:"pointer" }}>
                     <div style={{ borderRadius:16,overflow:"hidden",border:`1.5px solid ${C.borderHi}`,background:"#000",boxShadow:"0 2px 12px rgba(0,0,0,0.3)" }}>
                       {msg.media.url
@@ -20160,12 +20212,12 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
                       {msg.text&&<p style={{ fontSize:13,lineHeight:1.6,color:isMe?C.white:C.text,padding:"8px 12px 2px",background:isMe?`linear-gradient(140deg,${C.accent},${C.accentDim})`:C.surfaceHi }}>{msg.text}</p>}
                     </div>
                     <p style={{ fontSize:8,color:C.textDim,marginTop:3,textAlign:isMe?"right":"left" }}>{msg.time}</p>
-                    {heartBurst===i&&<HeartBurst/>}
+                    {heartBurst===msg.id&&<HeartBurst/>}
                   </div>
                 ) : msg.media?.kind==="voice" ? (
                   /* Voice note bubble — play/pause + progress bar + duration */
                   <div
-                    {...bubblePressHandlers(i, true)}
+                    {...bubblePressHandlers(i, msg.id, true)}
                     style={{ position:"relative",cursor:"pointer",userSelect:"none",WebkitUserSelect:"none",WebkitTouchCallout:"none",touchAction:"manipulation" }}>
                     <div style={{ background:isMe?`linear-gradient(140deg,${C.accent},${C.accentDim})`:C.surfaceHi,borderRadius:isMe?"18px 18px 4px 18px":"18px 18px 18px 4px",padding:"11px 14px",border:isMe?"none":`1px solid ${C.border}` }}>
                       {msg.media.url
@@ -20173,7 +20225,7 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
                         : <p style={{ fontSize:11,color:isMe?C.white:C.textMid }}>Voice note unavailable</p>}
                       <p style={{ fontSize:8.5,color:isMe?"rgba(255,255,255,0.5)":C.textDim,marginTop:5 }}>{msg.time}</p>
                     </div>
-                    {heartBurst===i&&<HeartBurst/>}
+                    {heartBurst===msg.id&&<HeartBurst/>}
                   </div>
                 ) : msg.media?.kind==="scrapbook_invite" ? (
                   /* Shared Scrapbook invite card — status resolved live via inviteStatus */
@@ -20219,18 +20271,18 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
                 ) : msg.gif && !msg.text && !msg.image ? (
                   /* GIF-only — sticker style: no bubble background, compact, rounded */
                   <div
-                    {...bubblePressHandlers(i, true)}
+                    {...bubblePressHandlers(i, msg.id, true)}
                     style={{ position:"relative",maxWidth:msg.gif?.mediaType==="sticker"?160:180,cursor:"pointer",userSelect:"none",WebkitUserSelect:"none",WebkitTouchCallout:"none",touchAction:"manipulation" }}>
                     <div style={{ borderRadius:16,overflow:"hidden",border:`1.5px solid ${C.borderHi}`,boxShadow:`0 2px 12px rgba(0,0,0,0.35)`,background:msg.gif?.mediaType==="sticker"?"rgba(30,18,60,0.7)":"transparent" }}>
                       <GifImg gif={msg.gif} gifOnly hasText={false} />
                     </div>
                     <p style={{ fontSize:8,color:C.textDim,marginTop:3,textAlign:isMe?"right":"left",paddingRight:isMe?2:0,paddingLeft:isMe?0:2 }}>{msg.time}</p>
-                    {heartBurst===i&&<HeartBurst/>}
+                    {heartBurst===msg.id&&<HeartBurst/>}
                   </div>
                 ) : (
                   /* Text / image / text+GIF bubble */
                   <div
-                    {...bubblePressHandlers(i, true)}
+                    {...bubblePressHandlers(i, msg.id, true)}
                     style={{ position:"relative",maxWidth:"78%",cursor:"pointer",userSelect:"none",WebkitUserSelect:"none",WebkitTouchCallout:"none",touchAction:"manipulation" }}>
                     <div style={{ background:isMe?`linear-gradient(140deg,${C.accent},${C.accentDim})`:C.surfaceHi,borderRadius:isMe?"18px 18px 4px 18px":"18px 18px 18px 4px",padding:(msg.image||msg.gif)?"4px":"10px 14px",border:isMe?"none":`1px solid ${C.border}`,overflow:"hidden" }}>
                       {msg.image&&<img src={msg.image} alt="attachment" draggable={false} style={{ width:"100%",maxHeight:200,objectFit:"cover",borderRadius:msg.text?"8px 8px 0 0":"10px",display:"block" }} />}
@@ -20238,7 +20290,7 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
                       {msg.text&&<p style={{ fontSize:13,lineHeight:1.6,color:isMe?C.white:C.text,padding:(msg.image||msg.gif)?"6px 10px 2px":"0" }}>{msg.text}</p>}
                       <p style={{ fontSize:8.5,color:isMe?"rgba(255,255,255,0.5)":C.textDim,padding:(msg.image||msg.gif)?"0 10px 6px":"3px 0 0" }}>{msg.time}</p>
                     </div>
-                    {heartBurst===i&&<HeartBurst/>}
+                    {heartBurst===msg.id&&<HeartBurst/>}
                   </div>
                 )}
               </div>
@@ -20247,7 +20299,7 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
               {grouped.length>0&&(
                 <div style={{ display:"flex",gap:4,flexWrap:"wrap",marginTop:4,paddingLeft:isMe?0:36,paddingRight:isMe?0:0,justifyContent:isMe?"flex-end":"flex-start",animation:"up .2s ease" }}>
                   {grouped.map(({emoji:em,count,myReacted})=>(
-                    <button key={em} onClick={()=>toggleReaction(activeConvo.id,i,em)} className="tap" style={{ display:"flex",alignItems:"center",gap:4,padding:"3px 9px",borderRadius:99,background:myReacted?`${C.lavender}20`:`${C.surfaceHi}`,border:`1.5px solid ${myReacted?C.lavender:C.borderHi}`,cursor:"pointer",transition:"all .18s",boxShadow:myReacted?`0 0 8px ${C.lavender}30`:"none" }}>
+                    <button key={em} onClick={()=>toggleReaction(activeConvo.id,msg.id,em)} className="tap" style={{ display:"flex",alignItems:"center",gap:4,padding:"3px 9px",borderRadius:99,background:myReacted?`${C.lavender}20`:`${C.surfaceHi}`,border:`1.5px solid ${myReacted?C.lavender:C.borderHi}`,cursor:"pointer",transition:"all .18s",boxShadow:myReacted?`0 0 8px ${C.lavender}30`:"none" }}>
                       <span style={{ fontSize:13,lineHeight:1 }}>{em}</span>
                       {count>1&&<span style={{ fontSize:9.5,color:myReacted?C.lavender:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700 }}>{count}</span>}
                     </button>
