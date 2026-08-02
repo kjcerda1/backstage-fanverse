@@ -3318,7 +3318,13 @@ function Onboarding({ onDone }) {
 
   useEffect(() => {
     if (resendCooldown <= 0) return;
-    const t = setTimeout(() => setResendCooldown(c => c - 1), 1000);
+    const t = setTimeout(() => setResendCooldown(c => {
+      const next = c - 1;
+      // Clear the stale "too many attempts" banner the instant the resend
+      // cooldown hits 0 — otherwise it sits there even after the button re-enables.
+      if (next <= 0) setErr(e => (e && e.toLowerCase().includes('too many attempts')) ? '' : e);
+      return next;
+    }), 1000);
     return () => clearTimeout(t);
   }, [resendCooldown]);
 
