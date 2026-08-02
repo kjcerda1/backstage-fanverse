@@ -167,7 +167,9 @@ async function uploadCoverImage(file, presignPath) {
 function useBinders() {
   const [binders, setBinders] = useState([]);
   const [loading, setLoading] = useState(true);
-  const { tokenReady } = useAuth();
+  const { tokenReady, user } = useAuth();
+  const userId = user?.id || null;
+  const lastUserIdRef = useRef(userId);
 
   const refresh = useCallback(async () => {
     // api.get now normalizes a non-JSON 200 (the Vite HTML shell when no /api
@@ -184,12 +186,24 @@ function useBinders() {
     setLoading(false);
   }, []);
 
+  // Same account-isolation fix as useUserCards: reset the instant the signed-in
+  // identity changes so a previous account's binders can never render under a
+  // different one while the fresh fetch is in flight (see F14 in
+  // docs/USER_POV_PRODUCT_AUDIT_2026-08-02.md).
+  useEffect(() => {
+    if (lastUserIdRef.current === userId) return;
+    lastUserIdRef.current = userId;
+    setBinders([]);
+    setLoading(true);
+  }, [userId]);
+
   useEffect(() => {
     // Demo / no-backend mode has no auth token to wait for — load immediately so
     // the list resolves instead of hanging. With a real backend, wait for the token.
     if (API_URL && !tokenReady) return;
+    if (API_URL && !userId) return;
     refresh();
-  }, [tokenReady, refresh]);
+  }, [tokenReady, userId, refresh]);
 
   return { binders, setBinders, loading, refresh };
 }
@@ -199,21 +213,50 @@ function useBinders() {
 // Sheet, Collection Tracker) reads/writes through this instead of keeping its
 // own local copy, so a status/photo change made in one place is immediately
 // visible everywhere else without a remount or reload.
+//
+// Each call site gets its OWN cards/loading state (this is a plain hook, not a
+// Context) — it is not actually a single shared cache across the whole app.
+// The component instances backing My World stay mounted across a sign-out ->
+// sign-in-as-someone-else cycle in the same tab, so this hook must not rely
+// solely on the `tokenReady` boolean to know when to refetch: `tokenReady` can
+// be true for two different accounts in a row without every consumer's effect
+// re-running before a render happens in between, which let one account's real
+// collection data render — briefly but visibly — under a different signed-in
+// account (confirmed live, see docs/USER_POV_PRODUCT_AUDIT_2026-08-02.md, F14).
+// Keying the reset to the actual authenticated user id closes that window:
+// the moment the id changes (including to/from signed-out), cards are cleared
+// to a real loading/empty state before any fetch for the new id can resolve.
 function useUserCards({ enabled = true } = {}) {
   const [cards, setCards] = useState(MOCK_CARDS);
   const [loading, setLoading] = useState(true);
-  const { tokenReady } = useAuth();
+  const { tokenReady, user } = useAuth();
+  const userId = user?.id || null;
+  const lastUserIdRef = useRef(userId);
 
   const refresh = useCallback(async () => {
     const d = await api.get('/api/cards').catch(() => null);
-    if (d?.cards?.length) setCards(d.cards);
+    // Check the array's presence, not its length — a genuinely empty
+    // collection (d.cards === []) must clear the display too, not leave
+    // whatever was rendered before untouched.
+    if (Array.isArray(d?.cards)) setCards(d.cards);
     setLoading(false);
   }, []);
 
+  // Fires the instant the signed-in identity changes — sign-out (userId ->
+  // null), sign-in, or switching accounts without a reload. Never lets a
+  // previous account's real cards, or the generic MOCK_CARDS placeholder,
+  // linger as a stand-in for the new identity's actual data.
   useEffect(() => {
-    if (!enabled || !tokenReady) return;
+    if (lastUserIdRef.current === userId) return;
+    lastUserIdRef.current = userId;
+    setCards(userId ? [] : MOCK_CARDS);
+    setLoading(!!userId);
+  }, [userId]);
+
+  useEffect(() => {
+    if (!enabled || !tokenReady || !userId) return;
     refresh();
-  }, [enabled, tokenReady, refresh]);
+  }, [enabled, tokenReady, userId, refresh]);
 
   const patchCard = useCallback((id, updates) => {
     setCards(cs => cs.map(c => c.id === id ? { ...c, ...updates } : c));
@@ -5626,7 +5669,9 @@ const BookmarkOutline = ({ size=16, filled=false, color="currentColor" }) => (
 // button when `onBack` is given. GET /api/me/saves | /api/me/reposts — Saved is
 // private (the copy says so) and spans posts saved from Fanverse AND Explore.
 function SavedPostsSection({ go, onBack, mode="saved" }) {
-  const { tokenReady } = useAuth();
+  const { tokenReady, user } = useAuth();
+  const userId = user?.id || null;
+  const lastUserIdRef = useRef(userId);
   const isSaved = mode !== "reposts";
   const [posts, setPosts]     = useState([]);
   const [loading, setLoading] = useState(true);
@@ -5643,7 +5688,17 @@ function SavedPostsSection({ go, onBack, mode="saved" }) {
     setLoading(false);
   }, [isSaved]);
 
-  useEffect(() => { if (tokenReady) load(); }, [tokenReady, load]);
+  // Account-isolation fix (see F14, docs/USER_POV_PRODUCT_AUDIT_2026-08-02.md):
+  // clear immediately on identity change so a previous account's saved posts
+  // never render under a different signed-in account.
+  useEffect(() => {
+    if (lastUserIdRef.current === userId) return;
+    lastUserIdRef.current = userId;
+    setPosts([]);
+    setLoading(!!userId);
+  }, [userId]);
+
+  useEffect(() => { if (tokenReady && userId) load(); }, [tokenReady, userId, load]);
 
   // Un-saving / un-reposting removes the row immediately — the expected outcome here.
   const undo = async (post) => {
@@ -25366,7 +25421,9 @@ const MOCK_SCRAPBOOKS = [
 ];
 
 function ScrapbookTab({ isVip, onUpgrade, onBack, deepLinkId }) {
-  const { tokenReady } = useAuth();
+  const { tokenReady, user } = useAuth();
+  const userId = user?.id || null;
+  const lastUserIdRef = useRef(userId);
   const [localBooks, setLocalBooks] = useState(ls.get("backstage_scrapbooks", MOCK_SCRAPBOOKS));
   const [remoteBooks, setRemoteBooks] = useState(null); // null = not fetched yet
   const [selected, setSelected] = useState(null);
@@ -25385,7 +25442,16 @@ function ScrapbookTab({ isVip, onUpgrade, onBack, deepLinkId }) {
     const d = await api.get('/api/scrapbooks').catch(() => null);
     setRemoteBooks(Array.isArray(d?.scrapbooks) ? d.scrapbooks : []);
   }, []);
-  useEffect(() => { if (tokenReady) refreshRemoteBooks(); }, [tokenReady, refreshRemoteBooks]);
+  // Account-isolation fix (see F14, docs/USER_POV_PRODUCT_AUDIT_2026-08-02.md):
+  // reset the instant the signed-in identity changes so a previous account's
+  // scrapbooks can never render under a different one while the fresh fetch
+  // for the new account is still in flight.
+  useEffect(() => {
+    if (lastUserIdRef.current === userId) return;
+    lastUserIdRef.current = userId;
+    setRemoteBooks(null);
+  }, [userId]);
+  useEffect(() => { if (tokenReady && userId) refreshRemoteBooks(); }, [tokenReady, userId, refreshRemoteBooks]);
 
   const remoteIds = new Set((remoteBooks||[]).map(b=>b.id));
   const books = [...(remoteBooks||[]), ...localBooks.filter(b=>!remoteIds.has(b.id))];
