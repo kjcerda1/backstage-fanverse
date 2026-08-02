@@ -7070,36 +7070,21 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
             <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 18px" }} />
             <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6 }}>
               <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18 }}>✦ Smart Matching</p>
-              <div style={{ ...VS.activePill(C.gold),fontSize:9 }}>VIP</div>
+              <div style={{ ...VS.activePill(C.gold),fontSize:9 }}>PREVIEW</div>
             </div>
-            <p style={{ fontSize:11.5,color:C.textMid,marginBottom:16 }}>Your ISO list is queued. We'll match you with traders in the Fanverse.</p>
+            <p style={{ fontSize:11.5,color:C.textMid,marginBottom:16 }}>Coming with Trade Hub V2 — matching real collectors by what you each have and want.</p>
             {wishlistTotal===0 ? (
               <div style={{ textAlign:"center",padding:"20px 16px",background:`${C.accent}08`,border:`1.5px dashed ${C.border}`,borderRadius:16 }}>
                 <p style={{ fontSize:24,marginBottom:10 }}>🔍</p>
                 <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,marginBottom:6 }}>No ISO cards yet</p>
-                <p style={{ fontSize:11.5,color:C.textMid }}>Mark cards as ISO in a binder to enable smart matching.</p>
+                <p style={{ fontSize:11.5,color:C.textMid }}>Mark cards as ISO in a binder now — your list will be ready the moment matching goes live.</p>
               </div>
             ) : (
-              <div>
-                <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10 }}>Potential Matches</p>
-                {[
-                  {user:"@trademaster",card:wishlist[0]?.member||"Felix",group:wishlist[0]?.group_name||"SKZ",reason:"Has dupe for trade",match:94,color:softBlue},
-                  {user:"@kpopswap",card:wishlist[0]?.member||"Felix",group:wishlist[0]?.group_name||"SKZ",reason:"Listed ISO match",match:87,color:C.accent},
-                ].map((m,i)=>(
-                  <div key={i} style={{ display:"flex",gap:12,alignItems:"center",padding:"12px 13px",borderRadius:14,background:`${m.color}0c`,border:`1.5px solid ${m.color}28`,marginBottom:10 }}>
-                    <div style={{ width:38,height:38,borderRadius:"50%",background:`${m.color}22`,border:`1.5px solid ${m.color}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:m.color,flexShrink:0 }}>{m.user[1].toUpperCase()}</div>
-                    <div style={{ flex:1 }}>
-                      <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,color:C.text,marginBottom:2 }}>{m.user}</p>
-                      <p style={{ fontSize:10.5,color:C.textMid }}>{m.card} · {m.group}</p>
-                      <p style={{ fontSize:9.5,color:C.textDim,marginTop:2 }}>{m.reason}</p>
-                    </div>
-                    <div style={{ textAlign:"center",flexShrink:0 }}>
-                      <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,color:m.color }}>{m.match}%</p>
-                      <p style={{ fontSize:8.5,color:C.textDim }}>match</p>
-                    </div>
-                  </div>
-                ))}
-                <p style={{ fontSize:10,color:C.textDim,textAlign:"center",marginTop:6,lineHeight:1.6 }}>Full matching launches with Trade Hub V2 · Your ISO list is queued</p>
+              <div style={{ textAlign:"center",padding:"22px 16px",background:`${softBlue}0a`,border:`1.5px dashed ${softBlue}33`,borderRadius:16 }}>
+                <p style={{ fontSize:26,marginBottom:10 }}>✦</p>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,marginBottom:6 }}>Not live yet</p>
+                <p style={{ fontSize:11.5,color:C.textMid,lineHeight:1.6,marginBottom:10 }}>Once Trade Hub V2 ships, Smart Matching will connect you with real collectors — someone who has what you're ISO for, and wants something you can trade.</p>
+                <p style={{ fontSize:10.5,color:C.textDim }}>Your {wishlistTotal} ISO {wishlistTotal===1?"card is":"cards are"} saved and ready — nothing to do but wait.</p>
               </div>
             )}
           </div>
@@ -9597,7 +9582,7 @@ function TradeHub({ onBack, onNotif, user, initialOfferId }) {
         <div style={{ flex:1, minWidth:0, paddingRight:108 }}>
           <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:19 }}>Trade Hub 🃏</h2>
           <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:2 }}>
-            <p style={{ fontSize:10.5, color:C.textMid }}>{trades.filter(t=>t.stage!=="done").length} active trades</p>
+            <p style={{ fontSize:10.5, color:C.textMid }}>{myOffers.filter(o=>!["completed","declined","cancelled"].includes(o.status)).length} active trades</p>
             {ls.get("backstage_is_vip")&&<div style={{ ...VS.activePill(C.gold),fontSize:9 }}>✦ Verified</div>}
           </div>
         </div>
@@ -22501,7 +22486,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
               Logged in as: <span style={{ color:C.textMid }}>{session.user.email}</span>
             </p>
           )}
-          <p style={{ textAlign:"center",fontSize:9.5,color:C.textDim,marginTop:4 }}>Backstage v1.16.0 · Prototype</p>
+          <p style={{ textAlign:"center",fontSize:9.5,color:C.textDim,marginTop:4 }}>Backstage v1.16.0</p>
         </div>
       </Screen>
 
