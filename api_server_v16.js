@@ -4535,6 +4535,110 @@ function sanitizeDmMedia(raw, expectedPathPrefix) {
   return null;
 }
 
+// ── DM message reactions (real persistence — see supabase-dm-message-
+// reactions-migration.sql) ──────────────────────────────────────────────────
+// Attaches a `reactions: [{emoji, userId, username, createdAt}]` array to
+// each message, grouped from message_reactions. Called for every message
+// list this API returns so sender and recipient both always see the same,
+// persisted set after a reload — never client-only state.
+async function attachReactionsToMessages(messages) {
+  const list = messages || [];
+  const ids = [...new Set(list.map(m => m.id).filter(Boolean))];
+  if (!ids.length) return list;
+  const { data: rows, error } = await supabase
+    .from('message_reactions')
+    .select('message_id, user_id, emoji, created_at')
+    .in('message_id', ids);
+  if (error || !rows?.length) return list.map(m => ({ ...m, reactions: [] }));
+  const userIds = [...new Set(rows.map(r => r.user_id))];
+  const profileById = await getPublicUsersByIds(userIds);
+  const byMessage = {};
+  rows.forEach(r => {
+    if (!byMessage[r.message_id]) byMessage[r.message_id] = [];
+    byMessage[r.message_id].push({
+      emoji: r.emoji,
+      userId: r.user_id,
+      username: profileById.get(r.user_id)?.username || 'fan',
+      createdAt: r.created_at,
+    });
+  });
+  return list.map(m => ({ ...m, reactions: byMessage[m.id] || [] }));
+}
+
+// Resolves a message's thread_id and confirms the caller is a (non-removed)
+// member of it — the same check every reaction route needs before touching
+// message_reactions, since the backend's service-role key bypasses RLS and
+// must enforce thread membership itself.
+async function getMessageThreadIfMember(messageId, userId) {
+  const { data: message } = await supabase.from('messages').select('id, thread_id').eq('id', messageId).single();
+  if (!message) return { message: null, isMember: false };
+  const { data: membership } = await supabase
+    .from('message_thread_members')
+    .select('thread_id')
+    .eq('thread_id', message.thread_id)
+    .eq('user_id', userId)
+    .is('deleted_at', null)
+    .single();
+  return { message, isMember: !!membership };
+}
+
+// Add or change the caller's own reaction. Re-selecting the same emoji
+// removes it (toggle), matching the existing double-tap-to-unlike UX.
+app.post('/api/messages/:id/reactions', requireAuth, async (req, res) => {
+  const emoji = typeof req.body?.emoji === 'string' ? req.body.emoji.trim().slice(0, 8) : '';
+  if (!emoji) return res.status(400).json({ error: 'emoji required' });
+  if (MOCK_MODE) return res.json({ reactions: [{ emoji, userId: req.userId, username: 'me', createdAt: new Date().toISOString() }], mock: true });
+  try {
+    const { message, isMember } = await getMessageThreadIfMember(req.params.id, req.userId);
+    if (!message || !isMember) return res.status(403).json({ error: 'Forbidden' });
+
+    const { data: existing } = await supabase
+      .from('message_reactions')
+      .select('emoji')
+      .eq('message_id', req.params.id)
+      .eq('user_id', req.userId)
+      .single();
+
+    if (existing?.emoji === emoji) {
+      const { error } = await supabase.from('message_reactions').delete().eq('message_id', req.params.id).eq('user_id', req.userId);
+      if (error) throw error;
+    } else {
+      const { error } = await supabase.from('message_reactions')
+        .upsert({ message_id: req.params.id, user_id: req.userId, emoji, updated_at: new Date().toISOString() }, { onConflict: 'message_id,user_id' });
+      if (error) throw error;
+    }
+
+    const { data: rows } = await supabase.from('message_reactions').select('user_id, emoji, created_at').eq('message_id', req.params.id);
+    const profileById = await getPublicUsersByIds((rows || []).map(r => r.user_id));
+    const reactions = (rows || []).map(r => ({ emoji: r.emoji, userId: r.user_id, username: profileById.get(r.user_id)?.username || 'fan', createdAt: r.created_at }));
+    res.json({ reactions });
+  } catch (err) {
+    console.error('[POST /api/messages/:id/reactions]', err.message);
+    res.status(500).json({ error: 'Could not update reaction' });
+  }
+});
+
+// Explicit remove — always deletes only the caller's own reaction, regardless
+// of what's in the request body (user_id is never read from the client).
+app.delete('/api/messages/:id/reactions', requireAuth, async (req, res) => {
+  if (MOCK_MODE) return res.json({ reactions: [], mock: true });
+  try {
+    const { message, isMember } = await getMessageThreadIfMember(req.params.id, req.userId);
+    if (!message || !isMember) return res.status(403).json({ error: 'Forbidden' });
+
+    const { error } = await supabase.from('message_reactions').delete().eq('message_id', req.params.id).eq('user_id', req.userId);
+    if (error) throw error;
+
+    const { data: rows } = await supabase.from('message_reactions').select('user_id, emoji, created_at').eq('message_id', req.params.id);
+    const profileById = await getPublicUsersByIds((rows || []).map(r => r.user_id));
+    const reactions = (rows || []).map(r => ({ emoji: r.emoji, userId: r.user_id, username: profileById.get(r.user_id)?.username || 'fan', createdAt: r.created_at }));
+    res.json({ reactions });
+  } catch (err) {
+    console.error('[DELETE /api/messages/:id/reactions]', err.message);
+    res.status(500).json({ error: 'Could not remove reaction' });
+  }
+});
+
 app.get('/api/messages/threads', requireAuth, async (req, res) => {
   if (MOCK_MODE) return res.json({ threads: [], mock: true });
   try {
@@ -4565,7 +4669,7 @@ app.get('/api/messages/threads', requireAuth, async (req, res) => {
     const profileById = Object.fromEntries((profiles || []).map(p => [p.id, toPublicCard(p)]));
     const circleIdSet = new Set((circleRows || []).map(r => r.friend_id));
     const createdByThread = Object.fromEntries((threadRows || []).map(t => [t.id, t.created_by]));
-    const signedMessages = await signDmMedia(messages || []);
+    const signedMessages = await attachReactionsToMessages(await signDmMedia(messages || []));
     const messagesByThread = {};
     signedMessages.forEach(m => {
       if (!messagesByThread[m.thread_id]) messagesByThread[m.thread_id] = [];
@@ -4652,7 +4756,8 @@ app.get('/api/messages/thread/:id', requireAuth, async (req, res) => {
       .eq('thread_id', req.params.id)
       .order('created_at', { ascending: true });
     if (error) throw error;
-    res.json({ thread: { id: req.params.id, messages: await signDmMedia(messages || []) } });
+    const signed = await signDmMedia(messages || []);
+    res.json({ thread: { id: req.params.id, messages: await attachReactionsToMessages(signed) } });
   } catch (err) {
     console.error('[GET /api/messages/thread] Error:', err.message);
     res.status(503).json({ error: 'Could not load message thread' });
