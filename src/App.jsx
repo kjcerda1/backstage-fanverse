@@ -26615,7 +26615,17 @@ function AppInner() {
   const [showCapsuleLanding, setShowCapsuleLanding] = useState(()=>_IS_CAPSULE_PATH&&!ls.get("backstage_session")?.user);
   // Capsule preview: signed-out fan sees the capsule before being asked to sign up
   const [showCapsulePreview, setShowCapsulePreview] = useState(false);
-  const { cards, setCards, patchCard, deleteCard, addCard, loading: cardsLoading, refresh: refreshCards } = useUserCards();
+  // Photocard data isn't needed by the Fanverse/Explore landing tabs — only by
+  // My World, Tools, My Stage, and the "My Collection" deep-link modal. Defer
+  // the /api/cards fetch until one of those is actually visited so it doesn't
+  // compete with the landing tab's own requests on first load. Sticky once
+  // true: switching back to Fanverse afterward must not re-hide already-loaded
+  // data or refetch (useUserCards's own effect only reacts to enabled/userId/
+  // tokenReady transitions, so this doesn't cause repeat fetches).
+  const cardsNeededNow = tab==="collect"||tab==="fanverse"||tab==="profile"||modal==="collectmodal";
+  const [cardsNeeded, setCardsNeeded] = useState(cardsNeededNow);
+  useEffect(() => { if (cardsNeededNow && !cardsNeeded) setCardsNeeded(true); }, [cardsNeededNow, cardsNeeded]);
+  const { cards, setCards, patchCard, deleteCard, addCard, loading: cardsLoading, refresh: refreshCards } = useUserCards({ enabled: cardsNeeded });
   const [notif, setNotif] = useState(null);
   const [showNotifPrompt, setShowNotifPrompt] = useState(false);
   const [showSmartNotifs, setShowSmartNotifs] = useState(false);
