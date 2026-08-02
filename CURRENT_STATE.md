@@ -2,8 +2,16 @@
 
 *This is the doc to re-upload to the Claude Project most often — it reflects the actual shipped state of the app, not a single session's diff. For stable architecture background, see `PROJECT_OVERVIEW.md` instead.*
 
-**Snapshot date:** 2026-07-23
+**Snapshot date:** 2026-07-23 (partial refresh 2026-08-02 — see note below; full regen still pending)
 **Branch:** `main` @ `ac0c08d`
+
+> **⚠️ 2026-08-02 partial refresh:** `main` has since advanced to `5db8fb2` (2026-08-01
+> DM Phase 2 merge). The rest of this snapshot below is still as of `ac0c08d` /
+> 2026-07-23 and has **not** been fully regenerated — only the "Social: Circle,
+> Messages..." and "Scrapbook" bullets in §1 were corrected to match current
+> production. Treat every other section as possibly one merge behind until a full
+> regen happens. See `docs/FOUNDER_LAUNCH_READINESS_2026-08-02.md` for what was
+> verified live on 2026-08-02.
 **Version:** `package.json` → `1.16.0` (normalized 2026-07-24 from a stale `1.6.0` that had sat unbumped across 113 commits; UI badges + `DEPLOYMENT.md` synced to match)
 **Supabase project:** `wshqjxsbwqijodlskrbx` (us-east-1, Postgres 17)
 **Live DB snapshot (queried 2026-07-23):** 17 registered users · 11 VIP · 6 friends rows · 24 DMs · 11 FCM tokens · 132 synced events · 1 post · 3 post comments · 0 meetups · 0 meetup RSVPs · 0 moderation reports · 0 blocks. The zeros on meetups/posts mean those features are wired to real tables but barely exercised in this dev DB — not that they're unbuilt.
@@ -73,7 +81,8 @@ Status legend: **Real** = wired to live backend/DB (works fully with env vars se
 - Own `+` action orb (Add Photocard / Start Binder / Wishlist / Templates / Memory / Ask AI / Decorate).
 
 ### Scrapbook — Real
-- `ScrapbookTab`, `ScrapbookDetail`, stable collaborator join codes. `/api/scrapbooks/memories`, `/api/scrapbooks/memory`.
+- `ScrapbookTab`, `ScrapbookDetail`. `/api/scrapbooks/memories`, `/api/scrapbooks/memory`.
+- **Collaboration rebuilt on real backend (2026-08-01, `5db8fb2`):** the "book" entity and its collaborator invites previously lived only in `localStorage` with a fake, never-validated "collab code." Now backed by real `scrapbooks` + `scrapbook_collaborators` tables with RLS (accept/decline persists server-side); invite is sent as a real DM message card. Not yet reflected in the rest of this doc's snapshot date — see the DM Phase 2 note under "Social" above.
 
 ### My Stage / fan identity — Real
 - `ProfileStudio`, `SkinThemeTab` (Stage Worlds, Stage Deco, background upload), `IdentityCard`, `FounderBadge`/`FounderPrestigeCard` (founder number **DB-backed**, auto-assigned sequentially on Founder Pass purchase), `PublicProfileFull`, `PublicFanPassport`.
@@ -92,7 +101,8 @@ Status legend: **Real** = wired to live backend/DB (works fully with env vars se
 
 ### Social: Circle, Messages, GIFs/Stickers, Reactions — Real
 - `FriendsPage`/`MyCircleSection`, real friend-request flow (`friend_requests`, `friends`), "Find Fans" search. Unique-constraint re-request bug fixed (2026-07-05).
-- `DirectMessages` — Circle-gated threads (`message_threads`/`messages`), Backstage Kit attachment tray, Charms. GIF/sticker system (`GifPicker`, `gif` column). DM reactions. **Delivery is poll-based, not realtime** (see §3).
+- `DirectMessages` — Circle-gated threads (`message_threads`/`messages`), GIF/sticker system (`GifPicker`, `gif` column). **Delivery is poll-based, not realtime** (see §3).
+- **DM Phase 2 (2026-08-01, `5db8fb2`, NOT yet reflected elsewhere in this doc):** the old 6-tile "Backstage Kit"/Charms tray was replaced with a compact composer (`+`/GIF/text/mic⇄send). Photo/video and voice notes are now real (`messages.media` jsonb, private `dm-media` Supabase Storage bucket, signed URLs), not local-only. Message reactions are real and persisted (`message_reactions` table, stable message-id identity, `POST`/`DELETE /api/messages/:id/reactions`). All three verified live in production 2026-08-02 (real thread rendered photo + voice-note + reaction history with no console errors) — see `docs/FOUNDER_LAUNCH_READINESS_2026-08-02.md`. Video send/receive was **not** confirmed on real phone hardware as part of that check (browser-only verification) — see that doc's §E for the outstanding physical-device checks.
 - `QRPage` (QR add-friend), `ChatHub`/`ChatRoom`.
 - Backstage Buzz notifications: `NotificationCenter`, route-map deep-links, reactive bell badge. **Per-type push gating** (Phase 1, 2026-07-19) via `users.notification_settings` jsonb; consolidated into one dedicated settings screen.
 

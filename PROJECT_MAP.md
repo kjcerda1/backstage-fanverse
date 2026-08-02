@@ -31,9 +31,9 @@ Only read App.jsx end-to-end if the user **explicitly** asks for a whole-file pa
 
 One monolith, many top-level components (exact count drifts — see `docs/AGENT_CONTEXT_EFFICIENCY_AUDIT.md` for a dated snapshot). Grouped by feature area.
 
-**Anchors verified 2026-07-31** via `grep -n "^function "` (whole-file declaration scan, no ranges opened) — treat these as accurate as of that date, re-grep the component name if it's been a while since.
+**Anchors verified 2026-07-31** via `grep -n "^function "` (whole-file declaration scan, no ranges opened) — treat these as accurate as of that date, re-grep the component name if it's been a while since. **Rows from "Profiles (public) + DMs" through "App shell (root)" re-verified 2026-08-02** after the 2026-08-01 DM Phase 2 merge (`5db8fb2`) added ~1,370 net lines to `App.jsx` (premium DM composer, real media/voice-notes, scrapbook collaboration) — everything at or below that point in the file shifted down; rows above it are unaffected.
 
-| Lines (verified 2026-07-31) | Area | Key components / contents |
+| Lines (verified 2026-07-31; rows below "Profiles + DMs" re-verified 2026-08-02) | Area | Key components / contents |
 |---|---|---|
 | 1–410 | **App config / env** | `API_URL`, Supabase env inspection, `MOCK_AUTH` flag, `AuthCtx` |
 | 411–1099 | Auth provider + username/world rules + customization catalogs | `AuthProvider` (session, token, password recovery), `syncMyWorldToServer`, `clearAuthStorage`, `RESERVED_USERNAMES`, `IMPERSONATION_AFFIXES`, `MY_WORLD_KEYS`, `SKIN_GRADIENTS`, `SKIN_CATEGORIES`, `STAGE_DECO/FONTS/EFFECTS`, `SHRINE_LAYOUTS`, `CARD_STYLES` |
@@ -56,16 +56,16 @@ One monolith, many top-level components (exact count drifts — see `docs/AGENT_
 | 16078–16581 | Friends / rooms / QR | `FriendsPage`, `ChatHub`, `ChatRoom`, `QRPage` |
 | 16582–16973 | **Safety / moderation** | `ReportSheet`, `SafetyCenter`, `ModerationReportCard`, `ModerationQueue` |
 | 16974–17516 | **Concert day mode** | `EventDiscovery`, `VenueCrowdTips`, `ConcertDayBanner(Active)`, `ConcertDayMode` |
-| 17517–18724 | Misc fan tools (small) | `ValueTracker`, `FanProjects`, `CreatorMode`, `BackupExport`, `FanIdentity`, `SmartNotifs`, `AIAssistant`, `TicketWallet`, `MiniGames`, `ConcertPrep`, `KWorldHub`, `KDramaTracker`, `AfterglowPage` |
-| 18725–20497 | **Profiles (public) + DMs** | `PublicProfilePreview`, `PublicProfileFull`, `PublicFanPassport`, `ProfilePreview`, `DirectMessages` |
-| 20498–22075 | **Profile tab + settings** | `FanAnniversaryWidget`, `TopBiasesSection`, `MyCircleSection`, `AccountSettings`, `Top5Section`, `ProfileTab` |
-| 22076–22565 | **Music connect** | `NpSourceBadge`, `NowPlayingCard`, `MusicConnect` |
-| 22566–23768 | **Concert Capsule + Passes** | `ConcertCapsule`, `PassPreviewCard`, `PassTextLayer`, `BackstagePasses` |
-| 23769–24848 | **Profile Studio / skins / notifs** | `SkinThemeTab`, `ProfileStudio`, `PrivacySettings`, `StandaloneNotifCenter`, `NotificationCenter` |
-| 24849–25489 | Shows / scrapbook | `MyShowsPage`, `ScrapbookTab`, `ScrapbookDetail` |
-| 25490–25641 | Search / capsule landing | `FandomSearch`, `CapsuleLandingPage` |
-| 25642–26090 | **Legal + public pages** | `LegalNav`, `DeleteAccountPage`, `PrivacyPage`, `TermsPage`, `SupportPage`, `ProfilePublicPage` |
-| 26091–EOF | **App shell (root)** | `ModalWrapper`, `AppInner` — nav, modal stack, `go()` routing, top-level state |
+| 17517–18493 | Misc fan tools (small) | `ValueTracker`, `FanProjects`, `CreatorMode`, `BackupExport`, `FanIdentity`, `SmartNotifs`, `AIAssistant`, `TicketWallet`, `MiniGames`, `ConcertPrep`, `KWorldHub`, `KDramaTracker`, `AfterglowPage` — *upper bound re-derived 2026-08-02 to abut the row below (was 18724 as of 2026-07-31); this row's own boundary wasn't independently re-verified, only backed into so the table stays contiguous* |
+| 18494–20883 | **Profiles (public) + DMs** | `PublicProfilePreview`, `PublicProfileFull`, `PublicFanPassport`, `ProfilePreview`, `DirectMessages` (now includes the 2026-08-01 premium composer + real media/voice-notes + reactions — see CURRENT_STATE.md) |
+| 20884–22461 | **Profile tab + settings** | `FanAnniversaryWidget`, `TopBiasesSection`, `MyCircleSection`, `AccountSettings`, `Top5Section`, `ProfileTab` |
+| 22462–22951 | **Music connect** | `NpSourceBadge`, `NowPlayingCard`, `MusicConnect` |
+| 22952–24154 | **Concert Capsule + Passes** | `ConcertCapsule`, `PassPreviewCard`, `PassTextLayer`, `BackstagePasses` |
+| 24155–25238 | **Profile Studio / skins / notifs** | `SkinThemeTab`, `ProfileStudio`, `PrivacySettings`, `StandaloneNotifCenter`, `NotificationCenter` |
+| 25239–25863 | Shows / scrapbook | `MyShowsPage`, `ScrapbookTab`, `ScrapbookDetail` (collaboration now backed by real `scrapbooks`/`scrapbook_collaborators` tables — see CURRENT_STATE.md) |
+| 25864–26015 | Search / capsule landing | `FandomSearch`, `CapsuleLandingPage` |
+| 26016–26464 | **Legal + public pages** | `LegalNav`, `DeleteAccountPage`, `PrivacyPage`, `TermsPage`, `SupportPage`, `ProfilePublicPage` |
+| 26465–EOF | **App shell (root)** | `ModalWrapper`, `AppInner` — nav, modal stack, `go()` routing, top-level state |
 
 > **Extraction log (2026-07-31):** `Avatar` (+ `resolveAvatarUrl`/`avatarInitial`/`feedAvatarColor`) → `src/components/Avatar.jsx`. `GifPreviewBubble`/`GifImg`/`ReactionButton` (+ mood-gradient constants) → `src/components/GifSystem.jsx`; `GifPicker` stayed in App.jsx (needs the still-monolithic `api` client). `VipBadge`/`FounderBadge`/`FounderPrestigeCard`/`VipGate`/`UpgradeModal`/`VipCelebrationScreen`/`VipTutorialModal` → `src/components/VipSystem.jsx` (only needs `C`, `ls`, and a duplicated one-line `API_URL` read — no `api` dependency, so all of it moved cleanly); the adjacent `MOCK_CONCERTS`/`MOCK_ACTIVE_TRADES_DEFAULT`/notif-helpers did not move.
 >
@@ -118,18 +118,9 @@ Express 5, single file, a large route surface (see `docs/AGENT_CONTEXT_EFFICIENC
 | 1278–1781 | Music Connect `/api/music/*` |
 | 1782–1836 | Outfit inspo `/api/outfits/*` |
 | 1837–2174 | Events + Ticketmaster pipeline `/api/events/*` |
-| 2175–2437 | Scrapbook `/api/memories/*`, `/api/scrapbooks/*` |
-| 2438–2823 | Feed comments + engagement (reposts/saves/reactions) |
-| 2824–3046 | Meetups `/api/meetups/*` |
-| 3047–3378 | Profile `/api/profile/*` |
-| 3379–3475 | Moderation / blocks `/api/moderation/*` |
-| 3476–5182 | Admin moderation, users, friends, messages, notifications setup |
-| 5183–5359 | Notifications (Firebase FCM v1) |
-| 5360–5629 | Marketplace, fan projects, capsule entries |
-| 5630–5941 | Collection `/api/collection`, Photocards `/api/binders\|cards\|trade-listings` |
-| 5942–6132 | Card templates `/api/card-templates` |
-| 6133–6398 | Trade flow v2 (`listing_offers` / `listing_messages` / `listing_reports`) |
-| 6399+ | Error handling + 404 catch-all (must stay last) |
+| 2175–2564 | Scrapbook `/api/memories/*`, `/api/scrapbooks/*` (range re-verified 2026-08-02 — the 2026-08-01 DM Phase 2 merge added collaborator invite/respond/remove/my-status routes here, ~+130 lines vs. the previous 2175–2437) |
+| ~2565–7063 | Feed comments/engagement, Meetups, Profile, Moderation, Admin/users/friends/messages/notifications, FCM, Marketplace, Collection/Photocards, Card templates, Trade flow v2 — **all rows in this span are stale line-number estimates carried over from 2026-07-31 and were not individually re-verified in this pass.** The file grew from ~6,400 to 7,101 lines in the 2026-08-01 DM Phase 2 merge (message reactions + DM media/`dm-media` storage routes landed near the existing `/api/messages/*` cluster, not as a new row), so every boundary below "Scrapbook" has shifted by a few hundred lines. Domain order is unchanged; grep the route path you need rather than trusting an old number. |
+| 7064+ | Error handling + 404 catch-all (must stay last) — re-verified 2026-08-02 (was 6399+) |
 
 Route groups by prefix (top): `/api/users` (9), `/api/friends` (9), `/api/music` (8), `/api/meetups` (8), `/api/ai` (7), `/api/messages` (6). Full inventory lives in CURRENT_STATE.md.
 
