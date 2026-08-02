@@ -167,7 +167,9 @@ async function uploadCoverImage(file, presignPath) {
 function useBinders() {
   const [binders, setBinders] = useState([]);
   const [loading, setLoading] = useState(true);
-  const { tokenReady } = useAuth();
+  const { tokenReady, user } = useAuth();
+  const userId = user?.id || null;
+  const lastUserIdRef = useRef(userId);
 
   const refresh = useCallback(async () => {
     // api.get now normalizes a non-JSON 200 (the Vite HTML shell when no /api
@@ -184,12 +186,24 @@ function useBinders() {
     setLoading(false);
   }, []);
 
+  // Same account-isolation fix as useUserCards: reset the instant the signed-in
+  // identity changes so a previous account's binders can never render under a
+  // different one while the fresh fetch is in flight (see F14 in
+  // docs/USER_POV_PRODUCT_AUDIT_2026-08-02.md).
+  useEffect(() => {
+    if (lastUserIdRef.current === userId) return;
+    lastUserIdRef.current = userId;
+    setBinders([]);
+    setLoading(true);
+  }, [userId]);
+
   useEffect(() => {
     // Demo / no-backend mode has no auth token to wait for — load immediately so
     // the list resolves instead of hanging. With a real backend, wait for the token.
     if (API_URL && !tokenReady) return;
+    if (API_URL && !userId) return;
     refresh();
-  }, [tokenReady, refresh]);
+  }, [tokenReady, userId, refresh]);
 
   return { binders, setBinders, loading, refresh };
 }
@@ -199,21 +213,50 @@ function useBinders() {
 // Sheet, Collection Tracker) reads/writes through this instead of keeping its
 // own local copy, so a status/photo change made in one place is immediately
 // visible everywhere else without a remount or reload.
+//
+// Each call site gets its OWN cards/loading state (this is a plain hook, not a
+// Context) — it is not actually a single shared cache across the whole app.
+// The component instances backing My World stay mounted across a sign-out ->
+// sign-in-as-someone-else cycle in the same tab, so this hook must not rely
+// solely on the `tokenReady` boolean to know when to refetch: `tokenReady` can
+// be true for two different accounts in a row without every consumer's effect
+// re-running before a render happens in between, which let one account's real
+// collection data render — briefly but visibly — under a different signed-in
+// account (confirmed live, see docs/USER_POV_PRODUCT_AUDIT_2026-08-02.md, F14).
+// Keying the reset to the actual authenticated user id closes that window:
+// the moment the id changes (including to/from signed-out), cards are cleared
+// to a real loading/empty state before any fetch for the new id can resolve.
 function useUserCards({ enabled = true } = {}) {
   const [cards, setCards] = useState(MOCK_CARDS);
   const [loading, setLoading] = useState(true);
-  const { tokenReady } = useAuth();
+  const { tokenReady, user } = useAuth();
+  const userId = user?.id || null;
+  const lastUserIdRef = useRef(userId);
 
   const refresh = useCallback(async () => {
     const d = await api.get('/api/cards').catch(() => null);
-    if (d?.cards?.length) setCards(d.cards);
+    // Check the array's presence, not its length — a genuinely empty
+    // collection (d.cards === []) must clear the display too, not leave
+    // whatever was rendered before untouched.
+    if (Array.isArray(d?.cards)) setCards(d.cards);
     setLoading(false);
   }, []);
 
+  // Fires the instant the signed-in identity changes — sign-out (userId ->
+  // null), sign-in, or switching accounts without a reload. Never lets a
+  // previous account's real cards, or the generic MOCK_CARDS placeholder,
+  // linger as a stand-in for the new identity's actual data.
   useEffect(() => {
-    if (!enabled || !tokenReady) return;
+    if (lastUserIdRef.current === userId) return;
+    lastUserIdRef.current = userId;
+    setCards(userId ? [] : MOCK_CARDS);
+    setLoading(!!userId);
+  }, [userId]);
+
+  useEffect(() => {
+    if (!enabled || !tokenReady || !userId) return;
     refresh();
-  }, [enabled, tokenReady, refresh]);
+  }, [enabled, tokenReady, userId, refresh]);
 
   const patchCard = useCallback((id, updates) => {
     setCards(cs => cs.map(c => c.id === id ? { ...c, ...updates } : c));
@@ -3263,7 +3306,13 @@ function Onboarding({ onDone }) {
 
   useEffect(() => {
     if (cooldown <= 0) return;
-    const t = setTimeout(() => setCooldown(c => c - 1), 1000);
+    const t = setTimeout(() => setCooldown(c => {
+      const next = c - 1;
+      // Clear the stale "cooling down" banner the instant the timer hits 0 —
+      // otherwise it sits there even after the button re-enables.
+      if (next <= 0) setErr(e => (e && e.toLowerCase().includes('cooling down')) ? '' : e);
+      return next;
+    }), 1000);
     return () => clearTimeout(t);
   }, [cooldown]);
 
@@ -3336,7 +3385,8 @@ function Onboarding({ onDone }) {
   // ── SIGN UP ──
   const handleSignUp = async () => {
     if (loading) return;
-    if (!email.trim() || pass.length < 6) { setErr("Password must be at least 6 characters."); return; }
+    if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { setErr("Enter a valid email address."); return; }
+    if (pass.length < 6) { setErr("Password must be at least 6 characters."); return; }
     setLoading(true); setErr("");
     if (MOCK_AUTH) { setMode("profile"); setLoading(false); return; }
     try {
@@ -3352,9 +3402,25 @@ function Onboarding({ onDone }) {
         setLoading(false);
         return;
       }
-      if (d.user) {
-        track(EV.SIGNUP_COMPLETED, { needs_confirmation: !d.session });
-        ls.set('backstage_pending_uid', d.user.id); setMode("profile");
+      // IMPORTANT: do not gate success on `d.user`. When email confirmation is
+      // required, GoTrue's raw /signup response is the bare user object with no
+      // nested `.user` key — the supabase-js `_sessionResponse` transform (shared
+      // with sign-in) only reads `data.user`, so it resolves to null even though
+      // signup genuinely succeeded (see @supabase/auth-js lib/fetch.js). Since we
+      // already returned above on any real `error`, reaching here with no error
+      // always means success — branch on `d.session` instead, which is reliable.
+      if (d.session) {
+        // Confirmation disabled on this project — session created immediately.
+        track(EV.SIGNUP_COMPLETED, { needs_confirmation: false });
+        if (d.user) ls.set('backstage_pending_uid', d.user.id);
+        setMode("profile");
+      } else {
+        // No error, no session → confirmation required. This is also the
+        // provider-safe response Supabase returns for "email already registered
+        // but unconfirmed" (to avoid account enumeration) — same truthful next
+        // step applies either way: check your email.
+        track(EV.SIGNUP_COMPLETED, { needs_confirmation: true });
+        setMode("signup_confirm_pending");
       }
     } catch(e) { setErr('Connection error. Try again.'); }
     setLoading(false);
@@ -3626,6 +3692,29 @@ function Onboarding({ onDone }) {
           We sent a password reset link to <strong style={{ color:C.text }}>{email}</strong>. Tap the link to set a new password.
         </p>
         <Btn ghost color={C.textMid} onClick={()=>{setMode("login");setErr("");}}>Back to Sign In</Btn>
+      </div>
+    </div>
+  );
+
+  // ── SIGNUP: EMAIL CONFIRMATION REQUIRED ──
+  // Reached only from a genuinely successful signUp() call with no error and no
+  // immediate session (see handleSignUp) — i.e. Supabase needs the user to click
+  // a confirmation link before they have a session. Never shown on failure.
+  if (mode === "signup_confirm_pending") return (
+    <div style={{ height:"100%",display:"flex",flexDirection:"column",justifyContent:"center",padding:"32px 24px",background:C.bg,overflowY:"auto" }}>
+      <div style={{ animation:"up .35s ease",textAlign:"center" }}>
+        <p style={{ fontSize:40,marginBottom:16 }}>✉️</p>
+        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:24,marginBottom:8 }}>Check your email</p>
+        <p style={{ color:C.textMid,fontSize:13,lineHeight:1.6,maxWidth:280,margin:"0 auto 20px" }}>
+          We sent a confirmation link to <strong style={{ color:C.text }}>{email}</strong>. Tap the link, then come back and sign in.
+        </p>
+        {err && <div style={{ background:`${C.rose}12`,border:`1px solid ${C.rose}40`,borderRadius:11,padding:"10px 13px",marginBottom:14,fontSize:12,color:C.rose,maxWidth:280,margin:"0 auto 14px" }}>{err}</div>}
+        {resendSuccess && <div style={{ background:`${C.accent}15`,border:`1px solid ${C.accent}40`,borderRadius:11,padding:"10px 13px",marginBottom:14,fontSize:12,color:C.accent,maxWidth:280,margin:"0 auto 14px" }}>{resendSuccess}</div>}
+        <button onClick={handleResendFromSignIn} disabled={resendCooldown>0} style={{ background:"none",border:"none",color:C.accent,fontSize:12,cursor:resendCooldown>0?"default":"pointer",textDecoration:"underline",padding:0,marginBottom:24,opacity:resendCooldown>0?0.5:1 }}>
+          {resendCooldown>0?`Resend available in ${resendCooldown}s…`:"Resend confirmation email →"}
+        </button>
+        <div style={{ height:4 }} />
+        <Btn ghost color={C.textMid} onClick={()=>{setMode("login");setErr("");setResendSuccess("");}}>Back to Sign In</Btn>
       </div>
     </div>
   );
@@ -5626,7 +5715,9 @@ const BookmarkOutline = ({ size=16, filled=false, color="currentColor" }) => (
 // button when `onBack` is given. GET /api/me/saves | /api/me/reposts — Saved is
 // private (the copy says so) and spans posts saved from Fanverse AND Explore.
 function SavedPostsSection({ go, onBack, mode="saved" }) {
-  const { tokenReady } = useAuth();
+  const { tokenReady, user } = useAuth();
+  const userId = user?.id || null;
+  const lastUserIdRef = useRef(userId);
   const isSaved = mode !== "reposts";
   const [posts, setPosts]     = useState([]);
   const [loading, setLoading] = useState(true);
@@ -5643,7 +5734,17 @@ function SavedPostsSection({ go, onBack, mode="saved" }) {
     setLoading(false);
   }, [isSaved]);
 
-  useEffect(() => { if (tokenReady) load(); }, [tokenReady, load]);
+  // Account-isolation fix (see F14, docs/USER_POV_PRODUCT_AUDIT_2026-08-02.md):
+  // clear immediately on identity change so a previous account's saved posts
+  // never render under a different signed-in account.
+  useEffect(() => {
+    if (lastUserIdRef.current === userId) return;
+    lastUserIdRef.current = userId;
+    setPosts([]);
+    setLoading(!!userId);
+  }, [userId]);
+
+  useEffect(() => { if (tokenReady && userId) load(); }, [tokenReady, userId, load]);
 
   // Un-saving / un-reposting removes the row immediately — the expected outcome here.
   const undo = async (post) => {
@@ -6969,36 +7070,21 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
             <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 18px" }} />
             <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6 }}>
               <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18 }}>✦ Smart Matching</p>
-              <div style={{ ...VS.activePill(C.gold),fontSize:9 }}>VIP</div>
+              <div style={{ ...VS.activePill(C.gold),fontSize:9 }}>PREVIEW</div>
             </div>
-            <p style={{ fontSize:11.5,color:C.textMid,marginBottom:16 }}>Your ISO list is queued. We'll match you with traders in the Fanverse.</p>
+            <p style={{ fontSize:11.5,color:C.textMid,marginBottom:16 }}>Coming with Trade Hub V2 — matching real collectors by what you each have and want.</p>
             {wishlistTotal===0 ? (
               <div style={{ textAlign:"center",padding:"20px 16px",background:`${C.accent}08`,border:`1.5px dashed ${C.border}`,borderRadius:16 }}>
                 <p style={{ fontSize:24,marginBottom:10 }}>🔍</p>
                 <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,marginBottom:6 }}>No ISO cards yet</p>
-                <p style={{ fontSize:11.5,color:C.textMid }}>Mark cards as ISO in a binder to enable smart matching.</p>
+                <p style={{ fontSize:11.5,color:C.textMid }}>Mark cards as ISO in a binder now — your list will be ready the moment matching goes live.</p>
               </div>
             ) : (
-              <div>
-                <p style={{ fontSize:9,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10 }}>Potential Matches</p>
-                {[
-                  {user:"@trademaster",card:wishlist[0]?.member||"Felix",group:wishlist[0]?.group_name||"SKZ",reason:"Has dupe for trade",match:94,color:softBlue},
-                  {user:"@kpopswap",card:wishlist[0]?.member||"Felix",group:wishlist[0]?.group_name||"SKZ",reason:"Listed ISO match",match:87,color:C.accent},
-                ].map((m,i)=>(
-                  <div key={i} style={{ display:"flex",gap:12,alignItems:"center",padding:"12px 13px",borderRadius:14,background:`${m.color}0c`,border:`1.5px solid ${m.color}28`,marginBottom:10 }}>
-                    <div style={{ width:38,height:38,borderRadius:"50%",background:`${m.color}22`,border:`1.5px solid ${m.color}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontFamily:"'Epilogue',sans-serif",fontWeight:800,color:m.color,flexShrink:0 }}>{m.user[1].toUpperCase()}</div>
-                    <div style={{ flex:1 }}>
-                      <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,color:C.text,marginBottom:2 }}>{m.user}</p>
-                      <p style={{ fontSize:10.5,color:C.textMid }}>{m.card} · {m.group}</p>
-                      <p style={{ fontSize:9.5,color:C.textDim,marginTop:2 }}>{m.reason}</p>
-                    </div>
-                    <div style={{ textAlign:"center",flexShrink:0 }}>
-                      <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:15,color:m.color }}>{m.match}%</p>
-                      <p style={{ fontSize:8.5,color:C.textDim }}>match</p>
-                    </div>
-                  </div>
-                ))}
-                <p style={{ fontSize:10,color:C.textDim,textAlign:"center",marginTop:6,lineHeight:1.6 }}>Full matching launches with Trade Hub V2 · Your ISO list is queued</p>
+              <div style={{ textAlign:"center",padding:"22px 16px",background:`${softBlue}0a`,border:`1.5px dashed ${softBlue}33`,borderRadius:16 }}>
+                <p style={{ fontSize:26,marginBottom:10 }}>✦</p>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,marginBottom:6 }}>Not live yet</p>
+                <p style={{ fontSize:11.5,color:C.textMid,lineHeight:1.6,marginBottom:10 }}>Once Trade Hub V2 ships, Smart Matching will connect you with real collectors — someone who has what you're ISO for, and wants something you can trade.</p>
+                <p style={{ fontSize:10.5,color:C.textDim }}>Your {wishlistTotal} ISO {wishlistTotal===1?"card is":"cards are"} saved and ready — nothing to do but wait.</p>
               </div>
             )}
           </div>
@@ -9496,7 +9582,7 @@ function TradeHub({ onBack, onNotif, user, initialOfferId }) {
         <div style={{ flex:1, minWidth:0, paddingRight:108 }}>
           <h2 style={{ fontFamily:"'Epilogue',sans-serif", fontWeight:800, fontSize:19 }}>Trade Hub 🃏</h2>
           <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:2 }}>
-            <p style={{ fontSize:10.5, color:C.textMid }}>{trades.filter(t=>t.stage!=="done").length} active trades</p>
+            <p style={{ fontSize:10.5, color:C.textMid }}>{myOffers.filter(o=>!["completed","declined","cancelled"].includes(o.status)).length} active trades</p>
             {ls.get("backstage_is_vip")&&<div style={{ ...VS.activePill(C.gold),fontSize:9 }}>✦ Verified</div>}
           </div>
         </div>
@@ -22400,7 +22486,7 @@ function ProfileTab({ user, cards, go, isVip, onUpgrade, onReplayTour, onAccount
               Logged in as: <span style={{ color:C.textMid }}>{session.user.email}</span>
             </p>
           )}
-          <p style={{ textAlign:"center",fontSize:9.5,color:C.textDim,marginTop:4 }}>Backstage v1.16.0 · Prototype</p>
+          <p style={{ textAlign:"center",fontSize:9.5,color:C.textDim,marginTop:4 }}>Backstage v1.16.0</p>
         </div>
       </Screen>
 
@@ -25366,7 +25452,9 @@ const MOCK_SCRAPBOOKS = [
 ];
 
 function ScrapbookTab({ isVip, onUpgrade, onBack, deepLinkId }) {
-  const { tokenReady } = useAuth();
+  const { tokenReady, user } = useAuth();
+  const userId = user?.id || null;
+  const lastUserIdRef = useRef(userId);
   const [localBooks, setLocalBooks] = useState(ls.get("backstage_scrapbooks", MOCK_SCRAPBOOKS));
   const [remoteBooks, setRemoteBooks] = useState(null); // null = not fetched yet
   const [selected, setSelected] = useState(null);
@@ -25385,7 +25473,16 @@ function ScrapbookTab({ isVip, onUpgrade, onBack, deepLinkId }) {
     const d = await api.get('/api/scrapbooks').catch(() => null);
     setRemoteBooks(Array.isArray(d?.scrapbooks) ? d.scrapbooks : []);
   }, []);
-  useEffect(() => { if (tokenReady) refreshRemoteBooks(); }, [tokenReady, refreshRemoteBooks]);
+  // Account-isolation fix (see F14, docs/USER_POV_PRODUCT_AUDIT_2026-08-02.md):
+  // reset the instant the signed-in identity changes so a previous account's
+  // scrapbooks can never render under a different one while the fresh fetch
+  // for the new account is still in flight.
+  useEffect(() => {
+    if (lastUserIdRef.current === userId) return;
+    lastUserIdRef.current = userId;
+    setRemoteBooks(null);
+  }, [userId]);
+  useEffect(() => { if (tokenReady && userId) refreshRemoteBooks(); }, [tokenReady, userId, refreshRemoteBooks]);
 
   const remoteIds = new Set((remoteBooks||[]).map(b=>b.id));
   const books = [...(remoteBooks||[]), ...localBooks.filter(b=>!remoteIds.has(b.id))];
