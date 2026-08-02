@@ -3306,7 +3306,13 @@ function Onboarding({ onDone }) {
 
   useEffect(() => {
     if (cooldown <= 0) return;
-    const t = setTimeout(() => setCooldown(c => c - 1), 1000);
+    const t = setTimeout(() => setCooldown(c => {
+      const next = c - 1;
+      // Clear the stale "cooling down" banner the instant the timer hits 0 —
+      // otherwise it sits there even after the button re-enables.
+      if (next <= 0) setErr(e => (e && e.toLowerCase().includes('cooling down')) ? '' : e);
+      return next;
+    }), 1000);
     return () => clearTimeout(t);
   }, [cooldown]);
 
@@ -3379,7 +3385,8 @@ function Onboarding({ onDone }) {
   // ── SIGN UP ──
   const handleSignUp = async () => {
     if (loading) return;
-    if (!email.trim() || pass.length < 6) { setErr("Password must be at least 6 characters."); return; }
+    if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { setErr("Enter a valid email address."); return; }
+    if (pass.length < 6) { setErr("Password must be at least 6 characters."); return; }
     setLoading(true); setErr("");
     if (MOCK_AUTH) { setMode("profile"); setLoading(false); return; }
     try {
@@ -3395,9 +3402,25 @@ function Onboarding({ onDone }) {
         setLoading(false);
         return;
       }
-      if (d.user) {
-        track(EV.SIGNUP_COMPLETED, { needs_confirmation: !d.session });
-        ls.set('backstage_pending_uid', d.user.id); setMode("profile");
+      // IMPORTANT: do not gate success on `d.user`. When email confirmation is
+      // required, GoTrue's raw /signup response is the bare user object with no
+      // nested `.user` key — the supabase-js `_sessionResponse` transform (shared
+      // with sign-in) only reads `data.user`, so it resolves to null even though
+      // signup genuinely succeeded (see @supabase/auth-js lib/fetch.js). Since we
+      // already returned above on any real `error`, reaching here with no error
+      // always means success — branch on `d.session` instead, which is reliable.
+      if (d.session) {
+        // Confirmation disabled on this project — session created immediately.
+        track(EV.SIGNUP_COMPLETED, { needs_confirmation: false });
+        if (d.user) ls.set('backstage_pending_uid', d.user.id);
+        setMode("profile");
+      } else {
+        // No error, no session → confirmation required. This is also the
+        // provider-safe response Supabase returns for "email already registered
+        // but unconfirmed" (to avoid account enumeration) — same truthful next
+        // step applies either way: check your email.
+        track(EV.SIGNUP_COMPLETED, { needs_confirmation: true });
+        setMode("signup_confirm_pending");
       }
     } catch(e) { setErr('Connection error. Try again.'); }
     setLoading(false);
@@ -3669,6 +3692,29 @@ function Onboarding({ onDone }) {
           We sent a password reset link to <strong style={{ color:C.text }}>{email}</strong>. Tap the link to set a new password.
         </p>
         <Btn ghost color={C.textMid} onClick={()=>{setMode("login");setErr("");}}>Back to Sign In</Btn>
+      </div>
+    </div>
+  );
+
+  // ── SIGNUP: EMAIL CONFIRMATION REQUIRED ──
+  // Reached only from a genuinely successful signUp() call with no error and no
+  // immediate session (see handleSignUp) — i.e. Supabase needs the user to click
+  // a confirmation link before they have a session. Never shown on failure.
+  if (mode === "signup_confirm_pending") return (
+    <div style={{ height:"100%",display:"flex",flexDirection:"column",justifyContent:"center",padding:"32px 24px",background:C.bg,overflowY:"auto" }}>
+      <div style={{ animation:"up .35s ease",textAlign:"center" }}>
+        <p style={{ fontSize:40,marginBottom:16 }}>✉️</p>
+        <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:900,fontSize:24,marginBottom:8 }}>Check your email</p>
+        <p style={{ color:C.textMid,fontSize:13,lineHeight:1.6,maxWidth:280,margin:"0 auto 20px" }}>
+          We sent a confirmation link to <strong style={{ color:C.text }}>{email}</strong>. Tap the link, then come back and sign in.
+        </p>
+        {err && <div style={{ background:`${C.rose}12`,border:`1px solid ${C.rose}40`,borderRadius:11,padding:"10px 13px",marginBottom:14,fontSize:12,color:C.rose,maxWidth:280,margin:"0 auto 14px" }}>{err}</div>}
+        {resendSuccess && <div style={{ background:`${C.accent}15`,border:`1px solid ${C.accent}40`,borderRadius:11,padding:"10px 13px",marginBottom:14,fontSize:12,color:C.accent,maxWidth:280,margin:"0 auto 14px" }}>{resendSuccess}</div>}
+        <button onClick={handleResendFromSignIn} disabled={resendCooldown>0} style={{ background:"none",border:"none",color:C.accent,fontSize:12,cursor:resendCooldown>0?"default":"pointer",textDecoration:"underline",padding:0,marginBottom:24,opacity:resendCooldown>0?0.5:1 }}>
+          {resendCooldown>0?`Resend available in ${resendCooldown}s…`:"Resend confirmation email →"}
+        </button>
+        <div style={{ height:4 }} />
+        <Btn ghost color={C.textMid} onClick={()=>{setMode("login");setErr("");setResendSuccess("");}}>Back to Sign In</Btn>
       </div>
     </div>
   );
