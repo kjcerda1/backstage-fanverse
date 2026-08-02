@@ -12,6 +12,21 @@
 > production. Treat every other section as possibly one merge behind until a full
 > regen happens. See `docs/FOUNDER_LAUNCH_READINESS_2026-08-02.md` for what was
 > verified live on 2026-08-02.
+>
+> **⚠️ 2026-08-02 launch-blocker fixes (branch `fix/launch-blockers-signup-account-isolation`):**
+> a live user-POV audit (`docs/USER_POV_PRODUCT_AUDIT_2026-08-02.md`) found and this
+> branch fixed two real defects the founder readiness doc above didn't catch:
+> (1) self-serve email/password signup silently did nothing on genuine success
+> whenever Supabase required email confirmation — a supabase-js response-shape
+> quirk, not a missing UI branch — now shows a real "check your email" state;
+> (2) switching accounts in the same browser tab could show the previous
+> account's My World/collection data until a hard reload — `useUserCards`,
+> `useBinders`, `ScrapbookTab`, and `SavedPostsSection` now reset on user-id
+> change, not just on the `tokenReady` boolean. Also fixed: a "Prototype" label
+> in the footer, fabricated Smart Matching trader data (replaced with an honest
+> "coming later" preview, not real matching yet), and a Trade Hub header/body
+> copy contradiction. See the audit doc's Resolution Status section for full
+> root causes and verification evidence.
 **Version:** `package.json` → `1.16.0` (normalized 2026-07-24 from a stale `1.6.0` that had sat unbumped across 113 commits; UI badges + `DEPLOYMENT.md` synced to match)
 **Supabase project:** `wshqjxsbwqijodlskrbx` (us-east-1, Postgres 17)
 **Live DB snapshot (queried 2026-07-23):** 17 registered users · 11 VIP · 6 friends rows · 24 DMs · 11 FCM tokens · 132 synced events · 1 post · 3 post comments · 0 meetups · 0 meetup RSVPs · 0 moderation reports · 0 blocks. The zeros on meetups/posts mean those features are wired to real tables but barely exercised in this dev DB — not that they're unbuilt.
