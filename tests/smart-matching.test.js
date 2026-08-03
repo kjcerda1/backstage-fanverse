@@ -269,5 +269,90 @@ test('no new RLS/SQL/migration statements were added alongside Smart Matching (V
   assert.ok(!/CREATE (TABLE|POLICY|FUNCTION)|ALTER TABLE|DROP (TABLE|POLICY)/i.test(block));
 });
 
+// ─── Section G: server-side VIP entitlement enforcement ────────────────────
+// Fixes a confirmed defect: both routes previously enforced VIP status only
+// in the React UI (the fetch was gated behind a client-side isVip check) —
+// a free account's own valid JWT returned real match data with a plain 200.
+// Live-verified against production before this fix: authenticated free
+// GET /api/smart-matches returned 200 with real computed my_iso_count/
+// my_tradeable_count/matches, not a 403.
+
+// Exact mirror of computeVipStatus() in api_server_v16.js (pre-existing —
+// this file didn't add it, /api/ai/assistant already uses it as the
+// project's entitlement source of truth; kept in sync by hand like every
+// other mirrored function in this file, see the header note at the top).
+function computeVipStatus(data = {}) {
+  const source = data?.vip_source || null;
+  const sourceActive = source === 'founder' || source === 'stripe' ||
+    (source === 'comped' && (!data?.vip_expires_at || new Date(data.vip_expires_at) > new Date()));
+  const active = data?.is_vip === true || sourceActive;
+  return { active };
+}
+
+test('requireSmartMatchingVip is defined and reads only from the verified users row (never req.body/req.query/req.headers)', () => {
+  const idx = serverSrc.indexOf('async function requireSmartMatchingVip(req, res)');
+  assert.ok(idx >= 0, 'requireSmartMatchingVip must exist');
+  const block = serverSrc.slice(idx, idx + 700);
+  assert.ok(block.includes("eq('id', req.userId)"), 'must look up VIP status by the JWT-verified req.userId');
+  assert.ok(block.includes('computeVipStatus('), 'must use the same entitlement helper /api/ai/assistant uses, not a bespoke check');
+  assert.ok(!/req\.(body|query|headers)\.[a-zA-Z_]*[Vv]ip/.test(block), 'must never read a client-supplied isVip value from body/query/headers');
+});
+
+test('requireSmartMatchingVip returns a generic 403 with no matched-user information on failure', () => {
+  const idx = serverSrc.indexOf('async function requireSmartMatchingVip(req, res)');
+  const block = serverSrc.slice(idx, idx + 700);
+  const m = block.match(/res\.status\((\d+)\)\.json\(\{ error: '([^']+)', message: '([^']+)' \}\)/);
+  assert.ok(m, 'expected a single generic status().json() denial');
+  assert.strictEqual(m[1], '403');
+  assert.ok(!/[a-f0-9]{8}-[a-f0-9]{4}/i.test(m[3]), 'denial message must not embed any UUID/identifier');
+});
+
+test('GET /api/smart-matches calls the VIP guard before parsing pagination or computing matches', () => {
+  const block = routeBlock('/api/smart-matches');
+  const guardIdx = block.indexOf('requireSmartMatchingVip');
+  const computeIdx = block.indexOf('computeSmartMatches(req)');
+  const cursorIdx = block.indexOf('req.query.cursor');
+  assert.ok(guardIdx >= 0, 'list route must call the VIP guard');
+  assert.ok(guardIdx < computeIdx, 'VIP guard must run before computeSmartMatches (which queries user_cards/profiles/blocks)');
+  assert.ok(guardIdx < cursorIdx, 'VIP guard must run before any other request handling');
+});
+
+test('GET /api/smart-matches/:matchedUserId calls the VIP guard before the self-check or computing matches', () => {
+  const block = routeBlock('/api/smart-matches/:matchedUserId');
+  const guardIdx = block.indexOf('requireSmartMatchingVip');
+  const selfIdx = block.indexOf('matchedUserId === req.userId');
+  const computeIdx = block.indexOf('computeSmartMatches(req,');
+  assert.ok(guardIdx >= 0, 'detail route must call the VIP guard');
+  assert.ok(guardIdx < selfIdx, 'VIP guard must run before the self-check');
+  assert.ok(guardIdx < computeIdx, 'VIP guard must run before computeSmartMatches');
+});
+
+test('unauthenticated request path: requireAuth precedes the VIP guard on both routes (401 before 403)', () => {
+  for (const route of ['/api/smart-matches', '/api/smart-matches/:matchedUserId']) {
+    const idx = serverSrc.indexOf(`app.get('${route}', requireAuth,`);
+    assert.ok(idx >= 0, `${route} must list requireAuth as Express middleware ahead of the handler body — a missing/invalid token never reaches requireSmartMatchingVip`);
+  }
+});
+
+test('entitlement decision: is_vip=false and no vip_source is correctly rejected (free account)', () => {
+  assert.strictEqual(computeVipStatus({ is_vip: false, vip_source: null }).active, false);
+});
+test('entitlement decision: is_vip=true is accepted regardless of vip_source (VIP account)', () => {
+  assert.strictEqual(computeVipStatus({ is_vip: true, vip_source: null }).active, true);
+});
+test('entitlement decision: vip_source stripe/founder is accepted even if is_vip is stale/false', () => {
+  assert.strictEqual(computeVipStatus({ is_vip: false, vip_source: 'stripe' }).active, true);
+  assert.strictEqual(computeVipStatus({ is_vip: false, vip_source: 'founder' }).active, true);
+});
+test('entitlement decision: expired comped VIP is correctly rejected', () => {
+  assert.strictEqual(computeVipStatus({ is_vip: false, vip_source: 'comped', vip_expires_at: '2020-01-01' }).active, false);
+});
+test('entitlement decision: non-expired comped VIP is correctly accepted', () => {
+  assert.strictEqual(computeVipStatus({ is_vip: false, vip_source: 'comped', vip_expires_at: '2099-01-01' }).active, true);
+});
+test('entitlement decision: a forged/unexpected field never grants access — only is_vip/vip_source/vip_expires_at are consulted', () => {
+  assert.strictEqual(computeVipStatus({ is_vip: false, vip_source: null, isVip: true, admin: true }).active, false);
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
