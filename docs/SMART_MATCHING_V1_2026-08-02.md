@@ -178,12 +178,28 @@ Sort order (deterministic, documented, internal only — never shown as a score 
 percentage): mutual before one-way, then by number of compatible cards, then by most
 recent real `updated_at` on the matching cards. No location, no randomness.
 
-### `GET /api/smart-matches/:userId`
-Auth required. Detail for one matched collector — recomputes and re-authorizes from
-scratch (never trusts a client-cached match), so a since-blocked relationship can't leak
-stale data. `:userId` is validated against a UUID shape (400 on malformed input, before
-any query runs) and rejects `userId === req.userId` (400). 404 if that user isn't
-actually a match for the caller right now.
+### `GET /api/smart-matches/:matchedUserId`
+Auth required. Detail for one matched collector. The param is named `matchedUserId`,
+never `userId`, so it can never be confused with the requester — the requester is
+always `req.userId` from the verified JWT and is never accepted from the URL, body, or
+query (grepped and unit-tested).
+
+`matchedUserId` is validated against a UUID shape first (400 on malformed input, before
+any query runs). Every other outcome — self, a nonexistent UUID, a real-but-unrelated
+account, a blocked account, a non-discoverable account, or a genuinely stale match
+(status changed since the list was fetched) — resolves to the **identical** `404 {
+"error": "No match found for this collector" }`. There is no 403 path and no
+distinguishing message: the route cannot be used to probe "does this UUID belong to a
+real account" or "why was I denied," because every denial reason looks the same from
+the outside. This was verified live (see §11 #14–17) with a syntactically valid UUID
+for a real, unrelated, non-blocked, discoverable production account — same 404, same
+message, as a nonexistent UUID and as the caller's own id.
+
+The route recomputes `computeSmartMatches()` from current data on every call — it never
+trusts a client-cached match — so a since-invalidated relationship can't leak stale
+"you have a match" data. Live-verified: flipping the matched user's card status away
+from Tradeable made the detail route 404 immediately on the next call, with no reload
+and no delay (§11 #10).
 
 ### Next actions (no new endpoints — reuse what exists)
 - **View profile** → `onViewProfile({ id, username, display_name, fandoms:[] })`, same
@@ -197,20 +213,25 @@ actually a match for the caller right now.
 ## 8. Authorization & privacy
 
 - Requester id is always `req.userId` from the verified JWT — grepped and unit-tested
-  (`tests/smart-matching.test.js`) that neither route ever reads a requester id from
-  `req.body`/`req.query`/`req.params`.
-- `GET /api/smart-matches/:userId` cannot be used to enumerate arbitrary users into a
-  full profile — it only returns a payload if a real match already exists for the
-  caller; otherwise 404. It does not return "their whole inventory," only the specific
-  cards that satisfy the identity match.
+  (`tests/smart-matching.test.js`), and live-verified: an unauthenticated call to
+  `GET /api/smart-matches` returned `401 { "error": "Missing auth token" }` (§11 #13).
+- `GET /api/smart-matches/:matchedUserId` cannot be used to enumerate arbitrary users
+  into a full profile — it only returns a payload if a real match already exists for
+  the caller right now; otherwise 404, indistinguishable from self/blocked/nonexistent
+  (§7). It does not return "their whole inventory," only the specific cards that
+  satisfy the identity match — live-verified payloads never carry more than
+  `their_cards_you_want`/`your_cards_they_want` (§11 #6, #7).
 - Response fields are the same minimal public subset the rest of the app already
   returns for a matched user (`id`, `handle`, `display_name`, `avatar_url`, `is_vip`) —
   no email, no auth internals beyond the same `users.id` UUID already used app-wide as
   the routing key for DMs/friend-requests/profile views (not a new exposure boundary).
   Card fields exclude `notes` and `description` (private free-text) — unit-tested.
 - Blocked users are excluded before their profile is ever fetched (`getBlockedUserIdSet`
-  runs before the `users` query, not as an after-the-fact filter).
-- Malformed `:userId` fails with 400 before touching the database.
+  runs before the `users` query, not as an after-the-fact filter) — live-verified: a
+  real temporary block made the blocked user disappear from a real HTTP response
+  immediately (§11 #11).
+- Malformed `matchedUserId` fails with 400 before touching the database — live-verified
+  with a literal non-UUID string (§11 #14).
 
 ---
 
@@ -243,49 +264,64 @@ the mission's UI-states requirement.
 
 ---
 
-## 11. QA matrix
+## 11. QA matrix — real HTTP + live browser round trip
 
-Three real, persistent QA accounts (`pip_qa`, `pip_qa2`, and a new `pip_qa3` created for
-this pass — see the `qa-test-accounts` memory) were used with minimal fixture
-`user_cards` rows, tagged `notes='SMART_MATCH_QA_FIXTURE'` for clean removal, verified
-against **live production data** via direct SQL simulation of the exact query/join shape
-`computeSmartMatches()` runs, then fully cleaned up afterward (fixture rows deleted,
-temporary block removed, `discoverable` restored). See §13 for why this was SQL-level
-rather than an HTTP round-trip.
+**Method:** the local dev servers were run against the real production Supabase project
+(confirmed `[Backstage API v1.16.0] Starting in PRODUCTION mode` in the backend boot
+log, not mock mode), using a copy of the root `.env` placed only in this worktree for
+the duration of QA, deleted immediately afterward (never read, printed, staged, or
+committed — see §15). Three real, persistent QA accounts (`pip_qa`, `pip_qa2`, and a new
+`pip_qa3` created for this pass — see the `qa-test-accounts` memory) were used with
+minimal fixture `user_cards` rows tagged `notes='SMART_MATCH_QA_FIXTURE'`, driven through
+the actual browser UI (Claude Browser pane) and, for authorization edge cases, direct
+`fetch()` calls executed in-page using the real signed-in session's own token (never
+logged or printed). All fixtures, temporary blocks, and account-setting changes made for
+testing were reverted afterward (§15).
 
 | # | Case | Result |
 |---|---|---|
-| 1 | Scenario A — mutual exact match (`pip_qa` ⇄ `pip_qa2`) | ✅ both directions return `mutual`, 1 compatible card each way |
-| 2 | Scenario B — one-way (`pip_qa` ISO satisfied by `pip_qa3`, no reciprocal) | ✅ `pip_qa` sees `pip_qa3` as `one_way`; `pip_qa3` sees **zero** matches (no false reciprocal) |
-| 3 | Scenario C — no match (unrelated identity) | ✅ `pip_qa3`'s unrelated ISO card matches nobody |
-| 4 | Current user never matches themselves | ✅ structural (`user_id != req.userId` in the candidate query) + unit-tested |
-| 5 | Duplicate result suppression | ✅ unit-tested — real distinct rows show as distinct cards, never inflated or deduped incorrectly |
-| 6 | Exact vs. partial identity / incomplete records excluded | ✅ a `for_trade` card with `version = NULL` (real fixture) never matched anything, live |
-| 7 | Status removed → match disappears | ✅ unit-tested |
-| 8 | Status added → match appears | ✅ unit-tested |
-| 9 | Tradeable removed → match disappears | ✅ unit-tested |
-| 10 | ISO removed → match disappears | ✅ unit-tested |
-| 11 | Account switching / reload isolation | ✅ code-reviewed against the live-verified F14 pattern (§9) — not independently re-run in a live browser this session (see §13) |
-| 12 | Blocked-user exclusion | ✅ live: inserted a real temporary block `pip_qa → pip_qa2`, confirmed `pip_qa2` disappeared from `pip_qa`'s results, removed the block, confirmed it reappeared |
-| 13 | `discoverable = false` exclusion | ✅ live: flipped `pip_qa3.discoverable` false, confirmed exclusion, restored true |
-| 14 | Malformed `:userId` | ✅ unit-tested (400 before query) |
-| 15 | Another user's id supplied as requester | ✅ structural — requester id is never read from client input (unit-tested via source audit) |
-| 16 | Pagination/limit behavior | ✅ code-reviewed (`limit` clamp 1–50, base64 offset cursor, `next_cursor: null` at end) — trivial to exercise at 30 total rows, not separately load-tested |
-| 17 | Empty state | ✅ implemented, code-reviewed |
-| 18 | Error state | ✅ implemented, code-reviewed |
-| 19 | 375px / 390px, Pearl/Concert modes | ⚠️ **not independently re-verified in a live browser this session** — see §13 |
-| 20 | Profile/DM next action | ✅ code-reviewed — reuses the exact existing `onViewProfile`/`backstage_dm_target` entry points used elsewhere in the app |
-| 21 | No fabricated result under any condition | ✅ — every UI string is either a static description of the feature or built from real API fields; no percentages, no placeholder names, no fallback fake matches on error |
+| 1 | Scenario A — mutual exact match, browser as `pip_qa` | ✅ `GET /api/smart-matches` → 200, `pip_qa2` shown as **Mutual Match** with the correct 1+1 compatible cards and real explanation text, no percentage |
+| 2 | Scenario A reciprocal, browser as `pip_qa2` | ✅ isolated real data (`2 Owned/1 Wanted/1 Tradeable`, not `pip_qa`'s numbers) confirmed on My World before opening the sheet |
+| 3 | Scenario B — one-way, browser as `pip_qa` | ✅ `pip_qa3` shown as **One-Way** with the real "no reciprocal match... isn't an agreement to trade" copy |
+| 4 | Scenario B, `pip_qa3` receives no false reciprocal | ✅ confirmed via direct HTTP as `pip_qa3` (`total_count: 0`) and via the live VIP empty state (below) |
+| 5 | Scenario C — no match / honest empty state, browser as `pip_qa3` (temporarily flipped to VIP to reach the true empty state, then reverted) | ✅ "No matches yet — No other collector currently has a tradeable card matching your 1 ISO card. Try: ... 1 of your cards are missing identity details..." — real counts, real tips, no fabricated match |
+| 6 | Detail route re-verification, `GET /api/smart-matches/:matchedUserId` | ✅ tapping "See matching cards" on the mutual match issued a real `GET /api/smart-matches/1f90c443-...` → 200, payload matched the list exactly |
+| 7 | Detail route only returns compatible cards, not full inventory | ✅ confirmed — response contains only `their_cards_you_want`/`your_cards_they_want`, never all of the matched user's cards |
+| 8 | View Profile next action | ✅ real navigation to `@pip_qa2`'s actual public profile via the existing `onViewProfile` flow (real bio/groups/card counts rendered) |
+| 9 | Message next action | ✅ opened the **existing real DM thread** with `pip_qa2` (no duplicate thread created) via the same `backstage_dm_target` + `go("chats")` entry point every other Message button uses |
+| 10 | Add Friend next action | ✅ real `POST /api/friends/request` → 200, button changed to "Requested"; verified against `pip_qa3` (not already friends, unlike `pip_qa`/`pip_qa2`) |
+| 11 | Blocked-user exclusion, real HTTP | ✅ inserted a real temporary block `pip_qa → pip_qa2`; a same-session authenticated `fetch()` to `/api/smart-matches` returned only `pip_qa3` (1 match, not 2); removed the block; `pip_qa2` reappeared |
+| 12 | Status invalidation, real HTTP, both routes at once | ✅ flipped the matched `for_trade` card to `owned`; **the same session's** next `GET /api/smart-matches` dropped `pip_qa2` entirely, and `GET /api/smart-matches/1f90c443-...` returned `404 { "error": "No match found for this collector" }` immediately — no reload, no delay; restored the status, both returned to 200/mutual |
+| 13 | Unauthenticated request denied | ✅ `GET /api/smart-matches` with no `Authorization` header → `401 { "error": "Missing auth token" }` |
+| 14 | Malformed `matchedUserId` denied safely | ✅ `GET /api/smart-matches/not-a-uuid-at-all` → `400 { "error": "Invalid user id" }`, before any query |
+| 15 | Valid **unrelated real account** id | ✅ `GET /api/smart-matches/0911b6d3-...` (a real, unrelated, non-blocked, discoverable production account) → `404`, byte-identical body to the nonexistent-UUID case — cannot be used to probe account existence |
+| 16 | Self id supplied as `matchedUserId` | ✅ `GET /api/smart-matches/4c0de4bc-...` (caller's own id) → same `404`, same message as #15 and the nonexistent-UUID case — no distinguishing signal |
+| 17 | Nonexistent (but syntactically valid) UUID | ✅ `GET /api/smart-matches/00000000-...-000099` → same `404`, same message |
+| 18 | Requester id cannot be overridden by the client | ✅ structural — `req.userId` is the only source used for the "my cards" query in every test above; there is no code path that reads a requester id from the request; unit-tested via source audit |
+| 19 | Account-switch isolation, sign-out → sign-in, no reload | ✅ A→B: signed out of `pip_qa`, signed into `pip_qa2` with no page reload — My World immediately showed `pip_qa2`'s own real numbers, free-gate showed only `pip_qa2`'s real ISO count (1), no `pip_qa` identities ever rendered. B→A: reverse direction repeated, `pip_qa`'s own real numbers (`25/8/2`) and real matches returned correctly, no `pip_qa2`/`pip_qa3` bleed |
+| 20 | Reload returns the correct account's results | ✅ reloading mid-session (forced when flipping `pip_qa3` to VIP) preserved the session and re-fetched the correct account's own data |
+| 21 | 375px viewport | ✅ live screenshot, no overflow, sheet and My World render cleanly |
+| 22 | 390px viewport | ✅ live screenshot (used for the majority of this pass) |
+| 23 | Pearl mode (light theme) | ✅ live screenshot — sheet background/text/close control all legible, correct light-theme colors |
+| 24 | Concert mode (dark theme) | ✅ live screenshot — default theme throughout the rest of the pass |
+| 25 | Visible close control | ✅ `✕` present top-right of the sheet in every state, live-verified in both themes |
+| 26 | Loading, empty, error states | ✅ error state specifically forced live by monkey-patching `window.fetch` to reject only `/api/smart-matches` calls, confirming "Couldn't load Smart Matches" + "Try again" with **no fallback fake data**; unpatched, "Try again" recovered to the correct real empty state |
+| 27 | Free-user gate reveals no private match details | ✅ code-reviewed and live-observed: the gate renders from the client's already-known ISO count with **no network call to `/api/smart-matches`** for a free account (verified both by code — the fetch is gated on `isVip` — and by the rendered DOM showing zero match identities) |
+| 28 | VIP users with no matches get an honest empty state | ✅ #5 above, live |
+| 29 | Duplicate compatible records don't duplicate users/cards | ✅ unit-tested + live payloads showed exactly one entry per real distinct card row |
+| 30 | Response field names / no email / no private notes | ✅ live payloads (§7) contain only `id, handle, display_name, avatar_url, is_vip` for the user and `id, group_name, member, album, version, card_type, image_url` per card — no email, no `notes`, no `description` |
 
-**Bonus organic confirmation:** while testing, `pip_qa2`'s fixture ISO card for
-BLACKPINK/Rosé/Born Pink/Standard Ver. organically matched a *real, pre-existing*
-production user's real inventory (unrelated to any fixture) with the identical card —
+**Bonus organic confirmation:** `pip_qa2`'s fixture ISO card for BLACKPINK/Rosé/Born
+Pink/Standard Ver. organically matched a *real, pre-existing* production user's real
+inventory (unrelated to any fixture, over real HTTP) with the identical card —
 independent evidence the matching logic generalizes correctly against genuine
 production data, not just the constructed fixtures.
 
 ---
 
-## 12. Query performance (measured live, `EXPLAIN ANALYZE` against production)
+## 12. Query performance (measured live)
+
+**Database (`EXPLAIN ANALYZE` against production):**
 
 | Query | Plan | Rows | Execution time |
 |---|---|---|---|
@@ -299,34 +335,34 @@ read benefit. **No index was added.** Revisit if `user_cards` grows large enough
 follow-up (e.g. `CREATE INDEX ON user_cards (status) WHERE status IN ('iso','for_trade','duplicate')`)
 when that day comes, not before.
 
-Response payload size at V1 scale: a handful of matches × a handful of cards each —
-negligible (well under 10 KB uncompressed for any realistic beta-scale result set).
+**HTTP (measured live via the browser's network panel, local Express → real Supabase):**
+
+| Route | Response | Payload size | Notes |
+|---|---|---|---|
+| `GET /api/smart-matches` (2 matches) | 200 | ~1.0 KB uncompressed | single GET, no duplicate calls observed for a single sheet-open |
+| `GET /api/smart-matches/:matchedUserId` | 200 | ~0.4 KB uncompressed | fired once per card expand ("See matching cards"), not prefetched for every card in the list |
+| `GET /api/smart-matches/:matchedUserId` (404 cases) | 404 | ~0.06 KB | uniform tiny error body |
+| `GET /api/smart-matches` (401/400 cases) | 401 / 400 | ~0.04 KB | uniform tiny error body |
+
+No duplicate/redundant calls were observed for a single user action (one list fetch per
+sheet-open, one detail fetch per card expand, each exactly once). Response payload size
+at V1 scale is negligible for any realistic beta-scale result set.
 
 ---
 
 ## 13. Known limitations / what wasn't done
 
-- **No live HTTP round-trip through the running Express server against production** was
-  performed in this session. `api_server_v16.js` requires `SUPABASE_SERVICE_KEY` to run
-  in non-mock mode, which only exists in `.env` — a file this repo's `CLAUDE.md` lists
-  under "never touch" (never read/copy/print). Verification was instead done via (a) 26
-  unit tests mirroring the exact backend logic byte-for-byte
-  (`tests/smart-matching.test.js`), and (b) direct SQL simulation of the identical
-  query/join shape against real production data and real (cleaned-up) fixture rows
-  (§11). This is a real gap relative to a true end-to-end proof and should be closed
-  with a live authenticated browser pass (using the `pip_qa`/`pip_qa2`/`pip_qa3`
-  credentials) the next time this branch is reviewed in an environment with the real
-  `.env` available.
-- 375px/390px and Pearl/Concert visual verification was **not** independently re-run in
-  a live browser this session (same `.env` constraint prevented a real authenticated
-  session) — the new sheet states reuse the same layout primitives (`VS.glowCard`,
-  `VS.activePill`, the existing bottom-sheet shell) as the rest of My World, which are
-  already proven in both themes/viewports, but this is a code-review inference, not a
-  fresh visual confirmation for this specific sheet.
-- Full-app regression (signup, sign-out, all 5 tabs, VIP modal, etc.) was verified by
-  code review only — this change is additive and isolated to two new backend routes and
-  one sheet's internals, with no edits to auth, navigation, or any other tab's code.
-  `npm run build` is clean and both pre-existing test suites still pass unmodified.
+- **Load/concurrency testing was not performed** — out of scope per the mission brief
+  ("do not perform destructive or excessive load testing"), and not meaningful at
+  current production scale (30 `user_cards` rows, 17 users).
+- **Push-notification and native-device behavior** are unrelated to this feature and
+  were not touched or tested.
+- Video/audio, Stripe checkout, and other unrelated subsystems were not exercised —
+  out of scope for this change.
+- The three QA accounts' persistent settings (`pip_qa3.is_vip`, Pearl Mode) were
+  temporarily changed mid-session to reach otherwise VIP-gated/light-theme states and
+  were explicitly reverted afterward (§15) — confirmed via SQL and via the app's own
+  Settings screen, not just assumed.
 
 ## 14. V2 ideas (explicitly out of scope for V1)
 
@@ -343,3 +379,34 @@ negligible (well under 10 KB uncompressed for any realistic beta-scale result se
 - City/location-aware ranking, once there's an explicit, user-granted permission model
   for it (out of scope per the mission brief's explicit prohibition on using location
   without permission).
+
+---
+
+## 15. Local QA environment & fixture cleanup
+
+A copy of the root `.env` was placed in this worktree only, for the duration of the live
+HTTP/browser QA pass in §11:
+
+- Copied via a raw file copy (`cp`) — contents were never opened, read, printed, or
+  logged at any point.
+- Confirmed gitignored **before** starting (`git check-ignore -v .env` → matched
+  `.gitignore:11`).
+- Never staged or committed — confirmed via `git status` throughout, and via
+  `git log --all --diff-filter=A --name-only -- .env` (empty — `.env` was never added in
+  any commit on this branch's history).
+- The original root `.env` was not modified.
+- Deleted immediately after QA completed; confirmed absent (`ls .env` → no such file).
+
+Database fixtures created for §11, all confirmed removed after testing:
+
+| Item | Cleanup confirmation |
+|---|---|
+| 8 `user_cards` rows tagged `notes='SMART_MATCH_QA_FIXTURE'` | `SELECT count(*) ... = 0` |
+| Temporary block `pip_qa → pip_qa2` | Removed mid-test to prove restoration; final count `= 0` |
+| `pip_qa3.is_vip` (temporarily `true` to reach the VIP empty state) | Reverted to `false` (its designed persistent free-tier role); `vip_source` cleared |
+| `pip_qa3` Pearl Mode (temporarily enabled to screenshot light theme) | Reverted to off (Concert Mode default) via the app's own Settings screen |
+| Friend request `pip_qa → pip_qa3` (created by the live Add Friend test) | Deleted — confirmed `0` rows |
+| `discoverable` on all three QA accounts | Confirmed `true` (untouched net of the temporary toggle tested in the SQL-simulation pass, which was also reverted) |
+
+No other users' data was read, altered, or touched. The two local dev servers
+(`backstage-v16-api`, `backstage-v16`) were stopped after QA.

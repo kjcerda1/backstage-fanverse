@@ -31,7 +31,7 @@
 > **⚠️ 2026-08-02 Smart Matching V1 (branch `feat/production-smart-matching-v1`):**
 > the "coming later" preview above was replaced with real, production-backed
 > matching over `user_cards` — no invented users/percentages/matches. Two new
-> authenticated routes (`GET /api/smart-matches`, `GET /api/smart-matches/:userId`),
+> authenticated routes (`GET /api/smart-matches`, `GET /api/smart-matches/:matchedUserId`),
 > no SQL/schema/RLS changes. Full design doc: `docs/SMART_MATCHING_V1_2026-08-02.md`.
 **Version:** `package.json` → `1.16.0` (normalized 2026-07-24 from a stale `1.6.0` that had sat unbumped across 113 commits; UI badges + `DEPLOYMENT.md` synced to match)
 **Supabase project:** `wshqjxsbwqijodlskrbx` (us-east-1, Postgres 17)
@@ -95,7 +95,7 @@ Status legend: **Real** = wired to live backend/DB (works fully with env vars se
 - Trading: `TradeHub`, `TradeListingForm`, `MakeOfferForm`, `OfferThread`, `ValueTracker`, trader stats. `/api/trade-listings`, `/api/listing-offers`, `/api/trade-reviews`.
 - **My World Phase 3** (2026-07-07/08): shared `useUserCards()` cache; `PhotocardSetsView` and Era Room member wishlist **write through to real `user_cards`**.
 - Card photos persist to **Supabase Storage** (2026-07-02).
-- **Smart Matching V1** (2026-08-02): real collector matching — ISO/Wishlist (`status='iso'`) against Tradeable (`status IN ('for_trade','duplicate')`) on real `user_cards`, exact identity match on group+member+album+version. `GET /api/smart-matches`, `GET /api/smart-matches/:userId`. Mutual/one-way distinct states, honest empty/incomplete states, free-gate shows real ISO count only. See `docs/SMART_MATCHING_V1_2026-08-02.md`.
+- **Smart Matching V1** (2026-08-02): real collector matching — ISO/Wishlist (`status='iso'`) against Tradeable (`status IN ('for_trade','duplicate')`) on real `user_cards`, exact identity match on group+member+album+version. `GET /api/smart-matches`, `GET /api/smart-matches/:matchedUserId`. Mutual/one-way distinct states, honest empty/incomplete states, free-gate shows real ISO count only. See `docs/SMART_MATCHING_V1_2026-08-02.md`.
 
 ### My World (collection hub) & Era Boards — Real
 - Museum-grid layout, Era Board hero, `ERA_MEMBERS` catalog (17 groups). `EraRoom`, `EraBoard`, Member Binders bridged to real binder/`user_cards` data with reactive counts.
