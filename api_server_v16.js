@@ -7239,19 +7239,46 @@ function smartMatchExplain(match) {
   return explanations;
 }
 
+// Server-side VIP entitlement guard. Smart Matching is a VIP feature, but
+// until this guard existed that was enforced only in the React UI (the fetch
+// was gated behind a client-side isVip check) — a free account's own valid
+// JWT could call these routes directly and receive real match data, since
+// requireAuth alone only proves *who* the caller is, not what they're
+// entitled to. This re-derives VIP status from the same verified `users` row
+// + computeVipStatus() helper /api/ai/assistant already uses as its
+// entitlement source of truth (never a client-supplied isVip value/header),
+// and is called before any user_cards/profiles/blocks query runs — a
+// rejected caller never triggers the underlying matching computation.
+// Returns true and does nothing on success; on failure it writes the 403
+// itself and returns false, so callers just `if (!(await ...)) return;`.
+async function requireSmartMatchingVip(req, res) {
+  const { data, error } = await supabase
+    .from('users')
+    .select('is_vip, vip_source, vip_expires_at')
+    .eq('id', req.userId)
+    .single();
+  if (error) throw error;
+  if (!computeVipStatus(data).active) {
+    res.status(403).json({ error: 'vip_required', message: 'Smart Matching is a VIP feature.' });
+    return false;
+  }
+  return true;
+}
+
 // GET /api/smart-matches — the authenticated user's real Smart Matches.
 // Cursor is an opaque base64 offset — matches are recomputed fresh every call
 // (no cached/stale cross-request state), so the cursor only has to be stable
 // within one client-side pagination session, not across writes.
 app.get('/api/smart-matches', requireAuth, async (req, res) => {
   if (!supabase) return res.json({ matches: [], mock: true });
-  const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 50);
-  let offset = 0;
-  if (req.query.cursor) {
-    try { offset = Math.max(0, parseInt(Buffer.from(String(req.query.cursor), 'base64').toString('utf8'), 10) || 0); }
-    catch { offset = 0; }
-  }
   try {
+    if (!(await requireSmartMatchingVip(req, res))) return;
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 50);
+    let offset = 0;
+    if (req.query.cursor) {
+      try { offset = Math.max(0, parseInt(Buffer.from(String(req.query.cursor), 'base64').toString('utf8'), 10) || 0); }
+      catch { offset = 0; }
+    }
     const { matches, incompleteCount, myIsoCount, myTradeableCount } = await computeSmartMatches(req);
     const page = matches.slice(offset, offset + limit).map(m => ({ ...m, explanation: smartMatchExplain(m) }));
     const nextOffset = offset + limit;
@@ -7295,6 +7322,7 @@ app.get('/api/smart-matches/:matchedUserId', requireAuth, async (req, res) => {
   const matchedUserId = req.params.matchedUserId;
   if (!SMART_MATCH_UUID_RE.test(matchedUserId)) return res.status(400).json({ error: 'Invalid user id' });
   try {
+    if (!(await requireSmartMatchingVip(req, res))) return;
     // Self intentionally reuses the exact same 404 path below rather than a
     // distinct status/message — computeSmartMatches with a self targetUserId
     // naturally returns zero rows anyway (the base query excludes
