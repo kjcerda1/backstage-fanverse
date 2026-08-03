@@ -212,8 +212,12 @@ function routeBlock(routePath) {
 test('GET /api/smart-matches requires auth', () => {
   assert.ok(routeBlock('/api/smart-matches').includes('requireAuth'));
 });
-test('GET /api/smart-matches/:userId requires auth', () => {
-  assert.ok(routeBlock('/api/smart-matches/:userId').includes('requireAuth'));
+test('GET /api/smart-matches/:matchedUserId requires auth', () => {
+  assert.ok(routeBlock('/api/smart-matches/:matchedUserId').includes('requireAuth'));
+});
+test('the detail route param is named matchedUserId, not userId/targetUserId — never confusable with the requester', () => {
+  assert.ok(serverSrc.includes("app.get('/api/smart-matches/:matchedUserId'"));
+  assert.ok(!serverSrc.includes("app.get('/api/smart-matches/:userId'"));
 });
 test('computeSmartMatches reads the requester id from req.userId, never req.body/req.query/req.params', () => {
   const idx = serverSrc.indexOf('async function computeSmartMatches(req');
@@ -221,13 +225,27 @@ test('computeSmartMatches reads the requester id from req.userId, never req.body
   assert.ok(block.includes("eq('user_id', req.userId)"), 'the "my cards" query must be scoped by the JWT-verified req.userId');
   assert.ok(!block.includes('req.body.userId') && !block.includes('req.query.userId'), 'requester id must never be accepted from the client');
 });
-test('GET /api/smart-matches/:userId validates the param against a UUID shape before querying', () => {
-  const block = routeBlock('/api/smart-matches/:userId');
-  assert.ok(block.includes('SMART_MATCH_UUID_RE.test(targetUserId)'));
+test('GET /api/smart-matches/:matchedUserId validates the param against a UUID shape before querying', () => {
+  const block = routeBlock('/api/smart-matches/:matchedUserId');
+  assert.ok(block.includes('SMART_MATCH_UUID_RE.test(matchedUserId)'));
 });
-test('GET /api/smart-matches/:userId rejects matching yourself', () => {
-  const block = routeBlock('/api/smart-matches/:userId');
-  assert.ok(block.includes("targetUserId === req.userId"));
+test('GET /api/smart-matches/:matchedUserId — self, "not found", and "no match" all resolve to the identical 404 (no distinguishing signal)', () => {
+  const block = routeBlock('/api/smart-matches/:matchedUserId');
+  const selfCheck = block.match(/if \(matchedUserId === req\.userId\) return res\.status\((\d+)\)\.json\(\{ error: '([^']+)' \}\);/);
+  const notFoundCheck = block.match(/if \(!match\) return res\.status\((\d+)\)\.json\(\{ error: '([^']+)' \}\);/);
+  assert.ok(selfCheck && notFoundCheck, 'expected both a self-check and a not-found check in the route body');
+  assert.strictEqual(selfCheck[1], '404', 'self must not get a distinct status code (e.g. 400) that would tell a caller "that ID is mine" differently from any other non-match');
+  assert.strictEqual(selfCheck[1], notFoundCheck[1], 'self and "no match" must return the same status');
+  assert.strictEqual(selfCheck[2], notFoundCheck[2], 'self and "no match" must return the same error message — no distinguishing text');
+});
+test('joinOneCandidate: a syntactically-valid, real-shaped but unrelated account never produces a match (mirrors the "valid unrelated UUID" case)', () => {
+  const myCards = [card('BLACKPINK','Jisoo','Born Pink','Standard Ver.','iso')];
+  // A real account with real, fully-identified cards that just don't overlap.
+  const unrelatedRealAccountCards = [
+    card('TWICE','Nayeon','Ready To Be','Digipack Ver.','for_trade'),
+    card('TWICE','Nayeon','Ready To Be','Digipack Ver.','iso'),
+  ];
+  assert.strictEqual(joinOneCandidate(myCards, unrelatedRealAccountCards), null);
 });
 test('computeSmartMatches excludes blocked users via the existing getBlockedUserIdSet helper', () => {
   const idx = serverSrc.indexOf('async function computeSmartMatches(req');

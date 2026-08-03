@@ -5939,13 +5939,31 @@ function AchievementsModal({ onBack, isVip }) {
 
 // One real Smart Match result — mutual or one-way, both real facts only (see
 // computeSmartMatches in api_server_v16.js). Card details are collapsed by
-// default so the card reads as a summary first, full identity on demand.
+// default; expanding re-verifies the match live via GET
+// /api/smart-matches/:matchedUserId instead of trusting the list payload's
+// embedded cards — a card could have changed status in the time between the
+// list fetch and the tap, and the detail route is the one that recomputes
+// from current data, so this is a genuine re-check, not decoration.
 function SmartMatchCard({ match, onViewProfile, onMessage, friendReqState, onSendFriendRequest }) {
   const [expanded, setExpanded] = useState(false);
+  const [detail, setDetail] = useState(null);
+  const [detailStatus, setDetailStatus] = useState('idle'); // idle | loading | ready | gone | error
   const isMutual = match.match_type === 'mutual';
   const accent = isMutual ? C.mint : C.accent;
   const reqState = friendReqState[match.user.id];
   const cardLine = (c) => `${c.member} — ${c.group_name} · ${c.album}${c.version ? ` · ${c.version}` : ""}`;
+
+  const toggleExpand = async () => {
+    const next = !expanded;
+    setExpanded(next);
+    if (!next || detailStatus !== 'idle') return;
+    setDetailStatus('loading');
+    const d = await api.get(`/api/smart-matches/${encodeURIComponent(match.user.id)}`).catch(() => null);
+    if (!d || d.error || !d.match) { setDetailStatus('gone'); return; }
+    setDetail(d.match);
+    setDetailStatus('ready');
+  };
+
   return (
     <div style={{ ...VS.glowCard(accent), padding:14, marginBottom:10 }}>
       <div style={{ display:"flex",gap:10,alignItems:"center",marginBottom:10 }}>
@@ -5962,19 +5980,25 @@ function SmartMatchCard({ match, onViewProfile, onMessage, friendReqState, onSen
       {!isMutual && (
         <p style={{ fontSize:10.5,color:C.textDim,marginBottom:8,lineHeight:1.5 }}>No reciprocal match yet — they don't currently want anything on your Tradeable list. This isn't an agreement to trade.</p>
       )}
-      <button onClick={()=>setExpanded(e=>!e)} style={{ background:"none",border:"none",color:accent,fontSize:11,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",padding:0,marginBottom:expanded?10:2 }}>{expanded?"Hide cards ↑":"See matching cards ↓"}</button>
-      {expanded && (
+      <button onClick={toggleExpand} style={{ background:"none",border:"none",color:accent,fontSize:11,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",padding:0,marginBottom:expanded?10:2 }}>{expanded?"Hide cards ↑":"See matching cards ↓"}</button>
+      {expanded && detailStatus==='loading' && (
+        <p style={{ fontSize:11,color:C.textDim,marginBottom:8 }}>Checking this match is still current…</p>
+      )}
+      {expanded && detailStatus==='gone' && (
+        <p style={{ fontSize:11,color:C.textDim,marginBottom:8,lineHeight:1.5 }}>This match is no longer available — a card involved may have changed status since the list loaded.</p>
+      )}
+      {expanded && detailStatus==='ready' && detail && (
         <div style={{ marginBottom:10 }}>
-          {match.their_cards_you_want.length>0 && (
+          {detail.their_cards_you_want.length>0 && (
             <div style={{ marginBottom:8 }}>
               <p style={{ fontSize:9,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6 }}>They can trade — you want</p>
-              {match.their_cards_you_want.map(c=><p key={c.id} style={{ fontSize:11.5,color:C.text,marginBottom:3 }}>• {cardLine(c)}</p>)}
+              {detail.their_cards_you_want.map(c=><p key={c.id} style={{ fontSize:11.5,color:C.text,marginBottom:3 }}>• {cardLine(c)}</p>)}
             </div>
           )}
-          {match.your_cards_they_want.length>0 && (
+          {detail.your_cards_they_want.length>0 && (
             <div>
               <p style={{ fontSize:9,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6 }}>You can trade — they want</p>
-              {match.your_cards_they_want.map(c=><p key={c.id} style={{ fontSize:11.5,color:C.text,marginBottom:3 }}>• {cardLine(c)}</p>)}
+              {detail.your_cards_they_want.map(c=><p key={c.id} style={{ fontSize:11.5,color:C.text,marginBottom:3 }}>• {cardLine(c)}</p>)}
             </div>
           )}
         </div>

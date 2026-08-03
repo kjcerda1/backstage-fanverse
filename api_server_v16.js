@@ -7270,22 +7270,42 @@ app.get('/api/smart-matches', requireAuth, async (req, res) => {
   }
 });
 
-// GET /api/smart-matches/:userId — compatible-cards detail for one matched
-// collector. Recomputes and re-authorizes from scratch (never trusts a
-// client-cached match) so a since-blocked or since-changed relationship can't
-// leak stale data.
-app.get('/api/smart-matches/:userId', requireAuth, async (req, res) => {
+// GET /api/smart-matches/:matchedUserId — compatible-cards detail for one
+// matched collector. `matchedUserId` names exactly what it is: the prospective
+// matched collector, never the requester — the requester is always req.userId
+// from the verified JWT and is never accepted from the URL, body, or query.
+//
+// This route is intentionally a re-verification endpoint, not a lookup: it
+// recomputes computeSmartMatches() from current data on every call (never
+// trusts a client-cached match, never returns cached results), so:
+//   - a since-blocked, since-non-discoverable, or since-status-changed
+//     relationship can't leak stale "you have a match" data — the match
+//     simply won't be found and 404s like it never existed.
+//   - passing a syntactically valid UUID for a REAL, unrelated, non-blocked,
+//     discoverable account still 404s if that account has no genuine
+//     reciprocal-eligible card for the caller right now — matching cannot be
+//     used to probe "does this UUID belong to a real account."
+// Self, blocked, non-discoverable, deleted/nonexistent, and genuinely
+// unrelated accounts are all indistinguishable from the caller's point of
+// view: every one of them returns the same 404 with the same message, never
+// a 403 or a different error shape that would leak *why* — the only two
+// possible outcomes are "here is the match" (200) or "no match" (404).
+app.get('/api/smart-matches/:matchedUserId', requireAuth, async (req, res) => {
   if (!supabase) return res.json({ match: null, mock: true });
-  const targetUserId = req.params.userId;
-  if (!SMART_MATCH_UUID_RE.test(targetUserId)) return res.status(400).json({ error: 'Invalid user id' });
-  if (targetUserId === req.userId) return res.status(400).json({ error: 'Cannot match yourself' });
+  const matchedUserId = req.params.matchedUserId;
+  if (!SMART_MATCH_UUID_RE.test(matchedUserId)) return res.status(400).json({ error: 'Invalid user id' });
   try {
-    const { matches } = await computeSmartMatches(req, { targetUserId });
-    const match = matches.find(m => m.user.id === targetUserId) || null;
+    // Self intentionally reuses the exact same 404 path below rather than a
+    // distinct status/message — computeSmartMatches with a self targetUserId
+    // naturally returns zero rows anyway (the base query excludes
+    // req.userId), so this is a fast-path, not a different contract.
+    if (matchedUserId === req.userId) return res.status(404).json({ error: 'No match found for this collector' });
+    const { matches } = await computeSmartMatches(req, { targetUserId: matchedUserId });
+    const match = matches.find(m => m.user.id === matchedUserId) || null;
     if (!match) return res.status(404).json({ error: 'No match found for this collector' });
     res.json({ match: { ...match, explanation: smartMatchExplain(match) } });
   } catch (err) {
-    console.error('[GET /api/smart-matches/:userId] Error:', err.message);
+    console.error('[GET /api/smart-matches/:matchedUserId] Error:', err.message);
     res.status(503).json({ error: 'Could not load match detail' });
   }
 });
