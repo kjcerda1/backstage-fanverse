@@ -275,6 +275,60 @@ function useUserCards({ enabled = true } = {}) {
   return { cards, setCards, loading, refresh, patchCard, deleteCard, addCard };
 }
 
+// useSmartMatches — real, production-backed Smart Matching (V1). Lazy: only
+// fetches when a consumer calls load() (the sheet opening), not on mount, since
+// most sessions never open it. Same account-isolation pattern as useUserCards:
+// keyed to the authenticated user id so a sign-out/switch-account cycle in the
+// same tab can never show one account's matches under another's, and a request
+// token guards against a slow response for a since-abandoned user id landing
+// after a newer request already resolved (belt-and-suspenders — the reset
+// below already clears state the instant the id changes).
+function useSmartMatches() {
+  const { user } = useAuth();
+  const userId = user?.id || null;
+  const lastUserIdRef = useRef(userId);
+  const requestRef = useRef(0);
+
+  const [status, setStatus] = useState('idle'); // idle | loading | ready | error
+  const [matches, setMatches] = useState([]);
+  const [meta, setMeta] = useState({ myIsoCount: 0, myTradeableCount: 0, incompleteCount: 0, totalCount: 0 });
+  const [nextCursor, setNextCursor] = useState(null);
+
+  useEffect(() => {
+    if (lastUserIdRef.current === userId) return;
+    lastUserIdRef.current = userId;
+    requestRef.current++; // invalidate any in-flight response for the old id
+    setStatus('idle');
+    setMatches([]);
+    setMeta({ myIsoCount: 0, myTradeableCount: 0, incompleteCount: 0, totalCount: 0 });
+    setNextCursor(null);
+  }, [userId]);
+
+  const load = useCallback(async ({ append = false } = {}) => {
+    if (!userId) return;
+    const myRequest = ++requestRef.current;
+    const requestedForUserId = userId;
+    setStatus('loading');
+    const cursor = append ? nextCursor : null;
+    const d = await api.get(`/api/smart-matches${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`).catch(() => null);
+    // Stale guard: ignore this response if a newer request started, or the
+    // signed-in identity changed while it was in flight.
+    if (myRequest !== requestRef.current || requestedForUserId !== lastUserIdRef.current) return;
+    if (!d || d.error || !Array.isArray(d.matches)) { setStatus('error'); return; }
+    setMatches(prev => append ? [...prev, ...d.matches] : d.matches);
+    setMeta({
+      myIsoCount: d.my_iso_count || 0,
+      myTradeableCount: d.my_tradeable_count || 0,
+      incompleteCount: d.incomplete_count || 0,
+      totalCount: d.total_count || 0,
+    });
+    setNextCursor(d.next_cursor || null);
+    setStatus('ready');
+  }, [userId, nextCursor]);
+
+  return { status, matches, meta, nextCursor, load };
+}
+
 // Shared user search — returns users[] on success, null on auth/API failure, [] on no results.
 // null vs [] lets callers show "unavailable" vs "no results" without treating them the same.
 async function searchBackstageUsers(q) {
@@ -5883,7 +5937,82 @@ function AchievementsModal({ onBack, isVip }) {
   );
 }
 
-function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoading, refreshCards, isVip, onUpgrade, go, user, weather }) {
+// One real Smart Match result — mutual or one-way, both real facts only (see
+// computeSmartMatches in api_server_v16.js). Card details are collapsed by
+// default; expanding re-verifies the match live via GET
+// /api/smart-matches/:matchedUserId instead of trusting the list payload's
+// embedded cards — a card could have changed status in the time between the
+// list fetch and the tap, and the detail route is the one that recomputes
+// from current data, so this is a genuine re-check, not decoration.
+function SmartMatchCard({ match, onViewProfile, onMessage, friendReqState, onSendFriendRequest }) {
+  const [expanded, setExpanded] = useState(false);
+  const [detail, setDetail] = useState(null);
+  const [detailStatus, setDetailStatus] = useState('idle'); // idle | loading | ready | gone | error
+  const isMutual = match.match_type === 'mutual';
+  const accent = isMutual ? C.mint : C.accent;
+  const reqState = friendReqState[match.user.id];
+  const cardLine = (c) => `${c.member} — ${c.group_name} · ${c.album}${c.version ? ` · ${c.version}` : ""}`;
+
+  const toggleExpand = async () => {
+    const next = !expanded;
+    setExpanded(next);
+    if (!next || detailStatus !== 'idle') return;
+    setDetailStatus('loading');
+    const d = await api.get(`/api/smart-matches/${encodeURIComponent(match.user.id)}`).catch(() => null);
+    if (!d || d.error || !d.match) { setDetailStatus('gone'); return; }
+    setDetail(d.match);
+    setDetailStatus('ready');
+  };
+
+  return (
+    <div style={{ ...VS.glowCard(accent), padding:14, marginBottom:10 }}>
+      <div style={{ display:"flex",gap:10,alignItems:"center",marginBottom:10 }}>
+        <Avatar user={match.user} size={40} />
+        <div style={{ flex:1,minWidth:0 }}>
+          <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13.5,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{match.user.display_name}</p>
+          <p style={{ fontSize:11,color:C.textMid }}>@{match.user.handle||"fan"}</p>
+        </div>
+        <div style={{ ...VS.activePill(accent),fontSize:9,flexShrink:0 }}>{isMutual ? "Mutual Match" : "One-Way"}</div>
+      </div>
+      {match.explanation.map((line,i)=>(
+        <p key={i} style={{ fontSize:11.5,color:C.textMid,marginBottom:4,lineHeight:1.5 }}>{line}</p>
+      ))}
+      {!isMutual && (
+        <p style={{ fontSize:10.5,color:C.textDim,marginBottom:8,lineHeight:1.5 }}>No reciprocal match yet — they don't currently want anything on your Tradeable list. This isn't an agreement to trade.</p>
+      )}
+      <button onClick={toggleExpand} style={{ background:"none",border:"none",color:accent,fontSize:11,fontFamily:"'Epilogue',sans-serif",fontWeight:700,cursor:"pointer",padding:0,marginBottom:expanded?10:2 }}>{expanded?"Hide cards ↑":"See matching cards ↓"}</button>
+      {expanded && detailStatus==='loading' && (
+        <p style={{ fontSize:11,color:C.textDim,marginBottom:8 }}>Checking this match is still current…</p>
+      )}
+      {expanded && detailStatus==='gone' && (
+        <p style={{ fontSize:11,color:C.textDim,marginBottom:8,lineHeight:1.5 }}>This match is no longer available — a card involved may have changed status since the list loaded.</p>
+      )}
+      {expanded && detailStatus==='ready' && detail && (
+        <div style={{ marginBottom:10 }}>
+          {detail.their_cards_you_want.length>0 && (
+            <div style={{ marginBottom:8 }}>
+              <p style={{ fontSize:9,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6 }}>They can trade — you want</p>
+              {detail.their_cards_you_want.map(c=><p key={c.id} style={{ fontSize:11.5,color:C.text,marginBottom:3 }}>• {cardLine(c)}</p>)}
+            </div>
+          )}
+          {detail.your_cards_they_want.length>0 && (
+            <div>
+              <p style={{ fontSize:9,color:C.textDim,fontFamily:"'Epilogue',sans-serif",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6 }}>You can trade — they want</p>
+              {detail.your_cards_they_want.map(c=><p key={c.id} style={{ fontSize:11.5,color:C.text,marginBottom:3 }}>• {cardLine(c)}</p>)}
+            </div>
+          )}
+        </div>
+      )}
+      <div style={{ display:"flex",gap:8 }}>
+        <button onClick={()=>onViewProfile&&onViewProfile({ id:match.user.id, username:match.user.handle, display_name:match.user.display_name, fandoms:[] })} style={{ flex:1,padding:"9px 10px",borderRadius:10,background:C.surfaceHi,border:`1.5px solid ${C.border}`,color:C.text,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>Profile</button>
+        <button onClick={()=>onMessage&&onMessage(match.user)} style={{ flex:1,padding:"9px 10px",borderRadius:10,background:`${accent}18`,border:`1.5px solid ${accent}44`,color:accent,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer" }}>Message</button>
+        <button onClick={()=>onSendFriendRequest(match.user.id)} disabled={reqState==='sending'||reqState==='sent'} style={{ flex:1,padding:"9px 10px",borderRadius:10,background:"transparent",border:`1.5px solid ${C.border}`,color:reqState==='sent'?C.mint:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11,cursor:reqState==='sent'?"default":"pointer" }}>{reqState==='sent'?"Requested":reqState==='sending'?"…":"+ Friend"}</button>
+      </div>
+    </div>
+  );
+}
+
+function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoading, refreshCards, isVip, onUpgrade, go, user, weather, onViewProfile }) {
   const softBlue = '#78A8FF';
   const softBlue2 = '#A7C7FF';
   const softBlueGlow = 'rgba(120,168,255,0.28)';
@@ -5909,6 +6038,26 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
   const [showAchievements, setShowAchievements] = useState(false);
   const [showShrine, setShowShrine] = useState(false);
   const [showSmartMatch, setShowSmartMatch] = useState(false);
+  const smartMatch = useSmartMatches();
+  const [smartMatchFriendReq, setSmartMatchFriendReq] = useState({});
+  // Lazy-load: only fetch once the sheet is actually opened by a VIP, not on
+  // every My World mount. Re-opening within the same session reuses the
+  // already-fetched result instead of re-fetching on every tap.
+  useEffect(() => {
+    if (showSmartMatch && isVip && smartMatch.status === 'idle') smartMatch.load();
+  }, [showSmartMatch, isVip, smartMatch.status]); // eslint-disable-line react-hooks/exhaustive-deps
+  const sendSmartMatchFriendRequest = useCallback(async (targetUserId) => {
+    setSmartMatchFriendReq(s => ({ ...s, [targetUserId]: 'sending' }));
+    const d = await api.post('/api/friends/request', { targetUserId }).catch(() => null);
+    setSmartMatchFriendReq(s => ({ ...s, [targetUserId]: (d && !d.error) ? 'sent' : 'error' }));
+  }, []);
+  // Same backstage_dm_target + go("chats") entry point every other "Message this
+  // user" button in the app uses (see FanverseFloatingDock.openThread).
+  const openSmartMatchDm = useCallback((matchUser) => {
+    ls.set("backstage_dm_target", { id: matchUser.id, name: `@${matchUser.handle || "fan"}`, avatar: (matchUser.display_name || matchUser.handle || "B").slice(0,1).toUpperCase() });
+    setShowSmartMatch(false);
+    go("chats");
+  }, [go]);
   const [showCollectionTracker, setShowCollectionTracker] = useState(false);
   const [trackerView, setTrackerView] = useState("overview"); // overview | groups | albumVersions | isoWanted | tradeable
   const [trackerGroupFocus, setTrackerGroupFocus] = useState(null);
@@ -6561,7 +6710,7 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
             {isVip ? (
               <button onClick={()=>setShowSmartMatch(true)} style={{ width:"100%", marginTop:8, padding:14, borderRadius:14, background:`${softBlue}0a`, border:`1.5px solid ${softBlue}44`, color:softBlue, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, cursor:"pointer" }}>✦ Smart Matching — Find My ISOs</button>
             ) : (
-              <button onClick={onUpgrade} style={{ width:"100%", marginTop:8, padding:14, borderRadius:14, background:`${C.gold}08`, border:`1.5px dashed ${C.gold}33`, color:C.gold, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, cursor:"pointer" }}>✦ VIP: Unlimited Wishlist + Smart Matching</button>
+              <button onClick={()=>setShowSmartMatch(true)} style={{ width:"100%", marginTop:8, padding:14, borderRadius:14, background:`${C.gold}08`, border:`1.5px dashed ${C.gold}33`, color:C.gold, fontFamily:"'Epilogue',sans-serif", fontWeight:700, fontSize:12, cursor:"pointer" }}>✦ VIP: Unlimited Wishlist + Smart Matching</button>
             )}
           </div>
         )}
@@ -7069,28 +7218,82 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
         </div>
       )}
 
-      {/* ── Smart Match sheet (VIP only) ── */}
+      {/* ── Smart Match sheet — real, production-backed collector matches (V1) ── */}
       {showSmartMatch&&(
         <div onClick={()=>setShowSmartMatch(false)} style={{ position:"fixed",inset:0,zIndex:400,background:"rgba(6,6,15,0.92)",display:"flex",alignItems:"flex-end",animation:"in .2s ease" }}>
-          <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:"22px 20px 36px",width:"100%",maxHeight:"80vh",overflowY:"auto",animation:"slideUp .25s ease" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:C.surfaceHi,borderRadius:"22px 22px 0 0",padding:"22px 20px 36px",width:"100%",maxHeight:"82vh",overflowY:"auto",animation:"slideUp .25s ease" }}>
             <div style={{ width:34,height:4,borderRadius:99,background:C.border,margin:"0 auto 18px" }} />
-            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6 }}>
+            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14 }}>
               <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:18 }}>✦ Smart Matching</p>
-              <div style={{ ...VS.activePill(C.gold),fontSize:9 }}>PREVIEW</div>
+              <button onClick={()=>setShowSmartMatch(false)} style={{ background:"none",border:"none",color:C.textMid,fontSize:20,cursor:"pointer",lineHeight:1 }}>✕</button>
             </div>
-            <p style={{ fontSize:11.5,color:C.textMid,marginBottom:16 }}>Coming with Trade Hub V2 — matching real collectors by what you each have and want.</p>
-            {wishlistTotal===0 ? (
+
+            {!isVip ? (
+              // FREE-USER GATE — the real feature description + the user's own real
+              // ISO count only. No fabricated matches, users, or percentages.
+              <div>
+                <p style={{ fontSize:11.5,color:C.textMid,marginBottom:16,lineHeight:1.6 }}>Smart Matching connects you with real collectors — someone who has what you're ISO for, and wants something you can trade. It's a VIP feature.</p>
+                <div style={{ textAlign:"center",padding:"22px 16px",background:`${C.gold}08`,border:`1.5px dashed ${C.gold}33`,borderRadius:16,marginBottom:14 }}>
+                  <p style={{ fontSize:26,marginBottom:10 }}>✦</p>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,marginBottom:6 }}>{wishlistTotal>0 ? `${wishlistTotal} ISO ${wishlistTotal===1?"card":"cards"} ready to match` : "Add ISO cards to get started"}</p>
+                  <p style={{ fontSize:11.5,color:C.textMid,lineHeight:1.6 }}>{wishlistTotal>0 ? "Upgrade to VIP to see real collectors who have what you're looking for." : "Mark cards as ISO in a binder, then upgrade to VIP to see real matches."}</p>
+                </div>
+                <button onClick={()=>{ setShowSmartMatch(false); onUpgrade&&onUpgrade(); }} style={{ width:"100%",padding:14,borderRadius:14,background:`linear-gradient(140deg,${C.gold}cc,${C.gold}88)`,border:"none",color:C.bg,fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer" }}>✨ Upgrade to VIP</button>
+              </div>
+            ) : smartMatch.status==='loading' && !smartMatch.matches.length ? (
+              // LOADING — premium skeleton, no placeholder usernames/cards
+              <div>
+                {[0,1].map(i=>(
+                  <div key={i} style={{ ...VS.glowCard(softBlue),padding:14,marginBottom:10,display:"flex",gap:12,alignItems:"center" }}>
+                    <div style={{ width:40,height:40,borderRadius:"50%",background:C.surfaceHi,animation:"pulse 1.4s ease infinite" }} />
+                    <div style={{ flex:1 }}>
+                      <div style={{ width:"60%",height:11,borderRadius:6,background:C.surfaceHi,marginBottom:8,animation:"pulse 1.4s ease infinite" }} />
+                      <div style={{ width:"85%",height:9,borderRadius:6,background:C.surfaceHi,animation:"pulse 1.4s ease infinite" }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : smartMatch.status==='error' ? (
+              // ERROR — retry, no false success, no fallback fabricated matches
+              <div style={{ textAlign:"center",padding:"22px 16px",background:`${C.rose}08`,border:`1.5px dashed ${C.rose}33`,borderRadius:16 }}>
+                <p style={{ fontSize:24,marginBottom:10 }}>⚠️</p>
+                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,marginBottom:6 }}>Couldn't load Smart Matches</p>
+                <p style={{ fontSize:11.5,color:C.textMid,marginBottom:14 }}>Check your connection and try again.</p>
+                <button onClick={()=>smartMatch.load()} style={{ padding:"9px 22px",borderRadius:99,background:`${softBlue}18`,border:`1.5px solid ${softBlue}44`,color:softBlue,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}>Try again</button>
+              </div>
+            ) : smartMatch.meta.myIsoCount===0 ? (
+              // Nothing to match against yet
               <div style={{ textAlign:"center",padding:"20px 16px",background:`${C.accent}08`,border:`1.5px dashed ${C.border}`,borderRadius:16 }}>
                 <p style={{ fontSize:24,marginBottom:10 }}>🔍</p>
                 <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,marginBottom:6 }}>No ISO cards yet</p>
-                <p style={{ fontSize:11.5,color:C.textMid }}>Mark cards as ISO in a binder now — your list will be ready the moment matching goes live.</p>
+                <p style={{ fontSize:11.5,color:C.textMid }}>Mark cards as ISO in a binder to start matching with real collectors.</p>
+              </div>
+            ) : smartMatch.matches.length===0 ? (
+              // Honest empty state — real reasons, concrete next steps, never a loose match
+              <div>
+                <div style={{ textAlign:"center",padding:"20px 16px",background:`${softBlue}0a`,border:`1.5px dashed ${softBlue}33`,borderRadius:16,marginBottom:12 }}>
+                  <p style={{ fontSize:24,marginBottom:10 }}>✦</p>
+                  <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,marginBottom:6 }}>No matches yet</p>
+                  <p style={{ fontSize:11.5,color:C.textMid,lineHeight:1.6 }}>No other collector currently has a tradeable card matching your {smartMatch.meta.myIsoCount} ISO {smartMatch.meta.myIsoCount===1?"card":"cards"}. Try:</p>
+                </div>
+                <ul style={{ fontSize:11.5,color:C.textMid,lineHeight:1.9,paddingLeft:18,marginBottom:4 }}>
+                  <li>Mark real duplicates as Tradeable so others can find you too</li>
+                  <li>Add more ISO cards with group, member, album, and version filled in</li>
+                  {smartMatch.meta.incompleteCount>0 && <li>{smartMatch.meta.incompleteCount} of your cards are missing identity details and can't be matched — complete them in a binder</li>}
+                </ul>
               </div>
             ) : (
-              <div style={{ textAlign:"center",padding:"22px 16px",background:`${softBlue}0a`,border:`1.5px dashed ${softBlue}33`,borderRadius:16 }}>
-                <p style={{ fontSize:26,marginBottom:10 }}>✦</p>
-                <p style={{ fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:13,marginBottom:6 }}>Not live yet</p>
-                <p style={{ fontSize:11.5,color:C.textMid,lineHeight:1.6,marginBottom:10 }}>Once Trade Hub V2 ships, Smart Matching will connect you with real collectors — someone who has what you're ISO for, and wants something you can trade.</p>
-                <p style={{ fontSize:10.5,color:C.textDim }}>Your {wishlistTotal} ISO {wishlistTotal===1?"card is":"cards are"} saved and ready — nothing to do but wait.</p>
+              // Real matches — mutual before one-way (backend-sorted)
+              <div>
+                {smartMatch.meta.incompleteCount>0 && (
+                  <p style={{ fontSize:10.5,color:C.textDim,marginBottom:10,lineHeight:1.5 }}>{smartMatch.meta.incompleteCount} of your cards are missing identity details (group, member, album, or version) and aren't included in matching.</p>
+                )}
+                {smartMatch.matches.map(m=>(
+                  <SmartMatchCard key={m.user.id} match={m} onViewProfile={onViewProfile} onMessage={openSmartMatchDm} friendReqState={smartMatchFriendReq} onSendFriendRequest={sendSmartMatchFriendRequest} />
+                ))}
+                {smartMatch.nextCursor && (
+                  <button onClick={()=>smartMatch.load({append:true})} disabled={smartMatch.status==='loading'} style={{ width:"100%",marginTop:4,padding:12,borderRadius:12,background:C.surfaceHi,border:`1.5px solid ${C.border}`,color:C.textMid,fontFamily:"'Epilogue',sans-serif",fontWeight:700,fontSize:11.5,cursor:"pointer" }}>{smartMatch.status==='loading' ? "Loading…" : "Load more"}</button>
+                )}
               </div>
             )}
           </div>
@@ -27420,7 +27623,7 @@ function AppInner() {
               {tab==="concerts"&&<ConcertsPage go={go} isVip={effectiveIsVip} onUpgrade={openUpgrade} user={user} />}
               {tab==="community"&&<FanverseTab go={go} user={user} isVip={effectiveIsVip} onUpgrade={openUpgrade} onViewProfile={setFullProfileFan} />}
               {tab==="explore"&&<ExploreTab user={user} go={go} onViewProfile={setFullProfileFan} />}
-              {tab==="collect"&&<LibraryTab cards={cards} setCards={setCards} patchCard={patchCard} deleteCard={deleteCard} addCard={addCard} cardsLoading={cardsLoading} refreshCards={refreshCards} isVip={effectiveIsVip} onUpgrade={openUpgrade} go={go} user={user} weather={weatherData} />}
+              {tab==="collect"&&<LibraryTab cards={cards} setCards={setCards} patchCard={patchCard} deleteCard={deleteCard} addCard={addCard} cardsLoading={cardsLoading} refreshCards={refreshCards} isVip={effectiveIsVip} onUpgrade={openUpgrade} go={go} user={user} weather={weatherData} onViewProfile={setFullProfileFan} />}
               {tab==="fanverse"&&<ToolsTab user={user} weather={weatherData} isVip={effectiveIsVip} onUpgrade={openUpgrade} go={go} cards={cards} patchCard={patchCard} addCard={addCard} />}
               {tab==="profile"&&<ProfileTab user={user} cards={cards} go={go} isVip={effectiveIsVip} onUpgrade={openUpgrade} onReplayTour={()=>setShowVipTour(true)} onAccountRefresh={handleAccountRefresh} onViewProfile={setFullProfileFan} />}
                     </div>

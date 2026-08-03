@@ -7059,6 +7059,257 @@ app.post('/api/listing-reports', requireAuth, async (req, res) => {
   }
 });
 
+// ─── SMART MATCHING (V1) ─────────────────────────────────────────────────────
+// Real, production-backed collector matching — replaces the old fabricated-data
+// preview (see docs/USER_POV_PRODUCT_AUDIT_2026-08-02.md F08). Matches are
+// computed only from real user_cards rows: an ISO/Wishlist record on one side
+// against a Tradeable record on the other. No invented users, percentages,
+// cards, or activity. Full design rationale: docs/SMART_MATCHING_V1_2026-08-02.md.
+//
+// CARD IDENTITY (V1, exact-only): a card is matchable only when group_name,
+// member, album, AND version are all present (non-empty after trim). Two cards
+// match iff all four fields are equal after lower(trim()) normalization. era and
+// card_type are deliberately NOT part of identity — era duplicates or is
+// inconsistent with album in real data, and card_type is free text with no
+// controlled vocabulary (real rows show "album", "Album PC", "unit", "fansign",
+// and null for what may be the same physical card). Cards missing any required
+// field are excluded from matching (never guessed) and counted as "incomplete"
+// so the UI can tell the user what to fill in.
+//
+// STATUS SEMANTICS (confirmed against the app's own canonical selectors —
+// cardTradeableCount / isWishlistIdentity in src/App.jsx, documented there as
+// the "single source of truth"): ISO/Wishlist = status 'iso'. Tradeable =
+// status 'for_trade' OR 'duplicate' — duplicate already counts as tradeable
+// in this product; that's not a new assumption introduced for matching.
+//
+// No SQL/schema/RLS changes were needed for V1 — this reuses the existing
+// service-role `supabase` client the same way /api/users/discover,
+// /api/friends, and /api/messages/thread already do, with the requesting
+// user's id always taken from the verified JWT (req.userId via requireAuth),
+// never from the client.
+
+const SMART_MATCH_TRADEABLE_STATUSES = ['for_trade', 'duplicate'];
+const SMART_MATCH_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function smartMatchNormalize(v) {
+  return String(v || '').trim().toLowerCase();
+}
+
+// Full, non-guessed identity only — see CARD IDENTITY note above.
+function smartMatchIdentityKey(card) {
+  const g = smartMatchNormalize(card.group_name);
+  const m = smartMatchNormalize(card.member);
+  const a = smartMatchNormalize(card.album);
+  const v = smartMatchNormalize(card.version);
+  if (!g || !m || !a || !v) return null;
+  return `${g}|||${m}|||${a}|||${v}`;
+}
+
+function smartMatchCardSummary(card) {
+  return {
+    id: card.id,
+    group_name: card.group_name,
+    member: card.member,
+    album: card.album,
+    version: card.version,
+    card_type: card.card_type || null,
+    image_url: card.image_url || null,
+  };
+}
+
+// Two queries (my cards; every other eligible user's ISO/tradeable cards) plus
+// an in-memory join — no full pairwise scan of all users×cards, and no
+// per-candidate N+1 query. Appropriate at monitored-beta scale (dozens of
+// users, dozens of cards); revisit with a dedicated SQL/RPC function if
+// user_cards grows into the thousands of rows. targetUserId narrows the
+// candidate query to a single user for the match-detail route.
+async function computeSmartMatches(req, { targetUserId = null } = {}) {
+  const { data: myCards, error: myErr } = await supabase
+    .from('user_cards')
+    .select('id, group_name, member, album, version, card_type, status, image_url, updated_at')
+    .eq('user_id', req.userId);
+  if (myErr) throw myErr;
+
+  const myIso = [];
+  const myTradeable = [];
+  let incompleteCount = 0;
+  for (const c of (myCards || [])) {
+    const isIso = c.status === 'iso';
+    const isTradeable = SMART_MATCH_TRADEABLE_STATUSES.includes(c.status);
+    if (!isIso && !isTradeable) continue;
+    const key = smartMatchIdentityKey(c);
+    if (!key) { incompleteCount++; continue; }
+    if (isIso) myIso.push({ ...c, key });
+    if (isTradeable) myTradeable.push({ ...c, key });
+  }
+  const myIsoKeys = new Set(myIso.map(c => c.key));
+  const myTradeableKeys = new Set(myTradeable.map(c => c.key));
+
+  if (!myIsoKeys.size) {
+    return { matches: [], incompleteCount, myIsoCount: myIso.length, myTradeableCount: myTradeable.length };
+  }
+
+  // Candidate cards: every other user's ISO/tradeable rows in one query.
+  let otherQuery = supabase
+    .from('user_cards')
+    .select('id, user_id, group_name, member, album, version, card_type, status, image_url, updated_at')
+    .neq('user_id', req.userId)
+    .in('status', ['iso', ...SMART_MATCH_TRADEABLE_STATUSES]);
+  if (targetUserId) otherQuery = otherQuery.eq('user_id', targetUserId);
+  const { data: otherCards, error: otherErr } = await otherQuery;
+  if (otherErr) throw otherErr;
+
+  const byUser = new Map();
+  for (const c of (otherCards || [])) {
+    const key = smartMatchIdentityKey(c);
+    if (!key) continue;
+    const isIso = c.status === 'iso';
+    const isTradeable = SMART_MATCH_TRADEABLE_STATUSES.includes(c.status);
+    if (!byUser.has(c.user_id)) byUser.set(c.user_id, { iso: [], tradeable: [] });
+    const bucket = byUser.get(c.user_id);
+    if (isIso) bucket.iso.push({ ...c, key });
+    if (isTradeable) bucket.tradeable.push({ ...c, key });
+  }
+  if (!byUser.size) return { matches: [], incompleteCount, myIsoCount: myIso.length, myTradeableCount: myTradeable.length };
+
+  const candidateIds = [...byUser.keys()];
+  const blockedSet = await getBlockedUserIdSet(req.userId);
+  const eligibleIds = candidateIds.filter(id => !blockedSet.has(id));
+  if (!eligibleIds.length) return { matches: [], incompleteCount, myIsoCount: myIso.length, myTradeableCount: myTradeable.length };
+
+  // discoverable=true reuses the same opt-out control /api/users/discover already
+  // honors — the smallest responsible V1 privacy rule, not a new preference.
+  const { data: profiles, error: profErr } = await supabase
+    .from('users')
+    .select('id, username, display_name, avatar_url, is_vip, discoverable')
+    .in('id', eligibleIds)
+    .eq('discoverable', true);
+  if (profErr) throw profErr;
+
+  const matches = [];
+  for (const profile of (profiles || [])) {
+    const bucket = byUser.get(profile.id);
+    if (!bucket) continue;
+
+    // Cards THEY can give that I want (my ISO keys ∩ their tradeable keys).
+    const theyGiveIWant = bucket.tradeable.filter(c => myIsoKeys.has(c.key));
+    // Cards I can give that THEY want (their ISO keys ∩ my tradeable keys).
+    const iGiveTheyWant = bucket.iso.filter(c => myTradeableKeys.has(c.key));
+
+    if (!theyGiveIWant.length) continue; // nothing on THIS user's ISO list is served
+
+    const matchType = iGiveTheyWant.length ? 'mutual' : 'one_way';
+    const latest = [...theyGiveIWant, ...iGiveTheyWant]
+      .map(c => c.updated_at ? new Date(c.updated_at).getTime() : 0)
+      .reduce((a, b) => Math.max(a, b), 0);
+
+    matches.push({
+      user: {
+        id: profile.id,
+        handle: profile.username || '',
+        display_name: profile.display_name || profile.username || 'Backstage fan',
+        avatar_url: profile.avatar_url || null,
+        is_vip: !!profile.is_vip,
+      },
+      match_type: matchType,
+      their_cards_you_want: theyGiveIWant.map(smartMatchCardSummary),
+      your_cards_they_want: iGiveTheyWant.map(smartMatchCardSummary),
+      _sortScore: (matchType === 'mutual' ? 1000 : 0) + (theyGiveIWant.length + iGiveTheyWant.length) * 10,
+      _latest: latest,
+    });
+  }
+
+  // Deterministic order: mutual before one-way, then by compatible-card count,
+  // then by most recent real activity (updated_at) — no location, no randomness.
+  matches.sort((a, b) => (b._sortScore - a._sortScore) || (b._latest - a._latest));
+  matches.forEach(m => { delete m._sortScore; delete m._latest; });
+
+  return { matches, incompleteCount, myIsoCount: myIso.length, myTradeableCount: myTradeable.length };
+}
+
+function smartMatchExplain(match) {
+  const explanations = [];
+  if (match.their_cards_you_want.length) {
+    explanations.push(`They have ${match.their_cards_you_want.length} card${match.their_cards_you_want.length === 1 ? '' : 's'} from your ISO list.`);
+  }
+  if (match.your_cards_they_want.length) {
+    explanations.push(`You have ${match.your_cards_they_want.length} card${match.your_cards_they_want.length === 1 ? '' : 's'} from their ISO list.`);
+  }
+  if (match.match_type === 'mutual') explanations.push('Mutual trade opportunity.');
+  return explanations;
+}
+
+// GET /api/smart-matches — the authenticated user's real Smart Matches.
+// Cursor is an opaque base64 offset — matches are recomputed fresh every call
+// (no cached/stale cross-request state), so the cursor only has to be stable
+// within one client-side pagination session, not across writes.
+app.get('/api/smart-matches', requireAuth, async (req, res) => {
+  if (!supabase) return res.json({ matches: [], mock: true });
+  const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 50);
+  let offset = 0;
+  if (req.query.cursor) {
+    try { offset = Math.max(0, parseInt(Buffer.from(String(req.query.cursor), 'base64').toString('utf8'), 10) || 0); }
+    catch { offset = 0; }
+  }
+  try {
+    const { matches, incompleteCount, myIsoCount, myTradeableCount } = await computeSmartMatches(req);
+    const page = matches.slice(offset, offset + limit).map(m => ({ ...m, explanation: smartMatchExplain(m) }));
+    const nextOffset = offset + limit;
+    const nextCursor = nextOffset < matches.length ? Buffer.from(String(nextOffset)).toString('base64') : null;
+    res.json({
+      matches: page,
+      next_cursor: nextCursor,
+      total_count: matches.length,
+      my_iso_count: myIsoCount,
+      my_tradeable_count: myTradeableCount,
+      incomplete_count: incompleteCount,
+    });
+  } catch (err) {
+    console.error('[GET /api/smart-matches] Error:', err.message);
+    res.status(503).json({ error: 'Could not load Smart Matches' });
+  }
+});
+
+// GET /api/smart-matches/:matchedUserId — compatible-cards detail for one
+// matched collector. `matchedUserId` names exactly what it is: the prospective
+// matched collector, never the requester — the requester is always req.userId
+// from the verified JWT and is never accepted from the URL, body, or query.
+//
+// This route is intentionally a re-verification endpoint, not a lookup: it
+// recomputes computeSmartMatches() from current data on every call (never
+// trusts a client-cached match, never returns cached results), so:
+//   - a since-blocked, since-non-discoverable, or since-status-changed
+//     relationship can't leak stale "you have a match" data — the match
+//     simply won't be found and 404s like it never existed.
+//   - passing a syntactically valid UUID for a REAL, unrelated, non-blocked,
+//     discoverable account still 404s if that account has no genuine
+//     reciprocal-eligible card for the caller right now — matching cannot be
+//     used to probe "does this UUID belong to a real account."
+// Self, blocked, non-discoverable, deleted/nonexistent, and genuinely
+// unrelated accounts are all indistinguishable from the caller's point of
+// view: every one of them returns the same 404 with the same message, never
+// a 403 or a different error shape that would leak *why* — the only two
+// possible outcomes are "here is the match" (200) or "no match" (404).
+app.get('/api/smart-matches/:matchedUserId', requireAuth, async (req, res) => {
+  if (!supabase) return res.json({ match: null, mock: true });
+  const matchedUserId = req.params.matchedUserId;
+  if (!SMART_MATCH_UUID_RE.test(matchedUserId)) return res.status(400).json({ error: 'Invalid user id' });
+  try {
+    // Self intentionally reuses the exact same 404 path below rather than a
+    // distinct status/message — computeSmartMatches with a self targetUserId
+    // naturally returns zero rows anyway (the base query excludes
+    // req.userId), so this is a fast-path, not a different contract.
+    if (matchedUserId === req.userId) return res.status(404).json({ error: 'No match found for this collector' });
+    const { matches } = await computeSmartMatches(req, { targetUserId: matchedUserId });
+    const match = matches.find(m => m.user.id === matchedUserId) || null;
+    if (!match) return res.status(404).json({ error: 'No match found for this collector' });
+    res.json({ match: { ...match, explanation: smartMatchExplain(match) } });
+  } catch (err) {
+    console.error('[GET /api/smart-matches/:matchedUserId] Error:', err.message);
+    res.status(503).json({ error: 'Could not load match detail' });
+  }
+});
+
 
 // ═════════════════════════════════════════════════════════════════════════════
 // ERROR HANDLING — must be registered AFTER every route. When this 404 catch-all
