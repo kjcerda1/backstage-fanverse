@@ -756,16 +756,58 @@ const isMockNotifId = (id) => typeof id === "string" && /^n\d+$/.test(id);
 // consumeNotifTarget(entityType) once it has the data needed to resolve targetId
 // into the actual thread/offer/request — matching on entityType so a screen that
 // mounts first doesn't eat a target meant for a different one.
-function stashNotifTarget(targetId, entityType) {
-  if (targetId) ls.set('backstage_notif_target', { targetId: String(targetId), entityType: entityType || '' });
+// targetMessageId is optional and only meaningful for entityType 'thread' today —
+// carried through so a future backend payload that supplies it (see
+// DM_NOTIFICATION_NAVIGATION_WEB_VIDEO doc) works with zero further plumbing.
+function stashNotifTarget(targetId, entityType, targetMessageId = null) {
+  if (targetId) ls.set('backstage_notif_target', { targetId: String(targetId), entityType: entityType || '', targetMessageId: targetMessageId ? String(targetMessageId) : null });
   else ls.del('backstage_notif_target');
 }
+// Returns { targetId, targetMessageId } on a match, or null. Callers that only
+// need the id can destructure `.targetId`.
 function consumeNotifTarget(entityType) {
   const t = ls.get('backstage_notif_target', null);
   if (!t?.targetId) return null;
   if (entityType && t.entityType && t.entityType !== entityType) return null;
   ls.del('backstage_notif_target');
-  return t.targetId;
+  return { targetId: t.targetId, targetMessageId: t.targetMessageId || null };
+}
+
+// ─── CANONICAL NOTIFICATION DESTINATION RESOLVER ──────────────────────────────
+// The single source of truth for "given this notification, where does tapping
+// it go?" — used by both the NotificationBell quick-view popover and Backstage
+// Buzz (NotificationCenter) so the two never diverge. Returns null when the
+// notification should stay open in-place instead of navigating (friend_req, so
+// its inline Accept/Decline stay reachable; or any type with no mapped route).
+//
+//   modal: must be in FULL_MODALS list and have a {modal==="..."&&...} render.
+//   tab:   must be a valid tab id ("community","explore","collect","fanverse","profile").
+//   "collect" is a TAB (renders LibraryTab), NOT a modal — use tab:"collect".
+//   "community" is the tab id for FanverseTab (Fanverse/Community screen).
+//   "fanverse" tab id renders ToolsTab (Tools & Culture).
+const NOTIF_ROUTES = {
+  crew_invite:  { modal:"invite"      }, // Bring Your Crew / My Circle
+  capsule:      { modal:"capsule"     }, // Concert Capsule
+  pass_reaction:{ modal:"passes"      }, // Backstage Passes
+  meetup:       { tab:"concerts"      }, // Concerts tab → Meetups
+  concert_day:  { modal:"concertday"  }, // Concert Day Mode
+  concert:      { modal:"concertday"  }, // Concert Day Mode (alias)
+  trade:        { tab:"collect"       }, // My World / Collection tab (Trade Hub inside)
+  afterglow:    { modal:"myshows"     }, // My Shows → Afterglow section
+  comeback:     { tab:"community"     }, // Fanverse/Community tab
+  announcement: { tab:"community"     }, // Fanverse/Community tab
+  accepted:     { modal:"invite"      }, // Bring Your Crew to see Circle
+  dm_received:  { modal:"chats"       }, // Direct Messages
+  feed_like:    { tab:"community"     }, // Fanverse/Community feed
+  post_comment: { tab:"community"     }, // Fanverse/Community feed
+  comment_reply:{ tab:"community"     }, // Fanverse/Community feed
+  // friend_req intentionally omitted — stays open for inline Accept/Decline
+};
+function resolveNotifDestination(n) {
+  if (!n || n.type === "friend_req") return null;
+  const dest = n.targetModal || n.targetTab ? { modal: n.targetModal, tab: n.targetTab } : NOTIF_ROUTES[n.type];
+  if (!dest || (!dest.modal && !dest.tab)) return null;
+  return { ...dest, targetId: n.entityId || n.targetId || null, entityType: n.entityType || '', targetMessageId: n.targetMessageId || null };
 }
 
 const mergeInboxItems = (localItems = [], remoteItems = []) => {
@@ -3008,7 +3050,7 @@ function InstallPromptCard() {
 }
 
 // ─── NOTIFICATION BELL ────────────────────────────────────────────────────────
-function NotificationBell({ onOpen, onOpenSettings }) {
+function NotificationBell({ onOpen, onOpenSettings, onNavigate }) {
   const [unread, setUnread] = useState(()=>{
     const inbox = filterActiveNotifs(ls.get("backstage_notif_inbox", []).filter(n=>!isMockNotifId(n?.id)));
     return inbox.filter(n=>!n.read).length;
@@ -3035,6 +3077,31 @@ function NotificationBell({ onOpen, onOpenSettings }) {
 
   const openFullCenter = () => { setShowQuickView(false); onOpen(); };
   const openSettings = () => { setShowQuickView(false); onOpenSettings ? onOpenSettings() : onOpen(); };
+
+  // Marks exactly the tapped notification read — mirrors NotificationCenter's
+  // markRead so the two never disagree about what "read" means — without
+  // marking any other (unrelated) notification as read.
+  const markOneRead = (id) => {
+    const inbox = ls.get("backstage_notif_inbox", []);
+    const next = inbox.map(x=>x.id===id?{...x,read:true}:x);
+    ls.set("backstage_notif_inbox", next);
+    api.patch(`/api/notifications/${id}/read`, {}).catch(()=>{});
+    setUnread(u=>Math.max(0, u-1));
+    setRecentNotifs(rn=>rn.map(x=>x.id===id?{...x,read:true}:x));
+  };
+
+  // Single tap, single destination — same resolver Backstage Buzz uses, so a
+  // DM notification opens the exact thread immediately instead of landing on
+  // Buzz first. Falls back to the full center only when there's genuinely
+  // nowhere to route (e.g. friend_req, which needs its inline Accept/Decline).
+  const handleNotifItemTap = (n) => {
+    if (!n.read) markOneRead(n.id);
+    const dest = resolveNotifDestination(n);
+    if (!dest) { openFullCenter(); return; }
+    stashNotifTarget(dest.targetId, dest.entityType, dest.targetMessageId);
+    setShowQuickView(false);
+    onNavigate?.(dest);
+  };
 
   return (
     <div style={{ position:"absolute",top:6,right:14,zIndex:300 }}>
@@ -3085,7 +3152,7 @@ function NotificationBell({ onOpen, onOpenSettings }) {
           {recentNotifs.length>0 ? (
             <div style={{ display:"flex",flexDirection:"column",gap:6,marginBottom:12 }}>
               {recentNotifs.map(n=>(
-                <div key={n.id} onClick={openFullCenter} className="tap" style={{ display:"flex",gap:8,alignItems:"flex-start",padding:"8px 9px",borderRadius:14,background:n.read?`${C.modalText}08`:"rgba(184,162,255,0.14)",cursor:"pointer" }}>
+                <div key={n.id} onClick={()=>handleNotifItemTap(n)} className="tap" style={{ display:"flex",gap:8,alignItems:"flex-start",padding:"8px 9px",borderRadius:14,background:n.read?`${C.modalText}08`:"rgba(184,162,255,0.14)",cursor:"pointer" }}>
                   {n.fromAvatar
                     ? <div style={{ width:26,height:26,borderRadius:"50%",background:`linear-gradient(135deg,${n.fromColor||C.accent},${(n.fromColor||C.accent)}77)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Epilogue',sans-serif",fontWeight:800,fontSize:11,color:C.bg,flexShrink:0 }}>{n.fromAvatar}</div>
                     : <span style={{ fontSize:15,flexShrink:0 }}>{n.icon||"🔔"}</span>}
@@ -4282,7 +4349,7 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
   // open the exact meetup's detail sheet once the real/mock list has loaded.
   // A deleted/inaccessible meetup id just never matches — falls through to the
   // normal Concerts tab, no crash.
-  const [notifMeetupId] = useState(()=>consumeNotifTarget('meetup'));
+  const [notifMeetupId] = useState(()=>consumeNotifTarget('meetup')?.targetId || null);
   useEffect(()=>{
     if (!notifMeetupId || meetupDetail) return;
     const match = allMeetups.find(m=>m.id===notifMeetupId);
@@ -6024,7 +6091,7 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
   // A trade-offer push notification lands here (tab:'collect') — jump straight
   // into Trade Hub with the exact offer selected instead of the generic My World
   // landing screen.
-  const [notifOfferId] = useState(()=>consumeNotifTarget('listing_offer'));
+  const [notifOfferId] = useState(()=>consumeNotifTarget('listing_offer')?.targetId || null);
   useEffect(()=>{ if (notifOfferId) { setSection('trades'); setShowTradeHub(true); } }, [notifOfferId]);
   const [groupFilter, setGroupFilter] = useState("all");
   const [myWorldTheme, setMyWorldTheme] = useState(()=>ls.get("backstage_my_world_theme","Purple Galaxy"));
@@ -16141,7 +16208,7 @@ function FriendsPage({ onBack, onNotif, go, onViewProfile }) {
   const [reactGifPickerOpen, setReactGifPickerOpen] = useState(false);
   // Friend-request push notifications land here (view already defaults to
   // "requests") — highlight the specific request the tap was about.
-  const [notifRequestId] = useState(()=>consumeNotifTarget('friend_request'));
+  const [notifRequestId] = useState(()=>consumeNotifTarget('friend_request')?.targetId || null);
   const notifRequestRef = useRef(null);
   useEffect(()=>{
     if (notifRequestId && notifRequestRef.current) notifRequestRef.current.scrollIntoView({ behavior:"smooth", block:"center" });
@@ -19580,7 +19647,7 @@ function VoiceMessageBubble({ media, isMe }) {
   );
 }
 
-function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbook }) {
+function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbook, entryOrigin }) {
   const { tokenReady } = useAuth();
   const KEY = "backstage_dms";
   // Read dm-target from localStorage if not explicitly passed (set by Message buttons)
@@ -19592,7 +19659,24 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
   });
   // A DM push notification carries the thread id (entityType 'thread'), not a fan
   // object — separate from dmTarget above, which is always keyed by fan identity.
-  const [notifThreadId] = useState(()=>consumeNotifTarget('thread'));
+  // Both are one-shot: cleared via their setters once applied, so clearing
+  // activeConvo (e.g. the header back button) never re-triggers the matching
+  // effect below and reopens the same thread.
+  const [notifThread] = useState(()=>consumeNotifTarget('thread'));
+  const [notifThreadId, setNotifThreadId] = useState(()=>notifThread?.targetId || null);
+  const [notifMessageId, setNotifMessageId] = useState(()=>notifThread?.targetMessageId || null);
+  // Stable (never cleared) copy of which thread notifMessageId belongs to — used
+  // only to keep the scroll-positioning effect from applying a stale target
+  // message id to an unrelated conversation the user opens afterward. Separate
+  // from the notifThreadId STATE above, which intentionally does get cleared
+  // (that's what stops the reopen loop on the back button).
+  const notifTargetThreadIdRef = useRef(notifThread?.targetId || null);
+  // True only while the currently-open conversation was reached via a one-shot
+  // target (notifThreadId above, or dmTarget) rather than the user tapping a
+  // row in the DM list — drives the "skip the list, exit straight back to the
+  // parent surface" back-arrow behavior below.
+  const [openedViaTarget, setOpenedViaTarget] = useState(()=>!!(notifThread?.targetId || dmTarget));
+  const [highlightMsgId, setHighlightMsgId] = useState(null);
   const [convos, setConvos]     = useState(()=>{
     const stored = ls.get(KEY, []);
     // Strip legacy mock entries (id starts with "dm-") that were seeded in early
@@ -19702,8 +19786,103 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
 
   useEffect(()=>{ ls.set(KEY, convos); }, [convos]);
   useEffect(()=>{ ls.set(GROUP_KEY, groups); }, [groups]);
-  useEffect(()=>{ msgEndRef.current?.scrollIntoView({behavior:"smooth"}); }, [activeConvo?.messages?.length]);
   useEffect(()=>{ msgEndRef.current?.scrollIntoView({behavior:"smooth"}); }, [activeGroup?.messages?.length]);
+
+  // ── DM SCROLL CONTRACT ──────────────────────────────────────────────────────
+  // positionedConvoRef: which conversation id has already been given its ONE
+  // deterministic initial scroll — guards against re-running on every message
+  // (e.g. the user sending a reply) and against re-scrolling when the message
+  // count happens not to change between two different conversations.
+  const positionedConvoRef = useRef(null);
+  const [isNearBottom, setIsNearBottom] = useState(true);
+  const prevMsgLenRef = useRef(0);
+
+  // Track whether the user is parked near the bottom, so new messages don't
+  // yank them back down after they've deliberately scrolled up into history.
+  useEffect(() => {
+    const el = threadListRef.current;
+    if (!el || !activeConvo) return undefined;
+    const onScroll = () => {
+      const fromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      setIsNearBottom(fromBottom < 120);
+    };
+    onScroll();
+    el.addEventListener("scroll", onScroll);
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [activeConvo?.id]);
+
+  // Initial positioning: newest message by default, or the notification's exact
+  // target message when one was supplied and still exists. Waits for any
+  // image/video already in view to report its real size before scrolling, so
+  // media loading in after the fact can't leave the view stranded above the
+  // true bottom (the original bug — an immediate scrollIntoView measured the
+  // thread before attachments had expanded their layout).
+  useEffect(() => {
+    if (!activeConvo) return undefined;
+    if (positionedConvoRef.current === activeConvo.id) return undefined;
+    const el = threadListRef.current;
+    if (!el) return undefined;
+    let cancelled = false;
+
+    // The target message id only ever applies to the specific thread it was
+    // stashed for — an unrelated conversation the user opens afterward (while
+    // notifMessageId is still sitting in state) must never inherit it.
+    if (notifMessageId && notifTargetThreadIdRef.current !== activeConvo.id) {
+      setNotifMessageId(null);
+    }
+
+    const settle = () => {
+      if (cancelled) return;
+      const wantMsgId = notifTargetThreadIdRef.current === activeConvo.id && notifMessageId
+        && activeConvo.messages.some(m => String(m.id) === String(notifMessageId))
+        ? notifMessageId : null;
+      if (wantMsgId) {
+        const node = el.querySelector(`[data-msg-id="${CSS.escape(String(wantMsgId))}"]`);
+        if (node) {
+          node.scrollIntoView({ block: "center" });
+          setHighlightMsgId(wantMsgId);
+          setTimeout(() => setHighlightMsgId(cur => cur === wantMsgId ? null : cur), 1800);
+          positionedConvoRef.current = activeConvo.id;
+          setNotifMessageId(null);
+          return;
+        }
+      }
+      // No target, or the targeted message no longer exists — fall back to newest.
+      el.scrollTop = el.scrollHeight;
+      positionedConvoRef.current = activeConvo.id;
+      if (wantMsgId) setNotifMessageId(null);
+    };
+
+    const media = Array.from(el.querySelectorAll("img,video"));
+    const pending = media.filter(m => m.tagName === "IMG" ? !m.complete : m.readyState < 1);
+    if (pending.length === 0) {
+      const raf = requestAnimationFrame(settle);
+      return () => { cancelled = true; cancelAnimationFrame(raf); };
+    }
+    let remaining = pending.length;
+    const onOneReady = () => { remaining -= 1; if (remaining <= 0) requestAnimationFrame(settle); };
+    pending.forEach(m => {
+      m.addEventListener(m.tagName === "IMG" ? "load" : "loadedmetadata", onOneReady, { once:true });
+      m.addEventListener("error", onOneReady, { once:true });
+    });
+    // Backstop only — not the primary mechanism — in case a media element never
+    // fires load/error/loadedmetadata (e.g. a signed URL that hangs).
+    const backstop = setTimeout(settle, 1500);
+    return () => { cancelled = true; clearTimeout(backstop); };
+  }, [activeConvo?.id, activeConvo?.messages, notifThreadId, notifMessageId]);
+
+  // After the initial positioning, keep following new messages only while the
+  // user is already near the bottom — sending a reply or receiving a live one
+  // should follow; browsing older history should never be interrupted.
+  useEffect(() => {
+    if (!activeConvo) return;
+    const len = activeConvo.messages.length;
+    if (positionedConvoRef.current === activeConvo.id && len > prevMsgLenRef.current && isNearBottom) {
+      const el = threadListRef.current;
+      el?.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    }
+    prevMsgLenRef.current = len;
+  }, [activeConvo?.id, activeConvo?.messages?.length, isNearBottom]);
 
   // Keep the newest message pinned when the KEYBOARD opens. The two effects above
   // only fire on message-count changes, so opening the keyboard shrank the thread
@@ -19763,7 +19942,14 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
   useEffect(() => {
     if (!notifThreadId || activeConvo) return;
     const match = convos.find(c => c.id === notifThreadId);
-    if (match) setActiveConvo(match);
+    if (!match) return; // thread list may still be loading — retry as convos updates
+    setActiveConvo(match);
+    setOpenedViaTarget(true);
+    // One-shot: clear only now that it's actually been applied, so a later
+    // setActiveConvo(null) (the header back button) doesn't see this effect's
+    // dependency array change and re-fire — which used to snap the same
+    // thread right back open.
+    setNotifThreadId(null);
   }, [notifThreadId, convos, activeConvo]);
 
   useEffect(() => {
@@ -19818,22 +20004,40 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
   // as sent until the server confirms it.
   const ALLOWED_IMAGE_TYPES = ['image/jpeg','image/jpg','image/png','image/webp','image/heic'];
   const ALLOWED_VIDEO_TYPES = ['video/mp4','video/quicktime','video/webm'];
+  // Extension fallback — used ONLY when the browser hands back no usable MIME
+  // type (empty string, or the generic "application/octet-stream"). Desktop
+  // Chrome/Edge on Windows commonly can't sniff a MIME type for .mov, and
+  // sometimes for other video containers, because that depends on OS file-type
+  // registration rather than real content sniffing — image types don't have
+  // this problem, which is why photos always worked here and videos didn't.
+  // A file WITH a real MIME that simply isn't one of ours is still rejected —
+  // this never widens acceptance beyond these exact formats.
+  const ALLOWED_IMAGE_EXTS = ['jpg','jpeg','png','webp','heic'];
+  const ALLOWED_VIDEO_EXTS = ['mp4','mov','webm'];
+  const EXT_FALLBACK_MIME = { jpg:'image/jpeg', jpeg:'image/jpeg', png:'image/png', webp:'image/webp', heic:'image/heic', mp4:'video/mp4', mov:'video/quicktime', webm:'video/webm' };
   const MAX_ATTACH_BYTES = 24 * 1024 * 1024; // matches the dm-media bucket's file_size_limit
 
   const handleAttach = async (e) => {
-    const raw = e.target.files[0];
+    const rawFile = e.target.files[0];
     e.target.value = ""; // allow re-selecting the same file later
-    if (!raw || !activeConvo) return;
-    const isImage = ALLOWED_IMAGE_TYPES.includes(raw.type);
-    const isVideo = ALLOWED_VIDEO_TYPES.includes(raw.type);
+    if (!rawFile || !activeConvo) return;
+    const mime = (rawFile.type || '').toLowerCase();
+    const ext = (rawFile.name.split('.').pop() || '').toLowerCase();
+    const mimeUnreliable = !mime || mime === 'application/octet-stream';
+    const isImage = ALLOWED_IMAGE_TYPES.includes(mime) || (mimeUnreliable && ALLOWED_IMAGE_EXTS.includes(ext));
+    const isVideo = !isImage && (ALLOWED_VIDEO_TYPES.includes(mime) || (mimeUnreliable && ALLOWED_VIDEO_EXTS.includes(ext)));
     if (!isImage && !isVideo) {
       setDmNotif({ title:"Can't send that file", body:"Only JPG, PNG, WebP, HEIC photos or MP4/MOV/WebM videos are supported.", icon:"⚠️", color:C.rose });
       return;
     }
-    if (raw.size > MAX_ATTACH_BYTES) {
+    if (rawFile.size > MAX_ATTACH_BYTES) {
       setDmNotif({ title:"File too large", body:"Max size is 24MB per photo or video.", icon:"⚠️", color:C.rose });
       return;
     }
+    // Re-tag with a real MIME type when the browser gave us none — downstream
+    // code (preview <img>/<video>, the resize step, and the signed-upload PUT's
+    // Content-Type header) all rely on file.type being a real value.
+    const raw = mimeUnreliable ? new File([rawFile], rawFile.name, { type: EXT_FALLBACK_MIME[ext] || (isImage ? 'image/jpeg' : 'video/mp4') }) : rawFile;
     const file = isImage ? await resizeImageForUpload(raw) : raw;
     const previewUrl = URL.createObjectURL(file);
     let width, height, durationSec;
@@ -20351,6 +20555,9 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
         next = normalizeDmThread({ ...convo, member:{ id:convo.fan.id, handle:convo.fan.name } }, Array.isArray(d?.thread?.messages) ? d.thread.messages : []);
       } catch {}
     }
+    // User explicitly tapped a row in the DM list — the header back button
+    // should return to that list, not skip past it.
+    setOpenedViaTarget(false);
     setActiveConvo(next);
   };
 
@@ -20401,10 +20608,23 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
   };
 
   // Conversation view
+  // Back-navigation contract: a thread reached organically (tapped from the DM
+  // list) always backs out to that list. A thread reached via a one-shot
+  // target (notification popover / Backstage Buzz) skips the list entirely —
+  // back exits straight to whatever surface sent the user here, matching how
+  // they got in. See openedViaTarget/entryOrigin above and docs/DM_NOTIFICATION_NAVIGATION_WEB_VIDEO_2026-08-03.md.
+  const handleThreadBack = () => {
+    if (openedViaTarget && (entryOrigin === "popover" || entryOrigin === "buzz")) {
+      setOpenedViaTarget(false);
+      onBack();
+      return;
+    }
+    setActiveConvo(null);
+  };
   if(activeConvo) return (
     <div style={{ height:"100%",display:"flex",flexDirection:"column",overflow:"hidden",background:C.bg,position:"relative" }}>
       <div style={{ padding:"14px 20px 12px",display:"flex",gap:10,alignItems:"center",flexShrink:0,borderBottom:`1px solid ${C.border}` }}>
-        <button onClick={()=>setActiveConvo(null)} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
+        <button onClick={handleThreadBack} style={{ background:"none",border:"none",color:C.textMid,fontSize:22,cursor:"pointer" }}>←</button>
         {/* Avatar + name — navigates to full public profile at root level */}
         <button onClick={()=>onViewProfile?.(activeConvo.fan)} className="tap" style={{ display:"flex",gap:10,alignItems:"center",background:"none",border:"none",cursor:"pointer",flex:1,textAlign:"left",minWidth:0 }}>
           <Avatar user={activeConvo.fan} size={38} />
@@ -20445,8 +20665,9 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
           const myId = user?.id;
           const grouped = groupReactions(msg.reactions, myId);
           const isPickerOpen = reactionPicker?.convoId===activeConvo.id && reactionPicker?.msgId===msg.id;
+          const isHighlighted = highlightMsgId!=null && String(msg.id)===String(highlightMsgId);
           return (
-            <div key={i} style={{ display:"flex",flexDirection:"column",alignItems:isMe?"flex-end":"flex-start",gap:0 }}>
+            <div key={i} data-msg-id={msg.id||""} style={{ display:"flex",flexDirection:"column",alignItems:isMe?"flex-end":"flex-start",gap:0, borderRadius:14, transition:"background-color .6s ease", backgroundColor:isHighlighted?`${C.accent}22`:"transparent" }}>
               {/* ── REACTION PICKER — inline, appears above/near the tapped message ── */}
               {isPickerOpen&&(
                 <div style={{ alignSelf:isMe?"flex-end":"flex-start",marginBottom:6,animation:"up .15s ease" }}>
@@ -20643,7 +20864,11 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
         </div>
       )}
 
-      <input ref={attachRef} type="file" accept="image/jpeg,image/jpg,image/png,image/webp,image/heic,video/mp4,video/quicktime,video/webm" onChange={handleAttach} style={{ display:"none" }} />
+      {/* Extensions alongside MIME types: some desktop browsers filter the native
+          picker using only whichever half of "accept" they recognize, and a few
+          can't map .mov to video/quicktime at all — pairing both keeps the
+          picker from silently hiding otherwise-supported video files. */}
+      <input ref={attachRef} type="file" accept="image/jpeg,image/jpg,image/png,image/webp,image/heic,video/mp4,video/quicktime,video/webm,.jpg,.jpeg,.png,.webp,.heic,.mp4,.mov,.webm" onChange={handleAttach} style={{ display:"none" }} />
 
       {voiceMode==="recording" ? (
         /* ── VOICE RECORDING BAR ── replaces the composer row while recording */
@@ -25265,39 +25490,17 @@ function NotificationCenter({ settings, setSettings, onBack, notifOn, requestNot
   //   - "collect" is a TAB (renders LibraryTab), NOT a modal — use tab:"collect".
   //   - "community" is the tab id for FanverseTab (Fanverse/Community screen).
   //   - "fanverse" tab id renders ToolsTab (Tools & Culture).
-  const NOTIF_ROUTES = {
-    crew_invite:  { modal:"invite"      }, // Bring Your Crew / My Circle
-    capsule:      { modal:"capsule"     }, // Concert Capsule
-    pass_reaction:{ modal:"passes"      }, // Backstage Passes
-    meetup:       { tab:"concerts"      }, // Concerts tab → Meetups
-    concert_day:  { modal:"concertday"  }, // Concert Day Mode
-    concert:      { modal:"concertday"  }, // Concert Day Mode (alias)
-    trade:        { tab:"collect"       }, // My World / Collection tab (Trade Hub inside)
-    afterglow:    { modal:"myshows"     }, // My Shows → Afterglow section
-    comeback:     { tab:"community"     }, // Fanverse/Community tab
-    announcement: { tab:"community"     }, // Fanverse/Community tab
-    accepted:     { modal:"invite"      }, // Bring Your Crew to see Circle
-    dm_received:  { modal:"chats"       }, // Direct Messages
-    feed_like:    { tab:"community"     }, // Fanverse/Community feed
-    post_comment: { tab:"community"     }, // Fanverse/Community feed
-    comment_reply:{ tab:"community"     }, // Fanverse/Community feed
-    // friend_req intentionally omitted — stays open for inline Accept/Decline
-  };
-
+  // Destination resolution lives in the module-level resolveNotifDestination()
+  // (shared with NotificationBell's quick-view popover) so Backstage Buzz and
+  // the popover can never diverge on where a given notification goes.
   const handleNotifTap = (n) => {
     markRead(n.id);
-    // friend_req: keep notifications center open so Accept/Decline are reachable
-    if (n.type === "friend_req") return;
-    // Explicit targetModal/targetTab on the notification overrides the type map
-    const dest = n.targetModal || n.targetTab
-      ? { modal: n.targetModal, tab: n.targetTab }
-      : NOTIF_ROUTES[n.type];
-    // Graceful no-op if no route mapped
-    if (!dest || (!dest.modal && !dest.tab)) return;
+    const dest = resolveNotifDestination(n);
+    if (!dest) return; // friend_req (or anything unmapped) stays open in-place
     // Carry the exact thread/offer/request along — same stash the SW/cold-launch
     // paths use, so DirectMessages/TradeHub/FriendsPage don't care which entry
     // point sent them here.
-    stashNotifTarget(n.entityId || n.targetId || null, n.entityType || '');
+    stashNotifTarget(dest.targetId, dest.entityType, dest.targetMessageId);
     if (onNavigate) onNavigate(dest);
   };
 
@@ -26814,6 +27017,18 @@ function AppInner() {
   // Deep-link a specific scrapbook open from a DM invite card's "Open" button —
   // null means "just open the Scrapbook list" (e.g. the DM composer's Create CTA).
   const [scrapbookDeepLinkId, setScrapbookDeepLinkId] = useState(null);
+  // Which surface sent the user into the "chats" modal — "popover" (the bell's
+  // quick-view) or "buzz" (Backstage Buzz) — so the DM header back arrow can
+  // exit straight back to it instead of dropping into the DM list first. null
+  // for every other entry point (dock, message buttons, DM tab itself), which
+  // keep the default "back → DM list" behavior.
+  const [dmEntryOrigin, setDmEntryOrigin] = useState(null);
+  const closeChatsModal = () => {
+    const origin = dmEntryOrigin;
+    setModal(null);
+    setDmEntryOrigin(null);
+    if (origin === "buzz") setTimeout(()=>go("notifications"), 60);
+  };
   const [fromCapsule, setFromCapsule] = useState(_IS_CAPSULE_PATH);
   const [showCapsuleLanding, setShowCapsuleLanding] = useState(()=>_IS_CAPSULE_PATH&&!ls.get("backstage_session")?.user);
   // Capsule preview: signed-out fan sees the capsule before being asked to sign up
@@ -27538,7 +27753,7 @@ function AppInner() {
         {modal==="achievements"&&<ModalWrapper><AchievementsModal onBack={()=>setModal(null)} isVip={isVip} /></ModalWrapper>}
         {modal==="friends"&&<ModalWrapper><FriendsPage onBack={()=>setModal(null)} onNotif={showNotif} go={go} onViewProfile={(fan)=>setPublicProfileFan({...fan,fromDM:false})} /></ModalWrapper>}
         {modal==="fanmap"&&<ModalWrapper><FanverseMap onBack={()=>setModal(null)} /></ModalWrapper>}
-        {modal==="chats"&&<ModalWrapper><DirectMessages onBack={()=>setModal(null)} user={user} onViewProfile={(fan)=>setPublicProfileFan({...fan,fromDM:true})} onOpenScrapbook={(id)=>{ setScrapbookDeepLinkId(id||null); setModal("scrapbook"); }} /></ModalWrapper>}
+        {modal==="chats"&&<ModalWrapper><DirectMessages onBack={closeChatsModal} entryOrigin={dmEntryOrigin} user={user} onViewProfile={(fan)=>setPublicProfileFan({...fan,fromDM:true})} onOpenScrapbook={(id)=>{ setScrapbookDeepLinkId(id||null); setModal("scrapbook"); }} /></ModalWrapper>}
         {modal==="qr"&&<ModalWrapper><QRPage onBack={()=>setModal(null)} user={user} onNotif={showNotif} /></ModalWrapper>}
         {modal==="safety"&&<ModalWrapper><SafetyCenter onBack={()=>setModal(null)} /></ModalWrapper>}
         {modal==="events"&&<ModalWrapper><EventDiscovery onBack={()=>setModal(null)} go={go} /></ModalWrapper>}
@@ -27562,6 +27777,7 @@ function AppInner() {
           onBack={()=>setModal(null)}
           onNavigate={(dest)=>{
             // Close notifications, then open the target modal or tab
+            if (dest.modal === "chats") setDmEntryOrigin("buzz");
             setModal(null);
             if (dest.modal) setTimeout(()=>setModal(dest.modal), 60);
             else if (dest.tab) { setTimeout(()=>setTab(dest.tab), 60); }
@@ -27647,7 +27863,15 @@ function AppInner() {
               {/* Messages + Notifications — on every tab except My Stage (profile), which has
                   its own dense section nav. */}
               {tab!=="profile"&&<FloatingMessagesButton go={go} />}
-              {tab!=="profile"&&<NotificationBell onOpen={()=>setModal("notifications")} onOpenSettings={()=>go("notif_settings")} />}
+              {tab!=="profile"&&<NotificationBell
+                onOpen={()=>setModal("notifications")}
+                onOpenSettings={()=>go("notif_settings")}
+                onNavigate={(dest)=>{
+                  if (dest.modal === "chats") setDmEntryOrigin("popover");
+                  if (dest.modal) setModal(dest.modal);
+                  else if (dest.tab) setTab(dest.tab);
+                }}
+              />}
             </>
           )}
         </div>
