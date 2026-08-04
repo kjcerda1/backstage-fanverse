@@ -266,5 +266,116 @@ check('backend sanitizeDmMedia is untouched — this fix is client-only, no weak
   assert.ok(/if \(kind === 'image' \|\| kind === 'video'\) \{/.test(backendSrc));
 });
 
+check('backend sanitizeDmMedia has no content-format validation today — client format checks are a UX filter, not a trust boundary', () => {
+  // Documents actual current behavior (verified live: a plain-text file
+  // renamed to .mp4 with an unreliable MIME uploads and sends successfully).
+  // Not a defect introduced by this branch — sanitizeDmMedia only validates
+  // structural shape (kind enum + path-prefix ownership), never file content.
+  const backendSrc = fs.readFileSync(path.join(__dirname, '..', 'api_server_v16.js'), 'utf8');
+  const start = backendSrc.indexOf('function sanitizeDmMedia(raw, expectedPathPrefix) {');
+  const end = backendSrc.indexOf('\n}', start);
+  const body = backendSrc.slice(start, end);
+  assert.ok(!/magic|ffprobe|content-sniff|validateVideo|validateImage/i.test(body), 'sanitizeDmMedia appears to have gained content validation — update this test to match, and update the doc');
+});
+
+// ── 5. Exact target-message flow (real message id, not inferred from thread) ─
+// deliverNotification() in api_server_v16.js has no message-id parameter and
+// the notifications table has no column to carry one (verified live via the
+// project's Postgres information_schema — entity_id/entity_type/target_modal/
+// target_tab/gif are the only relevant columns). Real per-message targeting
+// requires a schema migration; these tests cover the frontend contract that's
+// already correct and ready for when a real id arrives, and the safe fallback
+// for the (currently universal) case where none does.
+
+check('resolveNotifDestination: a real targetMessageId from the notification payload survives normalization end-to-end', () => {
+  // Simulates the shape a future backend payload WOULD have (see docs) —
+  // proves the frontend already does the right thing with it today.
+  const n = { id:'n1', type:'dm_received', entityId:'thread-9', entityType:'thread', targetMessageId:'msg-77' };
+  const dest = resolveNotifDestination(n);
+  assert.strictEqual(dest.targetMessageId, 'msg-77');
+  const store = { value: null };
+  stashNotifTarget(store, dest.targetId, dest.entityType, dest.targetMessageId);
+  const consumed = consumeNotifTarget(store, 'thread');
+  assert.deepStrictEqual(consumed, { targetId:'thread-9', targetMessageId:'msg-77' });
+});
+
+check('resolveNotifDestination: absence of targetMessageId normalizes to null, not undefined — matches every real notification today', () => {
+  const n = { id:'n2', type:'dm_received', entityId:'thread-9', entityType:'thread' };
+  const dest = resolveNotifDestination(n);
+  assert.strictEqual(dest.targetMessageId, null);
+});
+
+// Mirrors the scroll-positioning effect's "wantMsgId" decision in App.jsx —
+// same three conditions: thread match, id present, id actually exists in the
+// loaded message list.
+function resolveScrollTarget(targetThreadId, activeConvoId, notifMessageId, messageIds) {
+  const wantMsgId = targetThreadId === activeConvoId && notifMessageId && messageIds.some(id => String(id) === String(notifMessageId))
+    ? notifMessageId : null;
+  return wantMsgId; // null → fall back to newest
+}
+
+check('DM scroll target: a real, present message id resolves to itself', () => {
+  assert.strictEqual(resolveScrollTarget('t1', 't1', 'm5', ['m3','m4','m5']), 'm5');
+});
+
+check('DM scroll target: a deleted/missing target message falls back to newest (null)', () => {
+  assert.strictEqual(resolveScrollTarget('t1', 't1', 'm999', ['m3','m4','m5']), null);
+});
+
+check('DM scroll target: no target at all falls back to newest (null)', () => {
+  assert.strictEqual(resolveScrollTarget('t1', 't1', null, ['m3','m4','m5']), null);
+});
+
+check('DM scroll target: a target id present but for a DIFFERENT thread never applies (cross-conversation leak guard)', () => {
+  assert.strictEqual(resolveScrollTarget('t1', 't2', 'm5', ['m3','m4','m5']), null);
+});
+
+check('App.jsx: initial positioning runs at most once per conversation id (positionedConvoRef guard)', () => {
+  const start = src.indexOf('const positionedConvoRef = useRef(null);');
+  assert.ok(start !== -1, 'positionedConvoRef not found');
+  const guardIdx = src.indexOf('if (positionedConvoRef.current === activeConvo.id) return undefined;', start);
+  assert.ok(guardIdx !== -1 && guardIdx - start < 2000, 'positioning guard not found near positionedConvoRef declaration');
+});
+
+// ── 6. Browser Back must agree with the app's own DM back arrow ────────────
+// (found live in this pass: opening a DM from Backstage Buzz and pressing
+// the OS/browser Back button closed straight to Fanverse, skipping Buzz,
+// while the in-app "←" correctly returned to Buzz — the two controls
+// disagreed. Fixed by making onPop buzz-aware the same way closeChatsModal
+// already was.)
+
+check('onPop (browser Back handler) reopens Backstage Buzz for a buzz-origin chats modal, matching closeChatsModal', () => {
+  const start = src.indexOf('const onPop = () => {');
+  const end = src.indexOf('\n    };', start);
+  assert.ok(start !== -1 && end !== -1, 'onPop handler not found');
+  const body = src.slice(start, end);
+  assert.ok(/modal === "chats" && dmEntryOrigin === "buzz"/.test(body), 'onPop no longer checks dmEntryOrigin — browser Back will disagree with the app back arrow again');
+  assert.ok(/go\("notifications"\)/.test(body), 'onPop does not reopen Backstage Buzz');
+});
+
+check('onPop\'s effect dependency array includes dmEntryOrigin (so the closure sees the current value)', () => {
+  const depsIdx = src.indexOf('},[appState, modal, tab, dmEntryOrigin]);');
+  assert.ok(depsIdx !== -1, 'dmEntryOrigin missing from the popstate effect\'s dependency array — the handler would use a stale origin');
+});
+
+// ── 7. Misleading-extension rejection (explicit, beyond the existing fallback tests) ─
+
+check('classifyAttachment: a real, reliable MIME always wins over a misleading extension in either direction', () => {
+  // application/json claiming to be a .webm — reliable MIME, not ours: reject.
+  assert.strictEqual(classifyAttachment('application/json', 'clip.webm').accepted, false);
+  // image/gif claiming to be a .mp4 — reliable MIME, not ours: reject (also
+  // not silently treated as the extension's format).
+  const r = classifyAttachment('image/gif', 'video.mp4');
+  assert.strictEqual(r.accepted, false);
+});
+
+check('classifyAttachment: oversized check is independent of format — MAX_ATTACH_BYTES boundary is exactly 24MB', () => {
+  const MAX_ATTACH_BYTES = 24 * 1024 * 1024;
+  assert.strictEqual(MAX_ATTACH_BYTES, 25165824);
+  const m = src.match(/const MAX_ATTACH_BYTES = (\d+ \* \d+ \* \d+);/);
+  assert.ok(m, 'MAX_ATTACH_BYTES definition not found or changed shape');
+  assert.strictEqual(eval(m[1]), MAX_ATTACH_BYTES, 'MAX_ATTACH_BYTES value changed — update this test deliberately if that was intended');
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

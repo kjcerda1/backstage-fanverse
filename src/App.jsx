@@ -27210,9 +27210,15 @@ function AppInner() {
     if(appState!=="main") return;
     const onPop = () => {
       if(modal){
-        // Close the open modal and re-seal the back-stop
+        // Close the open modal and re-seal the back-stop. A "chats" modal
+        // opened from Backstage Buzz gets the same treatment the app's own
+        // DM header back arrow gives it (see closeChatsModal) — browser Back
+        // must not disagree with the in-app control about where it lands.
+        const reopenBuzz = modal === "chats" && dmEntryOrigin === "buzz";
         setModal(null);
+        setDmEntryOrigin(null);
         window.history.pushState({ bsLevel:1 }, '');
+        if (reopenBuzz) setTimeout(()=>go("notifications"), 60);
         return;
       }
       if(tab!=="community"){
@@ -27225,7 +27231,7 @@ function AppInner() {
     };
     window.addEventListener('popstate', onPop);
     return ()=>window.removeEventListener('popstate', onPop);
-  },[appState, modal, tab]);
+  },[appState, modal, tab, dmEntryOrigin]);
 
   // Boot: sync VIP status from backend on session restore.
   // Depends on auth.tokenReady so it only fires after api._token is actually set.
