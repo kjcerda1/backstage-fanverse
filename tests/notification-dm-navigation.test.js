@@ -377,5 +377,61 @@ check('classifyAttachment: oversized check is independent of format — MAX_ATTA
   assert.strictEqual(eval(m[1]), MAX_ATTACH_BYTES, 'MAX_ATTACH_BYTES value changed — update this test deliberately if that was intended');
 });
 
+// ── 8. Exact target-message backend wiring (2026-08-04) ────────────────────
+// The notifications.target_message_id column now exists (verified live
+// against the real schema — see supabase-notifications-target-message-migration.sql).
+// These tests confirm the backend actually populates and returns it, and
+// that it is never derived from the thread id (entityId).
+
+const backendSrc = fs.readFileSync(path.join(__dirname, '..', 'api_server_v16.js'), 'utf8');
+
+check('migration file exists and matches the verified schema (uuid FK, ON DELETE SET NULL, nullable)', () => {
+  const migrationPath = path.join(__dirname, '..', 'supabase-notifications-target-message-migration.sql');
+  assert.ok(fs.existsSync(migrationPath), 'migration file not found');
+  const sql = fs.readFileSync(migrationPath, 'utf8');
+  assert.ok(/target_message_id uuid/i.test(sql), 'column type is not uuid — messages.id is uuid, this must match');
+  assert.ok(/REFERENCES public\.messages\(id\)/i.test(sql), 'FK does not reference public.messages(id)');
+  assert.ok(/ON DELETE SET NULL/i.test(sql), 'FK is not ON DELETE SET NULL — required so a deleted target falls back to newest, not a broken reference or a cascaded notification delete');
+  assert.ok(!/NOT NULL/i.test(sql), 'column must stay nullable — every existing notification has no message id');
+});
+
+check('deliverNotification accepts targetMessageId and inserts it only when present (mirrors the existing gif pattern)', () => {
+  const start = backendSrc.indexOf('async function deliverNotification(');
+  const end = backendSrc.indexOf('\n}', start);
+  const body = backendSrc.slice(start, end);
+  assert.ok(/targetMessageId = null/.test(body), 'deliverNotification does not accept a targetMessageId param');
+  assert.ok(/if \(targetMessageId\) insert\.target_message_id = targetMessageId;/.test(body), 'targetMessageId is not conditionally inserted — must not break on DBs without the migration');
+});
+
+check('the main DM /send route passes the real newly-created message id, not the thread id', () => {
+  const start = backendSrc.indexOf("app.post('/api/messages/thread/:id/send'");
+  const end = backendSrc.indexOf('\napp.post', start + 10);
+  const body = backendSrc.slice(start, end === -1 ? undefined : end);
+  assert.ok(/targetMessageId: data\.id,/.test(body), '/send route does not pass the real message id (data.id) as targetMessageId');
+  assert.ok(/entityId: req\.params\.id,/.test(body), 'entityId (thread id) must still be sent separately — never conflate the two');
+});
+
+check('the scrapbook-invite DM path also passes its own real message id (same dm_received contract)', () => {
+  const idx = backendSrc.indexOf("title: `${sender?.username || 'A Backstage fan'} shared a scrapbook`");
+  assert.ok(idx !== -1, 'scrapbook-invite notification block not found');
+  const body = backendSrc.slice(idx - 200, idx + 400);
+  assert.ok(/targetMessageId: msg\.id,/.test(body), 'scrapbook-invite dm_received does not pass its own message id');
+});
+
+check('toClientNotification maps target_message_id to targetMessageId, separate from entityId', () => {
+  const start = backendSrc.indexOf('function toClientNotification(n) {');
+  const end = backendSrc.indexOf('\n}', start);
+  const body = backendSrc.slice(start, end);
+  assert.ok(/targetMessageId: n\.target_message_id \|\| null,/.test(body));
+  assert.ok(/entityId: n\.entity_id \|\| ''/.test(body), 'entityId mapping must stay independent — never merged with targetMessageId');
+});
+
+check('GET /api/notifications selects target_message_id (otherwise it can never reach the client no matter what deliverNotification stores)', () => {
+  const idx = backendSrc.indexOf("app.get('/api/notifications', requireAuth");
+  assert.ok(idx !== -1, 'route not found');
+  const body = backendSrc.slice(idx, idx + 600);
+  assert.ok(/target_message_id/.test(body), 'select() does not include target_message_id');
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

@@ -2393,6 +2393,7 @@ app.post('/api/scrapbooks/:id/invite', requireAuth, async (req, res) => {
       actorId: req.userId,
       entityId: threadId,
       entityType: 'thread',
+      targetMessageId: msg.id,
       targetModal: 'chats',
       channels: ['in_app', 'push'],
     });
@@ -4057,6 +4058,11 @@ function toClientNotification(n) {
     entityType: n.entity_type || '',
     targetModal: n.target_modal || '',
     targetTab: n.target_tab || '',
+    // Distinct from entityId (which for dm_received is the THREAD id) — the
+    // exact message to scroll to/highlight, when the notification carries
+    // one. Never inferred from entityId; null on every notification that
+    // predates this column or isn't a dm_received.
+    targetMessageId: n.target_message_id || null,
     gif: n.gif || null, // { id, title, previewUrl, fullUrl, source } — rendered as a small thumbnail
   };
 }
@@ -4124,7 +4130,7 @@ async function pushToUserTokens(userId, message) {
   return { delivered, failed };
 }
 
-async function deliverNotification({ userId, type, title, body, actorId = null, entityId = null, entityType = null, targetModal = 'friends', targetTab = null, channels = ['in_app', 'push'], gif = null }) {
+async function deliverNotification({ userId, type, title, body, actorId = null, entityId = null, entityType = null, targetMessageId = null, targetModal = 'friends', targetTab = null, channels = ['in_app', 'push'], gif = null }) {
   if (!userId) return { ok: false, reason: 'no_user' };
   if (MOCK_MODE) return { ok: true, mock: true };
 
@@ -4140,9 +4146,13 @@ async function deliverNotification({ userId, type, title, body, actorId = null, 
     target_tab: targetTab,
     read: false,
   };
-  // Only attach gif when present — keeps inserts working on DBs that haven't run
-  // the notifications.gif migration yet (supabase-notifications-gif-migration.sql)
+  // Only attach gif/target_message_id when present — keeps inserts working on
+  // DBs that haven't run the corresponding migration yet
+  // (supabase-notifications-gif-migration.sql /
+  // supabase-notifications-target-message-migration.sql). Never inferred from
+  // entityId — entityId for dm_received is the THREAD id, a different thing.
   if (gif) insert.gif = gif;
+  if (targetMessageId) insert.target_message_id = targetMessageId;
   const { data: notification, error } = await supabase
     .from('notifications')
     .insert(insert)
@@ -4164,6 +4174,7 @@ async function deliverNotification({ userId, type, title, body, actorId = null, 
           targetTab: targetTab || '',
           targetId: entityId || '',
           entityType: entityType || '',
+          targetMessageId: targetMessageId || '',
         },
         webpush: { fcmOptions: { link: process.env.FRONTEND_URL || '/' } },
       });
@@ -4535,6 +4546,72 @@ function sanitizeDmMedia(raw, expectedPathPrefix) {
   return null;
 }
 
+// ── DM media content trust boundary ─────────────────────────────────────────
+// sanitizeDmMedia() above only ever validated STRUCTURE (kind enum, path
+// ownership) — never content. The actual bytes are PUT directly from the
+// browser to Supabase Storage via a signed upload URL; this server never saw
+// them until now. That gap let a plain-text file renamed to .mp4 (with an
+// empty/generic MIME the client's extension fallback then accepted) upload
+// and send successfully — verified live in QA. mimeType/kind on the request
+// body are entirely client-supplied and were never proof of anything.
+//
+// This is the server-authoritative check: download the object this server
+// itself just got a path reference to, read its real magic bytes / container
+// signature, and only let the message exist if the bytes actually are what
+// they claim to be. Called once, synchronously, before the message insert —
+// so a rejected file never becomes a real, referenceable, signable message.
+const ALLOWED_DM_MEDIA_FORMATS = { image: new Set(['jpeg', 'png', 'webp', 'heic']), video: new Set(['mp4', 'mov', 'webm']) };
+
+// Real magic-byte / container-signature detection — never trusts a claimed
+// mimeType or extension. Returns { kind, format, mimeType } for a recognized
+// signature, or null for anything else (including arbitrary binary/text).
+function detectMediaSignature(buf) {
+  if (!buf || buf.length < 12) return null;
+  if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return { kind: 'image', format: 'jpeg', mimeType: 'image/jpeg' };
+  const PNG_SIG = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+  if (buf.length >= 8 && PNG_SIG.every((v, i) => buf[i] === v)) return { kind: 'image', format: 'png', mimeType: 'image/png' };
+  // WebP: 'RIFF' .... 'WEBP'
+  if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 && buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50) {
+    return { kind: 'image', format: 'webp', mimeType: 'image/webp' };
+  }
+  // WebM/Matroska EBML header: 1A 45 DF A3
+  if (buf[0] === 0x1A && buf[1] === 0x45 && buf[2] === 0xDF && buf[3] === 0xA3) return { kind: 'video', format: 'webm', mimeType: 'video/webm' };
+  // ISO base media file format family (MP4/MOV/HEIC all share this container
+  // shape) — 'ftyp' box at byte offset 4, brand code at offset 8-11 tells
+  // them apart. Any recognized brand not matching MOV/HEIC falls through to
+  // the generic MP4 family (isom/iso2/mp41/mp42/avc1/M4V /3gp4/dash/etc. —
+  // not enumerated exhaustively; "ftyp present, not qt/HEIC" is a practical,
+  // not exhaustive, MP4-family signature).
+  if (buf[4] === 0x66 && buf[5] === 0x74 && buf[6] === 0x79 && buf[7] === 0x70) {
+    const brand = String.fromCharCode(buf[8], buf[9], buf[10], buf[11]);
+    if (brand === 'qt  ') return { kind: 'video', format: 'mov', mimeType: 'video/quicktime' };
+    const HEIC_BRANDS = new Set(['heic', 'heix', 'heim', 'heis', 'hevc', 'hevx', 'mif1', 'msf1']);
+    if (HEIC_BRANDS.has(brand)) return { kind: 'image', format: 'heic', mimeType: 'image/heic' };
+    return { kind: 'video', format: 'mp4', mimeType: 'video/mp4' };
+  }
+  return null;
+}
+
+// Downloads the object this server itself referenced (never trusts a client-
+// supplied buffer) and verifies its real signature matches what it claims to
+// be. On any rejection, the caller deletes the storage object — a rejected
+// upload never becomes a real DM attachment and is never left behind either.
+async function verifyDmMediaContent(path, claimedKind) {
+  try {
+    const { data: fileBlob, error } = await supabase.storage.from('dm-media').download(path);
+    if (error || !fileBlob) return { ok: false, message: 'Could not verify that attachment — try sending it again.' };
+    const buf = Buffer.from(await fileBlob.arrayBuffer());
+    const sig = detectMediaSignature(buf);
+    if (!sig) return { ok: false, message: 'That file could not be verified as a supported photo or video.' };
+    if (sig.kind !== claimedKind) return { ok: false, message: 'That file does not match the format it was sent as.' };
+    if (!ALLOWED_DM_MEDIA_FORMATS[sig.kind].has(sig.format)) return { ok: false, message: 'That format is not supported.' };
+    return { ok: true, mimeType: sig.mimeType, format: sig.format };
+  } catch (err) {
+    console.warn('[verifyDmMediaContent] error:', err.message);
+    return { ok: false, message: 'Could not verify that attachment — try sending it again.' };
+  }
+}
+
 // ── DM message reactions (real persistence — see supabase-dm-message-
 // reactions-migration.sql) ──────────────────────────────────────────────────
 // Attaches a `reactions: [{emoji, userId, username, createdAt}]` array to
@@ -4788,6 +4865,21 @@ app.post('/api/messages/thread/:id/send', requireAuth, async (req, res) => {
         return res.status(403).json({ error: 'blocked', message: 'You cannot message this user.' });
       }
     }
+    // Server-authoritative content check — the only trust boundary that
+    // matters here, since the browser PUT the actual bytes straight to
+    // Storage and this server never saw them until this download. A rejected
+    // file is deleted immediately and never becomes a real message, so it's
+    // never referenced by signDmMedia() / signed-URL delivery either.
+    if (media && (media.kind === 'image' || media.kind === 'video')) {
+      const verified = await verifyDmMediaContent(media.path, media.kind);
+      if (!verified.ok) {
+        await supabase.storage.from('dm-media').remove([media.path]).catch(() => {});
+        return res.status(422).json({ error: 'invalid_media', message: verified.message });
+      }
+      // Canonicalize to the server-verified type — never trust the
+      // client-reported mimeType as proof, even after it passes.
+      media.mimeType = verified.mimeType;
+    }
     // Replying to a pending Message Request implicitly accepts it.
     if (!membership.accepted) {
       await supabase.from('message_thread_members').update({ accepted: true }).eq('thread_id', req.params.id).eq('user_id', req.userId);
@@ -4821,6 +4913,7 @@ app.post('/api/messages/thread/:id/send', requireAuth, async (req, res) => {
         actorId: req.userId,
         entityId: req.params.id,
         entityType: 'thread',
+        targetMessageId: data.id,
         targetModal: 'chats',
         channels: ['in_app', 'push'],
       });
@@ -5791,7 +5884,7 @@ app.get('/api/notifications', requireAuth, async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('notifications')
-      .select('id, user_id, type, title, body, actor_id, entity_id, entity_type, read, target_modal, target_tab, created_at')
+      .select('id, user_id, type, title, body, actor_id, entity_id, entity_type, target_message_id, read, target_modal, target_tab, created_at')
       .eq('user_id', req.userId)
       .order('created_at', { ascending: false })
       .limit(50);

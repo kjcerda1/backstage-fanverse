@@ -52,6 +52,7 @@ if (firebaseConfig.apiKey && firebaseConfig.projectId) {
           targetTab:   d.targetTab,
           targetId:    d.targetId,
           entityType:  d.entityType,
+          targetMessageId: d.targetMessageId,
           origin:      self.location.origin,
         },
       });
@@ -77,12 +78,16 @@ self.addEventListener('notificationclick', (event) => {
   // specific conversation or trade it was actually about.
   const targetId    = raw.targetId    || fcm.targetId    || '';
   const entityType  = raw.entityType  || fcm.entityType  || '';
+  // Exact message within that thread, when the notification carries one —
+  // separate from targetId (the thread id for dm_received); never derived
+  // from it. Absent on every notification type except dm_received today.
+  const targetMessageId = raw.targetMessageId || fcm.targetMessageId || '';
   // Fall back before use: `origin` is absent on SDK-drawn notifications, and
   // startsWith(undefined) below would never match, always opening a new window.
   const origin = raw.origin || self.location.origin;
   const dest   = targetModal || targetTab || '';
   const idParams = targetId
-    ? `&nid=${encodeURIComponent(targetId)}${entityType ? `&ntype=${encodeURIComponent(entityType)}` : ''}`
+    ? `&nid=${encodeURIComponent(targetId)}${entityType ? `&ntype=${encodeURIComponent(entityType)}` : ''}${targetMessageId ? `&nmsg=${encodeURIComponent(targetMessageId)}` : ''}`
     : '';
   const url = `${origin}?notif=${dest}${idParams}`;
 
@@ -90,7 +95,7 @@ self.addEventListener('notificationclick', (event) => {
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
       for (const client of list) {
         if (client.url.startsWith(origin) && 'focus' in client) {
-          client.postMessage({ type: 'NOTIF_CLICK', targetModal, targetTab, targetId, entityType });
+          client.postMessage({ type: 'NOTIF_CLICK', targetModal, targetTab, targetId, entityType, targetMessageId });
           return client.focus();
         }
       }

@@ -20079,7 +20079,13 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
     const payload = { media: { ...media, path: urlRes.path } };
     if (caption && caption.trim()) payload.body = caption.trim();
     const saved = await api.post(`/api/messages/thread/${encodeURIComponent(activeConvo.id)}/send`, payload);
-    if (!saved?.message?.id) throw new Error(saved?.error === '403' ? 'blocked' : 'send-failed');
+    if (!saved?.message?.id) {
+      // 422 = the server downloaded the object it just referenced and its
+      // real bytes didn't match what it claimed to be (server-authoritative
+      // content check, distinct from the 403 Circle-block case and from a
+      // generic network/send failure).
+      throw new Error(saved?.error === '403' ? 'blocked' : saved?.error === '422' ? 'invalid-media' : 'send-failed');
+    }
     return saved.message;
   };
 
@@ -20149,7 +20155,10 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
       setPendingAttachment(null);
       setMsgDraft("");
     } catch (err) {
-      setPendingAttachment(p => p ? { ...p, uploading:false, error: err?.message==='blocked' ? "You can't message this fan right now." : "Upload failed — check your connection and try again." } : p);
+      const message = err?.message === 'blocked' ? "You can't message this fan right now."
+        : err?.message === 'invalid-media' ? "That file couldn't be verified as a supported photo or video — try a different file."
+        : "Upload failed — check your connection and try again.";
+      setPendingAttachment(p => p ? { ...p, uploading:false, error: message } : p);
     } finally {
       setSending(false);
     }
@@ -27529,8 +27538,9 @@ function AppInner() {
     if (notifDest && appState === 'main') {
       const nid = params.get('nid');
       const ntype = params.get('ntype');
+      const nmsg = params.get('nmsg');
       window.history.replaceState({}, '', window.location.pathname);
-      stashNotifTarget(nid, ntype);
+      stashNotifTarget(nid, ntype, nmsg);
       go(notifDest);
     }
     // Spotify OAuth return: ?music=spotify_connected
@@ -27549,7 +27559,7 @@ function AppInner() {
     const onSwMessage = (event) => {
       if (event.data?.type === 'NOTIF_CLICK' && appState === 'main') {
         const dest = event.data.targetModal || event.data.targetTab;
-        if (dest) { stashNotifTarget(event.data.targetId, event.data.entityType); go(dest); }
+        if (dest) { stashNotifTarget(event.data.targetId, event.data.entityType, event.data.targetMessageId); go(dest); }
       }
     };
     navigator.serviceWorker?.addEventListener('message', onSwMessage);
