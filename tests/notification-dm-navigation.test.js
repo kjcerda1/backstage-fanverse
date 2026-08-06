@@ -169,15 +169,65 @@ check('consumeNotifTarget rejects a mismatched entityType without consuming it',
   assert.deepStrictEqual(consumeNotifTarget(store, 'meetup'), { targetId:'meetup-1', targetMessageId:null });
 });
 
-check('all four consumeNotifTarget call sites destructure .targetId (return-shape migration is complete)', () => {
-  const calls = src.match(/consumeNotifTarget\('[a-z_]+'\)/g) || [];
-  assert.strictEqual(calls.length, 4, `expected 4 consumeNotifTarget call sites, found ${calls.length}`);
+check('all four peekNotifTarget call sites destructure .targetId (return-shape migration is complete)', () => {
+  const calls = src.match(/peekNotifTarget\('[a-z_]+'\)/g) || [];
+  assert.strictEqual(calls.length, 4, `expected 4 peekNotifTarget call sites, found ${calls.length}`);
   for (const call of calls) {
     const idx = src.indexOf(call);
     const around = src.slice(idx, idx + call.length + 20);
     assert.ok(/\.targetId \|\| null|\?\.targetId/.test(around) || src.slice(idx - 60, idx).includes('notifThread]'),
       `call site "${call}" does not appear to destructure the object return shape: ...${around}`);
   }
+});
+
+// ── 3a. StrictMode-safe target consumption (2026-08-05 owner-device follow-up) ─
+// The four screens above (+ DirectMessages' own dmTarget) used to read AND
+// delete the stashed localStorage target inside a useState initializer in one
+// step (consumeNotifTarget). React 18 StrictMode calls a useState initializer
+// twice on mount (dev-only diagnostic) and keeps only the LAST call's return
+// value as state — a destructive read there silently erases the real target
+// before the app ever uses it (first call deletes + returns the real value,
+// which is discarded; second call finds nothing and returns null, which wins).
+// Fixed by splitting into a pure peekNotifTarget (safe to call twice, same
+// result both times) + an explicit clearNotifTarget() called from a
+// mount-only effect, never from the initializer itself.
+
+check('peekNotifTarget is a pure read — no ls.del inside its own body', () => {
+  const start = src.indexOf('function peekNotifTarget(entityType) {');
+  assert.ok(start !== -1, 'peekNotifTarget not found');
+  const end = src.indexOf('\n}', start);
+  const body = src.slice(start, end);
+  assert.ok(!/ls\.del/.test(body), 'peekNotifTarget must not delete — that would reintroduce the StrictMode double-invoke data-loss bug');
+});
+
+check('clearNotifTarget exists as the sole deletion path, separate from the read', () => {
+  const start = src.indexOf('function clearNotifTarget() {');
+  assert.ok(start !== -1, 'clearNotifTarget not found');
+  const body = src.slice(start, src.indexOf('\n}', start));
+  assert.ok(/ls\.del\('backstage_notif_target'\)/.test(body));
+});
+
+check('consumeNotifTarget (the old destructive-read function) no longer exists — every call site migrated', () => {
+  assert.ok(!/function consumeNotifTarget\(/.test(src), 'consumeNotifTarget still defined — a call site may still be using the unsafe destructive-read pattern');
+  assert.ok(!/consumeNotifTarget\(/.test(src), 'a stray consumeNotifTarget( call site remains');
+});
+
+check('every peekNotifTarget call site pairs with a mount-only clearNotifTarget effect nearby', () => {
+  const calls = [...src.matchAll(/const \[\w+\] = useState\(\(\)=>peekNotifTarget\('[a-z_]+'\)(?:\?\.targetId \|\| null)?\);/g)];
+  assert.strictEqual(calls.length, 4, `expected 4 peek call sites, found ${calls.length}`);
+  for (const m of calls) {
+    const after = src.slice(m.index, m.index + m[0].length + 200);
+    assert.ok(/useEffect\(\(\)=>\{ if \(\w+\) clearNotifTarget\(\); \}, \[\]\);/.test(after),
+      `no mount-only clearNotifTarget() effect found right after: ${m[0]}`);
+  }
+});
+
+check('DirectMessages\' dmTarget read (Message-button entry point) is also non-destructive in its initializer', () => {
+  const start = src.indexOf('const [dmTarget] = useState(()=>{');
+  assert.ok(start !== -1, 'dmTarget initializer not found');
+  const body = src.slice(start, start + 300);
+  assert.ok(!/ls\.del\("backstage_dm_target"\)/.test(body.slice(0, body.indexOf('});'))), 'dmTarget initializer still deletes synchronously — same StrictMode hazard as consumeNotifTarget had');
+  assert.ok(/ls\.del\("backstage_dm_target"\)/.test(src.slice(start, start + 500)), 'backstage_dm_target is never cleared anywhere nearby');
 });
 
 check('the notifThreadId matching effect only clears the one-shot target once a match is actually applied', () => {
