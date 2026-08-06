@@ -753,9 +753,10 @@ const isMockNotifId = (id) => typeof id === "string" && /^n\d+$/.test(id);
 // (in-app tap, SW notificationclick postMessage, cold-launch ?notif= URL, and the
 // same URL surviving a sign-out→sign-in round trip) writes here via
 // stashNotifTarget before calling go(). The landing screen reads it back via
-// consumeNotifTarget(entityType) once it has the data needed to resolve targetId
-// into the actual thread/offer/request — matching on entityType so a screen that
-// mounts first doesn't eat a target meant for a different one.
+// peekNotifTarget(entityType) (+ a mount-only clearNotifTarget() effect — see
+// below) once it has the data needed to resolve targetId into the actual
+// thread/offer/request — matching on entityType so a screen that mounts first
+// doesn't eat a target meant for a different one.
 // targetMessageId is optional and only meaningful for entityType 'thread' today —
 // carried through so a future backend payload that supplies it (see
 // DM_NOTIFICATION_NAVIGATION_WEB_VIDEO doc) works with zero further plumbing.
@@ -763,14 +764,28 @@ function stashNotifTarget(targetId, entityType, targetMessageId = null) {
   if (targetId) ls.set('backstage_notif_target', { targetId: String(targetId), entityType: entityType || '', targetMessageId: targetMessageId ? String(targetMessageId) : null });
   else ls.del('backstage_notif_target');
 }
+// Pure read — no side effect. Every consuming screen reads its target via this
+// (inside a useState initializer) rather than the old combined-read-and-delete
+// approach, which deleted the localStorage entry as part of the read itself: under React 18
+// StrictMode, a useState initializer runs TWICE on mount (dev-only diagnostic,
+// same as double-invoked effects) and only the LAST call's return value becomes
+// state — a destructive read there discards the real target on the first call
+// and returns null on the second, silently erasing it before the app can use it.
 // Returns { targetId, targetMessageId } on a match, or null. Callers that only
 // need the id can destructure `.targetId`.
-function consumeNotifTarget(entityType) {
+function peekNotifTarget(entityType) {
   const t = ls.get('backstage_notif_target', null);
   if (!t?.targetId) return null;
   if (entityType && t.entityType && t.entityType !== entityType) return null;
-  ls.del('backstage_notif_target');
   return { targetId: t.targetId, targetMessageId: t.targetMessageId || null };
+}
+// The actual one-shot consumption — deletes the stashed target. Call from a
+// mount-only effect (`useEffect(()=>{...}, [])`) after peekNotifTarget has
+// already been read into state, never from the initializer itself. Safe to
+// call redundantly (e.g. StrictMode's double-fired mount effect) — deleting an
+// already-cleared key is a no-op.
+function clearNotifTarget() {
+  ls.del('backstage_notif_target');
 }
 
 // ─── CANONICAL NOTIFICATION DESTINATION RESOLVER ──────────────────────────────
@@ -1807,9 +1822,14 @@ async function attachForegroundMessageHandler() {
     // Set before the await below so a second caller can't slip past the guard
     _fgMessageHandlerAttached = true;
     onMessage(messaging, async (payload) => {
-      const title = payload.notification?.title || 'Backstage';
-      const body  = payload.notification?.body  || '';
-      const { targetModal, targetTab, targetId, entityType } = payload.data || {};
+      // Backend pushes are data-only (see deliverNotification()'s comment in
+      // api_server_v16.js) so title/body live under payload.data, not
+      // payload.notification — but fall back to .notification too in case an
+      // older cached backend/legacy sender still sends a notification block.
+      const d = payload.data || {};
+      const title = d.title || payload.notification?.title || 'Backstage';
+      const body  = d.body  || payload.notification?.body  || '';
+      const { targetModal, targetTab, targetId, entityType, targetMessageId } = d;
       const reg = await navigator.serviceWorker.getRegistration('/firebase-messaging-sw.js');
       // Mirrors the SW's showNotification options so foreground and background
       // notifications look identical and share the notificationclick handler
@@ -1818,7 +1838,7 @@ async function attachForegroundMessageHandler() {
         icon:  '/fanverse-logo.png',
         badge: '/fanverse-logo.png',
         tag:   targetModal || targetTab || 'backstage-notif',
-        data:  { targetModal, targetTab, targetId, entityType, origin: window.location.origin },
+        data:  { targetModal, targetTab, targetId, entityType, targetMessageId, origin: window.location.origin },
       });
     });
   } catch (err) {
@@ -4349,7 +4369,8 @@ function ConcertsPage({ go, isVip, onUpgrade, user }) {
   // open the exact meetup's detail sheet once the real/mock list has loaded.
   // A deleted/inaccessible meetup id just never matches — falls through to the
   // normal Concerts tab, no crash.
-  const [notifMeetupId] = useState(()=>consumeNotifTarget('meetup')?.targetId || null);
+  const [notifMeetupId] = useState(()=>peekNotifTarget('meetup')?.targetId || null);
+  useEffect(()=>{ if (notifMeetupId) clearNotifTarget(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(()=>{
     if (!notifMeetupId || meetupDetail) return;
     const match = allMeetups.find(m=>m.id===notifMeetupId);
@@ -6091,7 +6112,8 @@ function LibraryTab({ cards, setCards, patchCard, deleteCard, addCard, cardsLoad
   // A trade-offer push notification lands here (tab:'collect') — jump straight
   // into Trade Hub with the exact offer selected instead of the generic My World
   // landing screen.
-  const [notifOfferId] = useState(()=>consumeNotifTarget('listing_offer')?.targetId || null);
+  const [notifOfferId] = useState(()=>peekNotifTarget('listing_offer')?.targetId || null);
+  useEffect(()=>{ if (notifOfferId) clearNotifTarget(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(()=>{ if (notifOfferId) { setSection('trades'); setShowTradeHub(true); } }, [notifOfferId]);
   const [groupFilter, setGroupFilter] = useState("all");
   const [myWorldTheme, setMyWorldTheme] = useState(()=>ls.get("backstage_my_world_theme","Purple Galaxy"));
@@ -16208,7 +16230,8 @@ function FriendsPage({ onBack, onNotif, go, onViewProfile }) {
   const [reactGifPickerOpen, setReactGifPickerOpen] = useState(false);
   // Friend-request push notifications land here (view already defaults to
   // "requests") — highlight the specific request the tap was about.
-  const [notifRequestId] = useState(()=>consumeNotifTarget('friend_request')?.targetId || null);
+  const [notifRequestId] = useState(()=>peekNotifTarget('friend_request')?.targetId || null);
+  useEffect(()=>{ if (notifRequestId) clearNotifTarget(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const notifRequestRef = useRef(null);
   useEffect(()=>{
     if (notifRequestId && notifRequestRef.current) notifRequestRef.current.scrollIntoView({ behavior:"smooth", block:"center" });
@@ -19650,19 +19673,23 @@ function VoiceMessageBubble({ media, isMe }) {
 function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbook, entryOrigin }) {
   const { tokenReady } = useAuth();
   const KEY = "backstage_dms";
-  // Read dm-target from localStorage if not explicitly passed (set by Message buttons)
+  // Read dm-target from localStorage if not explicitly passed (set by Message buttons).
+  // Pure read in the initializer (no delete) — same StrictMode-safety reasoning as
+  // peekNotifTarget/clearNotifTarget above: a destructive read inside a useState
+  // initializer loses the value on React 18's dev-only double-invoke. The matching
+  // clear runs once from a mount-only effect below.
   const [dmTarget] = useState(()=>{
     if(initialFan) return initialFan;
-    const t = ls.get("backstage_dm_target",null);
-    ls.del("backstage_dm_target");
-    return t;
+    return ls.get("backstage_dm_target",null);
   });
+  useEffect(()=>{ if (dmTarget && !initialFan) ls.del("backstage_dm_target"); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // A DM push notification carries the thread id (entityType 'thread'), not a fan
   // object — separate from dmTarget above, which is always keyed by fan identity.
   // Both are one-shot: cleared via their setters once applied, so clearing
   // activeConvo (e.g. the header back button) never re-triggers the matching
   // effect below and reopens the same thread.
-  const [notifThread] = useState(()=>consumeNotifTarget('thread'));
+  const [notifThread] = useState(()=>peekNotifTarget('thread'));
+  useEffect(()=>{ if (notifThread) clearNotifTarget(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [notifThreadId, setNotifThreadId] = useState(()=>notifThread?.targetId || null);
   const [notifMessageId, setNotifMessageId] = useState(()=>notifThread?.targetMessageId || null);
   // Stable (never cleared) copy of which thread notifMessageId belongs to — used
@@ -19718,11 +19745,21 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
   const [voiceError, setVoiceError] = useState(null);
   const [voicePreview, setVoicePreview] = useState(null); // { blob, url, durationSec, mimeType }
   const [voicePlaying, setVoicePlaying] = useState(false);
+  // Live recording waveform — 20 bars, each 0..1, redrawn every animation
+  // frame from a real Web Audio AnalyserNode reading the mic stream.
+  // voiceLevelsLive distinguishes "genuinely reacting to your voice" from the
+  // graceful animated fallback (analyser unavailable) so the fallback is never
+  // silently mislabeled as live.
+  const [voiceLevels, setVoiceLevels] = useState(() => new Array(20).fill(0));
+  const [voiceLevelsLive, setVoiceLevelsLive] = useState(false);
   const voiceRecorderRef = useRef(null);
   const voiceChunksRef = useRef([]);
   const voiceStreamRef = useRef(null);
   const voiceTimerRef = useRef(null);
   const voicePreviewAudioRef = useRef(null);
+  const voiceAudioCtxRef = useRef(null);
+  const voiceAnalyserRef = useRef(null);
+  const voiceRafRef = useRef(null);
   const msgEndRef  = useRef(null);
   // Scroll container for the DM thread. msgEndRef is attached to TWO sentinels (the
   // DM list and the group list), so whichever branch unmounts last writes null into
@@ -19746,6 +19783,15 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
     const member = thread.member || thread.fan || {};
     const display = member.handle || member.username || member.display_name || member.backstage_name || "fan";
     const threadMessages = Array.isArray(messages) ? messages : (thread.last_message ? [thread.last_message] : []);
+    // The real, authoritative "latest activity" timestamp for inbox sorting —
+    // never derived from a formatted display string (see sortConvosByActivity
+    // below). thread.last_message is present on GET /api/messages/threads;
+    // when reconstructing from an already-normalized convo (openConvo's
+    // GET /api/messages/thread/:id re-hydrate has no last_message field) fall
+    // back to the last entry of the real message list — messages always arrive
+    // pre-sorted ascending by created_at from the backend, so the last entry
+    // IS the newest. null only for a genuinely message-less thread.
+    const lastRaw = thread.last_message || threadMessages[threadMessages.length - 1] || null;
     return {
       id:thread.id,
       backend:true,
@@ -19772,7 +19818,8 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
         reactions:m.reactions || [],
       })),
       unread:0,
-      lastTime:thread.last_message?.created_at ? new Date(thread.last_message.created_at).toLocaleTimeString([], { hour:"numeric", minute:"2-digit" }) : "now",
+      lastTime:lastRaw?.created_at ? new Date(lastRaw.created_at).toLocaleTimeString([], { hour:"numeric", minute:"2-digit" }) : "now",
+      lastMessageAt:lastRaw?.created_at || null,
       // isCircle/accepted/initiatedByMe come from GET /api/messages/threads (the
       // authoritative source). Default true when absent — e.g. right after this
       // client just created the thread via POST /api/messages/thread, which
@@ -19782,6 +19829,21 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
       accepted: thread.accepted !== undefined ? thread.accepted : true,
       initiatedByMe: !!thread.initiatedByMe,
     };
+  };
+
+  // Inbox ordering — sorts by real lastMessageAt (a genuine ISO timestamp, never
+  // a formatted display string like "Yesterday"/"12:10 PM") descending, so the
+  // conversation with the newest activity is always first. A convo with no
+  // messages yet (lastMessageAt: null) sorts to the bottom, not the top or a
+  // random spot. Equal/missing timestamps fall back to a deterministic id
+  // comparison so ordering never jitters between renders.
+  const sortConvosByActivity = (list) => {
+    const t = (c) => { const ms = c.lastMessageAt ? new Date(c.lastMessageAt).getTime() : NaN; return Number.isFinite(ms) ? ms : -Infinity; };
+    return [...list].sort((a, b) => {
+      const diff = t(b) - t(a);
+      if (diff !== 0) return diff;
+      return String(a.id).localeCompare(String(b.id));
+    });
   };
 
   useEffect(()=>{ ls.set(KEY, convos); }, [convos]);
@@ -19917,21 +19979,38 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
     };
   }, [activeConvo?.id, activeGroup?.id]);
 
+  // Fetches the full thread list and merges it into convos, sorted by real
+  // latest-activity. Used both for the initial load and a periodic poll below
+  // — DMs are poll-based, not realtime (see CURRENT_STATE.md §3), and without
+  // a poll here an incoming message from another user never reordered the
+  // inbox until the whole DM modal was closed and reopened (owner-reported).
+  const refreshThreadList = async () => {
+    const d = await api.get('/api/messages/threads').catch(() => null);
+    if (!Array.isArray(d?.threads)) return;
+    // t.messages is the thread's full message history (see GET /api/messages/threads) —
+    // omitting it here made normalizeDmThread fall back to just [t.last_message], so
+    // convos only ever held the SINGLE most recent message per thread while activeConvo
+    // (hydrated separately in openConvo, below) had the real full list. Every send/react
+    // then updated the two independently and out of sync, and toggleReaction — the one
+    // place that reads convos and writes the result back into activeConvo — would
+    // collapse the visibly-correct activeConvo list down to convos' 1-message copy.
+    const fresh = d.threads.map(t => normalizeDmThread(t, Array.isArray(t.messages) ? t.messages : null));
+    setConvos(prev => {
+      // A purely-local convo the server doesn't know about yet (e.g. a
+      // brand-new thread created moments ago, still mid-round-trip, or an
+      // offline fallback thread) has no backend id to match against — keep it
+      // rather than silently dropping it on the next poll tick.
+      const localOnly = prev.filter(c => !c.backend && !fresh.some(f => f.id === c.id));
+      return sortConvosByActivity([...fresh, ...localOnly]);
+    });
+  };
+
   useEffect(() => {
     if (!tokenReady) return;
     let alive = true;
-    api.get('/api/messages/threads').then(d => {
-      if (!alive || !Array.isArray(d?.threads)) return;
-      // t.messages is the thread's full message history (see GET /api/messages/threads) —
-      // omitting it here made normalizeDmThread fall back to just [t.last_message], so
-      // convos only ever held the SINGLE most recent message per thread while activeConvo
-      // (hydrated separately in openConvo, below) had the real full list. Every send/react
-      // then updated the two independently and out of sync, and toggleReaction — the one
-      // place that reads convos and writes the result back into activeConvo — would
-      // collapse the visibly-correct activeConvo list down to convos' 1-message copy.
-      setConvos(d.threads.map(t => normalizeDmThread(t, Array.isArray(t.messages) ? t.messages : null)));
-    }).catch(() => {});
-    return () => { alive = false; };
+    refreshThreadList();
+    const iv = setInterval(() => { if (alive) refreshThreadList(); }, 15000);
+    return () => { alive = false; clearInterval(iv); };
   }, [user?.id, tokenReady]);
 
   // Opens the exact thread a DM push pointed at, once the real thread list has
@@ -20113,6 +20192,7 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
           return;
         }
         msg.id = saved.message.id;
+        msg.createdAt = saved.message.created_at || new Date().toISOString();
         msg.time = saved.message.created_at ? new Date(saved.message.created_at).toLocaleTimeString([], { hour:"numeric", minute:"2-digit" }) : "now";
       }
       if (draftGif) {
@@ -20120,8 +20200,11 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
         ls.set(GIF_LS_MESSAGE_GIFS, [{ ...draftGif, sentAt:Date.now(), threadId:activeConvo.id }, ...sentGifs].slice(0,40));
       }
       // Replying always accepts a pending Message Request (mirrors the backend's
-      // implicit-accept-on-reply in POST /api/messages/thread/:id/send).
-      const updated = convos.map(c=>c.id===activeConvo.id ? {...c, messages:[...c.messages,msg], lastTime:"now", accepted:true} : c);
+      // implicit-accept-on-reply in POST /api/messages/thread/:id/send). lastMessageAt
+      // is the real timestamp (server's when available, else "now") that drives
+      // inbox ordering — never the formatted lastTime display string.
+      const nowIso = msg.createdAt || new Date().toISOString();
+      const updated = convos.map(c=>c.id===activeConvo.id ? {...c, messages:[...c.messages,msg], lastTime:"now", lastMessageAt:nowIso, accepted:true} : c);
       setConvos(updated);
       setActiveConvo(prev=>({...prev, messages:[...prev.messages,msg], accepted:true}));
       setMsgDraft(""); setSelectedGif(null);
@@ -20148,7 +20231,8 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
         time: saved.created_at ? new Date(saved.created_at).toLocaleTimeString([], { hour:"numeric", minute:"2-digit" }) : "now",
         media: saved.media || { ...media, url: att.previewUrl },
       };
-      const updated = convos.map(c=>c.id===activeConvo.id ? {...c, messages:[...c.messages,msg], lastTime:"now", accepted:true} : c);
+      const nowIso = saved.created_at || new Date().toISOString();
+      const updated = convos.map(c=>c.id===activeConvo.id ? {...c, messages:[...c.messages,msg], lastTime:"now", lastMessageAt:nowIso, accepted:true} : c);
       setConvos(updated);
       setActiveConvo(prev=>({...prev, messages:[...prev.messages,msg], accepted:true}));
       URL.revokeObjectURL(att.previewUrl);
@@ -20172,15 +20256,84 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
   };
   const stopVoiceTimer = () => { if (voiceTimerRef.current) { clearInterval(voiceTimerRef.current); voiceTimerRef.current = null; } };
 
+  // Tears down the AnalyserNode/AudioContext/animation-frame loop. Called on
+  // every exit from 'recording' (finish, cancel, error, unmount) — an
+  // AudioContext left open keeps its MediaStreamSource (and therefore the mic)
+  // referenced even after the MediaRecorder's own tracks are stopped.
+  const stopVoiceAnalyser = () => {
+    if (voiceRafRef.current) { cancelAnimationFrame(voiceRafRef.current); voiceRafRef.current = null; }
+    voiceAnalyserRef.current = null;
+    if (voiceAudioCtxRef.current) {
+      const ctx = voiceAudioCtxRef.current;
+      voiceAudioCtxRef.current = null;
+      ctx.close().catch(() => {});
+    }
+    setVoiceLevelsLive(false);
+    setVoiceLevels(new Array(20).fill(0));
+  };
+
+  // Real amplitude source (Web Audio AnalyserNode) for the live waveform.
+  // Best-effort: if AudioContext/AnalyserNode isn't available (or construction
+  // throws for any reason), the recording itself is unaffected — the UI falls
+  // back to a graceful animated idle pattern instead, and voiceLevelsLive
+  // stays false so that fallback is never mislabeled as reacting to real audio.
+  const startVoiceAnalyser = (stream) => {
+    try {
+      const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtxClass) return;
+      const ctx = new AudioCtxClass();
+      const source = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 64; // small on purpose — 20 chunky bars, not a spectrum
+      analyser.smoothingTimeConstant = 0.6;
+      source.connect(analyser);
+      voiceAudioCtxRef.current = ctx;
+      voiceAnalyserRef.current = analyser;
+      const data = new Uint8Array(analyser.frequencyBinCount);
+      const BAR_COUNT = 20;
+      const step = Math.max(1, Math.floor(data.length / BAR_COUNT));
+      const tick = () => {
+        if (!voiceAnalyserRef.current) return; // torn down mid-frame
+        analyser.getByteFrequencyData(data);
+        const bars = new Array(BAR_COUNT);
+        for (let i = 0; i < BAR_COUNT; i++) {
+          let sum = 0, n = 0;
+          for (let j = i * step; j < Math.min(data.length, (i + 1) * step); j++) { sum += data[j]; n++; }
+          bars[i] = n ? sum / n / 255 : 0;
+        }
+        setVoiceLevels(bars);
+        voiceRafRef.current = requestAnimationFrame(tick);
+      };
+      setVoiceLevelsLive(true);
+      voiceRafRef.current = requestAnimationFrame(tick);
+    } catch {
+      // Analyser setup failed — recording continues normally, waveform falls
+      // back to the animated idle pattern (voiceLevelsLive stays false).
+    }
+  };
+
   const startVoiceRecording = async () => {
     setVoiceError(null);
     if (typeof MediaRecorder === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
       setVoiceError("Voice recording isn't supported in this browser.");
       return;
     }
+    // getUserMedia and MediaRecorder construction are two genuinely different
+    // failure modes (permission-denied vs. mic-granted-but-recording-can't-
+    // start) — split into two try/catches so each gets its own truthful
+    // message instead of both collapsing into "Couldn't access the
+    // microphone." A MediaRecorder construction failure still means a real
+    // mic stream was acquired, so it must be released here too — the old
+    // single try/catch left it running on that specific failure path.
+    let stream;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio:true });
-      voiceStreamRef.current = stream;
+      stream = await navigator.mediaDevices.getUserMedia({ audio:true });
+    } catch (err) {
+      setVoiceError(err?.name === 'NotAllowedError' ? "Microphone access was denied — allow it in your browser settings to send voice notes." : "Couldn't access the microphone.");
+      return;
+    }
+    voiceStreamRef.current = stream;
+    try {
       const mimeType = pickVoiceMimeType();
       const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       voiceChunksRef.current = [];
@@ -20188,21 +20341,27 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
       recorder.onerror = () => {
         setVoiceError("Recording was interrupted. Try again.");
         setVoiceMode('idle');
+        stopVoiceAnalyser();
         stream.getTracks().forEach(t => t.stop());
+        voiceStreamRef.current = null;
       };
       voiceRecorderRef.current = recorder;
       recorder.start();
+      startVoiceAnalyser(stream);
       setVoiceElapsed(0);
       setVoiceMode('recording');
       stopVoiceTimer();
       voiceTimerRef.current = setInterval(() => setVoiceElapsed(s => s + 1), 1000);
     } catch (err) {
-      setVoiceError(err?.name === 'NotAllowedError' ? "Microphone access was denied — allow it in your browser settings to send voice notes." : "Couldn't access the microphone.");
+      stream.getTracks().forEach(t => t.stop());
+      voiceStreamRef.current = null;
+      setVoiceError("Recording isn't available on this device right now.");
     }
   };
 
   const cancelVoiceRecording = () => {
     stopVoiceTimer();
+    stopVoiceAnalyser();
     const recorder = voiceRecorderRef.current;
     if (recorder && recorder.state !== 'inactive') {
       recorder.onstop = () => { voiceStreamRef.current?.getTracks().forEach(t=>t.stop()); voiceStreamRef.current = null; };
@@ -20216,9 +20375,20 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
 
   const finishVoiceRecording = () => {
     stopVoiceTimer();
+    stopVoiceAnalyser();
     const recorder = voiceRecorderRef.current;
     if (!recorder || recorder.state === 'inactive') return;
-    const mimeType = recorder.mimeType || 'audio/webm';
+    // Strip any ";codecs=..." parameter (e.g. iOS Safari's MediaRecorder often
+    // reports "audio/mp4;codecs=mp4a.40.2", not the bare "audio/mp4") — the
+    // dm-media storage bucket's allowed_mime_types check matches the upload
+    // PUT's exact Content-Type string against a fixed allowlist ("audio/mp4",
+    // not "audio/mp4;codecs=..."), so an unstripped codecs param made every
+    // real recording on Safari/iOS fail the storage upload itself — the actual
+    // root cause behind the generic "Upload failed" a few seconds into every
+    // recording. Normalized once, here, at the source — every downstream use
+    // (Blob type, preview <audio>, the upload File's type/Content-Type header,
+    // and media.mimeType sent to the backend) inherits the bare value.
+    const mimeType = (recorder.mimeType || 'audio/webm').split(';')[0].trim() || 'audio/webm';
     const durationSec = voiceElapsed;
     recorder.onstop = () => {
       voiceStreamRef.current?.getTracks().forEach(t => t.stop());
@@ -20267,7 +20437,8 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
       const media = { kind:'voice', mimeType:voicePreview.mimeType, durationSec:voicePreview.durationSec };
       const saved = await uploadAndSendMedia(file, media, "");
       const msg = { id:saved.id, from:"me", type:"media", text:"", time: saved.created_at ? new Date(saved.created_at).toLocaleTimeString([], { hour:"numeric", minute:"2-digit" }) : "now", media: saved.media || { ...media, url:voicePreview.url } };
-      const updated = convos.map(c=>c.id===activeConvo.id ? {...c, messages:[...c.messages,msg], lastTime:"now", accepted:true} : c);
+      const nowIso = saved.created_at || new Date().toISOString();
+      const updated = convos.map(c=>c.id===activeConvo.id ? {...c, messages:[...c.messages,msg], lastTime:"now", lastMessageAt:nowIso, accepted:true} : c);
       setConvos(updated);
       setActiveConvo(prev=>({...prev, messages:[...prev.messages,msg], accepted:true}));
       URL.revokeObjectURL(voicePreview.url);
@@ -20275,16 +20446,33 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
       setVoiceMode('idle');
       setVoiceElapsed(0);
     } catch (err) {
-      setVoiceError(err?.message==='blocked' ? "You can't message this fan right now." : "Upload failed — check your connection and try again.");
+      // Distinct, truthful messages per failure stage — these used to all
+      // collapse into the same generic "Upload failed" text regardless of
+      // which step actually failed (uploadAndSendMedia already throws a
+      // distinct Error per stage; this is the first caller to actually read
+      // more than one of them for voice notes).
+      const reason = err?.message;
+      setVoiceError(
+        reason === 'blocked' ? "You can't message this fan right now." :
+        reason === 'upload-url-failed' ? "Couldn't prepare the upload — check your connection and try again." :
+        reason === 'upload-failed' ? "Upload failed — check your connection and try again." :
+        reason === 'invalid-media' ? "That recording couldn't be verified — try recording again." :
+        "Couldn't send the voice note — check your connection and try again."
+      );
+      // The recording itself is untouched (voicePreview/blob still intact) —
+      // send is safe to retry from the same preview without re-recording,
+      // and retrying re-runs the same upload+send path fresh, so a failed
+      // attempt never leaves a partial/duplicate message behind.
       setVoiceMode('preview');
     } finally {
       setSending(false);
     }
   };
 
-  // Stop any in-flight recording/stream if the thread unmounts mid-record.
+  // Stop any in-flight recording/stream/analyser if the thread unmounts mid-record.
   useEffect(() => () => {
     stopVoiceTimer();
+    stopVoiceAnalyser();
     voiceStreamRef.current?.getTracks().forEach(t => t.stop());
     if (voiceRecorderRef.current && voiceRecorderRef.current.state !== 'inactive') voiceRecorderRef.current.stop();
   }, []);
@@ -20327,7 +20515,8 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
       if (!d?.success || !d?.message) throw new Error(d?.error || 'invite-failed');
       const m = d.message;
       const msg = { id:m.id, from:"me", type:"media", text:"", time: m.created_at ? new Date(m.created_at).toLocaleTimeString([], { hour:"numeric", minute:"2-digit" }) : "now", media:m.media };
-      const updated = convos.map(c=>c.id===activeConvo.id ? {...c, messages:[...c.messages,msg], lastTime:"now", accepted:true} : c);
+      const nowIso = m.created_at || new Date().toISOString();
+      const updated = convos.map(c=>c.id===activeConvo.id ? {...c, messages:[...c.messages,msg], lastTime:"now", lastMessageAt:nowIso, accepted:true} : c);
       setConvos(updated);
       setActiveConvo(prev=>({...prev, messages:[...prev.messages,msg], accepted:true}));
       setInviteStatus(s => ({ ...s, [scrapbookId]: 'owner' }));
@@ -20594,8 +20783,10 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
   // Legacy/optimistic local convos (isCircle/accepted left at their true default)
   // never get bucketed here.
   const isPendingRequest = (c) => c.backend && c.isCircle === false && c.accepted === false;
-  const inboxConvos    = convos.filter(c => !isPendingRequest(c));
-  const requestConvos  = convos.filter(isPendingRequest);
+  // Sorted at render time (not just at every write site) so the displayed
+  // order is always correct regardless of which mutation touched convos.
+  const inboxConvos    = sortConvosByActivity(convos.filter(c => !isPendingRequest(c)));
+  const requestConvos  = sortConvosByActivity(convos.filter(isPendingRequest));
 
   const acceptMessageRequest = async (convo) => {
     setConvos(prev => prev.map(c => c.id===convo.id ? { ...c, accepted:true } : c));
@@ -20880,29 +21071,58 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
       <input ref={attachRef} type="file" accept="image/jpeg,image/jpg,image/png,image/webp,image/heic,video/mp4,video/quicktime,video/webm,.jpg,.jpeg,.png,.webp,.heic,.mp4,.mov,.webm" onChange={handleAttach} style={{ display:"none" }} />
 
       {voiceMode==="recording" ? (
-        /* ── VOICE RECORDING BAR ── replaces the composer row while recording */
-        <div style={{ padding:"10px 14px 14px",display:"flex",gap:10,alignItems:"center",borderTop:`1px solid ${C.border}`,flexShrink:0,background:C.bg }}>
-          <button onClick={cancelVoiceRecording} title="Cancel recording" style={{ width:40,height:40,borderRadius:12,background:C.surfaceHi,border:`1.5px solid ${C.border}`,color:C.textMid,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0 }}>
+        /* ── VOICE RECORDING BAR ── replaces the composer row while recording.
+            Bottom padding clears the home indicator on an installed iPhone PWA
+            (env(safe-area-inset-bottom) is 0 on devices without one, so this
+            never adds unwanted space elsewhere). Controls are 44×44 — the
+            practical minimum comfortable tap target. */
+        <div style={{ padding:"10px 14px calc(14px + env(safe-area-inset-bottom))",display:"flex",gap:10,alignItems:"center",borderTop:`1px solid ${C.border}`,flexShrink:0,background:C.bg }}>
+          <button onClick={cancelVoiceRecording} title="Cancel recording" aria-label="Cancel recording" style={{ width:44,height:44,borderRadius:13,background:C.surfaceHi,border:`1.5px solid ${C.border}`,color:C.textMid,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0 }}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
           </button>
-          <div style={{ flex:1,display:"flex",alignItems:"center",gap:9,padding:"11px 14px",borderRadius:13,background:C.surfaceMid,border:`1.5px solid ${C.rose}44` }}>
+          <div style={{ flex:1,minWidth:0,display:"flex",alignItems:"center",gap:8,padding:"11px 14px",borderRadius:13,background:C.surfaceMid,border:`1.5px solid ${C.rose}44` }}>
             <span style={{ width:8,height:8,borderRadius:"50%",background:C.rose,animation:"pulse 1.1s ease-in-out infinite",flexShrink:0 }} />
-            <span style={{ fontSize:12.5,color:C.text,fontFamily:"'Epilogue',sans-serif",fontWeight:700,flex:1 }}>Recording…</span>
-            <span style={{ fontSize:12,color:C.textMid,fontVariantNumeric:"tabular-nums" }}>{fmtElapsed(voiceElapsed)}</span>
+            {/* Live waveform — 20 bars redrawn every animation frame from a real
+                AnalyserNode reading the mic (voiceLevelsLive). If the analyser
+                couldn't attach, this is a graceful animated idle pattern
+                instead — never presented as reacting to real audio when it
+                isn't (see startVoiceAnalyser). */}
+            <div style={{ flex:1,minWidth:0,display:"flex",alignItems:"center",gap:2,height:22 }}>
+              {voiceLevels.map((lvl, i) => (
+                <span key={i} style={{
+                  flex:1,
+                  minWidth:2,
+                  maxWidth:4,
+                  borderRadius:2,
+                  background:C.rose,
+                  transformOrigin:"center",
+                  // Live: real height driven by the analyser, redrawn every frame.
+                  // Fallback: reuses the app's existing eqBar keyframe (the same
+                  // "Now Playing" equalizer animation elsewhere in the app) with
+                  // per-bar duration/delay so it reads as an idle placeholder,
+                  // not a claim of reacting to real audio.
+                  height:voiceLevelsLive ? `${Math.max(12, Math.round(lvl*100))}%` : "60%",
+                  opacity:voiceLevelsLive ? Math.max(0.35, lvl) : 0.55,
+                  animation:voiceLevelsLive ? "none" : `eqBar ${0.7+(i%5)*0.15}s ease-in-out ${(i%8)*0.07}s infinite`,
+                  transition:voiceLevelsLive ? "height .06s linear" : "none",
+                }} />
+              ))}
+            </div>
+            <span style={{ fontSize:12,color:C.textMid,fontVariantNumeric:"tabular-nums",flexShrink:0 }}>{fmtElapsed(voiceElapsed)}</span>
           </div>
-          <button onClick={finishVoiceRecording} title="Stop and preview" style={{ width:40,height:40,borderRadius:12,background:`linear-gradient(140deg,${C.accent},${C.pink})`,border:"none",color:C.bg,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,boxShadow:`0 0 14px ${C.accent}40` }}>
+          <button onClick={finishVoiceRecording} title="Stop and preview" aria-label="Stop and preview" style={{ width:44,height:44,borderRadius:13,background:`linear-gradient(140deg,${C.accent},${C.pink})`,border:"none",color:C.bg,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,boxShadow:`0 0 14px ${C.accent}40` }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="3"/></svg>
           </button>
         </div>
       ) : (voiceMode==="preview"||voiceMode==="uploading") ? (
         /* ── VOICE PREVIEW BAR ── play/pause, delete/re-record, send */
-        <div style={{ padding:"10px 14px 14px",display:"flex",gap:10,alignItems:"center",borderTop:`1px solid ${C.border}`,flexShrink:0,background:C.bg }}>
-          <button onClick={discardVoicePreview} disabled={voiceMode==="uploading"} title="Delete recording" style={{ width:40,height:40,borderRadius:12,background:C.surfaceHi,border:`1.5px solid ${C.border}`,color:C.textMid,display:"flex",alignItems:"center",justifyContent:"center",cursor:voiceMode==="uploading"?"default":"pointer",flexShrink:0,opacity:voiceMode==="uploading"?0.5:1 }}>
+        <div style={{ padding:"10px 14px calc(14px + env(safe-area-inset-bottom))",display:"flex",gap:10,alignItems:"center",borderTop:`1px solid ${C.border}`,flexShrink:0,background:C.bg }}>
+          <button onClick={discardVoicePreview} disabled={voiceMode==="uploading"} title="Delete recording" aria-label="Delete recording" style={{ width:44,height:44,borderRadius:13,background:C.surfaceHi,border:`1.5px solid ${C.border}`,color:C.textMid,display:"flex",alignItems:"center",justifyContent:"center",cursor:voiceMode==="uploading"?"default":"pointer",flexShrink:0,opacity:voiceMode==="uploading"?0.5:1 }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m-8 0 1 12a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1l1-12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
           </button>
           <div style={{ flex:1,display:"flex",alignItems:"center",padding:"7px 12px",borderRadius:13,background:C.surfaceMid,border:`1.5px solid ${C.borderHi}` }}>
             <audio ref={voicePreviewAudioRef} src={voicePreview?.url} preload="metadata" onEnded={()=>setVoicePlaying(false)} style={{ display:"none" }} />
-            <button onClick={toggleVoicePreviewPlayback} disabled={voiceMode==="uploading"} style={{ width:26,height:26,borderRadius:"50%",background:`${C.accent}22`,border:"none",color:C.accent,display:"flex",alignItems:"center",justifyContent:"center",cursor:voiceMode==="uploading"?"default":"pointer",flexShrink:0,marginRight:9 }}>
+            <button onClick={toggleVoicePreviewPlayback} disabled={voiceMode==="uploading"} aria-label={voicePlaying?"Pause":"Play"} style={{ width:26,height:26,borderRadius:"50%",background:`${C.accent}22`,border:"none",color:C.accent,display:"flex",alignItems:"center",justifyContent:"center",cursor:voiceMode==="uploading"?"default":"pointer",flexShrink:0,marginRight:9 }}>
               {voicePlaying
                 ? <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="4" width="5" height="16" rx="1"/><rect x="14" y="4" width="5" height="16" rx="1"/></svg>
                 : <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" style={{ marginLeft:1 }}><path d="M6 4l14 8-14 8V4z"/></svg>}
@@ -20910,25 +21130,31 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
             <span style={{ fontSize:12,color:C.text,fontFamily:"'Epilogue',sans-serif",fontWeight:600,flex:1 }}>{voiceMode==="uploading" ? "Sending…" : "Voice note"}</span>
             <span style={{ fontSize:11,color:C.textMid,fontVariantNumeric:"tabular-nums" }}>{fmtElapsed(voicePreview?.durationSec||0)}</span>
           </div>
-          <button onClick={sendVoiceNote} disabled={voiceMode==="uploading"} title="Send voice note" style={{ width:40,height:40,borderRadius:12,background:`linear-gradient(140deg,${C.accent},${C.pink})`,border:"none",color:C.bg,fontSize:15,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",cursor:voiceMode==="uploading"?"default":"pointer",flexShrink:0,boxShadow:`0 0 14px ${C.accent}40`,opacity:voiceMode==="uploading"?0.6:1 }}>
+          <button onClick={sendVoiceNote} disabled={voiceMode==="uploading"} title="Send voice note" aria-label="Send voice note" style={{ width:44,height:44,borderRadius:13,background:`linear-gradient(140deg,${C.accent},${C.pink})`,border:"none",color:C.bg,fontSize:15,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",cursor:voiceMode==="uploading"?"default":"pointer",flexShrink:0,boxShadow:`0 0 14px ${C.accent}40`,opacity:voiceMode==="uploading"?0.6:1 }}>
             →
           </button>
         </div>
       ) : (
-        /* ── COMPOSER ── [+] [GIF] [Send a message…] [mic ⇄ send] */
-        <div style={{ padding:"10px 14px 14px",display:"flex",gap:8,alignItems:"center",borderTop:`1px solid ${C.border}`,flexShrink:0,background:C.bg }}>
+        /* ── COMPOSER ── [+] [GIF] [Send a message…] [mic ⇄ send]
+            Bottom padding includes env(safe-area-inset-bottom) so the row
+            clears the home indicator on an installed iPhone PWA instead of
+            sitting flush against it (0 on devices with no inset, so this
+            never adds unwanted empty space elsewhere). Controls are 44×44. */
+        <div style={{ padding:"10px 14px calc(14px + env(safe-area-inset-bottom))",display:"flex",gap:8,alignItems:"center",borderTop:`1px solid ${C.border}`,flexShrink:0,background:C.bg }}>
           {/* + compact attachment sheet */}
           <button
             onClick={()=>setAttachSheetOpen(v=>!v)}
             title="Add to conversation"
-            style={{ width:40,height:40,borderRadius:12,background:attachSheetOpen?`linear-gradient(135deg,${C.accent}33,${C.berry}22)`:C.surfaceHi,border:`1.5px solid ${attachSheetOpen?C.accent:C.borderHi}`,color:attachSheetOpen?C.accent:C.silver,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,transition:"all .2s" }}>
+            aria-label="Add to conversation"
+            style={{ width:44,height:44,borderRadius:13,background:attachSheetOpen?`linear-gradient(135deg,${C.accent}33,${C.berry}22)`:C.surfaceHi,border:`1.5px solid ${attachSheetOpen?C.accent:C.borderHi}`,color:attachSheetOpen?C.accent:C.silver,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,transition:"all .2s" }}>
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" style={{ transform:attachSheetOpen?"rotate(45deg)":"none",transition:"transform .2s" }}><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"/></svg>
           </button>
           {/* GIF / sticker picker */}
           <button
             onClick={()=>{ setGifPickerOpen(true); setAttachSheetOpen(false); }}
             title="Send a GIF or sticker"
-            style={{ width:40,height:40,borderRadius:12,background:selectedGif?`linear-gradient(135deg,${C.accent}33,${C.berry}22)`:C.surfaceHi,border:`1.5px solid ${selectedGif?C.accent:C.borderHi}`,color:selectedGif?C.accent:C.silver,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,transition:"all .2s",fontSize:12.5,fontFamily:"'Epilogue',sans-serif",fontWeight:800 }}>
+            aria-label="Send a GIF or sticker"
+            style={{ width:44,height:44,borderRadius:13,background:selectedGif?`linear-gradient(135deg,${C.accent}33,${C.berry}22)`:C.surfaceHi,border:`1.5px solid ${selectedGif?C.accent:C.borderHi}`,color:selectedGif?C.accent:C.silver,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,transition:"all .2s",fontSize:12.5,fontFamily:"'Epilogue',sans-serif",fontWeight:800 }}>
             GIF
           </button>
           {/* Input — improved contrast: brighter border + placeholder, strong text */}
@@ -20945,14 +21171,16 @@ function DirectMessages({ onBack, user, initialFan, onViewProfile, onOpenScrapbo
               onClick={handlePrimaryComposerAction}
               disabled={sending||pendingAttachment?.uploading}
               title="Send"
-              style={{ width:40,height:40,borderRadius:12,background:`linear-gradient(140deg,${C.accent},${C.pink})`,border:"none",color:C.bg,fontSize:15,fontWeight:700,cursor:(sending||pendingAttachment?.uploading)?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all .2s",boxShadow:`0 0 14px ${C.accent}40`,opacity:(sending||pendingAttachment?.uploading)?0.6:1 }}>
+              aria-label="Send"
+              style={{ width:44,height:44,borderRadius:13,background:`linear-gradient(140deg,${C.accent},${C.pink})`,border:"none",color:C.bg,fontSize:15,fontWeight:700,cursor:(sending||pendingAttachment?.uploading)?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all .2s",boxShadow:`0 0 14px ${C.accent}40`,opacity:(sending||pendingAttachment?.uploading)?0.6:1 }}>
               →
             </button>
           ) : (
             <button
               onClick={startVoiceRecording}
               title="Record a voice note"
-              style={{ width:40,height:40,borderRadius:12,background:C.surfaceHi,border:`1.5px solid ${C.borderHi}`,color:C.silver,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0 }}>
+              aria-label="Record a voice note"
+              style={{ width:44,height:44,borderRadius:13,background:C.surfaceHi,border:`1.5px solid ${C.borderHi}`,color:C.silver,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0 }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="9" y="3" width="6" height="11" rx="3" stroke="currentColor" strokeWidth="1.8"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>
             </button>
           )}
