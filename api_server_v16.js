@@ -4164,19 +4164,35 @@ async function deliverNotification({ userId, type, title, body, actorId = null, 
 
   if (channels.includes('push') && await pushAllowedForType(userId, type)) {
     try {
+      // Data-only payload — deliberately NO top-level `notification` key.
+      //
+      // Root cause of the owner-reported "push tap opens Backstage generally,
+      // not the exact DM": a payload that carries a `notification` block makes
+      // the Firebase Web SDK auto-display the notification AND auto-register
+      // its OWN `notificationclick` listener in the service worker (using
+      // `webpush.fcmOptions.link`, which was just the bare app root) — that
+      // listener runs alongside this app's own `notificationclick` handler in
+      // firebase-messaging-sw.js and can win the race, navigating to the root
+      // URL and discarding the `?notif=`/`nid`/`nmsg` deep-link params before
+      // our handler's routing takes effect. A data-only payload never triggers
+      // Firebase's default display/click handling — our own SW's
+      // onBackgroundMessage (background) and the page's onMessage (foreground)
+      // are the sole renderers, and our own notificationclick listener is the
+      // sole click handler, every time.
+      //
       // Log the outcome: pushToUserTokens uses allSettled, so a push that reaches
       // zero devices (no token registered, FCM rejected it) is otherwise completely
       // silent — "I never got the notification" was unfalsifiable from the logs.
       const { delivered, failed } = await pushToUserTokens(userId, {
-        notification: { title, body },
         data: {
+          title: title || 'Backstage',
+          body: body || '',
           targetModal: targetModal || '',
           targetTab: targetTab || '',
           targetId: entityId || '',
           entityType: entityType || '',
           targetMessageId: targetMessageId || '',
         },
-        webpush: { fcmOptions: { link: process.env.FRONTEND_URL || '/' } },
       });
       console.log(`[push] ${type} → ${userId}: delivered=${delivered} failed=${failed}`);
     } catch (err) {
@@ -5855,15 +5871,20 @@ app.post('/api/send-notification', requireAuth, async (req, res) => {
   }
 
   try {
+    // Data-only payload — see the matching comment in deliverNotification() for
+    // why: a `notification` block makes the Firebase SDK auto-display/auto-route
+    // via `webpush.fcmOptions.link` (the bare app root), competing with and
+    // sometimes winning over this app's own deep-link-aware notificationclick
+    // handler in firebase-messaging-sw.js.
     const { delivered, failed } = await pushToUserTokens(userId, {
-      notification: { title, body },
       data: {
+        title: title || 'Backstage',
+        body:  body || '',
         targetModal: data?.targetModal || '',
         targetTab:   data?.targetTab   || '',
         targetId:    data?.targetId    || '',
-      },
-      webpush: {
-        fcmOptions: { link: process.env.FRONTEND_URL || '/' },
+        entityType:  data?.entityType  || '',
+        targetMessageId: data?.targetMessageId || '',
       },
     });
     if (failed) console.warn(`[send-notification] ${failed} token(s) failed delivery`);
